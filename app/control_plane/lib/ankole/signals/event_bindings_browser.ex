@@ -7,7 +7,36 @@ defmodule Ankole.Signals.EventBindingsBrowser do
     extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
 
   alias Ankole.Signals.EventBindings
-  alias Ankole.Ash.Types.{UUIDv7, JSONMap, PrincipalKey}
+  alias Ankole.Ash.Types.{UUIDv7, JSONMap, PrincipalKey, State}
+
+  @binding [
+    id: [type: UUIDv7, allow_nil?: false],
+    routing_mode: [
+      type: State,
+      constraints: [one_of: [:ai_colleague, :sender_personal_assistant, :action]],
+      allow_nil?: false
+    ],
+    agent_uid: [type: PrincipalKey],
+    automation_job_id: [type: :integer],
+    watched_field_ids: [type: {:array, :string}],
+    name: [type: :string, constraints: [trim?: true], allow_nil?: false],
+    adapter: [type: :string, allow_nil?: false],
+    config_ref: [type: :string, allow_nil?: false],
+    target: [type: JSONMap, allow_nil?: false],
+    filters: [type: JSONMap, allow_nil?: false],
+    unaddressed_group_message_policy: [
+      type: State,
+      constraints: [one_of: [:ignore, :record_only, :may_intervene]],
+      allow_nil?: false
+    ],
+    unmatched_sender_policy: [
+      type: State,
+      constraints: [one_of: [:manual_review, :create_standalone]],
+      allow_nil?: false
+    ],
+    enabled: [type: :boolean, allow_nil?: false],
+    unavailable_reason: [type: :string]
+  ]
 
   resource do
     require_primary_key?(false)
@@ -31,8 +60,8 @@ defmodule Ankole.Signals.EventBindingsBrowser do
       constraints(
         fields: [
           bindings: [
-            type: {:array, :struct},
-            constraints: [items: struct_constraints(Ankole.Signals.Binding)],
+            type: {:array, :map},
+            constraints: [items: [fields: @binding]],
             allow_nil?: false
           ]
         ]
@@ -45,7 +74,7 @@ defmodule Ankole.Signals.EventBindingsBrowser do
             Map.get(input.arguments, :config_ref),
             Map.get(input.arguments, :job_id)
           ),
-          &%{bindings: &1}
+          fn bindings -> %{bindings: Enum.map(bindings, &binding_json/1)} end
         )
       end)
     end
@@ -54,8 +83,8 @@ defmodule Ankole.Signals.EventBindingsBrowser do
       constraints(
         fields: [
           binding: [
-            type: :struct,
-            constraints: struct_constraints(Ankole.Signals.Binding),
+            type: :map,
+            constraints: [fields: @binding],
             allow_nil?: false
           ]
         ]
@@ -77,9 +106,11 @@ defmodule Ankole.Signals.EventBindingsBrowser do
             context.actor,
             Map.reject(input.arguments, fn {_, v} -> is_nil(v) end)
           ),
-          &%{binding: &1}
+          &%{binding: binding_json(&1)}
         )
       end)
     end
   end
+
+  defp binding_json(binding), do: Map.take(binding, Keyword.keys(@binding))
 end

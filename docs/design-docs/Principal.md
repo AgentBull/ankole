@@ -189,7 +189,7 @@ identity. `Ankole.Principals.SystemServices` owns the closed registry:
 
 | UID | Responsibility |
 | --- | --- |
-| `system` | Pod Applet model calls and internal operations such as admission notices, document mention renames, and tenant deletion |
+| `system` | Internal operations such as admission notices, document mention renames, and tenant deletion |
 | `ankole_brain` | Brain model, embedding, and rerank calls |
 
 Tenant initialization creates every registered service in its transaction;

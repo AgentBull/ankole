@@ -1114,6 +1114,114 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:ok, %{disabled_at: %DateTime{}}} = ProviderConfigs.delete_provider("brain-reference")
   end
 
+  test "an enabled OIDC Client alone prevents provider disable and deletion across tenants" do
+    provider_id = "oidc-reference"
+
+    assert {:ok, _} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openai",
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    tenant = Ankole.DataCase.create_tenant()
+
+    client =
+      Repo.with_tenant(tenant.id, fn ->
+        {:ok, group} =
+          Ankole.AuthZ.create_principal_group(%{
+            name: "oidc-model-users",
+            display_name: "OIDC model users",
+            kind: "static"
+          })
+
+        {:ok, %{client: client}} =
+          Ankole.OIDC.create_client(%{
+            name: "Provider reference",
+            client_type: "public",
+            enabled: true,
+            redirect_uris: ["https://client.example.test/callback"],
+            scopes: ["openid", "ai_gateway.write"],
+            allowed_group_ids: [group.id],
+            model_aliases: %{
+              "assistant" => %{
+                "provider_id" => provider_id,
+                "model" => "gpt-4o-mini",
+                "description" => "Client assistant"
+              }
+            }
+          })
+
+        client
+      end)
+
+    references = ["tenant:#{tenant.id}:oidc_client:#{client.id}:assistant"]
+    assert ProviderConfigs.provider_references(provider_id) == references
+
+    assert {:error, {:provider_in_use, ^references}} =
+             ProviderConfigs.delete_provider(provider_id)
+
+    assert {:ok, %{disabled_at: nil}} = ProviderConfigs.fetch_active_provider(provider_id)
+
+    # Internal configuration can represent a disabled row left by an older release.
+    assert {:ok, %{disabled_at: %DateTime{}}} =
+             ProviderConfigs.update_provider(provider_id, %{
+               disabled_at: DateTime.utc_now(:microsecond)
+             })
+
+    assert {:error, {:provider_in_use, ^references}} =
+             ProviderConfigs.delete_provider(provider_id)
+
+    assert {:ok, %{disabled_at: %DateTime{}}} = ProviderConfigs.fetch_provider(provider_id)
+
+    Repo.with_tenant(tenant.id, fn ->
+      assert {:ok, _} = Ankole.OIDC.delete_client(client.id)
+    end)
+
+    assert {:ok, _} = ProviderConfigs.delete_provider(provider_id)
+    assert {:error, :not_found} = ProviderConfigs.fetch_provider(provider_id)
+  end
+
+  test "disabled OIDC Client aliases do not retain an active provider reference" do
+    provider_id = "oidc-disabled-reference"
+
+    assert {:ok, _} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openai",
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
+             })
+
+    {:ok, group} =
+      Ankole.AuthZ.create_principal_group(%{
+        name: "disabled-oidc-model-users",
+        display_name: "Disabled OIDC model users",
+        kind: "static"
+      })
+
+    assert {:ok, %{client: _}} =
+             Ankole.OIDC.create_client(%{
+               name: "Disabled provider reference",
+               client_type: "public",
+               enabled: false,
+               redirect_uris: ["https://client.example.test/callback"],
+               scopes: ["openid", "ai_gateway.write"],
+               allowed_group_ids: [group.id],
+               model_aliases: %{
+                 "assistant" => %{
+                   "provider_id" => provider_id,
+                   "model" => "gpt-4o-mini",
+                   "description" => "Disabled Client assistant"
+                 }
+               }
+             })
+
+    assert ProviderConfigs.provider_references(provider_id) == []
+    assert {:ok, %{disabled_at: %DateTime{}}} = ProviderConfigs.delete_provider(provider_id)
+    assert {:ok, _} = ProviderConfigs.delete_provider(provider_id)
+    assert {:error, :not_found} = ProviderConfigs.fetch_provider(provider_id)
+  end
+
   test "disable then enable restores a provider without losing its pool" do
     assert {:ok, provider} =
              ProviderConfigs.create_provider(%{

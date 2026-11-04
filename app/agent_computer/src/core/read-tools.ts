@@ -23,7 +23,9 @@ export async function readTool(
       {
         name,
         argumentsJson: jsonBytes(args),
-        ...(opts.cache ? { webCacheJson: jsonBytes(opts.cache) } : {}),
+        // The rendered continuation does not read the old cache. Sending both can exceed one
+        // Worker frame when an expired cached page and its replacement are large.
+        ...(opts.cache && rendered === undefined ? { webCacheJson: jsonBytes(opts.cache) } : {}),
         ...(rendered ? { renderedBodyJson: jsonBytes(rendered) } : {})
       },
       { jobTurn: turn },
@@ -42,15 +44,20 @@ export async function readTool(
     body = await invoke(await opts.renderedFetch(urls, opts.signal))
   }
   if (opts.cache && isRecord(body.web_cache)) {
-    Object.assign(opts.cache, body.web_cache)
-    const entries = Object.entries(opts.cache).sort(
-      (a, b) => Number((b[1] as { at: number }).at) - Number((a[1] as { at: number }).at)
-    )
-    for (const [url] of entries.slice(100)) delete opts.cache[url]
+    updateReadToolCache(opts.cache, body.web_cache)
   }
   return {
     content: [{ type: 'text', text: typeof body.output === 'string' ? body.output : '' }],
     details: isRecord(body.details) ? body.details : {},
     ...(body.is_error === true ? { isError: true } : {})
   }
+}
+
+/** Applies owner-returned page state to the Job-session cache. */
+export function updateReadToolCache(cache: JsonObject, pages: JsonObject): void {
+  Object.assign(cache, pages)
+  const entries = Object.entries(cache).sort(
+    (a, b) => Number((b[1] as { at: number }).at) - Number((a[1] as { at: number }).at)
+  )
+  for (const [url] of entries.slice(100)) delete cache[url]
 }

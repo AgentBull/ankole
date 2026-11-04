@@ -135,10 +135,12 @@ When configuration queries refresh, fixed-slot editors also update untouched
 fields and preserve unsaved slot drafts.
 The Pod page uses the Console's selected tenant; Site defaults apply across Pods.
 The readiness model step links to Pod defaults when the Pod has no Agent.
-Provider deletion checks Agent options and every Site, Pod, and `system:<uid>`
-profile row before allowing the operation. Tenant-owned references include the
-tenant ID, together with the Agent or system Principal UID when applicable, so
-operators can identify the configuration that must change.
+Provider disable and deletion check Agent options, every Site, Pod, and
+`system:<uid>` profile row, and model aliases of enabled OIDC Clients before
+allowing the operation. Tenant-owned references include the tenant ID, together
+with the Agent or system Principal UID, or the OIDC Client ID and alias, so
+operators can identify the configuration that must change. Disabled OIDC Clients
+do not hold an active model-profile reference.
 
 The `coding` profile holds `provider_id`, `model`, and request-level
 `provider_options`, and `chatgpt_subscription` is an ordinary provider kind.

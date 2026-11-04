@@ -36,7 +36,10 @@ defmodule Ankole.Brain.Synthesis do
   end
 
   defp prompt(question, recall) do
-    evidence = Ankole.JSON.encode!(%{claims: recall.claims, excerpts: recall.chunks})
+    evidence =
+      %{claims: recall.claims, excerpts: recall.chunks}
+      |> Ankole.JSON.plain()
+      |> Ankole.JSON.encode!()
 
     """
     Answer the question from the supplied evidence. Return JSON with title and body

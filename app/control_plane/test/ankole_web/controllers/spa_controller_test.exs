@@ -368,15 +368,18 @@ defmodule AnkoleWeb.SpaControllerTest do
     refute conn.resp_body =~ "ankole-site-admin-console-path"
   end
 
-  test "the canonical Page redirects anonymous users to auth with its short path intact", %{
+  test "canonical Pod deep links redirect anonymous users to auth with their paths intact", %{
     conn: conn,
     tenant: tenant
   } do
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
-    path = "/pages/" <> Ankole.Kernel.uuid_shorten(Ankole.Kernel.gen_uuid_v7())
-    conn = conn |> pod_conn(tenant) |> get(path)
-    assert_pod_login(conn, tenant, path)
+    page_path = "/pages/" <> Ankole.Kernel.uuid_shorten(Ankole.Kernel.gen_uuid_v7())
+
+    for path <- [page_path, "/dm/legal?view=details"] do
+      entered = conn |> pod_conn(tenant) |> get(path)
+      assert_pod_login(entered, tenant, path)
+    end
   end
 
   test "the canonical Pod and direct-message deep link serve the Pod shell", %{
@@ -385,11 +388,12 @@ defmodule AnkoleWeb.SpaControllerTest do
   } do
     conn = conn |> pod_conn(tenant) |> active_admin_conn()
 
-    for path <- [~p"/", ~p"/dm/legal"] do
+    home_entry = if @host_policy, do: "saas-pod", else: "pod"
+
+    for {path, entry} <- [{~p"/", home_entry}, {~p"/dm/legal", "pod"}] do
       response = get(conn, path)
       html = html_response(response, 200)
 
-      entry = if @host_policy, do: "saas-pod", else: "pod"
       source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!(entry)
       assert html =~ "http://assets.test/#{String.trim_leading(source, "/")}"
       refute html =~ "/site-admin-console"
@@ -583,10 +587,20 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert conn.host == URI.parse(AnkoleWeb.PodURL.origin(conn, tenant)).host
 
     if @host_policy do
-      assert String.starts_with?(uri.host, "accounts.")
-      assert uri.path == "/sessions/new"
+      login =
+        if uri.host in [nil, conn.host] do
+          assert uri.path == "/sessions/new"
+          assert URI.decode_query(uri.query) == %{"return_to" => return_to}
+          follow_login_redirect(conn)
+        else
+          conn
+        end
 
-      assert URI.decode_query(uri.query) == %{
+      accounts = URI.parse(redirected_to(login))
+      assert String.starts_with?(accounts.host, "accounts.")
+      assert accounts.path == "/sessions/new"
+
+      assert URI.decode_query(accounts.query) == %{
                "tenant_id" => tenant.id,
                "return_to" => return_to
              }

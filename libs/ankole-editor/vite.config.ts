@@ -7,7 +7,7 @@ export default defineConfig({
   resolve: { dedupe: ['react', 'react-dom'] },
   // Concurrent e2e servers (E2E_PORT) keep separate dependency caches.
   cacheDir: process.env.E2E_PORT ? `node_modules/.vite-e2e-${process.env.E2E_PORT}` : undefined,
-  optimizeDeps: { entries: ['index.html'] },
+  optimizeDeps: { entries: ['index.html', 'playground/embedded.html', 'test/core/browser/index.html'] },
   server: { port: 3046, strictPort: true, watch: { ignored: ['**/output/**'] } },
   build: {
     rolldownOptions: { input: { playground: 'index.html', embedded: 'playground/embedded.html' } },

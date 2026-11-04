@@ -171,3 +171,20 @@ test('Playwright timeouts reach the caller as retryable command timeouts', () =>
     details: {}
   })
 })
+
+test('workspace fetch accepts one URL and keeps the default five-URL contract', () => {
+  const urls = Array.from({ length: 5 }, (_, index) => `https://example.com/${index}`)
+  expect(parseBrowserRequest(request({ name: 'fetch', args: { urls } })).command).toEqual({
+    name: 'fetch',
+    args: { urls }
+  })
+  expect(
+    parseBrowserRequest(request({ name: 'fetch', args: { urls: [urls[0]!], result_mode: 'workspace' } })).command
+  ).toEqual({
+    name: 'fetch',
+    args: { urls: [urls[0]!], result_mode: 'workspace' }
+  })
+  expect(rejectionMessage({ name: 'fetch', args: { urls, result_mode: 'workspace' } })).toContain(
+    'workspace fetch requires exactly one URL'
+  )
+})

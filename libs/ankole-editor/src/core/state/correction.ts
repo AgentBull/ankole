@@ -174,7 +174,7 @@ export class Correction {
     /** @internal */
     readonly query: Node.Query,
     /** @internal */
-    readonly correct: (node: Pos.Node) => ChangeSet.Spec | null
+    readonly correct: (node: Pos.Node, transaction?: Transaction) => ChangeSet.Spec | null
   ) {
     this.extension = [corrections.of(this as any), Transaction.extender.of(tr => this.extend(tr))]
   }
@@ -192,7 +192,7 @@ export class Correction {
     const changes: ChangeSet.Spec[] = []
     for (const elt of plan) {
       if (elt.correction == this) {
-        const change = this.correct(elt.node)
+        const change = this.correct(elt.node, tr)
         if (change) changes.push(change)
       }
     }
@@ -220,8 +220,10 @@ export class Correction {
    * Create a correction that runs whenever the child list of a node
    * that matches the given query changes, or such a node is inserted
    * into the document.
+   * The callback receives the local transaction during extension;
+   * explicit scans and domain checks call it without that context.
    */
-  static onChildList(query: Node.Query, correct: (node: Pos.Plot) => ChangeSet.Spec | null) {
+  static onChildList(query: Node.Query, correct: (node: Pos.Plot, transaction?: Transaction) => ChangeSet.Spec | null) {
     return new Correction(CorrectionEvent.ChildList, query, correct as any)
   }
 

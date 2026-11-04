@@ -108,6 +108,7 @@ test('a host write waits for the composition in the editor to end', async ({ pag
 test('imported H4 to H6 retain visible heading emphasis', async ({ page }) => {
   await page.getByLabel('Host source', { exact: true }).fill('#### Four\n\n##### Five\n\n###### Six\n\nBody')
   await page.getByRole('button', { name: 'Apply source without moving focus', exact: true }).click()
+  await expect(page.getByTestId('second-editor').locator('h4,h5,h6,p')).toHaveText(['Four', 'Five', 'Six', 'Body'])
   const styles = await page
     .getByTestId('second-editor')
     .locator('h4,h5,h6,p')

@@ -8,16 +8,17 @@ defmodule Ankole.Sessions.ReadToolBroker do
   alias Ankole.RuntimeFabric.V1, as: Proto
   alias Ankole.AgentWorkers.RPCWire
 
-  # The read-tool owners a Job may call through `tools.read`. Each owner keeps
-  # the contract of its main-Agent tool; the broker adds only the Job fence.
+  # The read-tool owners a Job may call through `tools.read`. Web text crosses
+  # this fenced boundary one page at a time for Worker workspace materialization.
   @owners [Tools.Skill, Tools.Web, Tools.Brain, Tools.RelatedContext]
 
   def handle_read(%JobTurnRef{} = turn, %Proto.ReadToolRequest{} = request, ctx) do
     with {:ok, owner, declaration} <- declaration(request.name),
          {:ok, args} <- Ankole.JSON.decode(request.arguments_json),
+         {:ok, args, page_index} <- web_page_index(request.name, args),
          {:ok, args} <- ToolArguments.validate(declaration["parameters"], args),
          :ok <- Tools.authorize_call(turn, declaration["name"], args),
-         {:ok, result} <- execute(owner, turn, request, args) do
+         {:ok, result} <- execute(owner, turn, request, args, page_index) do
       {:ok, project(result)}
     else
       {:error, reason} ->
@@ -28,6 +29,25 @@ defmodule Ankole.Sessions.ReadToolBroker do
            details_json: %{"tool" => request.name}
          )}
     end
+  end
+
+  # Authorize the original model arguments, not the selected transport page.
+  defp web_page_index("web_fetch", %{} = args) do
+    {index, args} = Map.pop(args, "_workspace_page", 0)
+
+    if is_integer(index) and index >= 0 and is_list(args["urls"]) and
+         index < length(args["urls"]) and args["result_offset"] in [nil, 0],
+       do: {:ok, args, index},
+       else: {:error, :invalid_read_tool_context}
+  end
+
+  defp web_page_index(_name, args), do: {:ok, args, nil}
+
+  defp execute(owner, turn, request, args, nil), do: execute(owner, turn, request, args)
+
+  defp execute(Tools.Web, turn, request, args, index) do
+    args = args |> Map.put("urls", [Enum.at(args["urls"], index)]) |> Map.delete("result_offset")
+    execute(Tools.Web, turn, request, args)
   end
 
   defp declaration(name) do
@@ -72,7 +92,7 @@ defmodule Ankole.Sessions.ReadToolBroker do
          {:ok, rendered} <- decode_object(request.rendered_body_json),
          :ok <- validate_context(cache, rendered) do
       cache = Map.new(cache, fn {url, page} -> {url, %{at: page["at"], page: page["page"]}} end)
-      run = %{agent_uid: turn.agent_uid, web_cache: cache}
+      run = %{agent_uid: turn.agent_uid, web_cache: cache, web_result_mode: :workspace}
 
       if request.rendered_body_json != <<>>,
         do: Tools.Web.render(run, rendered, args["urls"], args["result_offset"] || 0),

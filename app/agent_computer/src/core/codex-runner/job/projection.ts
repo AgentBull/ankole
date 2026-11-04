@@ -2,6 +2,7 @@ import { imageBytes } from '../../../common/image-bytes'
 import { safeJsonStringify } from '@agentbull/active-support'
 import { errorMessage } from '../../../common/errors'
 import { truncateUTF8Safe, utf8ByteLength } from '../../../common/text-sanitize'
+import { MAX_READ_CHARS } from '../../../tools/computer/format'
 import type { WorkerAgentTool } from '../..'
 import { zodToJSONSchema } from '../../tool-schema'
 import type { DynamicToolCallParams } from '../generated/protocol/v2/DynamicToolCallParams'
@@ -48,7 +49,14 @@ export function buildCodexJobProjection(input: { tools: WorkerAgentTool[] }): Co
       }
       try {
         const result = await tool.execute(params.callId, parsed.data, signal)
-        return { contentItems: dynamicToolContentItems(result), success: result.isError !== true }
+        let maxBytes = maxToolResultBytes
+        if (tool.name === 'web_fetch') maxBytes = 160_000
+        // Keep the reader's bounded Unicode window and its continuation hint together.
+        else if (tool.name === 'read_file') maxBytes = 4 * (MAX_READ_CHARS + 1024)
+        return {
+          contentItems: dynamicToolContentItems(result, maxBytes),
+          success: result.isError !== true
+        }
       } catch (error) {
         return dynamicToolFailure(errorMessage(error))
       }
@@ -56,10 +64,13 @@ export function buildCodexJobProjection(input: { tools: WorkerAgentTool[] }): Co
   }
 }
 
-function dynamicToolContentItems(result: {
-  content: unknown[]
-  details: unknown
-}): DynamicToolCallResponse['contentItems'] {
+function dynamicToolContentItems(
+  result: {
+    content: unknown[]
+    details: unknown
+  },
+  maxBytes: number
+): DynamicToolCallResponse['contentItems'] {
   const text = result.content
     .map(part => {
       if (!part || typeof part !== 'object') return undefined
@@ -70,7 +81,7 @@ function dynamicToolContentItems(result: {
     .join('\n')
 
   const contentItems: DynamicToolCallResponse['contentItems'] = [
-    { type: 'inputText', text: boundedText(text || safeJsonStringify(result.details)) }
+    { type: 'inputText', text: boundedText(text || safeJsonStringify(result.details), maxBytes) }
   ]
   for (const part of result.content) {
     const imageURL = toolResultImageURL(part)
@@ -92,9 +103,9 @@ function toolResultImageURL(part: unknown): string | undefined {
   return `data:${mimeType};base64,${bytes.toString('base64')}`
 }
 
-function boundedText(text: string): string {
-  if (utf8ByteLength(text) <= maxToolResultBytes) return text
-  const prefix = truncateUTF8Safe(text, maxToolResultBytes - utf8ByteLength(truncationSuffix))
+function boundedText(text: string, maxBytes = maxToolResultBytes): string {
+  if (utf8ByteLength(text) <= maxBytes) return text
+  const prefix = truncateUTF8Safe(text, maxBytes - utf8ByteLength(truncationSuffix))
   return `${prefix}${truncationSuffix}`
 }
 

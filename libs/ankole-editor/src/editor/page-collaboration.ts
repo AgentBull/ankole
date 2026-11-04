@@ -193,11 +193,14 @@ export class PageCollaboration {
             // A rebase can make two individually valid edits violate the page's rules.
             // Own the repair as local pending work, while mapping the visible selection
             // and undo history through the complete incoming transaction only once.
-            const correction = preparePageUpdate(
-              incoming.state.update({
-                changes: Correction.check(incoming.changes, incoming.newDoc, pageCorrections, before.doc) ?? []
-              })
-            )
+            // Normalization can replace the native composing node; flush repairs local structure after composition ends.
+            const correction = this.editor.composing
+              ? incoming.state.update({})
+              : preparePageUpdate(
+                  incoming.state.update({
+                    changes: Correction.check(incoming.changes, incoming.newDoc, pageCorrections, before.doc) ?? []
+                  })
+                )
             const nextPending = transformed.b.compose(correction.changes)
             this.editor.dispatch(
               before.update(Transaction.merge(before, incoming, { changes: correction.changes, sequential: true }))

@@ -167,7 +167,7 @@ defmodule Ankole.Sessions.WorkflowTask do
   def tools(_run, tools, hosted) do
     hosted =
       Enum.flat_map(hosted, fn
-        %{"type" => "brain"} -> [%{"type" => "brain", "operations" => ~w(recall get_page)}]
+        %{"type" => "brain"} -> [%{"type" => "brain", "operations" => ~w(recall entity)}]
         %{"type" => "web_search"} = tool -> [tool]
         _ -> []
       end)

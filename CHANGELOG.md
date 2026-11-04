@@ -1,5 +1,45 @@
 # Changelog
 
+## Version 2.0.0-alpha.53 (2026-11-04)
+
+- Use the supported read-only Brain operations in Workflow tasks, and terminate
+  foreground command process groups when a conversation turn is stopped.
+- Export current knowledge without an optional snapshot ID, return permission
+  and missing-page errors from knowledge panels, and encode dated recall
+  evidence before generating persistent synthesis pages.
+- Preserve sidebar tab selection and focus while Agent availability loads.
+
+- Preserve the native input node when IME composition replaces selected blocks
+  without a preceding key event or receives compatible remote text edits, and
+  clean up empty nested columns when composition ends. Keep that cleanup in the
+  same undo step while earlier edits await confirmation or the first preedit
+  arrives after structural preparation.
+- Complete empty-list composition cleanup across remote edits, and preserve
+  original list paragraphs when a later composition ends without input or
+  editing resumes after a read-only completion. Moving the caret finishes cleanup
+  at the original paragraph without changing another list, and ending a reverted
+  preedit keeps its own undo step across remote edits.
+- Keep the insertion caret and block attributes when cross-column composition
+  starts in a heading or code block. Apply asynchronous embedded Base
+  configuration updates after composition cleanup so undo preserves the
+  committed candidate. Finish synchronous composition-end events outside
+  drawing when switching an editor to read-only.
+- Finish pending composition cleanup and resume drawing when an editor
+  reconnects, preserving accepted text, remote edits, the insertion caret,
+  and collaboration submissions.
+- Save, synchronize, and generate Drive projections for documents at the
+  supported nesting-depth limit.
+- Return stable event subscription IDs and let Agent CLI callers read Jobs,
+  Runs, and source subscriptions through their declared access checks.
+  Apply Page disclosure checks to Job-scoped subscription lists and their sources.
+- Reject model Provider removal while an enabled OIDC Client still uses it.
+- Give Codex Jobs bounded web-page excerpts and complete workspace files, with
+  working file reads, complete Unicode read windows and continuation hints,
+  and repeated-fetch caching. Write page files as the Agent user and transfer
+  rendered page bodies once so foreground results fit the Worker frame. Keep
+  completed pages and continue the remaining URLs when another browser page
+  cannot be created.
+
 ## Version 2.0.0-alpha.52 (2026-11-04)
 
 - Recover rejected Connector tokens through the shared credential owner and

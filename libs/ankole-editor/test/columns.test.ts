@@ -8,8 +8,10 @@ import { columnDrop, columnInsertion, columnResize } from '../src/editor/columns
 import { deleteBlock, relocation, duplicateBlocks } from '../src/editor/block-actions'
 import { Command, deleteCut, insertText } from '../src/core/command'
 import { BlockSelection } from '../src/editor/block-selection'
-import { insertImage, undo } from '../src/editor/commands'
-import { open, select, press, readTree, expectReopens, typeText } from './helpers'
+import { Columns } from '../src/editor/schema'
+import { insertImage, redo, undo } from '../src/editor/commands'
+import { redoDepth, undoDepth } from '../src/core/history'
+import { open, select, press, readTree, expectReopens, setComposing, endComposition, typeText } from './helpers'
 
 const page = (body: string) => open(parseXml(`<page>${body}</page>`))
 const column = (body: string) => `<column>${body}</column>`
@@ -163,6 +165,159 @@ test('disconnected selections delete, replace and move only the selected blocks'
   choose()
   editor.dispatch(relocation(editor.state, [at(editor, 'A'), at(editor, 'B')], editor.state.doc.length)!)
   expectBody(editor, `${row('<p>A2</p>', '<p>B2</p>')}<p>After</p><p>A</p><p>B</p>`)
+  expectReopens(editor)
+})
+
+test('starting composition only defers cleanup of the row that hosts its paragraph', () => {
+  const editor = page(`${row('<p>A</p><p>A2</p>', '<p>A3</p>')}${row('<p>C</p>', '<p>B</p>')}`)
+  editor.dispatch({ selection: BlockSelection.of(editor.state.doc, [at(editor, 'A'), at(editor, 'B')])! })
+  expect(
+    Command.dispatch(editor, insertText, {
+      ...editor.state.selection.replacementRange,
+      insert: 'Z',
+      userEvent: 'input.type.compose.start'
+    })
+  ).toBe(true)
+  let rows = 0
+  editor.state.doc.iterate(node => {
+    if (node.type === Columns.type) rows++
+  })
+  expect(rows).toBe(1)
+  expectBody(editor, `${row('<p>Z</p><p>A2</p>', '<p>A3</p>')}<p>C</p>`)
+})
+
+test.each([
+  { layers: 2, marked: false, cancel: false },
+  { layers: 2, marked: true, cancel: true },
+  { layers: 3, marked: false, cancel: true },
+  { layers: 3, marked: true, cancel: false }
+])('composition end cleans its outer column hosts ($layers layers, marked=$marked, cancel=$cancel)', scenario => {
+  const inner = (text: string) =>
+    row(`<p>${text}</p>`, '<p>Keep</p>').replace(
+      '<columns>',
+      scenario.marked ? '<columns data-key="kept">' : '<columns>'
+    )
+  let initial = inner('A')
+  for (let index = 1; index < scenario.layers; index++) initial = row(initial, `<p>Remove ${index}</p>`)
+  const editor = page(`${initial}<p>After</p>`)
+  const original = editor.state.doc
+  editor.dispatch({
+    selection: BlockSelection.of(editor.state.doc, [
+      at(editor, 'A'),
+      ...Array.from({ length: scenario.layers - 1 }, (_, index) => at(editor, `Remove ${index + 1}`))
+    ])!
+  })
+  setComposing(editor, true)
+  Command.dispatch(editor, insertText, {
+    ...editor.state.selection.replacementRange,
+    insert: 'zh',
+    userEvent: 'input.type.compose.start'
+  })
+  const from = at(editor, 'zh') + 1
+  Command.dispatch(editor, insertText, {
+    from,
+    to: from + 2,
+    insert: scenario.cancel ? '' : '中',
+    userEvent: 'input.type.compose'
+  })
+  endComposition(editor)
+
+  // Compare raw documents: XML export alone would normalize away the leftover outer rows.
+  const expected = page(`${inner(scenario.cancel ? '' : '中')}<p>After</p>`).state.doc
+  expect(editor.state.doc.eq(expected)).toBe(true)
+  expect(undoDepth(editor.state)).toBe(1)
+  expectReopens(editor)
+  expect(undo(editor)).toBe(true)
+  expect(editor.state.doc.eq(original)).toBe(true)
+  expect(undoDepth(editor.state)).toBe(0)
+  expect(redoDepth(editor.state)).toBe(1)
+  expect(redo(editor)).toBe(true)
+  expect(editor.state.doc.eq(expected)).toBe(true)
+  expectReopens(editor)
+})
+
+test.each(
+  [
+    { tag: 'pre', attributes: ' lang="ts"', nested: false },
+    { tag: 'h2', attributes: ' data-key="kept"', nested: false },
+    { tag: 'pre', attributes: ' lang="ts"', nested: true },
+    { tag: 'h2', attributes: ' data-key="kept"', nested: true }
+  ].flatMap(scenario => [false, true].map(cancel => ({ ...scenario, cancel })))
+)(
+  'cross-column composition preserves its $tag host (nested=$nested, cancel=$cancel)',
+  ({ tag, attributes, nested, cancel }) => {
+    const block = (text: string) => `<${tag}${attributes}>${text}</${tag}>`
+    const inner = row(block('Left'), '<p>Right</p>')
+    const editor = page(nested ? row(inner, '<p>Outer</p>') : inner)
+    const original = editor.state.doc
+    select(editor, at(editor, 'Left') + 2, at(editor, 'Right') + 3)
+    setComposing(editor, true)
+    const { from, to } = editor.state.selection
+    Command.dispatch(editor, insertText, {
+      from,
+      to,
+      insert: 'zh',
+      userEvent: 'input.type.compose.start'
+    })
+    const host = editor.state.sel.head.parent
+    Command.dispatch(editor, insertText, {
+      from: host.start + 1,
+      to: host.start + 3,
+      insert: cancel ? '' : '中',
+      userEvent: 'input.type.compose'
+    })
+    endComposition(editor)
+
+    const text = cancel ? 'Lght' : 'L中ght'
+    const caret = cancel ? 2 : 3
+    const expected = page(nested ? row(block(text), '<p>Outer</p>') : block(text)).state.doc
+    expect(editor.state.doc.eq(expected)).toBe(true)
+    expect(editor.state.selection.head).toBe(at(editor, text) + caret)
+    expect(undoDepth(editor.state)).toBe(1)
+    expectReopens(editor)
+    expect(undo(editor)).toBe(true)
+    expect(editor.state.doc.eq(original)).toBe(true)
+    expect(redo(editor)).toBe(true)
+    expect(editor.state.doc.eq(expected)).toBe(true)
+    expect(editor.state.selection.head).toBe(at(editor, text) + caret)
+    typeText(editor, '继续')
+    const continued = cancel ? 'L继续ght' : 'L中继续ght'
+    expectBody(editor, nested ? row(block(continued), '<p>Outer</p>') : block(continued))
+    expectReopens(editor)
+  }
+)
+
+test.each([false, true])('composition cleanup follows its list paragraph through columns (caret moved=%s)', moved => {
+  const editor = page(`<ul><li>${row('<p>A</p>', '<p>B</p>')}</li></ul><p>Keep</p>`)
+  const original = editor.state.doc
+  editor.dispatch({ selection: BlockSelection.of(editor.state.doc, [at(editor, 'A'), at(editor, 'B')])! })
+  setComposing(editor, true)
+  Command.dispatch(editor, insertText, {
+    ...editor.state.selection.replacementRange,
+    insert: 'zh',
+    userEvent: 'input.type.compose.start'
+  })
+  const paragraph = editor.state.sel.head.parent
+  expect(paragraph.parent!.node.name).toBe('Column')
+  Command.dispatch(editor, insertText, {
+    from: paragraph.start,
+    to: paragraph.end,
+    insert: '',
+    userEvent: 'input.type.compose'
+  })
+  if (moved) select(editor, at(editor, 'Keep') + 3)
+  endComposition(editor)
+
+  const expected = page('<ul><li /></ul><p>Keep</p>').state.doc
+  expect(editor.state.doc.eq(expected)).toBe(true)
+  if (moved) expect(editor.state.selection.head).toBe(at(editor, 'Keep') + 3)
+  expect(undoDepth(editor.state)).toBe(1)
+  expectReopens(editor)
+  expect(undo(editor)).toBe(true)
+  expect(editor.state.doc.eq(original)).toBe(true)
+  expect(redo(editor)).toBe(true)
+  expect(editor.state.doc.eq(expected)).toBe(true)
+  if (moved) expect(editor.state.selection.head).toBe(at(editor, 'Keep') + 3)
   expectReopens(editor)
 })
 

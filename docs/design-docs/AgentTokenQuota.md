@@ -37,10 +37,10 @@ The ledger has six origins, assigned in this priority order:
 Explicit subject credentials always take precedence over a caller label. Only
 unbound control-plane calls use caller-based classification. Automatic
 compaction and `/compact` write `compaction` rows and never enter an Agent
-window. Brain calls execute as `ankole_brain` and Applet calls as `system`,
-with each tenant's system Principals owning separate ledger rows and neither
-consuming an Agent quota. Embedding, rerank, web search, web fetch, and image
-generation do not write these LLM usage rows.
+window. Brain calls execute as `ankole_brain`. Applet calls execute as the
+Principal selected by the ordinary or admin capability and write `applet`
+ledger rows for that Principal. Neither internal caller consumes an Agent quota.
+Embedding, rerank, web search, web fetch, and image generation do not write these LLM usage rows.
 
 For each provider round that ends with `response.completed` or
 `response.incomplete`, the ledger records `usage.input_tokens` and

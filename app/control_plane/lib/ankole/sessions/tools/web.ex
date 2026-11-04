@@ -182,7 +182,7 @@ defmodule Ankole.Sessions.Tools.Web do
 
   @max_result_bytes 8_000
 
-  defp render(_run, body, urls, cached, now, missing, offset) do
+  defp render(run, body, urls, cached, now, missing, offset) do
     by_url = Map.new(Enum.zip(missing, body["results"] || []))
 
     {pages, new_cache} =
@@ -211,9 +211,19 @@ defmodule Ankole.Sessions.Tools.Web do
             do: Map.put(cache, url, %{at: now, page: page}),
             else: cache
 
-        {{info, text}, cache}
+        {{info, text, page}, cache}
       end)
 
+    if Map.get(run, :web_result_mode) == :workspace do
+      results = Enum.map(pages, &workspace_page(&1, now))
+      # The Worker consumes this transient body before recording only file metadata.
+      {:ok, Tools.result(%{"results" => results}, text: "")}
+    else
+      window_pages(pages, new_cache, offset)
+    end
+  end
+
+  defp window_pages(pages, new_cache, offset) do
     overhead = byte_size(Ankole.JSON.encode!(%{"results" => Enum.map(pages, &elem(&1, 0))}))
 
     if overhead + length(pages) * 64 >= @max_result_bytes do
@@ -221,9 +231,48 @@ defmodule Ankole.Sessions.Tools.Web do
        Tools.error("The URL metadata exceeds one result window. Fetch fewer or shorter URLs.")}
     else
       budget = div(@max_result_bytes - overhead, max(length(pages), 1)) - 64
-      results = Enum.map(pages, fn {info, text} -> window(info, text, offset, budget) end)
+
+      results =
+        Enum.map(pages, fn {info, text, _page} -> window(info, text, offset, budget) end)
+
       {:ok, Tools.result(%{"results" => results}, web_cache: new_cache)}
     end
+  end
+
+  @max_workspace_characters 2_000_000
+
+  defp workspace_page({info, text, source_page}, now) do
+    {fetched_total, prefix_bytes} = workspace_text(text, 0, 0)
+    total = source_page["total_characters"] || fetched_total
+
+    page =
+      info
+      |> Map.drop(["total_bytes", "next_offset"])
+      |> Map.put("text", binary_part(text, 0, prefix_bytes))
+      |> Map.put("total_characters", total)
+      |> Map.put("stored_characters", min(fetched_total, @max_workspace_characters))
+      |> Map.put("cache_at", now)
+
+    if total > @max_workspace_characters,
+      do:
+        Map.put(
+          page,
+          "tail",
+          source_page["tail"] || Ankole.Text.utf8_suffix(text, 160_000)
+        ),
+      else: page
+  end
+
+  # Count code points without building a list proportional to the fetched page.
+  defp workspace_text(<<>>, total, prefix_bytes), do: {total, prefix_bytes}
+
+  defp workspace_text(<<point::utf8, rest::binary>>, total, prefix_bytes) do
+    prefix_bytes =
+      if total < @max_workspace_characters,
+        do: prefix_bytes + byte_size(<<point::utf8>>),
+        else: prefix_bytes
+
+    workspace_text(rest, total + 1, prefix_bytes)
   end
 
   defp window(info, text, offset, budget) when offset >= 0 and offset <= byte_size(text) do

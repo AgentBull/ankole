@@ -416,8 +416,15 @@ defmodule Ankole.Pod.RPCBroker do
   defp dispatch("bindings.put", actor, params, _ctx),
     do: Ankole.Signals.put_event_binding(actor, params)
 
-  defp dispatch("bindings.list", actor, params, _ctx),
-    do: Ankole.Signals.list_event_bindings(actor, params["config_ref"], params["job_id"])
+  defp dispatch("bindings.list", actor, params, _ctx) do
+    with {:ok, bindings} <-
+           Ankole.Signals.list_event_bindings(actor, params["config_ref"], params["job_id"]) do
+      {:ok,
+       Enum.filter(bindings, fn binding ->
+         disclosure_target("bindings.list", actor, %{"config_ref" => binding.config_ref}) == :ok
+       end)}
+    end
+  end
 
   defp dispatch("jobs.configure", actor, params, _ctx),
     do: Ankole.AutomationJobs.configure_applet_job(actor, params["page_id"], params["id"], params)
@@ -493,6 +500,28 @@ defmodule Ankole.Pod.RPCBroker do
   defp disclosure_target(operation, actor, params)
        when operation in ~w(jobs.actions jobs.runs jobs.list jobs.get_run jobs.schedules.list jobs.schedules.runs jobs.webhooks.list) do
     readable_target(actor, params["page_id"])
+  end
+
+  defp disclosure_target("bindings.list", actor, %{"config_ref" => "base://" <> id}) do
+    with {:ok, table} <- Bases.fetch_table(id), do: readable_target(actor, table.page_id)
+  end
+
+  defp disclosure_target("bindings.list", actor, %{"config_ref" => "applet://" <> id}),
+    do: readable_target(actor, id)
+
+  defp disclosure_target("bindings.list", actor, %{"config_ref" => "job://" <> id}) do
+    with {:ok, id} <- Ankole.ModelIntegerID.parse(id),
+         {:ok, job} when not is_nil(job) <- Ankole.AutomationJobs.get_automation_job(id) do
+      readable_target(actor, job.page_id)
+    else
+      {:ok, nil} -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  defp disclosure_target("bindings.list", actor, %{"job_id" => id}) do
+    with {:ok, id} <- Ankole.ModelIntegerID.parse(id),
+         do: disclosure_target("bindings.list", actor, %{"config_ref" => "job://#{id}"})
   end
 
   defp disclosure_target(_operation, _actor, _params), do: :ok

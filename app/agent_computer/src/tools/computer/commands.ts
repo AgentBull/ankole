@@ -194,7 +194,10 @@ async function runForegroundProcess(input: {
       detached: true
     }
   )
-  const abort = () => proc.kill('SIGTERM')
+  // The mount launcher can ignore TERM while it waits for the supervisor.
+  const abort = () => {
+    if (proc.exitCode === null) killProcessGroup(proc.pid, 'SIGTERM')
+  }
   input.signal?.addEventListener('abort', abort, { once: true })
   const drain = new AbortController()
   const output = Promise.all([

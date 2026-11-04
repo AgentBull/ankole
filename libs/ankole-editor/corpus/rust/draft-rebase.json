@@ -1,0 +1,104 @@
+[
+  {
+    "after": "<page><p>Remote name</p><p>Appended block</p></page>",
+    "before": "<page><p>Initial</p></page>",
+    "changes": [
+      1,
+      [
+        3,
+        [
+          {
+            "param": "Remo",
+            "type": "Text"
+          }
+        ]
+      ],
+      1,
+      [
+        1,
+        [
+          {
+            "param": "e n",
+            "type": "Text"
+          }
+        ]
+      ],
+      1,
+      [
+        1,
+        [
+          {
+            "param": "me",
+            "type": "Text"
+          }
+        ]
+      ],
+      1,
+      [
+        0,
+        [
+          {
+            "content": [
+              {
+                "param": "Appended block",
+                "type": "Text"
+              }
+            ],
+            "type": "Paragraph"
+          }
+        ]
+      ]
+    ]
+  },
+  {
+    "after": "<page><p>Corrected name</p><p>Appended block</p><p>Second block</p></page>",
+    "before": "<page><p>Remote name</p><p>Appended block</p></page>",
+    "changes": [
+      1,
+      [
+        1,
+        [
+          {
+            "param": "Corr",
+            "type": "Text"
+          }
+        ]
+      ],
+      1,
+      [
+        2,
+        [
+          {
+            "param": "c",
+            "type": "Text"
+          }
+        ]
+      ],
+      2,
+      [
+        0,
+        [
+          {
+            "param": "d",
+            "type": "Text"
+          }
+        ]
+      ],
+      22,
+      [
+        0,
+        [
+          {
+            "content": [
+              {
+                "param": "Second block",
+                "type": "Text"
+              }
+            ],
+            "type": "Paragraph"
+          }
+        ]
+      ]
+    ]
+  }
+]

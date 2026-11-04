@@ -78,6 +78,26 @@ const remoteEnv = {
 }
 
 describe('rendered web_fetch browser adapter', () => {
+  test('passes the Job workspace mode through the real browser client request', async () => {
+    const { socketPath, materializer } = await runtime()
+    const requests: BrowserRequest[] = []
+    await daemon(socketPath, request => {
+      requests.push(request)
+      return successful(request)
+    })
+    await new BrowserWebFetchAdapter(materializer).fetch(
+      ['https://example.com'],
+      { ssrfFilter: true },
+      undefined,
+      'workspace'
+    )
+    expect(requests[0]!.command).toEqual({
+      name: 'fetch',
+      args: { urls: ['https://example.com'], result_mode: 'workspace' }
+    })
+    expect(requests[1]!.command).toEqual({ name: 'lifecycle', args: { verb: 'purge' } })
+  })
+
   test('sends final material and a five-minute deadline without writing a material file', async () => {
     const { root, socketPath, materializer } = await runtime()
     const requests: BrowserRequest[] = []

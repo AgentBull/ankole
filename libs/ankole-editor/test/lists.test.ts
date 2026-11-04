@@ -1,12 +1,27 @@
 import { expect, test } from 'bun:test'
-import { Command, deleteCut } from '../src/core/command'
+import { Command, deleteCut, insertText } from '../src/core/command'
 import type { Wordgard } from '../src/core/editor'
+import { Leaf } from '../src/core/doc'
+import { undoDepth } from '../src/core/history'
+import { Strong } from '../src/core/types'
+import { GardState } from '../src/core/state'
 import { parseMarkdown } from '../src/document/markdown'
 import { parseXml } from '../src/document/xml'
 import { applyBlockType } from '../src/editor/block-actions'
 import { isList } from '../src/editor/block-insert'
 import { PageSession } from '../src/editor/page-session'
-import { exportMarkdown, expectReopens, open, press, readTree, select, typeText } from './helpers'
+import { redo, undo } from '../src/editor/commands'
+import {
+  endComposition,
+  exportMarkdown,
+  expectReopens,
+  open,
+  press,
+  readTree,
+  select,
+  setComposing,
+  typeText
+} from './helpers'
 
 /** Put the caret in the text node `text`, at `offset`. */
 function caret(editor: Wordgard, text: string, offset: number | 'end' = 0) {
@@ -346,6 +361,98 @@ test('an empty paragraph that an item has in the source stays', () => {
   } finally {
     page.dispose()
   }
+})
+
+test.each([null, '中', '中 '])('a zero-input composition preserves a source list paragraph after %j', previous => {
+  const editor = open(parseXml('<page><p>base</p><ul><li><p /></li></ul></page>'))
+  const original = editor.state.doc
+  if (previous !== null) {
+    setComposing(editor, true)
+    editor.dispatch({
+      changes: { from: 1, to: 5, insert: [Leaf.text(previous, [Strong])] },
+      selection: { anchor: 1 + previous.length },
+      userEvent: 'input.type.compose.start'
+    })
+    endComposition(editor)
+  }
+  const before = editor.state.doc
+  editor.state.doc.iterate((node, pos) => {
+    if (node.isPlot && node.name === 'Paragraph' && !node.content.length) select(editor, pos + 1)
+  })
+  setComposing(editor, true)
+  endComposition(editor)
+  expect(editor.state.doc.eq(before)).toBe(true)
+  expect(undoDepth(editor.state)).toBe(previous === null ? 0 : 1)
+  if (previous !== null) {
+    expect(undo(editor)).toBe(true)
+    expect(editor.state.doc.eq(original)).toBe(true)
+    expect(redo(editor)).toBe(true)
+    expect(editor.state.doc.eq(before)).toBe(true)
+  }
+  expectReopens(editor)
+})
+
+test('finishing composition while read-only clears list cleanup before editing resumes', () => {
+  const editable = GardState.Compartment.define()
+  const editor = open(
+    parseXml('<page><p>base</p><ul><li><p /></li></ul></page>'),
+    editable.of(GardState.readOnly.of(false))
+  )
+  setComposing(editor, true)
+  editor.dispatch({
+    changes: { from: 1, to: 5, insert: [Leaf.text('中')] },
+    selection: { anchor: 2 },
+    userEvent: 'input.type.compose.start'
+  })
+  editor.dispatch({ effects: editable.reconfigure(GardState.readOnly.of(true)) })
+  const before = editor.state.doc
+  endComposition(editor)
+  expect(editor.state.doc.eq(before)).toBe(true)
+  editor.dispatch({ effects: editable.reconfigure(GardState.readOnly.of(false)) })
+  editor.state.doc.iterate((node, pos) => {
+    if (node.isPlot && node.name === 'Paragraph' && !node.content.length) select(editor, pos + 1)
+  })
+  setComposing(editor, true)
+  endComposition(editor)
+  expect(editor.state.doc.eq(before)).toBe(true)
+  expect(undoDepth(editor.state)).toBe(1)
+})
+
+test('moving the composing caret does not clean an untouched source list paragraph', () => {
+  const editor = open(parseXml('<page><p>base</p><ul><li><p /></li></ul></page>'))
+  const original = editor.state.doc
+  setComposing(editor, true)
+  Command.dispatch(editor, insertText, { from: 1, to: 5, insert: '中', userEvent: 'input.type.compose.start' })
+  const before = editor.state.doc
+  select(editor, 6)
+  endComposition(editor)
+  expect(editor.state.doc.eq(before)).toBe(true)
+  expect(editor.state.selection.head).toBe(6)
+  expect(undo(editor)).toBe(true)
+  expect(editor.state.doc.eq(original)).toBe(true)
+  expect(redo(editor)).toBe(true)
+  expect(editor.state.doc.eq(before)).toBe(true)
+})
+
+test('moving the composing caret still cleans its original empty list paragraph', () => {
+  const editor = open(parseXml('<page><ul><li><p /></li></ul><p>After</p></page>'))
+  const original = editor.state.doc
+  select(editor, 3)
+  setComposing(editor, true)
+  Command.dispatch(editor, insertText, { from: 3, to: 3, insert: 'zh', userEvent: 'input.type.compose.start' })
+  Command.dispatch(editor, insertText, { from: 3, to: 5, insert: '', userEvent: 'input.type.compose' })
+  caret(editor, 'After', 'end')
+  const head = editor.state.selection.head
+  endComposition(editor)
+  expect(exportMarkdown(editor)).toBe('-\n\nAfter')
+  expect(editor.state.selection.head).toBe(head - 2)
+  expect(editor.state.sel.head.parent.node.textContent()).toBe('After')
+  expect(undoDepth(editor.state)).toBe(1)
+  const completed = editor.state.doc
+  expect(undo(editor)).toBe(true)
+  expect(editor.state.doc.eq(original)).toBe(true)
+  expect(redo(editor)).toBe(true)
+  expect(editor.state.doc.eq(completed)).toBe(true)
 })
 
 test('an empty item that takes children keeps a paragraph above them', () => {
