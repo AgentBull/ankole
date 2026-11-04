@@ -2,7 +2,9 @@ import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 
 import { cn } from '../lib/utils'
 
-function TooltipProvider({ delay = 0, ...props }: TooltipPrimitive.Provider.Props) {
+// Base UI waits this long before a hovered tooltip opens and then opens neighbouring tooltips at once;
+// keyboard focus opens a tooltip immediately.
+function TooltipProvider({ delay = 400, ...props }: TooltipPrimitive.Provider.Props) {
   return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />
 }
 

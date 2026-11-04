@@ -56,10 +56,13 @@ defmodule Ankole.Pod.AccessReviewTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
 
-    assert {:ok, visible} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.member.uid))
+    member = Ankole.PrincipalsFixtures.actor_fixture(ctx.member.uid)
+    assert {:ok, visible} = Pages.list(member)
     refute Enum.any?(visible, &(&1.id == page.id))
-    assert Enum.all?(visible, &(&1.role == "view"))
-    assert Enum.any?(visible, &(&1.system_key == "ankole_brain"))
+    # Brain lives in Meta Ankole, so its own view grant survives in the Brain list.
+    assert {:ok, brain} = Pages.list(member, %{domain: :brain})
+    assert Enum.all?(visible ++ brain, &(&1.role == "view"))
+    assert Enum.any?(brain, &(&1.system_key == "ankole_brain_agents"))
     assert {:ok, _} = Pages.space(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid))
     refute_receive {:read_wrote, _}
     :telemetry.detach(handler)

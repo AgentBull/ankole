@@ -422,6 +422,16 @@ defmodule Ankole.Sessions.TurnTest do
     end
   end
 
+  test "a recovered Worker round owes a close even when this Driver never opens" do
+    run = %{tool_run([call("c1")]) | recovered?: true}
+    {tools, _} = Turn.step(turn(run, :boundary), {:resume, run.epoch, :executing_tools}, 0)
+    {opening, _} = Turn.step(tools, :tools, 1)
+
+    # The recovered result completes the batch before this Driver resolves a Worker.
+    {_, commands} = Turn.step(opening, {:completed, :finalize, {:ok, :done}}, 2)
+    assert [{:close_worker, _}] = Enum.filter(commands, &match?({:close_worker, _}, &1))
+  end
+
   test "a workspace open remains owed a close across a committed round" do
     run = tool_run([call("c1")])
     row = %{transport_route: "test"}

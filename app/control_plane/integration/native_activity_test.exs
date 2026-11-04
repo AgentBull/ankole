@@ -118,11 +118,13 @@ defmodule AnkoleWeb.NativeActivityTest do
     assert {:ok, page} = Ankole.Pod.Pages.create(actor, %{title: "Provider reference source"})
     source_id = Ecto.UUID.generate()
 
+    # A colleague DM is unique per Human and Agent, so the quoted source lives in its own group.
     assert {:ok, quoted} =
              Ankole.ConversationsFixtures.create(human_uid, %{
                conversation_id: Ecto.UUID.generate(),
                message_id: source_id,
                agent_uid: agent.uid,
+               room_mode: :group,
                text: "The source quote for this provider request."
              })
 
@@ -667,10 +669,14 @@ defmodule AnkoleWeb.NativeActivityTest do
     actor = Ankole.PrincipalsFixtures.actor_fixture(ctx.human_uid)
     id = Ecto.UUID.generate()
 
+    # A colleague DM never admits members, so the shared room starts as a group
+    # whose first message addresses the Agent and therefore requires a reply.
     assert {:ok, _} =
              Conversations.create(actor, %{
                conversation_id: id,
                agent_uid: ctx.agent.uid,
+               room_mode: :group,
+               target_agent_uid: ctx.agent.uid,
                message_id: Ecto.UUID.generate(),
                text: "Tell me the status."
              })
@@ -735,10 +741,12 @@ defmodule AnkoleWeb.NativeActivityTest do
     Ankole.ConversationsFixtures.grant_chat(bob.uid, ctx.agent.uid)
     id = Ecto.UUID.generate()
 
+    # A colleague DM never admits members, so Bob joins a group room.
     assert {:ok, _} =
              Conversations.create(actor, %{
                conversation_id: id,
                agent_uid: ctx.agent.uid,
+               room_mode: :group,
                message_id: Ecto.UUID.generate(),
                text: "Choose the report destination."
              })

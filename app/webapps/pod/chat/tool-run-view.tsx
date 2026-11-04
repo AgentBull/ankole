@@ -9,6 +9,7 @@ import {
   RiTerminalBoxLine,
   RiToolsLine
 } from '@remixicon/react'
+import type { SyntheticEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isRecord, safeJsonParse } from '@agentbull/active-support'
 import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
@@ -86,6 +87,114 @@ export function commandDetails(step: ExecutionStep) {
   }
 }
 
+type PatchLine = { marker: '+' | '-' | ' ' | '@'; text: string }
+type PatchFile = {
+  path: string
+  movePath?: string
+  kind: 'add' | 'delete' | 'update'
+  added: number
+  removed: number
+  lines: PatchLine[]
+}
+
+/** Reads the freeform `apply_patch` grammar that the Worker and Codex share; anything else stays a plain detail. */
+export function patchDetails(step: Pick<ExecutionStep, 'tool' | 'input'>) {
+  if (step.tool !== 'apply_patch' || typeof step.input !== 'string') return undefined
+  const lines = step.input.trimStart().split(/\r?\n/)
+  if (lines[0] !== '*** Begin Patch') return undefined
+  const files: PatchFile[] = []
+  let ended = false
+  for (const line of lines.slice(1)) {
+    const header = /^\*\*\* (Add|Delete|Update) File: (.+)$/.exec(line)
+    const file = files.at(-1)
+    if (header) {
+      files.push({
+        path: header[2]!,
+        kind: header[1] === 'Add' ? 'add' : header[1] === 'Delete' ? 'delete' : 'update',
+        added: 0,
+        removed: 0,
+        lines: []
+      })
+    } else if (line === '*** End Patch') {
+      ended = true
+      break
+    } else if (!file || line === '*** End of File') {
+      continue
+    } else if (line.startsWith('*** Move to: ')) {
+      file.movePath = line.slice('*** Move to: '.length)
+    } else if (line.startsWith('@@')) {
+      file.lines.push({ marker: '@', text: line.slice(2).trim() })
+    } else if (line[0] === '+' || line[0] === '-' || line[0] === ' ') {
+      if (line[0] === '+') file.added += 1
+      if (line[0] === '-') file.removed += 1
+      file.lines.push({ marker: line[0], text: line.slice(1) })
+    }
+  }
+  if (!files.length) return undefined
+  // The work history keeps a bounded excerpt of each input, so a long patch can stop before its end marker.
+  return {
+    files,
+    added: files.reduce((sum, file) => sum + file.added, 0),
+    removed: files.reduce((sum, file) => sum + file.removed, 0),
+    truncated: !ended
+  }
+}
+
+function PatchCounts({ added, removed }: { added: number; removed: number }) {
+  const { t } = useTranslation()
+  if (!added && !removed) return null
+  return (
+    <span className="pod-chat-patch-counts">
+      <span aria-hidden>
+        {added > 0 && <span data-marker="+">+{added}</span>}
+        {removed > 0 && <span data-marker="-">−{removed}</span>}
+      </span>
+      <span className="sr-only">{t('pod.chat_timeline.patch_counts', { added, removed })}</span>
+    </span>
+  )
+}
+
+function PatchView({ patch }: { patch: NonNullable<ReturnType<typeof patchDetails>> }) {
+  const { t } = useTranslation()
+  return (
+    <div className="pod-chat-patch">
+      {patch.files.map((file, position) => (
+        <section key={position}>
+          <header>
+            <span className="pod-chat-patch-path">{file.movePath ? `${file.path} → ${file.movePath}` : file.path}</span>
+            {file.kind !== 'update' && (
+              <span className="pod-chat-patch-kind">
+                {t(file.kind === 'add' ? 'pod.chat_timeline.patch_added_file' : 'pod.chat_timeline.patch_deleted_file')}
+              </span>
+            )}
+            <PatchCounts added={file.added} removed={file.removed} />
+          </header>
+          {file.lines.length > 0 && (
+            <pre>
+              {file.lines.map((line, index) => (
+                <span key={index} data-marker={line.marker}>
+                  {line.marker === '@' ? `@@ ${line.text}`.trimEnd() : `${line.marker}${line.text}`}
+                </span>
+              ))}
+            </pre>
+          )}
+        </section>
+      ))}
+      {patch.truncated && <p className="pod-chat-patch-truncated">{t('pod.chat_timeline.patch_truncated')}</p>}
+    </div>
+  )
+}
+
+/** A command prints its failures and summary last, so an expanded command shows the end of its output first. */
+function showOutputEnd(event: SyntheticEvent<HTMLElement>) {
+  if (!event.currentTarget.hasAttribute('open')) return
+  for (const pre of event.currentTarget.querySelectorAll(
+    '.pod-chat-command-terminal pre:not(.pod-chat-command-text)'
+  )) {
+    pre.scrollTop = pre.scrollHeight
+  }
+}
+
 export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]; compact?: boolean }) {
   const { t, i18n } = useTranslation()
   if (!steps.length) return null
@@ -126,6 +235,7 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
         const stopped = ['stopped', 'cancelled'].includes(step.status)
         const complete = ['completed', 'complete', 'success', 'succeeded', 'settled'].includes(step.status)
         const terminal = commandDetails(step)
+        const patch = terminal ? undefined : patchDetails(step)
         const input = formatToolDetail(step.input)
         const output = formatToolDetail(step.output)
         const Row = terminal || input || output ? 'details' : 'div'
@@ -134,12 +244,14 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
           <li key={step.id}>
             <Row
               className="pod-chat-tool-step"
-              data-status={failed ? 'failed' : stopped ? 'stopped' : complete ? 'completed' : 'running'}>
+              data-status={failed ? 'failed' : stopped ? 'stopped' : complete ? 'completed' : 'running'}
+              onToggle={terminal ? showOutputEnd : undefined}>
               <Label className="pod-chat-tool-line">
                 <ToolIcon tool={step.tool} />
                 <span className="pod-chat-tool-title" title={stepTitle(step)}>
                   {stepTitle(step)}
                 </span>
+                {patch && <PatchCounts added={patch.added} removed={patch.removed} />}
                 {step.duration_ms != null && <time>{formatElapsed(step.duration_ms, i18n.language)}</time>}
                 <span
                   className="pod-chat-tool-state"
@@ -181,6 +293,16 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
                       </pre>
                     )}
                   </div>
+                </div>
+              ) : patch ? (
+                <div className="pod-chat-tool-detail">
+                  <PatchView patch={patch} />
+                  {output && (
+                    <div>
+                      <span>{t('pod.chat_timeline.output')}</span>
+                      <pre>{output}</pre>
+                    </div>
+                  )}
                 </div>
               ) : (
                 (input || output) && (

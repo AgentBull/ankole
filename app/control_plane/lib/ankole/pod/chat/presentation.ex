@@ -110,6 +110,7 @@ defmodule Ankole.Pod.Chat.Presentation do
       titleCustomized: conversation.title_customized,
       lastMessageSeq: conversation.sequence_high_water,
       latestMessagePreview: Map.get(detail, :latest_message_preview, ""),
+      searchMatch: Map.get(detail, :search_match),
       viewer: %{
         uid: detail.viewer_uid,
         pinned: (viewer && not is_nil(viewer.pinned_at)) || false,

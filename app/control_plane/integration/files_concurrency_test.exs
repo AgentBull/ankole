@@ -369,9 +369,15 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
 
     deletion = hold_transaction(fn -> Files.delete_in_tx(ctx.agent_uid, "skills/race-notes") end)
     sync = start_unboxed(fn _parent -> Library.sync_agent_skills(ctx.agent_uid) end)
-    assert {:ok, %{changed: false}} = finish(sync)
+    assert {:ok, :ok} = finish(sync)
     release(deletion)
     assert {:ok, 1} = finish(deletion)
+
+    # The sync finished while the Drive deletion was still open and never
+    # brought the Agent's Drive Skill into the catalog.
+    Sandbox.unboxed_run(Repo, fn ->
+      assert {:error, :not_found} = Library.Skills.get("race-notes")
+    end)
   end
 
   defp commit(ctx, path) do

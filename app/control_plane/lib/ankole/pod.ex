@@ -64,7 +64,7 @@ defmodule Ankole.Pod do
   defdelegate shared_root_node_ids(ids, reachable), to: Nodes, as: :shared_root_ids
   defdelegate acl_anchor_nodes(), to: Nodes, as: :anchor_nodes
   defdelegate hidden_trashed_node_ids(), to: Nodes, as: :hidden_trashed_ids
-  defdelegate authorize_node(actor, id, action), to: Nodes, as: :authorize
+  defdelegate authorize_node(actor, id, action, opts \\ []), to: Nodes, as: :authorize
   defdelegate node_conversation_id(id), to: Nodes, as: :conversation_id
   defdelegate create_node(actor, attrs), to: Nodes, as: :create
   defdelegate move_node(actor, id, attrs), to: Nodes, as: :move
@@ -402,6 +402,13 @@ defmodule Ankole.Pod do
         route(:get, "/teammates", :teammates, name: "podChatTeammates", query_params: [:query])
 
         route(:get, "/conversations/attention", :attention, name: "podConversationAttention")
+
+        route(:post, "/next-steps", :next_steps, name: "podNextSteps")
+        route(:post, "/next-steps/:id/choose", :choose_next_step, name: "choosePodNextStep")
+
+        route(:post, "/conversations/:id/reply-suggestion", :reply_suggestion,
+          name: "podReplySuggestion"
+        )
 
         route(:get, "/conversations", :list,
           name: "podConversations",

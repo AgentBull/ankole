@@ -21,12 +21,15 @@ defmodule Ankole.AgentWorkers.LocalWorkerRoutes do
 
   # A fake channel for the real Tracker and cross-node WorkerRoute boundary.
   def start_tracked_channel(worker, owner) do
+    topic =
+      Ankole.Repo.with_tenant(worker.tenant_id, fn -> WorkerRoute.topic(worker.agent_uid) end)
+
     Task.Supervisor.start_child(Ankole.Sessions.Tasks, fn ->
       {:ok, _} =
         Phoenix.Tracker.track(
           Ankole.AgentWorkers.WorkerTracker,
           self(),
-          WorkerRoute.topic(worker.agent_uid),
+          topic,
           worker.transport_route,
           WorkerRoute.directory_meta(worker.incarnation_id)
         )

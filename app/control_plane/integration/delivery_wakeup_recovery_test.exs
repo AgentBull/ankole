@@ -90,18 +90,22 @@ defmodule Ankole.Conversations.DeliveryWakeupRecoveryIntegrationTest do
 
     job = Repo.one!(dispatch_jobs(agent.uid))
 
-    failures =
+    # The shared outbox queue can also hold jobs that earlier suites left, so
+    # each drain is judged by this job's own state.
+    attempts =
       Task.async(
         Repo.bind_tenant(fn ->
-          for _attempt <- 1..5, do: Oban.drain_queue(queue: :outbox, with_scheduled: true)
+          for _attempt <- 1..5 do
+            Oban.drain_queue(queue: :outbox, with_scheduled: true)
+            Repo.get!(Oban.Job, job.id)
+          end
         end)
       )
       |> Task.await()
 
-    assert Enum.map(failures, &{&1.failure, &1.discard, &1.success}) ==
-             List.duplicate({1, 0, 0}, 4) ++ [{0, 1, 0}]
+    assert Enum.map(attempts, &{&1.state, &1.attempt}) ==
+             Enum.map(1..4, &{"retryable", &1}) ++ [{"discarded", 5}]
 
-    assert %{state: "discarded", attempt: 5} = Repo.get!(Oban.Job, job.id)
     assert %{status: :pending, attempt_count: 0} = stored_intent(intent)
     refute_received {:provider_post, _}
 
@@ -127,9 +131,7 @@ defmodule Ankole.Conversations.DeliveryWakeupRecoveryIntegrationTest do
              })
 
     assert {:ok, _binding} =
-             Ankole.SignalsFixtures.raw_binding_fixture(%{
-               agent_uid: agent.uid,
-               name: "bot",
+             Ankole.SignalsFixtures.raw_binding_fixture(binding, %{
                adapter: "lark",
                config_ref: "app-config://#{config_key}",
                unaddressed_group_message_policy: :ignore

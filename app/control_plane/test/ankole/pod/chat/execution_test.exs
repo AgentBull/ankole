@@ -230,6 +230,39 @@ defmodule Ankole.Pod.Chat.ExecutionTest do
              })["steps"]
   end
 
+  test "long command output keeps its exit status and its failing end" do
+    at = ~U[2026-10-25 01:00:00Z]
+    command = "bun test " <> String.duplicate("suite ", 2_000)
+    passing = String.duplicate("✓ passes\n", 2_000)
+    summary = "✗ report totals\n1 fail"
+
+    items = [
+      %{
+        "type" => "function_call",
+        "call_id" => "test",
+        "name" => "command",
+        "status" => "completed",
+        "arguments" => Ankole.JSON.encode!(%{"command" => command})
+      },
+      %{
+        "type" => "function_call_output",
+        "call_id" => "test",
+        "output" => "exit_code=1\nduration=3s\n" <> passing <> summary
+      }
+    ]
+
+    assert [%{"input" => input, "output" => output}] =
+             Execution.from_chain([row("test", items, at)])["steps"]
+
+    assert String.starts_with?(output, "exit_code=1\nduration=3s\n✓ passes")
+    assert String.ends_with?(output, "\n" <> summary)
+    assert output =~ "\n…\n"
+    assert String.length(output) == 8_000 + String.length("\n…\n")
+    # Input keeps its opening, where the tool arguments begin.
+    assert String.ends_with?(input, "\n…")
+    assert String.length(input) == 8_000 + String.length("\n…")
+  end
+
   test "program work uses the gateway producer's code, result and failed outcome" do
     at = ~U[2026-10-25 01:00:00Z]
     {:ok, plan} = PTC.load_bindings(PTC.new(true), [])

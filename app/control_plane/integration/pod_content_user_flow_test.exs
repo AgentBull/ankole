@@ -121,9 +121,11 @@ defmodule Ankole.Pod.ContentUserFlowTest do
 
     assert Enum.map(visible, & &1.id) == expected_top_200
 
-    assert {:ok, filtered} = Pages.list(reader_actor, %{query: "Shared 1"})
-    assert length(filtered) == 112
-    assert hd(pages).id in Enum.map(filtered, & &1.id)
+    # Pages.list matches each query word anywhere in the title, so "Shared 10" finds
+    # pages 10, 100-110, 210, 310, ..., 910, and 1000.
+    assert {:ok, filtered} = Pages.list(reader_actor, %{query: "Shared 10"})
+    assert length(filtered) == 21
+    assert Enum.at(pages, 9).id in Enum.map(filtered, & &1.id)
 
     IO.puts(
       "Pod AuthZ measurement: shared_pages=1000 authorize_ms=#{Float.round(authorize_us / 1000, 3)} visible_list_ms=#{Float.round(list_us / 1000, 3)} visible_count=#{length(visible)}"

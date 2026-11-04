@@ -149,6 +149,9 @@ defmodule Ankole.Authn.MembershipStoriesTest do
     assert uid == first.uid
     assert BrowserSessions.identity(reference, tenant.id)["principal_uid"] == first.uid
     assert {:ok, _} = HumanAccess.disable(first.uid, "departure", nil, "departure-1", :offboarded)
+    # Offboarding keeps the email-shaped UID, so the operator renames the
+    # departed Human before the replacement can be created under that email.
+    assert {:ok, %{principal: departed}} = Principals.rename(first.uid, "reassigned-departed")
     second = human_fixture(%{email: email}).principal
 
     assert {:error, :reauthentication_required} =
@@ -161,7 +164,7 @@ defmodule Ankole.Authn.MembershipStoriesTest do
     assert {:ok, %{uid: uid}} = BrowserSessions.claim_membership(reference, tenant.id)
     assert uid == second.uid
     assert BrowserSessions.identity(reference, tenant.id)["principal_uid"] == second.uid
-    assert {:ok, %{status: :disabled}} = Principals.get_principal(first.uid)
+    assert {:ok, %{status: :disabled}} = Principals.get_principal(departed.uid)
   end
 
   test "both authoritative Lark contact addresses discover the same pending Human", %{

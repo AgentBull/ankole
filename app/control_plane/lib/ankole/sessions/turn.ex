@@ -423,10 +423,17 @@ defmodule Ankole.Sessions.Turn do
         end
       end)
 
+    # The previous Driver may have opened a workspace for a recovered Worker round,
+    # so the finished turn owes that Signal a close even if this Driver sends no open.
+    opened? =
+      turn.workspace_open_attempted? or
+        (turn.run.recovered? and Enum.any?(turn.run.calls, &Tools.needs_worker?(turn.run, &1)))
+
     {turn, commands} =
       Enum.reduce(
         turn.run.calls,
-        {%{turn | stage: :executing_tools, pending: pending}, [:clear_phase]},
+        {%{turn | stage: :executing_tools, pending: pending, workspace_open_attempted?: opened?},
+         [:clear_phase]},
         fn call, {turn, commands} ->
           id = Run.call_id(call)
 

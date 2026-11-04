@@ -20,7 +20,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
   @api "/2025-09-09"
 
   setup do
-    Ankole.E2E.Harness.cleanup_committed_fixtures_on_exit!()
+    cleanup_on_exit!()
     {:ok, runtime} = Config.fetch()
     previous = Application.get_env(:ankole, :lambda_api_req_options)
     Application.put_env(:ankole, :lambda_api_req_options, plug: {Req.Test, __MODULE__})
@@ -201,7 +201,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
 
     other_uid =
       Repo.with_tenant(other_tenant.id, fn ->
-        Ankole.E2E.Harness.cleanup_committed_fixtures_on_exit!()
+        cleanup_on_exit!()
         %{principal: agent} = agent_fixture(%{worker_provider_id: provider.provider_id})
         assert :ok = AgentWorkers.request(agent.uid)
         assert :ok = reconcile(agent.uid)
@@ -353,6 +353,19 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
   end
 
   defp reconcile(uid), do: perform_job(ReconcileJob, %{agent_uid: uid})
+
+  # The AWS fixture ends with the test process, so tenant deletion has no
+  # backend to reconcile these Workers against. Like DataCase does for fixture
+  # Workers, this earlier callback removes only their rows.
+  defp cleanup_on_exit! do
+    Ankole.E2E.Harness.cleanup_committed_fixtures_on_exit!()
+
+    on_exit(
+      Repo.bind_tenant(fn ->
+        Repo.delete_all(from(w in AgentWorker, where: w.provider_id == "lambda-test"))
+      end)
+    )
+  end
 
   defp unowned_vm(ref, started) do
     @fixtures

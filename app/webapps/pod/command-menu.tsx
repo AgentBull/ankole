@@ -32,7 +32,11 @@ import { ChatAvatar } from './chat/chat-avatar'
 import { AgentName, ConversationGlyph, ConversationTitle, conversationLabel } from './chat/conversation-row'
 
 export const PodCommandContext = createContext<(() => void) | null>(null)
-export type PodCommandNavigationState = { focusComposer: true }
+export type PodCommandNavigationState = {
+  focusComposer?: true
+  /** A chat result matched by message text opens its room at that message with the in-room find filled in. */
+  findMessage?: { query: string; seq: number }
+}
 
 export function usePodCommandMenu() {
   const open = useContext(PodCommandContext)
@@ -86,15 +90,15 @@ export function PodCommandMenu({
   useEffect(() => {
     if (open) selected.current = false
   }, [open])
-  const choose = (path: string, newChat = false) => {
-    if (newChat) drafts.startNew()
+  const choose = (path: string, state?: PodCommandNavigationState) => {
+    if (state?.focusComposer) drafts.startNew()
     selected.current = true
     setQuery('')
     onOpenChange(false)
     setOpenMobile(false)
     return navigate({
       to: podLocation(path).pathname,
-      state: (newChat ? ({ focusComposer: true } satisfies PodCommandNavigationState) : undefined) as never
+      state: state as never
     })
   }
   const label = t('pod.command.open')
@@ -155,7 +159,7 @@ export function PodCommandMenu({
                   <CommandItem
                     value="new-chat"
                     keywords={[t('pod.chat.new_conversation')]}
-                    onSelect={() => void choose('/', true)}>
+                    onSelect={() => void choose('/', { focusComposer: true })}>
                     <RiAddLine aria-hidden />
                     {t('pod.chat.new_conversation')}
                   </CommandItem>
@@ -257,12 +261,22 @@ export function PodCommandMenu({
                           void choose(
                             conversation.conversationKind === 'colleague_dm'
                               ? `/dm/${encodeURIComponent(conversation.agents[0]!.uid)}`
-                              : `/conversations/${conversation.id}`
+                              : `/conversations/${conversation.id}`,
+                            conversation.searchMatch
+                              ? { findMessage: { query: settledQuery.trim(), seq: conversation.searchMatch.seq } }
+                              : undefined
                           )
                         }>
                         <ConversationGlyph room={conversation} />
-                        <span className="truncate">
-                          <ConversationTitle room={conversation} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">
+                            <ConversationTitle room={conversation} />
+                          </span>
+                          {conversation.searchMatch && (
+                            <span className="block truncate text-xs text-fg-tertiary">
+                              {conversation.searchMatch.excerpt}
+                            </span>
+                          )}
                         </span>
                       </CommandItem>
                     )

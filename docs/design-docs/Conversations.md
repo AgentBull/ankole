@@ -387,6 +387,9 @@ expose only active Agents on which the Human holds `chat` permission.
 | `GET /conversations` | Accessible rooms with personal preferences, Agent identities, activity status, search, cursor pagination, and pinned-first or recent interaction order; `imOnly` excludes personal-assistant tasks |
 | `POST /conversations` | Initial Agents and Humans, first message, optional Page, access scope and explicit `roomMode`; bound colleague DMs reuse their identity |
 | `GET /conversations/attention` | Accessible rooms with unread messages, pending interactions or active work, including downstream peer work |
+| `POST /next-steps` | The personal assistant's open next steps for the current Human's chat home; `refresh` asks for another menu and `locale` sets the writing language |
+| `POST /next-steps/:id/choose` | Record that the current Human chose one of their offered next steps |
+| `POST /conversations/:id/reply-suggestion` | One line the Human may send after the latest Agent reply, or no text when the room or reply does not qualify |
 | `GET /conversations/:id/peer-exchanges/:exchange_id` | Paginated public exchange messages, execution summaries and live state; access follows the origin |
 | `POST /conversations/:id/peer-exchanges/:exchange_id/stop` | Stop the colleague's exchange through the ordinary Session command owner |
 | `GET /conversations/:id` | Room, participants, message window, room-wide artifacts and pending questions, Agent activities and queues, and linked background work |
@@ -487,7 +490,30 @@ requests without valid CSRF proof are rejected before reaching domain actions.
 
 New Chat opens a personal-assistant task with a greeting, starter prompts and
 composer. The sidebar header offers this action below both tabs to formal
-members, with Command/Control+Shift+O. A colleague DM instead shows the
+members, with Command/Control+Shift+O.
+
+While the composer is empty, the chat home shows the personal assistant's
+next-step menu in place of the fixed starter prompts. A menu offers 4 to 7
+concrete steps, recommended step first, each with its expected outcome, effort
+and reason to start now; at most one step is an ambitious 10x step.
+`Conversations.NextSteps` writes the menu with the personal assistant's `light`
+model profile (or `primary` when `light` is unset) from what the Human can
+already see: attention rooms, recent rooms, recently updated pages and recent
+Brain knowledge. The server trims and bounds every field, keeps only the first
+ambitious flag, and writes no menu from a reply with fewer than 4 complete
+steps. `next_step_suggestions` stores each offered step for its Human: all steps
+of one menu share `last_offered_at`, `position` keeps their order, and
+`offer_count` counts the menus that offered a step. The chat home reuses the
+latest menu until it is 24 hours old, until every step in it has been chosen,
+or until the Human chooses Show others. A step that two menus offered without
+being chosen is retired until retention removes it, and a chosen step is not
+offered again; the model receives both lists only as steps to avoid. Choosing a
+step records the choice and fills the composer with the step's title and
+expected result, which the Human edits and sends as a new task. When no menu
+exists or a new one cannot be written, the home shows the fixed starter
+prompts; a failed refresh keeps a menu that is less than a day old and tells
+the Human that no other steps are available. Steps older than 30 days are
+deleted when the next menu is written. A colleague DM instead shows the
 colleague's name, `@uid`, and role above a composer with a fixed recipient at
 `/dm/<uid>`; `/?agent=<uid>` redirects there.
 
@@ -516,7 +542,19 @@ re-evaluating participant and Page permissions on every refresh.
 Inside a colleague DM, the header identifies the colleague by display name and
 UID. Task and group headers let participants edit the conversation title.
 Global search finds callable colleagues by UID, display name, or role and opens
-their stable DM, including colleagues the Human has not contacted yet.
+their stable DM, including colleagues the Human has not contacted yet. It also
+lists accessible rooms whose title or message text matches, and a message match
+shows a one-line excerpt of the latest matching message. Choosing that result
+opens the room at the message: Pod loads up to ten pages of older history to
+reach it, then opens in-room search with the query and selects the match inside
+that message.
+When a Human enters a room that has messages from others after their read
+position, the timeline opens at the first of those messages under a New messages
+divider, unless Pod still holds the Human's reading position from an earlier
+visit to that room in the same session.
+The divider stays at the read position the Human had on entry while the visit
+marks the room read, and Pod shows it only when the loaded history reaches that
+position.
 Creating a group from a private conversation prefills its referenced Page links
 for the Human to review and edit; the new group receives those references, while
 the private conversation keeps its transcript and membership.
@@ -644,6 +682,17 @@ overrides:
   in the timeline immediately so teammates can see them. The attachment count
   opens the queued files for preview and download without taking the message
   back into the composer.
+- **Reply suggestion:** After an Agent reply in a room whose only human
+  participant is the viewer, Pod shows one suggested next message above an
+  empty composer when no question, queued input or running work follows the
+  reply. `Conversations.ReplySuggestion` drafts the line with the replying
+  Agent's `light` model profile (or `primary` when `light` is unset) from the
+  last eight messages, in the language the Human writes in the room, and returns
+  no text for a multi-line reply, a reply over
+  120 characters, or one that repeats the Human's last message. Choosing the
+  suggestion only fills the draft. Typing or a new turn hides it, and after the
+  Human passes over three suggestions in a row the room stops showing them for
+  the rest of the visit. Ankole stores no suggestion.
 - **Editing and conflict handling:** Only one composer edit is active at a time
   until saved or canceled, and `ArrowUp` in an empty composer opens the Human's
   latest editable queued item or latest eligible timeline message. A queued
@@ -882,7 +931,14 @@ concurrent writer that commits while confirmation waits invalidates the card:
 On turn completion, `Sessions.Presentation` builds `rich_content.execution` from
 the durable turn journal and tool results, recording the reasoning summary,
 ordered steps, tool outcomes, code-execution source/output, and durations
-directly on the Agent reply. `execution.status` identifies completed, stopped,
+directly on the Agent reply. Each step stores an excerpt of at most 8,000
+characters for its input and its output: the input keeps its opening, and the
+output keeps its opening and its last 5,000 characters, so a long command still
+shows its exit status and the failures and summary it prints at the end. When a
+person expands a command step, Pod scrolls its output to that end. Pod renders
+an `apply_patch` step as the files it changes, each with its added and
+removed line counts and changed lines, and marks a patch whose excerpt ends
+before `*** End Patch`. `execution.status` identifies completed, stopped,
 and failed work; on a stopped or failed native turn, `Presentation` stores the
 execution record on the turn's notice message and marks any missing or
 interrupted tool results with that terminal turn outcome (merely emitting a tool

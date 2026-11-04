@@ -4047,6 +4047,18 @@ reauthentication_required = "現在のサインインを再確認してから、
 mail_unavailable = "メールを送信できません。サイトの SMTP 設定を確認して再試行してください。"
 external_guests_disabled = "このスペースでは外部ゲストを許可していません。"
 
+[pod.next_steps]
+title = "次に進められること"
+refresh = "別の候補を見る"
+refreshing = "別の候補を探しています…"
+ambitious = "10x の挑戦"
+meta = "{$effort} · {$whyNow}"
+expected = "期待する結果：{$outcome}"
+no_others = "今はほかの候補がありません。しばらくしてからお試しください。"
+
+[pod.reply_suggestion]
+use = "提案された返信を使う：{$text}"
+
 [pod.chat_timeline]
 compose_answer = "参照やファイルを添えて回答"
 answer_context = "この質問に回答中"
@@ -4105,6 +4117,11 @@ you = "あなた"
 archived = "アーカイブ済み"
 tool_count = "ツール呼び出し {$count} 回"
 exit_code = "終了コード {$code}"
+patch_added_file = "追加"
+patch_deleted_file = "削除"
+patch_counts = "{$added} 行を追加、{$removed} 行を削除"
+patch_truncated = "パッチの冒頭部分のみを表示しています。"
+new_messages = "ここから新着メッセージ"
 image_zoom = "画像のズーム"
 load_more_execution = "実行記録をさらに読み込む"
 loading_execution = "実行記録を読み込み中…"

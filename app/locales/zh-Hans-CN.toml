@@ -4048,6 +4048,18 @@ reauthentication_required = "请重新验证当前登录身份，再执行此操
 mail_unavailable = "邮件发送失败。请检查站点 SMTP 配置后重试。"
 external_guests_disabled = "该空间未开启外部访客访问。"
 
+[pod.next_steps]
+title = "接下来可以推进"
+refresh = "换一批"
+refreshing = "正在换一批…"
+ambitious = "10x 野心项"
+meta = "{$effort} · {$whyNow}"
+expected = "期望结果：{$outcome}"
+no_others = "暂时没有新的候选，请稍后再试。"
+
+[pod.reply_suggestion]
+use = "使用建议回复：{$text}"
+
 [pod.chat_timeline]
 compose_answer = "带引用或附件回答"
 answer_context = "正在回答此问题"
@@ -4106,6 +4118,11 @@ you = "你"
 archived = "已归档"
 tool_count = "{$count} 次工具调用"
 exit_code = "退出码 {$code}"
+patch_added_file = "新增"
+patch_deleted_file = "删除"
+patch_counts = "新增 {$added} 行，删除 {$removed} 行"
+patch_truncated = "这里只显示补丁的开头部分。"
+new_messages = "以下为新消息"
 image_zoom = "图片缩放"
 load_more_execution = "加载更多执行记录"
 loading_execution = "正在加载执行记录…"

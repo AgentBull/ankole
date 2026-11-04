@@ -361,6 +361,25 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
     assert {:ok, _} = post(actor, newer.conversation.id, "Needle in history")
     assert [found] = Conversations.list_rooms(actor, query: "needle")
     assert found.conversation.id == newer.conversation.id
+    assert %{seq: first_seq, excerpt: "Needle in history"} = found.search_match
+
+    long =
+      String.duplicate("context ", 20) <> "the NEEDLE\n\nmoved " <> String.duplicate("later ", 30)
+
+    assert {:ok, _} = post(actor, newer.conversation.id, long)
+    assert [found] = Conversations.list_rooms(actor, query: "needle")
+    # The latest matching message wins, and its excerpt is one line around the match.
+    assert found.search_match.seq > first_seq
+    assert "…" <> excerpt = found.search_match.excerpt
+    assert excerpt =~ "the NEEDLE moved later"
+    assert String.ends_with?(excerpt, "…")
+
+    assert %{searchMatch: %{seq: _, excerpt: _}} =
+             Ankole.Pod.Chat.Presentation.conversation(found)
+
+    assert [] = Conversations.list_rooms(actor, query: "absent")
+    assert [unmatched | _] = Conversations.list_rooms(actor)
+    refute Map.has_key?(unmatched, :search_match)
   end
 
   test "queued input for another Agent stays visible in this Agent's context", %{

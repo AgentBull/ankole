@@ -57,7 +57,12 @@ export const podKeys = {
     [...podKeys.conversations, ...(query.trim() ? ['search', query.trim()] : [])] as const,
   pageConversations: (pageID: string) => [...podKeys.conversations, 'page', pageID] as const,
   detail: (id: string) => [...contextKey(), 'conversation', id] as const,
-  actionCard: (id: string) => [...contextKey(), 'action-card', id] as const
+  actionCard: (id: string) => [...contextKey(), 'action-card', id] as const,
+  get nextSteps() {
+    return [...contextKey(), 'next-steps'] as const
+  },
+  replySuggestion: (id: string, messageID: string) =>
+    [...contextKey(), 'conversation', id, 'reply-suggestion', messageID] as const
 }
 export const actionCardQuery = (id: string) => ({
   queryKey: podKeys.actionCard(id),

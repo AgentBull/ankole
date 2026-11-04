@@ -73,7 +73,7 @@ defmodule Ankole.Sessions.GeneratedImageFinalizationIntegrationTest do
       [:ankole, :repo, :query],
       fn _, _, metadata, _ ->
         if Repo.tenant_id() == tenant and
-             String.starts_with?(metadata.query, "INSERT INTO files ") do
+             String.starts_with?(metadata.query, ~s(INSERT INTO "file_objects")) do
           :telemetry.detach(hook)
           send(parent, {:before_object_write, self(), Repo.in_transaction?()})
 
@@ -116,7 +116,7 @@ defmodule Ankole.Sessions.GeneratedImageFinalizationIntegrationTest do
     assert {:ok, {_, recovered}} = Run.restore(recovered)
     assert {:ok, result} = Run.finalize(recovered)
     [attachment] = Enum.flat_map(result.posted.intents, &(&1.payload["attachments"] || []))
-    assert {:ok, _, ^bytes} = Files.read(agent.uid, attachment["path"])
+    assert {:ok, ^bytes} = Files.read_object(attachment["object_id"])
     assert Repo.reload!(event).completed_at
     assert Repo.aggregate(Ankole.AIGateway.Schemas.Message, :count) == 1
     assert Repo.aggregate(Signal, :count) == 1

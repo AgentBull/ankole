@@ -121,11 +121,15 @@ defmodule Ankole.Pod.HomePlanTest do
     outsider = human_fixture().principal
     actor = actor_fixture(owner)
 
-    for type <- ~w(doc knowledge base applet) do
+    for type <- ~w(doc base applet) do
       assert {:ok, parent} = Pages.create(actor, %{type: type, private_owner_uid: owner.uid})
       assert {:ok, child} = Pages.create(actor, %{parent_id: parent.id, title: "Manual"})
       assert child.parent_id == parent.id
     end
+
+    # Knowledge Pages belong to the Brain root, not to collaboration roots.
+    assert {:error, :invalid_page_domain} =
+             Pages.create(actor, %{type: "knowledge", private_owner_uid: owner.uid})
 
     {:ok, file} = Pages.create(actor, %{type: "file", private_owner_uid: owner.uid})
     assert {:error, :not_a_directory} = Pages.create(actor, %{parent_id: file.id})

@@ -501,3 +501,46 @@ describe('Pod unavailable conversations', () => {
     }
   })
 })
+
+describe('Pod conversation entry', () => {
+  test('a room opened with unread replies marks where the new messages begin', async () => {
+    await loadLocale('en-US')
+    const client = new QueryClient({
+      defaultOptions: { queries: { gcTime: Infinity, retry: false, staleTime: Infinity } }
+    })
+    const detail = conversationFixture()
+    const read = detail.messages[0]!
+    detail.messages.push(
+      { ...read, id: 'night-report', seq: 2, authorType: 'agent', authorUID: 'agent', text: 'Night report' },
+      { ...read, id: 'morning-report', seq: 3, authorType: 'agent', authorUID: 'agent', text: 'Morning report' }
+    )
+    detail.messageRange = { firstSeq: 1, lastSeq: 3 }
+    detail.conversation.lastMessageSeq = 3
+    client.setQueryData(podKeys.detail(conversationID), detail)
+    const rootRoute = createRootRoute({ component: () => <ChatPage conversationID={conversationID} /> })
+    const router = createRouter({
+      routeTree: rootRoute,
+      history: createMemoryHistory({ initialEntries: ['/'] }),
+      parseSearch: parseRouterSearch,
+      stringifySearch: stringifyRouterSearch
+    })
+    await router.load()
+    try {
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={client}>
+          <SidebarProvider>
+            <ChatDraftProvider>
+              <RouterProvider router={router} />
+            </ChatDraftProvider>
+          </SidebarProvider>
+        </QueryClientProvider>
+      )
+      const divider = html.indexOf('pod-chat-unread-divider')
+      expect(divider).toBeGreaterThan(html.indexOf('Previously cached private text'))
+      expect(divider).toBeLessThan(html.indexOf('Night report'))
+      expect(html.match(/pod-chat-unread-divider/g)).toHaveLength(1)
+    } finally {
+      client.clear()
+    }
+  })
+})

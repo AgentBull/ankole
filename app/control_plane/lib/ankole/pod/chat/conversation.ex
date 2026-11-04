@@ -22,6 +22,15 @@ defmodule Ankole.Pod.Chat.Conversation do
         canManage: [type: :boolean, allow_nil?: false],
         createdBy: [type: Ankole.Ash.Types.PrincipalKey, allow_nil?: false],
         latestMessagePreview: [type: :string, constraints: [trim?: false, allow_empty?: true]],
+        searchMatch: [
+          type: :map,
+          constraints: [
+            fields: [
+              seq: [type: :integer, allow_nil?: false],
+              excerpt: [type: :string, allow_nil?: false, constraints: [trim?: false]]
+            ]
+          ]
+        ],
         lastMessageSeq: [type: :integer, allow_nil?: false],
         rowStatus: [type: :string, allow_nil?: false],
         viewer: [

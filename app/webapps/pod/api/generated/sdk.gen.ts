@@ -9,6 +9,9 @@ import type {
   ChangePodMembershipData,
   ChangePodMembershipErrors,
   ChangePodMembershipResponses,
+  ChoosePodNextStepData,
+  ChoosePodNextStepErrors,
+  ChoosePodNextStepResponses,
   ConversationDetailData,
   ConversationDetailErrors,
   ConversationDetailResponses,
@@ -330,6 +333,9 @@ import type {
   PodModelSelectionData,
   PodModelSelectionErrors,
   PodModelSelectionResponses,
+  PodNextStepsData,
+  PodNextStepsErrors,
+  PodNextStepsResponses,
   PodPageChildrenData,
   PodPageChildrenErrors,
   PodPageChildrenResponses,
@@ -420,6 +426,9 @@ import type {
   PodRealtimeTokenData,
   PodRealtimeTokenErrors,
   PodRealtimeTokenResponses,
+  PodReplySuggestionData,
+  PodReplySuggestionErrors,
+  PodReplySuggestionResponses,
   PodSpaceAgentDeleteData,
   PodSpaceAgentDeleteErrors,
   PodSpaceAgentDeleteResponses,
@@ -638,6 +647,19 @@ export const updateConversationQueue = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * choosePodNextStep operation on pod_chat_operation resource
+ */
+export const choosePodNextStep = <ThrowOnError extends boolean = true>(
+  options: Options<ChoosePodNextStepData, ThrowOnError>
+): RequestResult<ChoosePodNextStepResponses, ChoosePodNextStepErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<ChoosePodNextStepResponses, ChoosePodNextStepErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/next-steps/{id}/choose',
+    ...options
   })
 
 /**
@@ -2534,6 +2556,23 @@ export const podSpaceAgentDelete = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podNextSteps operation on pod_chat_operation resource
+ */
+export const podNextSteps = <ThrowOnError extends boolean = true>(
+  options?: Options<PodNextStepsData, ThrowOnError>
+): RequestResult<PodNextStepsResponses, PodNextStepsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).post<PodNextStepsResponses, PodNextStepsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/next-steps',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options?.headers
+    }
+  })
+
+/**
  * podBaseViewCreate operation on pod_base_operation resource
  */
 export const podBaseViewCreate = <ThrowOnError extends boolean = true>(
@@ -3085,6 +3124,23 @@ export const metaUpdateAgent = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/meta/agents/{uid}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podReplySuggestion operation on pod_chat_operation resource
+ */
+export const podReplySuggestion = <ThrowOnError extends boolean = true>(
+  options: Options<PodReplySuggestionData, ThrowOnError>
+): RequestResult<PodReplySuggestionResponses, PodReplySuggestionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodReplySuggestionResponses, PodReplySuggestionErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/reply-suggestion',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

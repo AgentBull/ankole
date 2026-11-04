@@ -351,7 +351,7 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
     assert %{"state" => "pending"} = Interactions.native_interaction(card.signal_id, id)
   end
 
-  test "Pod RPC reads intersect the Agent, requester, and native room readers",
+  test "Pod RPC business reads follow the AI colleague's own permissions, whoever asks in the room",
        ctx do
     alias Ankole.Pod.{Bases, Pages, RPCBroker}
     alias Ankole.RuntimeFabric.V1.PodRequest
@@ -373,16 +373,6 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
     assert {:ok, %{records: [_]}} =
              Bases.write_records(alice, table.id, %{creates: [%{data: %{}}]})
 
-    for page <- [document, database] do
-      assert {:ok, _} =
-               Ankole.Pod.PagesFixtures.set_sharing(ctx.alice.uid, page.id, %{
-                 grants: [%{principal_uid: ctx.agent.uid, role: "view"}]
-               })
-
-      assert {:ok, _} = Pages.authorize(actor_fixture(ctx.agent), page.id, "node_view")
-      assert {:error, :forbidden} = Pages.authorize(actor_fixture(ctx.bob), page.id, "node_view")
-    end
-
     rpc_context = %{
       worker_id: ctx.agent.uid,
       route: "native-agent-read",
@@ -394,14 +384,6 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
       session_id: ctx.event.session_id,
       signal_id: ctx.event.id
     }
-
-    query = %PodRequest{
-      operation: "base.query",
-      params_json: Ankole.JSON.encode!(%{id: table.id})
-    }
-
-    assert {:error, %{"code" => "not_found"}} =
-             RPCBroker.handle_read(alice_ref, query, rpc_context)
 
     assert {:ok, _} =
              Conversations.post(actor_fixture(ctx.bob), ctx.id, %{
@@ -417,43 +399,45 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
 
     bob_ref = %RunRef{agent_uid: ctx.agent.uid, session_id: event.session_id, signal_id: event.id}
 
-    read = %PodRequest{
-      operation: "pages.list",
-      params_json: "{}"
+    query = %PodRequest{
+      operation: "base.query",
+      params_json: Ankole.JSON.encode!(%{id: table.id})
     }
 
-    assert {:ok, %{"result" => pages}} = RPCBroker.handle_read(bob_ref, read, rpc_context)
-    refute Enum.any?(pages, &(&1["id"] == document.id))
+    list = %PodRequest{operation: "pages.list", params_json: "{}"}
 
+    # Alice's private pages stay hidden while the colleague holds no grant, even when Alice asks.
     assert {:error, %{"code" => "not_found"}} =
-             RPCBroker.handle_read(bob_ref, query, rpc_context)
+             RPCBroker.handle_read(alice_ref, query, rpc_context)
+
+    assert {:ok, %{"result" => pages}} = RPCBroker.handle_read(bob_ref, list, rpc_context)
+    refute Enum.any?(pages, &(&1["id"] == document.id))
 
     for page <- [document, database] do
       assert {:ok, _} =
                Ankole.Pod.PagesFixtures.set_sharing(ctx.alice.uid, page.id, %{
-                 grants: [
-                   %{principal_uid: ctx.agent.uid, role: "view"},
-                   %{principal_uid: ctx.bob.uid, role: "view"}
-                 ]
+                 grants: [%{principal_uid: ctx.agent.uid, role: "view"}]
                })
+
+      assert {:ok, _} = Pages.authorize(actor_fixture(ctx.agent), page.id, "node_view")
+      assert {:error, :forbidden} = Pages.authorize(actor_fixture(ctx.bob), page.id, "node_view")
     end
 
-    assert {:ok, %{"result" => pages}} = RPCBroker.handle_read(bob_ref, read, rpc_context)
+    # The grant belongs to the colleague, so it answers Bob as well as Alice.
+    for ref <- [alice_ref, bob_ref] do
+      assert {:ok, %{"result" => %{"records" => [_]}}} =
+               RPCBroker.handle_read(ref, query, rpc_context)
+    end
+
+    assert {:ok, %{"result" => pages}} = RPCBroker.handle_read(bob_ref, list, rpc_context)
     assert Enum.any?(pages, &(&1["id"] == document.id))
-
-    assert {:ok, %{"result" => %{"records" => [_]}}} =
-             RPCBroker.handle_read(alice_ref, query, rpc_context)
-
-    assert {:ok, %{"result" => %{"records" => [_]}}} =
-             RPCBroker.handle_read(bob_ref, query, rpc_context)
 
     assert {:ok, _} =
              Ankole.Pod.PagesFixtures.set_sharing(ctx.alice.uid, database.id, %{
-               grants: [
-                 %{principal_uid: ctx.bob.uid, role: "view"}
-               ]
+               grants: [%{principal_uid: ctx.bob.uid, role: "view"}]
              })
 
+    # Bob's own grant does not extend the colleague's access.
     assert {:error, %{"code" => "not_found"}} =
              RPCBroker.handle_read(bob_ref, query, rpc_context)
   end
