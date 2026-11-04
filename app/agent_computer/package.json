@@ -26,7 +26,6 @@
   },
   "dependencies": {
     "@agentbull/active-support": "^1.6.0",
-    "@ankole/block-editor": "workspace:*",
     "@ankole/browser": "workspace:*",
     "@bufbuild/protobuf": "2.16.0",
     "@ff-labs/fff-bun": "0.11.0",
