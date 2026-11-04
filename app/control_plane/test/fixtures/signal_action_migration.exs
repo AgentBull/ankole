@@ -15,6 +15,7 @@ Application.ensure_all_started(:tzdata)
     signal = uuid.()
     cron = uuid.()
     webhook = uuid.()
+    conversation = uuid.()
 
     repo.query!(
       """
@@ -31,6 +32,23 @@ Application.ensure_all_started(:tzdata)
       VALUES($1::text::uuid,'migration-agent','ai_colleague','Migration','migration-owner',now(),now())
       """,
       [tenant]
+    )
+
+    repo.query!(
+      """
+      INSERT INTO conversations(tenant_id,id,kind,title,created_by,room_mode,native_access_scope,last_activity_at,inserted_at,updated_at)
+      VALUES($1::text::uuid,$2::text::uuid,'native','Historical schedule destination','migration-owner','dm','participants',now(),now(),now())
+      """,
+      [tenant, conversation]
+    )
+
+    repo.query!(
+      """
+      INSERT INTO conversation_participants(tenant_id,conversation_id,principal_uid,role,may_intervene)
+      VALUES($1::text::uuid,$2::text::uuid,'migration-owner','owner',false),
+        ($1::text::uuid,$2::text::uuid,'migration-agent','agent',true)
+      """,
+      [tenant, conversation]
     )
 
     repo.query!(
@@ -69,10 +87,11 @@ Application.ensure_all_started(:tzdata)
 
     repo.query!(
       """
-      INSERT INTO cron_schedules(tenant_id,id,status,agent_uid,owner_session_id,name,schedule,timezone,payload,next_fire_at,idempotency_key,automation_job_id,authorization_kind,inserted_at,updated_at)
-      VALUES($1::text::uuid,$2::text::uuid,'active','migration-agent','migration','Historical cron','{"cron":"0 * * * *"}','UTC','{}',now(),'cron',9000,'service',now(),now())
+      INSERT INTO cron_schedules(tenant_id,id,status,agent_uid,owner_session_id,name,schedule,timezone,payload,delivery,next_fire_at,idempotency_key,automation_job_id,authorization_kind,inserted_at,updated_at)
+      VALUES($1::text::uuid,$2::text::uuid,'active','migration-agent','migration','Historical cron','{"kind":"cron","expression":"0 * * * *","timezone":"UTC"}','UTC','{}',
+        jsonb_build_object('targets',jsonb_build_array(jsonb_build_object('conversation_id',$3::text))),now(),'cron',9000,'service',now(),now())
       """,
-      [tenant, cron]
+      [tenant, cron, conversation]
     )
 
     for {id, status, job, run, delivered} <- [
@@ -119,7 +138,9 @@ Application.ensure_all_started(:tzdata)
       [tenant, cron]
     )
 
-    Ecto.Migrator.run(repo, Ankole.Migrations.paths(), :up, all: true, log: false)
+    # Verify the historical routing conversion before the later migration
+    # deliberately removes the retired Agent-script executor and its deliveries.
+    Ecto.Migrator.run(repo, Ankole.Migrations.paths(), :up, to: 20_261_104_120_000, log: false)
 
     assert [["migration-owner"]] ==
              repo.query!(
@@ -205,6 +226,109 @@ Application.ensure_all_started(:tzdata)
       assert length(Ankole.Signals.delivery_receipts(signal)) == 1
     end)
 
+    retained_binding = uuid.()
+
+    repo.query!(
+      """
+      INSERT INTO automation_jobs(tenant_id,id,executor_kind,page_id,action_key,label,
+        authorization_kind,wake_on_failure,inserted_at,updated_at)
+      VALUES($1::text::uuid,9100,'applet_function',$2::text::uuid,'retained',
+        'Retained Applet Job','service',false,now(),now())
+      """,
+      [tenant, page]
+    )
+
+    repo.query!(
+      """
+      INSERT INTO automation_job_runs(tenant_id,id,automation_job_id,event,status,finished_at,inserted_at,updated_at)
+      VALUES($1::text::uuid,9101,9100,'{}','succeeded',now(),now(),now())
+      """,
+      [tenant]
+    )
+
+    repo.query!(
+      """
+      INSERT INTO signal_bindings(tenant_id,id,name,adapter,config_ref,routing_mode,
+        automation_job_id,target,enabled,inserted_at,updated_at)
+      VALUES($1::text::uuid,$2::text::uuid,'Retained Applet source','internal',
+        'applet://' || $3,'action',9100,'{}',true,now(),now())
+      """,
+      [tenant, retained_binding, page]
+    )
+
+    repo.query!(
+      """
+      INSERT INTO signal_binding_receipts(tenant_id,binding_id,source,source_event_id,signal_id,automation_job_run_id)
+      VALUES($1::text::uuid,$2::text::uuid,'ankole:applet:retained','retained-event','retained-event',9101)
+      """,
+      [tenant, retained_binding]
+    )
+
+    Ecto.Migrator.run(repo, Ankole.Migrations.paths(), :up, all: true, log: false)
+
+    assert [[9100]] ==
+             repo.query!(
+               "SELECT id FROM automation_jobs WHERE tenant_id=$1::text::uuid AND id IN (9000,9100)",
+               [tenant]
+             ).rows
+
+    assert [[0]] ==
+             repo.query!(
+               "SELECT count(*) FROM automation_job_runs WHERE tenant_id=$1::text::uuid AND automation_job_id=9000",
+               [tenant]
+             ).rows
+
+    assert [[0]] ==
+             repo.query!(
+               "SELECT count(*) FROM signal_bindings WHERE tenant_id=$1::text::uuid AND (automation_job_id=9000 OR config_ref='job://9000')",
+               [tenant]
+             ).rows
+
+    assert [[0]] ==
+             repo.query!(
+               "SELECT count(*) FROM information_schema.columns WHERE table_name='automation_jobs' AND column_name IN ('executor_kind','agent_uid','drive_prefix','owner_session_id')"
+             ).rows
+
+    assert [[2, 1, 1]] ==
+             repo.query!(
+               "SELECT count(*),count(automation_job_run_id),count(delivered_signal_id) FROM signal_binding_receipts WHERE tenant_id=$1::text::uuid",
+               [tenant]
+             ).rows
+
+    assert [["action", 9100, 9101]] ==
+             repo.query!(
+               """
+               SELECT b.routing_mode,b.automation_job_id,r.automation_job_run_id
+               FROM signal_bindings b JOIN signal_binding_receipts r
+                 ON r.tenant_id=b.tenant_id AND r.binding_id=b.id
+               JOIN automation_job_runs j ON j.tenant_id=r.tenant_id AND j.id=r.automation_job_run_id
+               WHERE b.tenant_id=$1::text::uuid AND b.id=$2::text::uuid
+               """,
+               [tenant, retained_binding]
+             ).rows
+
+    assert [["migration-agent", signal]] ==
+             repo.query!(
+               """
+               SELECT s.agent_uid,e.signal_id::text FROM scheduled_events e
+               JOIN signals s ON s.tenant_id=e.tenant_id AND s.id=e.signal_id
+               JOIN agents a ON a.tenant_id=s.tenant_id AND a.uid=s.agent_uid
+               WHERE e.tenant_id=$1::text::uuid AND e.id=9004
+               """,
+               [tenant]
+             ).rows
+
+    Repo.with_tenant(tenant, fn ->
+      {:ok, event} = Ankole.Schedule.get_checkback(9004)
+      projection = Ankole.Schedule.Projections.event_model_projection(event)
+
+      assert [%{automation_job_run_id: nil, delivered_signal_id: ^signal}] =
+               projection["deliveries"]
+
+      assert :ok = Ankole.Signals.Dispatch.expire_receipts(DateTime.utc_now())
+      assert length(Ankole.Signals.delivery_receipts(signal)) == 1
+    end)
+
     repo.query!(
       "UPDATE principals SET uid='migration-owner-renamed' WHERE tenant_id=$1::text::uuid AND uid='migration-owner'",
       [tenant]
@@ -220,5 +344,5 @@ Application.ensure_all_started(:tzdata)
   end)
 
 IO.puts(
-  "Signal/Action historical migration verified: schedule, checkback, webhook and Job bindings, Run and Signal history, retention, and owner rename."
+  "Signal/Action migration verified: historical routing conversion, Agent-script retirement, preserved Applet and Agent delivery history, retention, and owner rename."
 )

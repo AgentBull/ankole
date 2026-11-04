@@ -49,10 +49,11 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
       ) do
     with {:ok, job_id} <- request_job_id(request.job_id),
          %Job{} = job <- BackgroundAgentJobs.get_job_for_agent(job_id, turn_ref.agent_uid),
-         :ok <- authorize_job_target(turn_ref, job) do
+         :ok <- authorize_job_target(turn_ref, job),
+         {:ok, response} <- job_response(job) do
       {:ok,
        %{
-         job_response(job)
+         response
          | attempt_history:
              attempt_history_entries(Ankole.BackgroundAgentJobs.Turns.attempt_history(job))
        }}
@@ -138,8 +139,9 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
              turn_ref: turn_ref,
              worker_id: ctx.worker_id,
              applied_signal_ids: request.applied_signal_ids
-           ) do
-      {:ok, job_response(job)}
+           ),
+         {:ok, response} <- job_response(job) do
+      {:ok, response}
     else
       {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
     end
@@ -164,18 +166,22 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
   # Wire projection of one durable Job row. The Console keeps its own map
   # projection; this struct is the RPC contract.
   defp job_response(%Job{} = job) do
-    %FabricProto.BackgroundAgentJobResponse{
-      agent_uid: job.agent_uid,
-      status: Atom.to_string(job.status),
-      runtime_thread_id: job.runtime_thread_id || "",
-      task: job.task,
-      attempts: job.attempts,
-      workspace_template_id: job.workspace_template_id || "",
-      continued_from_job_id: optional_job_id(job.continued_from_job_id),
-      workspace_owner_job_id: optional_job_id(job.workspace_owner_job_id),
-      metadata_json: encode_optional_json(job.metadata),
-      runtime_projection_json: encode_optional_json(job.runtime_projection)
-    }
+    with {:ok, projection} <-
+           Ankole.BackgroundAgentJobs.RuntimeProjection.for_worker(job.runtime_projection) do
+      {:ok,
+       %FabricProto.BackgroundAgentJobResponse{
+         agent_uid: job.agent_uid,
+         status: Atom.to_string(job.status),
+         runtime_thread_id: job.runtime_thread_id || "",
+         task: job.task,
+         attempts: job.attempts,
+         workspace_template_id: job.workspace_template_id || "",
+         continued_from_job_id: optional_job_id(job.continued_from_job_id),
+         workspace_owner_job_id: optional_job_id(job.workspace_owner_job_id),
+         metadata_json: encode_optional_json(job.metadata),
+         runtime_projection_json: encode_optional_json(projection)
+       }}
+    end
   end
 
   defp attempt_history_entries(nil), do: []

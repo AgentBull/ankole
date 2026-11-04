@@ -14,7 +14,7 @@ order: 313
 | 1.x 旧版形态 | 2.0 新版形态 | 所需运维操作 |
 | --- | --- | --- |
 | 共享池化 Worker、共用 `/agents` 目录 | 每个 Agent 独享一台 Worker 及专属 `/workspace` | 迁移或接管旧版主目录（Home），并指派 WorkerProvider |
-| 存放在主目录内的已安装 Skill 与自动化脚本 | 统一迁入控制面云盘的 `skills/` 与 `automation/` 目录 | 执行一次性历史文件导入命令 |
+| Home 中的已安装 Skill 和 Worker 脚本自动化 | Skill 保存在控制面 Drive，自动化代码发布为 Applet Action | 导入 Skill；导出脚本任务并重建为 Applet 任务 |
 | Worker 本地临时保存的 Codex 状态 | `/workspace/.codex` 持久化保存线程，`/var/cache/ankole/codex` 存放可重建缓存 | 保留主目录存储，并为 Worker 单独挂载缓存盘 |
 | 进程内脚本沙箱与双镜像部署 | 独立无状态的 `ankole-function-runtime`（`control-plane`、`worker`、`function-runtime` 三镜像同版本协同） | 补充 `ANKOLE_FUNCTION_RUNTIME_TOKEN` 密钥，并同步升级三套同版本镜像 |
 | 无租户概念的单库数据与配置 | 存量数据统一归入 `default` 租户；Pod / Base 存储要求 **PostgreSQL 18+**（支持可选的 `BASE_DB_URLS` 独立分片库） | 先将数据库升级至 PostgreSQL 18+，再沿用原主密钥执行 Schema 与加密配置迁移 |
@@ -22,6 +22,8 @@ order: 313
 | 挂载在 `/console` 的管理后台 | 迁至 `/site-admin-console`（或由 `ANKOLE_SITE_ADMIN_CONSOLE_PATH` 指定）的站点管理控制台 | 同步更新浏览器书签与反向代理路由规则 |
 
 若你的 1.x 站点此前已启用独享 Worker 或控制面云盘，只需按需执行尚未覆盖的迁移步骤即可；切勿用全新空白存储卷直接覆盖原有的主目录或云盘数据。
+
+升级前，应导出所有 `agent_script` 任务的定义、源代码、配置和需要保留的运行历史。Applet-only 迁移会永久删除这些任务及其运行历史、绑定与回执，回退容器镜像无法恢复这些数据。升级后，应发布替代的 Applet Action、创建任务并重新连接定时或回调，再恢复自动化流量。旧的 automation-job CLI 命令和 `automation_jobs.max_running_per_agent` 配置项已移除。恢复已删除的数据需要还原升级前的数据库备份。
 
 ## 升级前准备
 
@@ -75,7 +77,7 @@ docker compose run --rm --no-deps -v ankole_agents_data:/agents:ro control-plane
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
-该导入命令会将旧主目录中已安装的 Skill、自动化脚本及尚未发出的旧版发件箱（Outbox）附件复制到控制面云盘，且不会覆盖云盘上已有的同名路径；常规用户数据文件、Session 工作区与后台任务工作区则继续留在各 Agent 的新主目录内。请妥善留存控制台打印的导入报告，针对报告中标为 `Skipped` 的条目或缺失 `main.ts` 的自动化任务逐一修复后，可安全地再次运行导入命令补齐。在完成全部文件抽检与恢复演练前，请勿删除旧共享卷。
+导入命令会将已安装的 Skill 和尚未发出的旧版 Outbox 附件复制到控制面云盘，不覆盖已有路径。普通用户文件、Session 与后台任务工作区保留在 Home。保存导入报告，修复跳过的文件后重新运行。脚本源代码应单独备份，用于改写为 Applet Action；完成文件验证和恢复演练前，应保留旧卷。
 
 ## Kubernetes / Helm 升级
 
@@ -117,7 +119,7 @@ kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
 ## 验证与失败恢复
 
 - **核对控制面资产**：登录新版站点管理控制台，检查 `default` 租户下的存量 Agent、身份源提供商、信号路由绑定及历史任务是否完整就位。确认每个存量 Agent 均已成功指派 `WorkerProvider`（全局默认提供商仅对后续新建的 Agent 生效）。
-- **单点灰度实测**：先单独启用一个测试 Agent，实际触发一轮文件读写与后台任务，逐一验证原主目录文件读取、Codex 历史线程恢复、已导入的 Skill 与自动化脚本调用，以及云盘文件上传下载与聊天附件收发；全部验证通过后，再分批重新启用其余 Agent 与定时计划任务。
+- **单点灰度实测**：先单独启用一个测试 Agent，实际触发一轮文件读写与后台任务，逐一验证原主目录文件读取、Codex 历史线程恢复、已导入的 Skill 与已发布的 Applet Action调用，以及云盘文件上传下载与聊天附件收发；全部验证通过后，再分批重新启用其余 Agent 与定时计划任务。
 - **迁移中途报错处置**：一旦迁移失败，请保持旧版控制面处于关停状态，查看 Docker Compose 的 `migrate` 日志或 Kubernetes 的 `db-migrate` 容器日志；按报错提示修正缺失密钥、失效外部凭据、保留组名冲突或存储挂载权限后，使用同一目标版本重新运行迁移。
 - **清理孤儿主目录**：文件导入报告中会单独列出早期已删除 Agent 遗留在磁盘上的孤儿目录，导入脚本不会为它们反向重建新 Agent；人工核实目录内确无需要保留的历史产物后，再行清理。
 - **执行完整回退**：如需回退至升级前的 1.x 版本，必须先停止所有新版控制面、`ankole-function-runtime` 副本与全部 Worker，随后将升级前备份的 PostgreSQL 数据库（含所有已配置的 `BASE_DB_URLS` 分片库）、文件存储、Agent 主目录、部署配置及原密钥**成套同步还原**，最后再拉起旧版镜像。单纯执行 `helm rollback` 或回退容器镜像版本，既无法撤销不可逆的无密码凭证转换与数据库 Schema 变更，也无法保留升级窗口后新产生的未导出数据。

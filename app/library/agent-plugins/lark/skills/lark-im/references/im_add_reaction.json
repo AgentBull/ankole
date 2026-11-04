@@ -1,0 +1,58 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Im add reaction.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "message_id": {
+        "type": "string"
+      },
+      "reaction_type": {
+        "properties": {
+          "emoji_type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "required": ["message_id", "reaction_type"],
+    "type": "object"
+  },
+  "name": "im_add_reaction",
+  "outputSchema": {
+    "properties": {
+      "action_time": {
+        "type": "string"
+      },
+      "operator": {
+        "properties": {
+          "operator_id": {
+            "type": "string"
+          },
+          "operator_type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "reaction_id": {
+        "type": "string"
+      },
+      "reaction_type": {
+        "properties": {
+          "emoji_type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object"
+  }
+}

@@ -11,7 +11,7 @@ Agent는 일반 대화 도중 곧바로 셸 명령을 실행하고 파일을 편
 
 ## 셸 명령
 
-Agent는 `app/agent_computer/src/tools/computer/command-tool.ts`에 구현된 `command` 도구를 통해 셸 명령을 실행합니다. 각 명령은 Worker 자체 자격 증명이 제거된 깨끗한 환경 변수를 받아 독립된 프로세스 그룹에서 실행되며, 명령이 취소되거나 제한 시간을 초과하면 해당 프로세스 그룹 전체가 함께 종료됩니다. 포그라운드 실행 제한 시간의 기본값은 180초이며 작업 디렉터리는 반드시 Agent Home 내부여야 합니다. [브라우저 자동화](../browser-automation/) 데몬과 Codex app-server, Automation 스크립트 역시 동일한 일반 사용자 권한으로 동작하므로 Worker 컨테이너에 별도의 특권 커널 권한을 부여할 필요가 없습니다.
+Agent는 `app/agent_computer/src/tools/computer/command-tool.ts`에 구현된 `command` 도구를 통해 셸 명령을 실행합니다. 각 명령은 Worker 자체 자격 증명이 제거된 깨끗한 환경 변수를 받아 독립된 프로세스 그룹에서 실행되며, 명령이 취소되거나 제한 시간을 초과하면 해당 프로세스 그룹 전체가 함께 종료됩니다. 포그라운드 실행 제한 시간의 기본값은 180초이며 작업 디렉터리는 반드시 Agent Home 내부여야 합니다. [브라우저 자동화](../browser-automation/) 데몬과 Codex app-server 역시 동일한 일반 사용자 권한으로 동작하므로 Worker 컨테이너에 별도의 특권 커널 권한을 부여할 필요가 없습니다.
 
 모든 명령은 `sudo` 없이 `uid 1000`으로 실행됩니다. 따라서 Agent Home에 파일을 쓰고 사용자 수준 패키지를 설치하거나 하위 프로세스를 띄울 수는 있지만, 운영체제 시스템 패키지를 전역 설치할 수는 없습니다. 동일한 Agent에 속한 대화 Session과 백그라운드 Job은 같은 Agent Home 파일시스템을 볼 수 있습니다. 다른 Agent와의 격리는 컨테이너 인스턴스 경계가 담당하며, Worker 내부에는 데이터베이스 연결 정보나 객체 스토리지 원본 자격 증명이 존재하지 않습니다.
 

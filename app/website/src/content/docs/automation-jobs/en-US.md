@@ -1,48 +1,35 @@
 ---
 title: Automation Jobs
-description: Let a deterministic script consume Cron, Checkback, and Webhook triggers. Mechanical checks finish silently, and the Agent wakes only for judgment.
+description: Run published Applet Actions from schedules, callbacks, and external events, and inspect their durable results.
 section: User guide
 order: 22
 ---
 
-By default, all three triggers—Cron schedules, Checkbacks, and webhook endpoints—wake an Agent conversation directly. An Automation Job provides a second consumer option: a deterministic script that the Agent writes and stores in its Files drive. When you bind a trigger to an Automation Job, Ankole executes that script at fire time instead of opening an Agent turn.
+An Automation Job runs a published Applet Action in Function Runtime. It handles deterministic work without starting an Agent turn. The Job stores configuration and durable state; the Applet's published code defines the handler, concurrency policy, and continuation limits.
 
-Inside the run, the script decides whether anything warrants attention: it can finish silently, or call `emitEvent` to send an event back to the owner conversation so the Agent wakes with the exact context that the script prepared. Code handles the mechanical watch, while the model runs only when judgment is needed.
+## Create and connect a Job
 
-## When it fits
+1. Publish an Applet whose server module exports an `actions` table.
+2. Open the Applet's **Automation** panel, choose an Action, and create a personal or team Job.
+3. Add a schedule, create a callback endpoint, or connect an external event source. Schedules support calendar expressions and fixed intervals. External sources come from the tenant's configured connections.
+4. Run a schedule once, or send a test callback, then open the resulting Run to verify its input and result.
 
-Delegate trigger handling to an Automation Job whenever the check is a deterministic fetch, comparison, parse, or predetermined action—for example, polling a ticker every 5 minutes, exiting silently while the price stays above a threshold, and emitting the quote only when it drops so the Agent wakes, verifies, and alerts you. Each routine check costs a lightweight script run rather than a full model turn.
+The Agent can perform the same operations through `ankole-pod jobs`; read `ankole-pod --help` for the current command contract. Applet interfaces can use `useAppletJobs()` and `useJobSources(jobID)` from `@ankole/applet-sdk`.
 
-Keep a direct Agent wakeup whenever every trigger fire requires memory, open-ended judgment, or conversation. Neither choice is permanent: you can start with direct Agent wakeups, extract the check into an Automation Job once it proves purely mechanical, or switch back at any time.
+## Personal and team execution
 
-## Ask the Agent to create one
+A personal Job runs for its Human owner; that person or their personal assistant manages its sources. A team Job uses the Applet owner's service authority and requires Page edit access to manage. Moving the Applet to trash prevents new executions. Deleting a Job removes its owned schedules and callback endpoints and detaches its external event bindings; shared external subscriptions remain available to other consumers.
 
-You do not need to open the Console to set up an Automation Job. Simply describe what to watch, the trigger condition, and when to alert you in chat:
+## Action inputs and external tools
 
-```text
-Watch the price of 7709 for me: check every 5 minutes and alert me
-only when it drops below 3.5. Stay silent otherwise. After market
-close, report once whether the day's checks ran normally.
-```
+The handler receives `ctx.signal` (the CloudEvents input), `ctx.job.config`, and durable `ctx.state`. Use `remainingMs()` and `continueSlice()` for bounded continuations. Call Connector tools through `AnkoleRuntime.mcp`; team execution uses the corresponding `AnkoleRuntime.admin` capabilities. Configure application credentials and personal authorization on the Pod **Connections** page.
 
-In response, the Agent writes the script in its workspace, tests it by hand, registers it as an Automation Job, binds a Cron schedule to it, and schedules a market-close reconciliation Checkback. Registration copies the script folder into the Agent's Files drive; on every fire, Ankole copies the current contents of that drive folder into a fresh run directory, so any file that the script writes alongside itself disappears when the run ends. To update the logic later, the Agent overwrites the files in that same drive folder—no new registration is required.
+Publish updated Applet code to change subsequent executions. Do not rely on local files to preserve business state between runs.
 
-## Run history and failures
+## Inspect and recover
 
-Every execution writes a run record with its start and end timestamps, status, exit code, error message, and bounded logs. Both the Agent in chat and operators on **Console → Automation Jobs** can inspect this read-only history:
+The Automation panel shows Run status, start and finish times, trigger source, result, error, and bounded output logs. Expand the input or logs when diagnosing a failure. A delivery receipt links to its Run and indicates when input was coalesced into another pending execution.
 
-- By default, Ankole records a failed script run without waking the conversation.
-- If you ask the Agent to enable `wake_on_failure` at creation, every failed run wakes the owner conversation immediately.
-- For long-running watches, pair the job with a periodic reconciliation Checkback so the Agent wakes on schedule, inspects run history, and flags silent breakdowns such as “checks have been failing since 14:00.”
+An Action controls its declared concurrency and replay policy. Keep side effects safe for the policy you choose. Missing personal consent returns an authorization link; after reconnecting, retry the intended operation. A partial upstream write can return the completed resource ID so recovery can finish the remaining step without repeating the first write.
 
-If the script throws an error, exits non-zero, or times out, Ankole records that failure as the script's final outcome without retrying—the next scheduled trigger will run normally on cadence. If the Worker itself crashes mid-run, however, Ankole redispatches the execution, meaning runs can overlap and emitted events can repeat; Agents write scripts to be idempotent so a replay stays harmless.
-
-## Data discipline
-
-Any payload that a script sends through `emitEvent` arrives in the Agent's turn as untrusted input, governed by the same rule as an external webhook receipt: the Agent verifies consequential facts against an authoritative source before acting or reporting on them.
-
-## Teardown
-
-To retire a watch cleanly, cancel the Cron schedule, Checkback, or webhook endpoint pointing at the script first, and then cancel the Automation Job—if an active trigger fires into an already cancelled job, Ankole records a failed run. Leaving an unreferenced Automation Job in place costs nothing at runtime and occupies only a single list row.
-
-Read [Schedules](../schedules/) and [Webhook delegations](../webhook-delegations/) for the triggers, [Automation blueprints](../automation-blueprints/) for common patterns, and [Worker CLI capabilities](../cli-capabilities/) for the full script, SDK, and CLI contract.
+See [Schedules](../schedules/), [Webhook delegations](../webhook-delegations/), and [Automation blueprints](../automation-blueprints/).

@@ -11,7 +11,7 @@ Ankole Agent 既可以在日常对话中直接运行终端命令、读写与修�
 
 ## shell 命令
 
-Agent 通过内置的 `command` 工具执行 Shell 命令（底层由 `app/agent_computer/src/tools/computer/command-tool.ts` 实现）。每条命令都以 Worker 用户身份在独立的进程组内启动，并使用一份剥离了 Worker 平台通信凭据的干净环境变量；一旦收到取消指令或达到超时上限（前台命令默认时限为 180 秒），系统会整组清理整个进程组。所有命令的工作目录都必须位于 Agent Home 边界之内。与此同时，[浏览器自动化](../browser-automation/)守护进程、Codex `app-server` 以及 Automation 脚本也同样以该普通用户身份运行，无需为容器赋予任何特权级内核能力。
+Agent 通过内置的 `command` 工具执行 Shell 命令（底层由 `app/agent_computer/src/tools/computer/command-tool.ts` 实现）。每条命令都以 Worker 用户身份在独立的进程组内启动，并使用一份剥离了 Worker 平台通信凭据的干净环境变量；一旦收到取消指令或达到超时上限（前台命令默认时限为 180 秒），系统会整组清理整个进程组。所有命令的工作目录都必须位于 Agent Home 边界之内。与此同时，[浏览器自动化](../browser-automation/)守护进程和 Codex `app-server` 也同样以该普通用户身份运行，无需为容器赋予任何特权级内核能力。
 
 具体而言，所有命令均以 `uid 1000` 运行且不提供 `sudo`：Agent 可以在自己的 Home 目录内读写文件、安装用户态依赖包或派生子进程，但无法改动系统级软件包。同一个 Agent 名下的前台 Session 与后台 Job 可以互访彼此保存在 Home 中的文件，而不同 Agent 之间则由独立的容器实例彻底隔离。此外，Worker 容器既不直连控制面数据库，也不持有底层对象存储桶的密钥。
 

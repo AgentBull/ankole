@@ -100,7 +100,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     end
   end
 
-  test "cron fires and automation emissions retain their creator's trusted request context",
+  test "cron fires retain their creator's trusted request context",
        ctx do
     source = native_source(ctx)
     now = DateTime.utc_now(:microsecond)
@@ -128,47 +128,6 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     assert {:ok, %{signal: fire}} = Schedule.fire_cron(cron.id, now: cron.next_fire_at)
 
     assert Conversations.request_context(fire) == %{
-             "ip" => "10.20.1.10",
-             "authn" => %{"ip" => "10.20.1.10", "provider_scope" => "tenant", "amr" => ["oidc"]}
-           }
-
-    Ankole.FilesFixtures.drive_file_fixture(ctx.agent.uid, "automation/authz/main.ts")
-
-    assert {:ok, job} =
-             Ankole.AutomationJobs.create_job(%{
-               agent_uid: ctx.agent.uid,
-               owner_session_id: source.session_id,
-               source_signal_id: source.id,
-               reply_route: reply_route(source),
-               drive_prefix: "automation/authz",
-               label: "Authorization"
-             })
-
-    assert {:ok, %{automation_job_run: run}} =
-             Repo.transact(fn ->
-               Ankole.WorkFixtures.dispatch_job_in_tx(job, %{
-                 "id" => Ecto.UUID.generate(),
-                 "type" => "test.trigger"
-               })
-             end)
-
-    assert {:ok, _} =
-             Ankole.SessionsCase.admit_worker("automation-authz-#{Ecto.UUID.generate()}", %{
-               worker_id: ctx.agent.uid
-             })
-
-    assert {:ok, %{run: attempt}} = Ankole.AutomationJobs.start_attempt(run.id, now: now)
-
-    assert {:ok, emitted} =
-             Ankole.AutomationJobs.emit_event(
-               ctx.agent.uid,
-               run.id,
-               attempt.attempt_id,
-               %{"report" => "ready"},
-               now: now
-             )
-
-    assert Conversations.request_context(emitted) == %{
              "ip" => "10.20.1.10",
              "authn" => %{"ip" => "10.20.1.10", "provider_scope" => "tenant", "amr" => ["oidc"]}
            }

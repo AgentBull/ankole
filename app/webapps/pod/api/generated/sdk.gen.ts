@@ -126,6 +126,9 @@ import type {
   PodAgentsData,
   PodAgentsErrors,
   PodAgentsResponses,
+  PodAppletJobActionsData,
+  PodAppletJobActionsErrors,
+  PodAppletJobActionsResponses,
   PodAppletJobConfigureData,
   PodAppletJobConfigureErrors,
   PodAppletJobConfigureResponses,
@@ -135,6 +138,9 @@ import type {
   PodAppletJobDeleteData,
   PodAppletJobDeleteErrors,
   PodAppletJobDeleteResponses,
+  PodAppletJobRunsData,
+  PodAppletJobRunsErrors,
+  PodAppletJobRunsResponses,
   PodAppletJobsData,
   PodAppletJobsErrors,
   PodAppletJobsResponses,
@@ -201,6 +207,42 @@ import type {
   PodCommentReadData,
   PodCommentReadErrors,
   PodCommentReadResponses,
+  PodConnectorAccountsDisconnectData,
+  PodConnectorAccountsDisconnectErrors,
+  PodConnectorAccountsDisconnectResponses,
+  PodConnectorAccountsListData,
+  PodConnectorAccountsListErrors,
+  PodConnectorAccountsListResponses,
+  PodConnectorAuthConfigsCreateData,
+  PodConnectorAuthConfigsCreateErrors,
+  PodConnectorAuthConfigsCreateResponses,
+  PodConnectorAuthConfigsListData,
+  PodConnectorAuthConfigsListErrors,
+  PodConnectorAuthConfigsListResponses,
+  PodConnectorAuthConfigsUpdateData,
+  PodConnectorAuthConfigsUpdateErrors,
+  PodConnectorAuthConfigsUpdateResponses,
+  PodConnectorOAuthBeginData,
+  PodConnectorOAuthBeginErrors,
+  PodConnectorOAuthBeginResponses,
+  PodConnectorOAuthClaimData,
+  PodConnectorOAuthClaimErrors,
+  PodConnectorOAuthClaimResponses,
+  PodConnectorsCatalogData,
+  PodConnectorsCatalogErrors,
+  PodConnectorsCatalogResponses,
+  PodConnectorTriggersCreateData,
+  PodConnectorTriggersCreateErrors,
+  PodConnectorTriggersCreateResponses,
+  PodConnectorTriggersDeleteData,
+  PodConnectorTriggersDeleteErrors,
+  PodConnectorTriggersDeleteResponses,
+  PodConnectorTriggersListData,
+  PodConnectorTriggersListErrors,
+  PodConnectorTriggersListResponses,
+  PodConnectorTriggersRetryData,
+  PodConnectorTriggersRetryErrors,
+  PodConnectorTriggersRetryResponses,
   PodConversationAttentionData,
   PodConversationAttentionErrors,
   PodConversationAttentionResponses,
@@ -225,6 +267,48 @@ import type {
   PodFilesData,
   PodFilesErrors,
   PodFilesResponses,
+  PodJobSchedulesDeleteData,
+  PodJobSchedulesDeleteErrors,
+  PodJobSchedulesDeleteResponses,
+  PodJobSchedulesListData,
+  PodJobSchedulesListErrors,
+  PodJobSchedulesListResponses,
+  PodJobSchedulesPauseData,
+  PodJobSchedulesPauseErrors,
+  PodJobSchedulesPauseResponses,
+  PodJobSchedulesPutData,
+  PodJobSchedulesPutErrors,
+  PodJobSchedulesPutResponses,
+  PodJobSchedulesResumeData,
+  PodJobSchedulesResumeErrors,
+  PodJobSchedulesResumeResponses,
+  PodJobSchedulesRunData,
+  PodJobSchedulesRunErrors,
+  PodJobSchedulesRunResponses,
+  PodJobSchedulesRunsData,
+  PodJobSchedulesRunsErrors,
+  PodJobSchedulesRunsResponses,
+  PodJobWebhooksCancelData,
+  PodJobWebhooksCancelErrors,
+  PodJobWebhooksCancelResponses,
+  PodJobWebhooksCreateData,
+  PodJobWebhooksCreateErrors,
+  PodJobWebhooksCreateResponses,
+  PodJobWebhooksDeleteData,
+  PodJobWebhooksDeleteErrors,
+  PodJobWebhooksDeleteResponses,
+  PodJobWebhooksListData,
+  PodJobWebhooksListErrors,
+  PodJobWebhooksListResponses,
+  PodJobWebhooksPauseData,
+  PodJobWebhooksPauseErrors,
+  PodJobWebhooksPauseResponses,
+  PodJobWebhooksResumeData,
+  PodJobWebhooksResumeErrors,
+  PodJobWebhooksResumeResponses,
+  PodJobWebhooksUpdateData,
+  PodJobWebhooksUpdateErrors,
+  PodJobWebhooksUpdateResponses,
   PodKnowledgeExportData,
   PodKnowledgeExportErrors,
   PodKnowledgeExportResponses,
@@ -484,6 +568,23 @@ export const podBaseTableRename = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podJobSchedulesRun operation on applet_job_operation resource
+ */
+export const podJobSchedulesRun = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesRunData, ThrowOnError>
+): RequestResult<PodJobSchedulesRunResponses, PodJobSchedulesRunErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobSchedulesRunResponses, PodJobSchedulesRunErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/run',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * updateConversationParticipants operation on pod_chat_operation resource
  */
 export const updateConversationParticipants = <ThrowOnError extends boolean = true>(
@@ -545,6 +646,24 @@ export const podPageMove = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podConnectorAccountsList operation on connector_operation resource
+ */
+export const podConnectorAccountsList = <ThrowOnError extends boolean = true>(
+  options?: Options<PodConnectorAccountsListData, ThrowOnError>
+): RequestResult<PodConnectorAccountsListResponses, PodConnectorAccountsListErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<
+    PodConnectorAccountsListResponses,
+    PodConnectorAccountsListErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/accounts',
+    ...options
+  })
+
+/**
  * disablePodAgent operation on pod_admin_operation resource
  */
 export const disablePodAgent = <ThrowOnError extends boolean = true>(
@@ -593,6 +712,19 @@ export const podVersions = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podJobSchedulesDelete operation on applet_job_operation resource
+ */
+export const podJobSchedulesDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesDeleteData, ThrowOnError>
+): RequestResult<PodJobSchedulesDeleteResponses, PodJobSchedulesDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodJobSchedulesDeleteResponses, PodJobSchedulesDeleteErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}',
+    ...options
+  })
+
+/**
  * podAppletJobs operation on applet_job_operation resource
  */
 export const podAppletJobs = <ThrowOnError extends boolean = true>(
@@ -632,6 +764,49 @@ export const metaGlobalContracts = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/meta/contracts',
+    ...options
+  })
+
+/**
+ * podJobSchedulesList operation on applet_job_operation resource
+ */
+export const podJobSchedulesList = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesListData, ThrowOnError>
+): RequestResult<PodJobSchedulesListResponses, PodJobSchedulesListErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodJobSchedulesListResponses, PodJobSchedulesListErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules',
+    ...options
+  })
+
+/**
+ * podJobSchedulesPut operation on applet_job_operation resource
+ */
+export const podJobSchedulesPut = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesPutData, ThrowOnError>
+): RequestResult<PodJobSchedulesPutResponses, PodJobSchedulesPutErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodJobSchedulesPutResponses, PodJobSchedulesPutErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podJobWebhooksResume operation on applet_job_operation resource
+ */
+export const podJobWebhooksResume = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksResumeData, ThrowOnError>
+): RequestResult<PodJobWebhooksResumeResponses, PodJobWebhooksResumeErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobWebhooksResumeResponses, PodJobWebhooksResumeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/resume',
     ...options
   })
 
@@ -807,6 +982,37 @@ export const podAppletOwner = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podJobWebhooksCancel operation on applet_job_operation resource
+ */
+export const podJobWebhooksCancel = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksCancelData, ThrowOnError>
+): RequestResult<PodJobWebhooksCancelResponses, PodJobWebhooksCancelErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobWebhooksCancelResponses, PodJobWebhooksCancelErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/cancel',
+    ...options
+  })
+
+/**
+ * podConnectorTriggersRetry operation on connector_operation resource
+ */
+export const podConnectorTriggersRetry = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorTriggersRetryData, ThrowOnError>
+): RequestResult<PodConnectorTriggersRetryResponses, PodConnectorTriggersRetryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    PodConnectorTriggersRetryResponses,
+    PodConnectorTriggersRetryErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/triggers/{id}/retry',
+    ...options
+  })
+
+/**
  * metaAgentContracts operation on meta_library resource
  */
 export const metaAgentContracts = <ThrowOnError extends boolean = true>(
@@ -816,6 +1022,19 @@ export const metaAgentContracts = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/meta/agents/{uid}/contracts',
+    ...options
+  })
+
+/**
+ * podAppletJobRuns operation on applet_job_operation resource
+ */
+export const podAppletJobRuns = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletJobRunsData, ThrowOnError>
+): RequestResult<PodAppletJobRunsResponses, PodAppletJobRunsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletJobRunsResponses, PodAppletJobRunsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/runs',
     ...options
   })
 
@@ -1144,6 +1363,19 @@ export const stopPodPeerExchange = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podJobWebhooksPause operation on applet_job_operation resource
+ */
+export const podJobWebhooksPause = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksPauseData, ThrowOnError>
+): RequestResult<PodJobWebhooksPauseResponses, PodJobWebhooksPauseErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobWebhooksPauseResponses, PodJobWebhooksPauseErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/pause',
+    ...options
+  })
+
+/**
  * syncPodDirectory operation on pod_admin_operation resource
  */
 export const syncPodDirectory = <ThrowOnError extends boolean = true>(
@@ -1154,6 +1386,46 @@ export const syncPodDirectory = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/admin/identity-providers/{provider_id}/syncs',
     ...options
+  })
+
+/**
+ * podConnectorAuthConfigsList operation on connector_operation resource
+ */
+export const podConnectorAuthConfigsList = <ThrowOnError extends boolean = true>(
+  options?: Options<PodConnectorAuthConfigsListData, ThrowOnError>
+): RequestResult<PodConnectorAuthConfigsListResponses, PodConnectorAuthConfigsListErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<
+    PodConnectorAuthConfigsListResponses,
+    PodConnectorAuthConfigsListErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/auth-configs',
+    ...options
+  })
+
+/**
+ * podConnectorAuthConfigsCreate operation on connector_operation resource
+ */
+export const podConnectorAuthConfigsCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorAuthConfigsCreateData, ThrowOnError>
+): RequestResult<PodConnectorAuthConfigsCreateResponses, PodConnectorAuthConfigsCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    PodConnectorAuthConfigsCreateResponses,
+    PodConnectorAuthConfigsCreateErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/auth-configs',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1247,6 +1519,19 @@ export const podFileCopy = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podJobSchedulesPause operation on applet_job_operation resource
+ */
+export const podJobSchedulesPause = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesPauseData, ThrowOnError>
+): RequestResult<PodJobSchedulesPauseResponses, PodJobSchedulesPauseErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobSchedulesPauseResponses, PodJobSchedulesPauseErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/pause',
+    ...options
+  })
+
+/**
  * podAgents operation on pod_chat_operation resource
  */
 export const podAgents = <ThrowOnError extends boolean = true>(
@@ -1299,6 +1584,36 @@ export const disablePodMember = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/admin/members/{uid}/restrictions',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podJobWebhooksDelete operation on applet_job_operation resource
+ */
+export const podJobWebhooksDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksDeleteData, ThrowOnError>
+): RequestResult<PodJobWebhooksDeleteResponses, PodJobWebhooksDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodJobWebhooksDeleteResponses, PodJobWebhooksDeleteErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}',
+    ...options
+  })
+
+/**
+ * podJobWebhooksUpdate operation on applet_job_operation resource
+ */
+export const podJobWebhooksUpdate = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksUpdateData, ThrowOnError>
+): RequestResult<PodJobWebhooksUpdateResponses, PodJobWebhooksUpdateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodJobWebhooksUpdateResponses, PodJobWebhooksUpdateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -1432,6 +1747,19 @@ export const revokePodInvitation = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podConnectorsCatalog operation on connector_operation resource
+ */
+export const podConnectorsCatalog = <ThrowOnError extends boolean = true>(
+  options?: Options<PodConnectorsCatalogData, ThrowOnError>
+): RequestResult<PodConnectorsCatalogResponses, PodConnectorsCatalogErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodConnectorsCatalogResponses, PodConnectorsCatalogErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors',
+    ...options
+  })
+
+/**
  * podPageChildren operation on pod_page_operation resource
  */
 export const podPageChildren = <ThrowOnError extends boolean = true>(
@@ -1442,6 +1770,23 @@ export const podPageChildren = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/children',
     ...options
+  })
+
+/**
+ * podConnectorOAuthClaim operation on connector_operation resource
+ */
+export const podConnectorOAuthClaim = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorOAuthClaimData, ThrowOnError>
+): RequestResult<PodConnectorOAuthClaimResponses, PodConnectorOAuthClaimErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodConnectorOAuthClaimResponses, PodConnectorOAuthClaimErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/oauth/claim',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1714,6 +2059,19 @@ export const savePodIdentityProvider = <ThrowOnError extends boolean = true>(
   )
 
 /**
+ * podJobSchedulesRuns operation on applet_job_operation resource
+ */
+export const podJobSchedulesRuns = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesRunsData, ThrowOnError>
+): RequestResult<PodJobSchedulesRunsResponses, PodJobSchedulesRunsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodJobSchedulesRunsResponses, PodJobSchedulesRunsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/runs',
+    ...options
+  })
+
+/**
  * podPageDelete operation on pod_page_operation resource
  */
 export const podPageDelete = <ThrowOnError extends boolean = true>(
@@ -1770,6 +2128,28 @@ export const podPageCommentSummary = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podConnectorAuthConfigsUpdate operation on connector_operation resource
+ */
+export const podConnectorAuthConfigsUpdate = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorAuthConfigsUpdateData, ThrowOnError>
+): RequestResult<PodConnectorAuthConfigsUpdateResponses, PodConnectorAuthConfigsUpdateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<
+    PodConnectorAuthConfigsUpdateResponses,
+    PodConnectorAuthConfigsUpdateErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/auth-configs/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * enablePodAgent operation on pod_admin_operation resource
  */
 export const enablePodAgent = <ThrowOnError extends boolean = true>(
@@ -1806,6 +2186,36 @@ export const podKnowledgePanel = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{id}/knowledge',
     ...options
+  })
+
+/**
+ * podJobWebhooksList operation on applet_job_operation resource
+ */
+export const podJobWebhooksList = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksListData, ThrowOnError>
+): RequestResult<PodJobWebhooksListResponses, PodJobWebhooksListErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodJobWebhooksListResponses, PodJobWebhooksListErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks',
+    ...options
+  })
+
+/**
+ * podJobWebhooksCreate operation on applet_job_operation resource
+ */
+export const podJobWebhooksCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksCreateData, ThrowOnError>
+): RequestResult<PodJobWebhooksCreateResponses, PodJobWebhooksCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobWebhooksCreateResponses, PodJobWebhooksCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1904,6 +2314,41 @@ export const unbindPodMemberCredential = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podConnectorOAuthBegin operation on connector_operation resource
+ */
+export const podConnectorOAuthBegin = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorOAuthBeginData, ThrowOnError>
+): RequestResult<PodConnectorOAuthBeginResponses, PodConnectorOAuthBeginErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodConnectorOAuthBeginResponses, PodConnectorOAuthBeginErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/oauth',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podConnectorTriggersDelete operation on connector_operation resource
+ */
+export const podConnectorTriggersDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorTriggersDeleteData, ThrowOnError>
+): RequestResult<PodConnectorTriggersDeleteResponses, PodConnectorTriggersDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<
+    PodConnectorTriggersDeleteResponses,
+    PodConnectorTriggersDeleteErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/triggers/{id}',
+    ...options
+  })
+
+/**
  * podKnowledgeExport operation on pod_page_operation resource
  */
 export const podKnowledgeExport = <ThrowOnError extends boolean = true>(
@@ -1913,6 +2358,24 @@ export const podKnowledgeExport = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{id}/knowledge/export',
+    ...options
+  })
+
+/**
+ * podConnectorAccountsDisconnect operation on connector_operation resource
+ */
+export const podConnectorAccountsDisconnect = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorAccountsDisconnectData, ThrowOnError>
+): RequestResult<PodConnectorAccountsDisconnectResponses, PodConnectorAccountsDisconnectErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<
+    PodConnectorAccountsDisconnectResponses,
+    PodConnectorAccountsDisconnectErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/accounts/{id}',
     ...options
   })
 
@@ -1994,6 +2457,32 @@ export const podBaseTableConfigure = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podJobSchedulesResume operation on applet_job_operation resource
+ */
+export const podJobSchedulesResume = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesResumeData, ThrowOnError>
+): RequestResult<PodJobSchedulesResumeResponses, PodJobSchedulesResumeErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobSchedulesResumeResponses, PodJobSchedulesResumeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/resume',
+    ...options
+  })
+
+/**
+ * podAppletJobActions operation on applet_job_operation resource
+ */
+export const podAppletJobActions = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletJobActionsData, ThrowOnError>
+): RequestResult<PodAppletJobActionsResponses, PodAppletJobActionsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletJobActionsResponses, PodAppletJobActionsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/job-actions',
+    ...options
+  })
+
+/**
  * podSpaceAgentDelete operation on pod_page_operation resource
  */
 export const podSpaceAgentDelete = <ThrowOnError extends boolean = true>(
@@ -2046,6 +2535,46 @@ export const createPodInvitation = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/admin/invitations',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podConnectorTriggersList operation on connector_operation resource
+ */
+export const podConnectorTriggersList = <ThrowOnError extends boolean = true>(
+  options?: Options<PodConnectorTriggersListData, ThrowOnError>
+): RequestResult<PodConnectorTriggersListResponses, PodConnectorTriggersListErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<
+    PodConnectorTriggersListResponses,
+    PodConnectorTriggersListErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/triggers',
+    ...options
+  })
+
+/**
+ * podConnectorTriggersCreate operation on connector_operation resource
+ */
+export const podConnectorTriggersCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorTriggersCreateData, ThrowOnError>
+): RequestResult<PodConnectorTriggersCreateResponses, PodConnectorTriggersCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    PodConnectorTriggersCreateResponses,
+    PodConnectorTriggersCreateErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/triggers',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

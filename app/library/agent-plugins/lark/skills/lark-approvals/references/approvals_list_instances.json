@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Approvals list instances.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval_code": {
+        "type": "string"
+      },
+      "end_time": {
+        "type": "string"
+      },
+      "page_size": {
+        "type": "integer"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "start_time": {
+        "type": "string"
+      }
+    },
+    "required": ["approval_code", "start_time", "end_time"],
+    "type": "object"
+  },
+  "name": "approvals_list_instances",
+  "outputSchema": {
+    "properties": {
+      "has_more": {
+        "type": "boolean"
+      },
+      "instance_code_list": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "page_token": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

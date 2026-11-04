@@ -310,7 +310,9 @@ function appletWorker(inspectOnly: boolean, initialized: Promise<void>) {
                 errorInstances.has(error) ? error.status : 500,
                 errorInstances.has(error) ? error.code : 'handler_error',
                 String(error?.message ?? error),
-                errorInstances.has(error) ? { retryable: error.retryable, request_sent: error.request_sent } : undefined
+                errorInstances.has(error)
+                  ? { details: error.details, retryable: error.retryable, request_sent: error.request_sent }
+                  : undefined
               )
             )
           }

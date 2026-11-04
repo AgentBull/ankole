@@ -95,6 +95,7 @@ defmodule Ankole.Signals.Bindings do
          {:ok, routing_mode, agent_uid} <- routing_target(adapter_id, agent_uid, attrs),
          previous <- find_route(routing_mode, agent_uid, name) do
       save_host_binding(previous, agent_uid, adapter_id, name, routing_mode, attrs, :replace)
+      |> Ankole.Errors.reason()
     end
   end
 
@@ -137,10 +138,12 @@ defmodule Ankole.Signals.Bindings do
     with {:ok, definition} <- Adapters.fetch(adapter_id),
          {:ok, current_config} <- current_config(previous, operation),
          {:ok, patch} <- extract_binding_config(attrs),
+         configuration_base =
+           Ankole.Connectors.LegacyConfig.current_for_configuration(current_config, patch),
          config =
            merge_binding_config(
-             current_config,
-             ConfigSecrets.preserve(definition.fields, patch, current_config)
+             configuration_base,
+             ConfigSecrets.preserve(definition.fields, patch, configuration_base)
            ),
          {:ok, config} <- validate_binding_config(definition, config, patch != %{}),
          {:ok, application} <-
@@ -201,7 +204,7 @@ defmodule Ankole.Signals.Bindings do
   end
 
   defp current_config(_binding, :replace), do: {:ok, %{}}
-  defp current_config(binding, :patch), do: stored_binding_config(binding)
+  defp current_config(binding, :patch), do: configuration_for_edit(binding)
 
   defp routing_target(adapter, uid, attrs) do
     case Ankole.Attrs.get(attrs, :routing_mode) || :ai_colleague do
@@ -422,7 +425,14 @@ defmodule Ankole.Signals.Bindings do
         {:ok, config}
 
       module when is_atom(module) ->
-        module.validate_binding_config(config)
+        with {:ok, hydrated} <- Ankole.Connectors.LegacyConfig.hydrate_for_configuration(config),
+             {:ok, normalized} <- module.validate_binding_config(hydrated) do
+          {:ok,
+           if(config["authConfigId"],
+             do: Map.put(normalized, "authConfigId", config["authConfigId"]),
+             else: normalized
+           )}
+        end
     end
   end
 
@@ -499,7 +509,7 @@ defmodule Ankole.Signals.Bindings do
     applications = config_applications(bindings)
 
     bindings
-    |> Enum.map(&{&1, Map.get(applications, &1.config_ref)})
+    |> Enum.map(&{&1, binding_application(&1, applications)})
     |> Enum.reduce_while(:ok, fn {binding, other_application}, :ok ->
       case validate_application_binding(
              definition,
@@ -514,10 +524,21 @@ defmodule Ankole.Signals.Bindings do
     end)
   end
 
-  # Gives the platform application of each global configuration that a
-  # Binding references.
+  defp binding_application(%Binding{auth_config_id: id}, _legacy) when not is_nil(id) do
+    case Ankole.Connectors.get_auth_config_for_configuration(id) do
+      {:ok, config} -> config.platform_application
+      _ -> nil
+    end
+  end
+
+  defp binding_application(binding, legacy), do: Map.get(legacy, binding.config_ref)
+
+  # Historical bindings without a vault reference keep their imported identity
+  # in the AppConfigure envelope.
   defp config_applications(bindings) do
-    keys = for %Binding{config_ref: "app-config://" <> key} <- bindings, do: key
+    keys =
+      for %Binding{auth_config_id: nil, config_ref: "app-config://" <> key} <- bindings,
+          do: key
 
     {:ok, configs} =
       AppConfigure.list_site_configs(
@@ -576,7 +597,13 @@ defmodule Ankole.Signals.Bindings do
 
   @doc false
   def assign_in_tx(assignment) do
-    with :ok <- validate_platform_application_in_tx(assignment.application),
+    with {:ok, config, auth_config_id} <-
+           Ankole.Connectors.LegacyConfig.ensure_in_tx(
+             assignment.definition.id,
+             assignment.config,
+             assignment.application
+           ),
+         assignment = %{assignment | config: config},
          previous = lock_binding(assignment.id),
          :ok <-
            unchanged_binding(
@@ -621,6 +648,7 @@ defmodule Ankole.Signals.Bindings do
                name: assignment.binding_name,
                routing_mode: assignment.routing_mode,
                adapter: assignment.definition.id,
+               auth_config_id: auth_config_id,
                config_ref: "app-config://#{config_key}",
                filters: binding_filters(assignment.filters, previous, assignment.definition.id),
                unaddressed_group_message_policy: assignment.policy,
@@ -631,8 +659,7 @@ defmodule Ankole.Signals.Bindings do
              previous
            ),
          {:ok, committed_config} <-
-           AppConfigure.put_global_by_key_in_tx(config_key, assignment.config),
-         :ok <- record_platform_application_in_tx(committed_config, assignment.application) do
+           AppConfigure.put_global_by_key_in_tx(config_key, assignment.config) do
       {:ok, {binding, committed_config}}
     end
   end
@@ -710,7 +737,7 @@ defmodule Ankole.Signals.Bindings do
     do: CloudBindings.stored_config(binding)
 
   defp binding_config_in_tx(%Binding{config_ref: "app-config://" <> key}) do
-    case AppConfigure.get_global_by_key_in_tx(key) do
+    case AppConfigure.read_configuration(key) do
       {:ok, config} when is_map(config) -> {:ok, config}
       {:ok, _config} -> {:error, :binding_config_unavailable}
       :error -> {:error, :binding_config_unavailable}
@@ -722,13 +749,21 @@ defmodule Ankole.Signals.Bindings do
 
   @doc false
   @spec stored_binding_config(Binding.t()) :: {:ok, map()} | {:error, term()}
-  def stored_binding_config(
-        %Binding{adapter: "cloudevents", config_ref: "webhook-endpoint://" <> _id} = binding
-      ),
-      do: CloudBindings.stored_config(binding)
+  def stored_binding_config(binding),
+    do: read_binding_configuration(binding, &AppConfigure.get_by_key/1)
 
-  def stored_binding_config(%Binding{config_ref: "app-config://" <> key}) do
-    case AppConfigure.get_by_key(key) do
+  @doc false
+  def configuration_for_edit(binding),
+    do: read_binding_configuration(binding, &AppConfigure.read_configuration/1)
+
+  defp read_binding_configuration(
+         %Binding{adapter: "cloudevents", config_ref: "webhook-endpoint://" <> _id} = binding,
+         _read
+       ),
+       do: CloudBindings.stored_config(binding)
+
+  defp read_binding_configuration(%Binding{config_ref: "app-config://" <> key}, read) do
+    case read.(key) do
       {:ok, config} when is_map(config) -> {:ok, config}
       {:ok, _config} -> {:error, :binding_config_unavailable}
       :error -> {:error, :binding_config_unavailable}
@@ -736,7 +771,7 @@ defmodule Ankole.Signals.Bindings do
     end
   end
 
-  def stored_binding_config(%Binding{}), do: {:error, :binding_config_unavailable}
+  defp read_binding_configuration(%Binding{}, _read), do: {:error, :binding_config_unavailable}
 
   defp merge_binding_config(current, patch) when is_map(current) and is_map(patch) do
     Map.merge(current, patch, fn _key, current_value, patch_value ->
@@ -778,20 +813,13 @@ defmodule Ankole.Signals.Bindings do
   end
 
   @doc "Adapter-owned identity resolution; callers run this before acquiring database locks."
-  def resolve_platform_application(
-        _module,
-        %{"sync" => %{"contacts" => false}},
-        :identity_provider
-      ),
-      do: {:ok, nil}
-
   def resolve_platform_application(module, config, _source) when is_atom(module) do
     if function_exported?(module, :platform_application, 1),
       do: module.platform_application(config),
       else: {:error, :platform_application_identity_unavailable}
   end
 
-  @doc false
+  @doc "Reserves legacy AppConfigure application identities while Upgrade202610 imports them."
   def validate_platform_application_in_tx(nil), do: :ok
 
   def validate_platform_application_in_tx(application) when is_binary(application) do
@@ -894,7 +922,7 @@ defmodule Ankole.Signals.Bindings do
   @spec binding_config(Binding.t(), module()) :: {:ok, map()} | :error | {:error, term()}
   def binding_config(%Binding{config_ref: "app-config://" <> key}, config_module) do
     with {:ok, value} <- AppConfigure.get_by_key(key) do
-      config_module.validate_binding_config(value)
+      validate_runtime_config(config_module, value)
     end
   end
 
@@ -904,12 +932,17 @@ defmodule Ankole.Signals.Bindings do
           {:ok, map()} | :error | {:error, term()}
   def binding_config_in_tx(%Binding{config_ref: "app-config://" <> key}, config_module) do
     with {:ok, value} <- AppConfigure.get_global_by_key_in_tx(key) do
-      config_module.validate_binding_config(value)
+      validate_runtime_config(config_module, value)
     end
   end
 
   def binding_config_in_tx(%Binding{}, _config_module),
     do: {:error, :invalid_config_ref}
+
+  defp validate_runtime_config(config_module, value) do
+    with {:ok, config} <- config_module.validate_binding_config(value),
+         do: {:ok, Map.merge(config, Map.take(value, ["authConfigId"]))}
+  end
 
   @spec delivery_config(Intent.t(), module()) :: {:ok, map()} | {:error, term()}
   def delivery_config(%Intent{} = intent, config_module) do

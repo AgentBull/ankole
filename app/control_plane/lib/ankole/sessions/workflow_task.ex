@@ -154,7 +154,7 @@ defmodule Ankole.Sessions.WorkflowTask do
 
   def failure(reason) do
     error =
-      if is_map(reason),
+      if is_map(reason) and not is_struct(reason),
         do: reason,
         else: %{"code" => "workflow_task_turn_failed", "message" => inspect(reason)}
 

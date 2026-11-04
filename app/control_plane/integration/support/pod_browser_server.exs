@@ -37,9 +37,20 @@ if System.get_env("POD_BROWSER_ACTIONS") == "true" do
     Oban,
     Application.fetch_env!(:ankole, Oban)
     |> Keyword.put(:testing, :disabled)
-    |> Keyword.put(:plugins, [])
-    |> Keyword.put(:queues, automation_jobs: 6)
+    |> Keyword.put(:plugins, [
+      {Oban.Plugins.Cron, crontab: [{"* * * * *", Ankole.Connectors.Jobs.ReconcileTriggers}]}
+    ])
+    |> Keyword.put(:queues, automation_jobs: 6, default: 6)
   )
+end
+
+# The browser suite supplies a real local HTTP peer for external provider protocols.
+connector_provider_url = System.get_env("POD_BROWSER_CONNECTOR_PROVIDER_URL")
+
+if connector_provider_url do
+  for config <- [Ankole.Plugins.LarkAdapter.Config, Ankole.Plugins.SlackAdapter.Config] do
+    Application.put_env(:ankole, config, client_opts: [base_url: connector_provider_url])
+  end
 end
 
 {:ok, _} = Application.ensure_all_started(:ankole)
@@ -748,7 +759,7 @@ chat_material =
 document_agent_uid =
   if System.get_env("POD_BROWSER_AGENT_COLLAB") == "true" do
     Code.require_file("pod_document_worker.exs", __DIR__)
-    Ankole.PodDocumentWorker.start(port)
+    Ankole.PodDocumentWorker.start(port, owner.uid)
   end
 
 defmodule Ankole.PodBrowserAgentActions do
@@ -775,7 +786,8 @@ defmodule Ankole.PodBrowserAgentActions do
               do:
                 Ankole.PodDocumentWorker.run(
                   opts[:document_agent_uid],
-                  conn.body_params["page_id"]
+                  conn.body_params["page_id"],
+                  opts[:document_owner_uid]
                 ),
               else: {:error, :not_found}
 
@@ -808,7 +820,10 @@ end
   Bandit.start_link(
     plug:
       {Ankole.PodBrowserAgentActions,
-       tenant_id: tenant.id, agent_uid: agent.uid, document_agent_uid: document_agent_uid},
+       tenant_id: tenant.id,
+       agent_uid: agent.uid,
+       document_agent_uid: document_agent_uid,
+       document_owner_uid: owner.uid},
     scheme: :http,
     ip: {127, 0, 0, 1},
     port: 0
@@ -819,6 +834,7 @@ end
 state = %{
   document_agent_uid: document_agent_uid,
   agent_actions_url: "http://127.0.0.1:#{agent_actions_port}",
+  connector_provider_url: connector_provider_url,
   base_url: origin,
   mailbox_path: mailbox_path,
   console_url: console_origin <> AnkoleWeb.SiteAdminConsole.path(),

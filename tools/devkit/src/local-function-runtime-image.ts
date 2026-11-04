@@ -24,6 +24,7 @@ export const functionRuntimeInputRoots = [
   'app/function_runtime/native',
   'app/function_runtime/package.json',
   'app/function_runtime/main',
+  'app/function_runtime/build.ts',
   'libs/applet-sdk/package.json',
   'libs/applet-sdk/src',
   'package.json',

@@ -117,7 +117,7 @@ defmodule Ankole.IdentityProviders.Config do
   def save_provider(attrs, config, mode \\ :upsert) when is_map(attrs) and is_map(config) do
     with {:ok, next} <- validate_activation(attrs),
          {:ok, definition} <- Registry.require_key(next["config_key"]),
-         {:ok, config} <- Codec.validate(definition, config),
+         {:ok, config} <- Codec.validate(definition, config, :configuration),
          {:ok, adapter} <- Ankole.IdentityProviders.fetch_adapter(next["adapter_id"]),
          {:ok, module} <- Ankole.IdentityProviders.adapter_module(adapter),
          {:ok, application} <-
@@ -133,13 +133,14 @@ defmodule Ankole.IdentityProviders.Config do
            ) do
       {:ok, persisted_config}
     end
+    |> Ankole.Errors.reason()
   end
 
   @doc false
   def save_provider_in_tx(next, config, application, mode) do
-    with :ok <- validate_login_removal_in_tx(next, config),
-         :ok <-
-           Ankole.Signals.Bindings.validate_platform_application_in_tx(application),
+    with {:ok, config, _auth_config_id} <-
+           Ankole.Connectors.LegacyConfig.ensure_in_tx(next["plugin_id"], config, application),
+         :ok <- validate_login_removal_in_tx(next, config),
          :ok <-
            Ankole.IdentityProviders.DirectoryAccess.configuration_changed_in_tx(
              next["provider_id"]
@@ -149,12 +150,7 @@ defmodule Ankole.IdentityProviders.Config do
              write_activation(providers, next, mode)
            end),
          {:ok, config_write} <-
-           AppConfigure.put_tenant_by_key_in_tx(next["config_key"], config),
-         :ok <-
-           Ankole.Signals.Bindings.record_platform_application_in_tx(
-             config_write,
-             application
-           ) do
+           AppConfigure.put_tenant_by_key_in_tx(next["config_key"], config) do
       {:ok, {activation_write, config_write}}
     end
   end

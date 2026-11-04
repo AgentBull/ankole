@@ -1,5 +1,13 @@
 defmodule Ankole.Plugins.SlackAdapter.Config do
-  def platform_application(config) do
+  def platform_application(%{"clientID" => client_id} = config) when is_binary(client_id) do
+    if config["botToken"] in [nil, ""],
+      do: {:ok, "slack-client:" <> client_id},
+      else: bot_application(config)
+  end
+
+  def platform_application(config), do: bot_application(config)
+
+  defp bot_application(config) do
     with {:ok, app_id} <- resolve_application_id(config), do: {:ok, "slack:" <> app_id}
   end
 

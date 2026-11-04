@@ -1,0 +1,91 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List pull requests files",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "owner": {
+        "type": "string"
+      },
+      "page": {
+        "type": "integer"
+      },
+      "per_page": {
+        "type": "integer"
+      },
+      "pull_number": {
+        "type": "integer"
+      },
+      "repo": {
+        "type": "string"
+      }
+    },
+    "required": ["owner", "repo", "pull_number"],
+    "type": "object"
+  },
+  "name": "pulls_list_files",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "items": {
+          "properties": {
+            "additions": {
+              "type": "integer"
+            },
+            "blob_url": {
+              "type": "string"
+            },
+            "changes": {
+              "type": "integer"
+            },
+            "contents_url": {
+              "type": "string"
+            },
+            "deletions": {
+              "type": "integer"
+            },
+            "filename": {
+              "type": "string"
+            },
+            "patch": {
+              "type": "string"
+            },
+            "previous_filename": {
+              "type": "string"
+            },
+            "raw_url": {
+              "type": "string"
+            },
+            "sha": {
+              "type": ["string", "null"]
+            },
+            "status": {
+              "enum": ["added", "removed", "modified", "renamed", "copied", "changed", "unchanged"],
+              "type": "string"
+            }
+          },
+          "required": [
+            "additions",
+            "blob_url",
+            "changes",
+            "contents_url",
+            "deletions",
+            "filename",
+            "raw_url",
+            "sha",
+            "status"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

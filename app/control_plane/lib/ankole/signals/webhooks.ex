@@ -74,7 +74,7 @@ defmodule Ankole.Signals.Webhooks do
     end
   end
 
-  defp prepare_endpoint(attrs, opts) do
+  def prepare_endpoint(attrs, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     token = "wh_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
@@ -88,15 +88,28 @@ defmodule Ankole.Signals.Webhooks do
   @doc false
   def create_endpoint_in_tx(attrs, token) do
     with :ok <-
-           AutomationJobs.validate_bindable_in_tx(
-             Map.get(attrs, "automation_job_id"),
-             Map.fetch!(attrs, "agent_uid")
-           ),
+           authorize_consumer(attrs),
          {:ok, endpoint} <-
            Ankole.Ash.create(WebhookEndpoint, :create, Map.delete(attrs, "automation_job_id")),
          :ok <- default_binding(endpoint, attrs["automation_job_id"]) do
       {:ok, %{webhook_endpoint: endpoint, token: token}}
     end
+  end
+
+  defp authorize_consumer(%{"owner_job_id" => id}) when is_integer(id), do: :ok
+
+  defp authorize_consumer(attrs),
+    do: AutomationJobs.authorize_bindable_in_tx(attrs["agent_uid"], attrs["automation_job_id"])
+
+  def stop_human_work_in_tx(uid, version, _now) do
+    {:ok, endpoints} =
+      WebhookEndpoint
+      |> Ash.Query.filter(
+        human_uid == ^uid and human_access_version < ^version and status in [:armed, :active]
+      )
+      |> Ankole.Ash.update_where(:stop_human_work)
+
+    {length(endpoints), endpoints}
   end
 
   @doc """
@@ -214,6 +227,7 @@ defmodule Ankole.Signals.Webhooks do
     with {:ok, plan} <-
            Ankole.Signals.prepare_dispatch("webhook-endpoint://#{endpoint.id}", event,
              producer: :external,
+             authorization: Ankole.Principals.WorkAccess.fields(endpoint),
              reply_route: reply_route(endpoint)
            ) do
       result =
@@ -254,7 +268,7 @@ defmodule Ankole.Signals.Webhooks do
   defp incoming_event(_endpoint, {:cloudevents, event}, _now),
     do: Ankole.Signals.CloudEvents.normalize(event)
 
-  defp default_binding(%{event_format: "cloudevents"}, _), do: :ok
+  defp default_binding(%{event_format: "cloudevents", owner_job_id: nil}, _), do: :ok
 
   defp default_binding(endpoint, job_id),
     do:
@@ -314,7 +328,7 @@ defmodule Ankole.Signals.Webhooks do
   def expire_due(%DateTime{} = now) do
     {:ok, expired} =
       WebhookEndpoint
-      |> Ash.Query.filter(status in ^@active_statuses and expires_at <= ^now)
+      |> Ash.Query.filter(status in [:armed, :active, :paused] and expires_at <= ^now)
       |> Ankole.Ash.update_where(:expire)
 
     length(expired)
@@ -351,6 +365,7 @@ defmodule Ankole.Signals.Webhooks do
 
     {:ok,
      attrs
+     |> Map.put_new("authorization_kind", "service")
      |> Map.put(
        "agent_uid",
        then(Map.get(attrs, "agent_uid"), fn uid ->
@@ -382,7 +397,7 @@ defmodule Ankole.Signals.Webhooks do
 
   defp cancel_locked_endpoint(endpoint, now) do
     cond do
-      endpoint.status not in @active_statuses ->
+      endpoint.status not in [:armed, :active, :paused] ->
         {:ok, %{status: :already_terminal, webhook_endpoint: endpoint}}
 
       DateTime.compare(endpoint.expires_at, now) != :gt ->
@@ -401,6 +416,9 @@ defmodule Ankole.Signals.Webhooks do
   defp receive_locked(endpoint, plan, now) do
     cond do
       not Ankole.Tenants.accepting_work?(endpoint.tenant_id) ->
+        {:ok, %{status: :ignored, webhook_endpoint: endpoint}}
+
+      not Ankole.AutomationJobs.JobSources.live?(endpoint) ->
         {:ok, %{status: :ignored, webhook_endpoint: endpoint}}
 
       endpoint.status not in @active_statuses ->
@@ -539,4 +557,133 @@ defmodule Ankole.Signals.Webhooks do
   defp bounded_limit(_limit), do: 100
 
   defp reject_nil_values(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
+
+  def job_source_operation_in_tx(job, :list, _) do
+    endpoints =
+      WebhookEndpoint
+      |> Ash.Query.filter(owner_job_id == ^job.id)
+      |> Ash.Query.sort(inserted_at: :desc)
+      |> Ankole.Ash.read!()
+
+    deliveries =
+      endpoints
+      |> Enum.map(&"webhook-endpoint://#{&1.id}")
+      |> Ankole.Signals.source_deliveries()
+
+    {:ok,
+     Enum.map(
+       endpoints,
+       &%{
+         endpoint: &1,
+         deliveries: Map.fetch!(deliveries, "webhook-endpoint://#{&1.id}")
+       }
+     )}
+  end
+
+  def job_source_operation_in_tx(job, :create, attrs) do
+    attrs =
+      attrs
+      |> Map.take(~w(label expires_at mode event_format))
+      |> Map.put_new("mode", "standing")
+      |> Map.put_new("event_format", "raw")
+      |> Map.merge(
+        Ankole.Attrs.normalize_external_attrs(Ankole.Principals.WorkAccess.fields(job))
+      )
+      |> Map.merge(%{"owner_job_id" => job.id, "automation_job_id" => job.id})
+
+    with {:ok, attrs} <- expiry(attrs),
+         {:ok, prepared, token} <- prepare_endpoint(attrs, []),
+         {:ok, result} <- create_endpoint_in_tx(prepared, token) do
+      path =
+        if prepared["event_format"] == "cloudevents",
+          do: "/signals/v1/cloudevents/",
+          else: "/webhooks/v1/event-callbacks/"
+
+      {:ok, Map.put(result, :callback_path, path <> token)}
+    end
+  end
+
+  def job_source_operation_in_tx(job, operation, %{"id" => id} = attrs) do
+    endpoint =
+      WebhookEndpoint
+      |> Ash.Query.filter(id == ^id and owner_job_id == ^job.id)
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read_one!(lock_identity: {"signal_webhook_endpoints", id})
+
+    case endpoint do
+      nil -> {:error, :not_found}
+      endpoint -> change_webhook(endpoint, operation, attrs)
+    end
+  end
+
+  def job_source_operation_in_tx(_, _, _), do: {:error, :invalid_request}
+
+  defp change_webhook(%{status: status}, operation, _)
+       when status in [:cancelled, :expired, :fired] and operation in [:update, :pause, :resume],
+       do: {:error, :webhook_terminal}
+
+  defp change_webhook(endpoint, :update, attrs) do
+    with {:ok, attrs} <- expiry(Map.take(attrs, ~w(label expires_at))),
+         do: Ankole.Ash.update(endpoint, :configure, attrs)
+  end
+
+  defp change_webhook(%{status: :paused} = endpoint, :pause, _), do: {:ok, endpoint}
+  defp change_webhook(endpoint, :pause, _), do: Ankole.Ash.update(endpoint, :pause, %{})
+
+  defp change_webhook(endpoint, :resume, _) do
+    cond do
+      DateTime.compare(endpoint.expires_at, DateTime.utc_now()) != :gt ->
+        {:error, :webhook_expired}
+
+      endpoint.status in [:armed, :active] ->
+        {:ok, endpoint}
+
+      true ->
+        Ankole.Ash.update(
+          endpoint,
+          if(endpoint.mode == "one_shot", do: :resume_armed, else: :resume_active),
+          %{}
+        )
+    end
+  end
+
+  defp change_webhook(endpoint, operation, _) when operation in [:cancel, :delete] do
+    if endpoint.status in [:cancelled, :expired, :fired],
+      do: {:ok, endpoint},
+      else: Ankole.Ash.update(endpoint, :cancel, %{cancelled_at: DateTime.utc_now(:microsecond)})
+  end
+
+  defp expiry(%{"expires_at" => value} = attrs) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _} -> expiry(Map.put(attrs, "expires_at", dt))
+      _ -> {:error, :invalid_webhook_expiry}
+    end
+  end
+
+  defp expiry(%{"expires_at" => %DateTime{} = expires_at} = attrs) do
+    if DateTime.after?(expires_at, DateTime.utc_now()),
+      do: {:ok, attrs},
+      else: {:error, :webhook_expiry_must_be_future}
+  end
+
+  defp expiry(attrs), do: {:ok, attrs}
+
+  def job_source_ids(job_ids) do
+    WebhookEndpoint
+    |> Ash.Query.filter(owner_job_id in ^job_ids)
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.id)
+  end
+
+  def purge_job_sources_in_tx(ids) do
+    WebhookEndpoint
+    |> Ash.Query.filter(id in ^ids)
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!(lock_identity: {:rows, "signal_webhook_endpoints", :id})
+
+    with {:ok, _} <-
+           WebhookEndpoint |> Ash.Query.filter(id in ^ids) |> Ankole.Ash.destroy_where(:remove),
+         do: :ok
+  end
 end

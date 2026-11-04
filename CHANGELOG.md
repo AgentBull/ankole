@@ -1,5 +1,32 @@
 # Changelog
 
+## Version 2.0.0-alpha.51 (2026-11-04)
+
+- Keep OfficeCLI on the release tested with the Worker image by disabling its
+  background self-updates by default, preserving document screenshots when an
+  upstream release omits required assemblies.
+- Restore scheduled Applet replies to the originating messaging conversation.
+- Add tenant-owned external connections with shared encrypted credentials for
+  identity providers, messaging channels, Applets, and Agents. Members authorize
+  personal accounts in Pod; administrators manage application credentials there.
+  Expose Lark approvals, tasks, calendars and messaging, GitHub collaboration,
+  and Linear through explicit MCP Toolkits and generated Skills and SDK types.
+- Run Applet MCP calls through the Function Runtime host and shared control-plane
+  gateway. Proxy remote Skill servers, keep external credentials on the control
+  plane, and authenticate local Git through the active Turn.
+- Let Applet Jobs own schedules and webhook endpoints, with pause, resume,
+  delivery history, Page lifecycle, and personal-access revocation. Manage Jobs,
+  native triggers, connector events and Run results from the Automation panel.
+  Deterministic triggers run Actions without waking an Agent.
+- **Breaking:** replace Agent-script Automation Jobs with published Applet Actions.
+  Migration removes stored `agent_script` Jobs, their Runs, state and related
+  event bindings and receipts. Export required scripts and configuration before
+  upgrading, then recreate those automations as Applet Actions. Remove the Automation Job script CLI, `emitEvent()`, the
+  Worker `lark-cli` and `gh` executables, and
+  `automation_jobs.max_running_per_agent`; use Pod Job APIs and Connector Toolkits.
+- Keep authorization locks compatible with concurrent chat and background Job
+  writes, and handle database exceptions through the Session retry path.
+
 ## Version 2.0.0-alpha.50 (2026-11-03)
 
 - Internal changes only.

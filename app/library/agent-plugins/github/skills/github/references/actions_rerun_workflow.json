@@ -1,0 +1,34 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Re-run a workflow",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "enable_debug_logging": {
+        "type": "boolean"
+      },
+      "owner": {
+        "type": "string"
+      },
+      "repo": {
+        "type": "string"
+      },
+      "run_id": {
+        "type": "integer"
+      }
+    },
+    "required": ["owner", "repo", "run_id"],
+    "type": "object"
+  },
+  "name": "actions_rerun_workflow",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+  }
+}

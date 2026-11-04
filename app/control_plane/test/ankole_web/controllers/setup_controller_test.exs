@@ -24,6 +24,18 @@ defmodule AnkoleWeb.SetupControllerTest do
     def activation, do: :always
   end
 
+  defmodule OptionalPlugin do
+    @behaviour Ankole.Plugins.Plugin
+    @impl true
+    def plugin_id, do: "fixture-optional-setup"
+  end
+
+  defmodule OtherOptionalPlugin do
+    @behaviour Ankole.Plugins.Plugin
+    @impl true
+    def plugin_id, do: "fixture-other-optional-setup"
+  end
+
   setup %{tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     Registry.clear_for_test()
@@ -288,7 +300,28 @@ defmodule AnkoleWeb.SetupControllerTest do
   end
 
   test "setup reads and writes enabled plugin ids without inverting the selection", %{conn: conn} do
-    assert {:ok, ["lark-adapter"]} = PluginsConfig.put_enabled_ids(["lark-adapter"])
+    snapshot = Ankole.Plugins.Registry.snapshot_for_test()
+
+    specs =
+      Enum.map([OptionalPlugin, OtherOptionalPlugin], fn module ->
+        {:ok, spec} = Ankole.Plugins.Spec.from_module(module)
+        {spec.id, spec}
+      end)
+      |> Map.new()
+
+    Ankole.Plugins.Registry.update_for_test(fn state ->
+      %{
+        state
+        | discovered: Map.merge(state.discovered, specs),
+          active: Map.merge(state.active, specs)
+      }
+    end)
+
+    on_exit(fn -> Ankole.Plugins.Registry.update_for_test(fn _ -> snapshot end) end)
+    first = OptionalPlugin.plugin_id()
+    second = OtherOptionalPlugin.plugin_id()
+    selected = Enum.sort([first, second])
+    assert {:ok, [^first]} = PluginsConfig.put_enabled_ids([first])
 
     conn =
       conn
@@ -298,21 +331,23 @@ defmodule AnkoleWeb.SetupControllerTest do
     conn = api_get(conn, ~p"/api/v2/browser/setup/plugins")
     response = api_response(conn, 200)
 
-    assert response["enabledPluginIDs"] == Enum.sort(["lark-adapter" | fixed_plugin_ids()])
+    assert response["enabledPluginIDs"] == Enum.sort([first | fixed_plugin_ids()])
     assert Enum.any?(response["plugins"], &(&1["id"] == "slack-adapter"))
+    assert "lark-adapter" in fixed_plugin_ids()
+    assert "slack-adapter" in fixed_plugin_ids()
 
     updated =
       conn
       |> recycle()
       |> api_put(~p"/api/v2/browser/setup/plugins/enabled", %{
-        "pluginIDs" => ["lark-adapter", "slack-adapter"]
+        "pluginIDs" => selected
       })
       |> api_response(200)
 
     assert updated["enabledPluginIDs"] ==
-             Enum.sort(["lark-adapter", "slack-adapter" | fixed_plugin_ids()])
+             Enum.sort(selected ++ fixed_plugin_ids())
 
-    assert {:ok, ["lark-adapter", "slack-adapter"]} = PluginsConfig.enabled_ids()
+    assert {:ok, ^selected} = PluginsConfig.enabled_ids()
   end
 
   test "setup rejects unknown enabled plugin ids", %{conn: conn} do

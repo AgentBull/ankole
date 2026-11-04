@@ -15,7 +15,7 @@ Vercel support comes from the `vercel-worker-provider` Control Plane Plugin, and
 | --- | --- | --- |
 | Agent Home: `/workspace` | Session and Job workspaces, user-installed packages, Codex threads in `/workspace/.codex` | Must survive instance deletion and image upgrades; include in backups |
 | Worker cache: `/var/cache/ankole` | SQLite databases, WAL files, and local process locks under `codex/` | Rebuildable; strictly private to each Agent |
-| Control-plane drive | Chat attachments, published deliverables, installed Skills, Automation scripts | Back up PostgreSQL metadata and OpenDAL object storage together |
+| Control-plane drive | Chat attachments, published deliverables, installed Skills | Back up PostgreSQL metadata and OpenDAL object storage together |
 
 Never share the control-plane drive's S3 bucket as a Worker Home mount or SQLite cache disk; Cloudflare R2 Home snapshots and Function Compute OSS Home prefixes likewise require their own dedicated storage configuration. See [Drive storage configuration](../drive-storage/).
 

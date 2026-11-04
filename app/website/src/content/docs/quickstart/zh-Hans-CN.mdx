@@ -2484,7 +2484,7 @@ export const signalAdvanced = {
 
 <DocsKnowledgeNote
   label="💡 你知道吗？"
-  text="Worker 所在的容器或 Pod 就是它唯一的隔离边界：Agent 的命令行执行、Automation 脚本与无头浏览器均直接在其中运行，不设内层沙盒，容器本身也无需任何额外内核特权。Agent 可以在自己的 Worker 上自由安装软件甚至把环境弄坏，但绝无法冒充其他 Agent；一旦某个 Worker 未能按时就绪，控制面会自动将其重建。"
+  text="Worker 所在的容器或 Pod 就是它唯一的隔离边界：Agent 的命令行执行与无头浏览器均直接在其中运行，不设内层沙盒，容器本身也无需任何额外内核特权。Agent 可以在自己的 Worker 上自由安装软件甚至把环境弄坏，但绝无法冒充其他 Agent；一旦某个 Worker 未能按时就绪，控制面会自动将其重建。"
 />
 
 每套部署实例均需要 PostgreSQL 数据库、控制面云盘文件存储，以及每位 Agent 的持久 Home 存储。官方 Kubernetes Helm Chart 默认采用共享的 ReadWriteMany Home PVC 搭配独立的 ReadWriteOnce 缓存 PVC——其中持久 Home 必须纳入定期备份，缓存卷则无需备份。

@@ -13,6 +13,9 @@ defmodule AnkoleWeb.JSONAPI.AppletJobsTest do
     publish(actor, page)
     path = "/api/v2/pod/pages/#{page.id}"
 
+    assert %{"actions" => ["sync"]} =
+             browser |> request(:get, path <> "/job-actions") |> json_response(200)
+
     created =
       browser
       |> request(:post, path <> "/jobs", %{action_key: "sync", authorization_kind: "service"})
@@ -21,9 +24,57 @@ defmodule AnkoleWeb.JSONAPI.AppletJobsTest do
     job = created["job"]
     assert is_integer(job["id"])
     assert job["page_id"] == page.id
-    assert job["executor_kind"] == "applet_function"
     assert job["action_key"] == "sync"
     assert %{"jobs" => [^job]} = browser |> request(:get, path <> "/jobs") |> json_response(200)
+
+    schedule =
+      browser
+      |> request(:put, path <> "/jobs/#{job["id"]}/schedules", %{
+        name: "business",
+        schedule: %{kind: "cron", expression: "*/10 9-11,13-15 * * 1-5"},
+        timezone: "Asia/Shanghai",
+        payload: %{mode: "intraday"}
+      })
+      |> json_response(200)
+
+    assert schedule["result"]["owner_job_id"] == job["id"]
+    assert schedule["result"]["payload"] == %{"mode" => "intraday"}
+
+    assert %{"result" => %{"name" => "business", "payload" => %{"mode" => "closing"}}} =
+             browser
+             |> request(:put, path <> "/jobs/#{job["id"]}/schedules", %{
+               id: schedule["result"]["id"],
+               payload: %{mode: "closing"}
+             })
+             |> json_response(200)
+
+    browser |> request(:delete, path <> "/jobs/9223372036854775000") |> json_response(404)
+
+    assert %{"result" => [_]} =
+             browser
+             |> request(:get, path <> "/jobs/#{job["id"]}/schedules")
+             |> json_response(200)
+
+    endpoint =
+      browser
+      |> request(:post, path <> "/jobs/#{job["id"]}/webhooks", %{
+        label: "Inbound",
+        expires_at: DateTime.add(DateTime.utc_now(), 3600) |> DateTime.to_iso8601()
+      })
+      |> json_response(201)
+
+    refute Map.has_key?(endpoint["result"]["webhook_endpoint"], "token_digest")
+    assert is_binary(endpoint["result"]["token"])
+
+    assert endpoint["result"]["callback_path"] ==
+             "/webhooks/v1/event-callbacks/" <> endpoint["result"]["token"]
+
+    endpoint_id = endpoint["result"]["webhook_endpoint"]["id"]
+
+    assert %{"result" => %{"status" => "paused"}} =
+             browser
+             |> request(:post, path <> "/jobs/#{job["id"]}/webhooks/#{endpoint_id}/pause", %{})
+             |> json_response(201)
 
     configured =
       browser
@@ -43,6 +94,7 @@ defmodule AnkoleWeb.JSONAPI.AppletJobsTest do
 
     assert binding["binding"]["routing_mode"] == "action"
     assert binding["binding"]["automation_job_id"] == job["id"]
+    assert is_binary(binding["binding"]["id"])
 
     assert %{"bindings" => [_]} =
              browser
@@ -55,7 +107,7 @@ defmodule AnkoleWeb.JSONAPI.AppletJobsTest do
         %{
           "id" => "browser-job",
           "type" => "manual",
-          "data" => %{}
+          "data" => %{"ticket" => "SUPPORT-42"}
         },
         response_mode: :fire_and_forget
       )
@@ -68,10 +120,34 @@ defmodule AnkoleWeb.JSONAPI.AppletJobsTest do
     assert run["run"]["status"] == "queued"
     assert run["run"]["automation_job_id"] == job["id"]
 
+    assert %{
+             "event" => %{
+               "id" => "browser-job",
+               "type" => "manual",
+               "data" => %{"ticket" => "SUPPORT-42"}
+             },
+             "started_at" => nil,
+             "finished_at" => nil,
+             "stdout" => "",
+             "stderr" => "",
+             "stdout_truncated" => false,
+             "stderr_truncated" => false
+           } = run["run"]
+
+    assert %{"runs" => [history]} =
+             browser |> request(:get, path <> "/jobs/#{job["id"]}/runs") |> json_response(200)
+
+    assert history["id"] == receipt.automation_job_run_id
+    assert history == run["run"]
+
     {:ok, other_page} = Pages.create(actor, %{type: "applet", title: "Other"})
 
     browser
     |> request(:get, "/api/v2/pod/pages/#{other_page.id}/runs/#{receipt.automation_job_run_id}")
+    |> json_response(403)
+
+    browser
+    |> request(:get, "/api/v2/pod/pages/#{other_page.id}/jobs/#{job["id"]}/runs")
     |> json_response(403)
 
     replacement = Ankole.PrincipalsFixtures.human_fixture().principal

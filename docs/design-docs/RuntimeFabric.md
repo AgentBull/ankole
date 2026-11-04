@@ -482,46 +482,19 @@ still-running Codex result.
 ### Trusted Runtime Environment
 
 For each execution, the control plane derives `ANKOLE_RUNTIME_*` variables from
-the active Signal—distinct from operator-configured WorkerEnv variables. When an
-active Human initiates the Signal, the control plane populates the requester
-Principal UID, `access_version`, and derived Lark profile (`ankole-u-<base64url
-HMAC-SHA256>`, keyed with the control-plane-only secret
-`runtime_fabric.worker_auth_key` over `uid` for `access_version == 1`, or
-`uid <> <<0>> <> access_version` for higher versions; rotating that key changes
-every profile and requires users to re-authorize Lark). Scheduled and
-system-originated Signals omit Human requester variables.
+the active Signal. An active human requester contributes the Principal UID and
+access version. Scheduled and system-originated Signals omit human requester
+variables. Worker authentication keys never enter shell or Codex environments.
 
-Worker authentication keys never enter shell or Codex environments, and the
-Worker blocks per-command overrides in the `ANKOLE_RUNTIME_` namespace. Because
-user shell commands can still mutate their own process environment afterward,
-downstream consumers must validate any environment value that they read.
+### Connector Credentials
 
-### Refresh the Lark Bot Credential
-
-When a turn or Job needs a Lark tenant access token, the Lark adapter fetches
-one from the control-plane token manager—requiring at least ten minutes of safe
-remaining validity—and returns it solely over the trusted `worker_env.resolve`
-RPC. That request includes the active Signal Binding name so the control plane
-selects the matching Lark app (an Agent with a single Lark Binding resolves it
-implicitly, whereas an Agent with multiple Lark Bindings receives no Lark
-credential variables when no Binding matches).
-
-Agent Computer strips the raw token before constructing any shell or Codex
-thread environment. Instead, for each open workspace, Background Agent Job
-attempt, or Automation Job attempt that receives a Lark bot token, Agent
-Computer writes a private file inside Agent Home via atomic rename, refreshes it
-every minute through `worker_env.resolve`, and stops refresh and deletes the
-file during cleanup. If the Binding switches to a different Lark app or domain
-mid-execution, Agent Computer deletes the token file and requires a fresh
-execution rather than mixing the old app identity with a new token.
-
-Child environments receive only `ANKOLE_RUNTIME_LARK_TENANT_ACCESS_TOKEN_FILE`.
-On every invocation, the Worker's `lark-cli` wrapper reads that file, rejects it
-if unrefreshed for more than five minutes—failing locally with
-`authentication/credential_unavailable` rather than sending a stale token—and
-passes the token only to the short-lived official CLI subprocess. Throughout,
-the control plane remains the sole credential owner: the file is a disposable
-runtime projection, not a new secret store or authorization subject.
+`worker_env.resolve` supplies a signed internal MCP token bound to the active
+`RunRef` or `JobTurnRef`, together with the control-plane gateway origin and
+available connection names. The Worker generates an invocation-scoped MCPorter
+configuration from enabled Skills. Connectors resolves and refreshes the tenant's
+external credentials on the control plane and verifies the live Turn on each
+request. Local Git commands obtain short-lived credentials through `GIT_ASKPASS`.
+See [Connectors](Connectors.md) for account selection and personal authorization.
 
 ## Call Functions in Another Process
 
@@ -545,9 +518,6 @@ Outer RPC frames carry execution authority outside the business payload (and
 payloads never duplicate Agent IDs or `request_id`):
 
 - **`turn`-scoped methods** carry one `RunRef` or `JobTurnRef`.
-- **`turn_or_automation`-scoped methods** carry one `RunRef`, `JobTurnRef`, or
-  `AutomationAttemptRef` (`{automation_job_id, automation_job_run_id,
-  attempt_id}`).
 - **`worker_agent`-scoped methods** carry no execution ref, taking the Agent UID
   directly from the authenticated socket's `worker_id`.
 
@@ -564,9 +534,8 @@ Registered RPC families cover:
 - AIGateway API key resolution and WorkerEnv resolution
 - Agent drive files: `files.list`, `files.get`, and `files.commit` (see
   [Files](Files.md))
-- Pod content and Base operations: `pod.read` and `pod.write` under turn or
-  Automation attempt authority (see [Pod Content Model](PodContentModel.md))
-- Automation job management, execution, and event emission
+- Pod content and Base operations: `pod.read` and `pod.write` under Turn authority (see [Pod Content Model](PodContentModel.md))
+- Applet Job and native source management through Pod operations
 - Webhook endpoint creation, listing, and cancellation
 - Worker observability span export and best-effort Codex diagnostic log
   maintenance
@@ -594,9 +563,8 @@ Every `rpc_error` includes an explicit `retryable` boolean and diagnostic
   Agent Computer preserves `code`, `retryable`, `details_json`, and `failure_id`
   into Actor and Background Agent Job recovery.
 
-Worker-initiated RPCs use a 300-second deadline, whereas control-plane-initiated
-Automation Job execution RPCs use a 10-minute deadline plus a short transport
-margin. In Job retry accounting, the Worker maps transport push timeouts to
+Worker-initiated RPCs use a 300-second deadline. In Job retry accounting, the
+Worker maps transport push timeouts to
 `runtime_fabric_timeout` and RPC deadlines to `runtime_rpc_timeout`; only those
 two codes and `socket_closed` count as infrastructure interruptions (ordinary
 `timeout` values or retryable domain errors do not).

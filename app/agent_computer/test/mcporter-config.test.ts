@@ -41,17 +41,17 @@ describe('@ankole/agent-computer Skill MCPorter config', () => {
     process.env.REMOTE_MCP_TOKEN = 'must-not-enter-config'
 
     try {
-      const first = renderMCPorterConfig(servers)
-      const second = renderMCPorterConfig([...servers].reverse())
+      const first = renderMCPorterConfig(servers, { gatewayOrigin: 'https://control.example.test' })
+      const second = renderMCPorterConfig([...servers].reverse(), { gatewayOrigin: 'https://control.example.test' })
       expect(second).toBe(first)
       expect(first).not.toContain('must-not-enter-config')
       expect(JSON.parse(first)).toEqual({
         mcpServers: {
           'a-remote': {
             description: 'Remote data',
-            baseUrl: 'https://mcp.example.test/rpc',
+            baseUrl: 'https://control.example.test/api/internal/mcp/skills/remote-skill/a-remote',
             protocolVersion: '2026-07-28',
-            bearerToken: '${REMOTE_MCP_TOKEN}',
+            bearerToken: '${ANKOLE_MCP_TOKEN}',
             allowedTools: ['quote']
           },
           'z-local': {
@@ -84,6 +84,40 @@ describe('@ankole/agent-computer Skill MCPorter config', () => {
     second.cleanup()
     expect(existsSync(first.path)).toBe(false)
     expect(existsSync(second.path)).toBe(false)
+  })
+
+  it('discovers exact application account aliases and refreshes the current choices', () => {
+    const root = temporaryRoot('ankole-mcp-accounts-')
+    const config = materializeMCPorterConfig(
+      [{ name: 'github', transport: 'connector', toolkit: 'github', sourceSkills: ['github'] }],
+      {
+        directory: root,
+        gatewayOrigin: 'https://control.test',
+        connections: {
+          github: [{ connection: 'engineering', label: 'Engineering', accounts: ['42', 'org.two'] }],
+          linear: [{ connection: 'unmounted', label: 'Not installed', accounts: ['workspace'] }]
+        }
+      }
+    )
+    const servers = JSON.parse(readFileSync(config.path, 'utf8')).mcpServers
+    expect(Object.keys(servers)).toEqual([
+      'github',
+      'github@engineering',
+      'github@engineering@42',
+      'github@engineering@org%2Etwo'
+    ])
+    expect(servers['github@engineering@org%2Etwo']).toMatchObject({
+      description: 'Engineering · application account org.two',
+      baseUrl: 'https://control.test/api/internal/mcp/toolkits/github?connection=engineering&account=org.two'
+    })
+    config.updateGateway({
+      gatewayOrigin: 'https://control.test',
+      connections: { github: [{ connection: 'engineering', label: 'Engineering', accounts: ['42'] }] }
+    })
+    expect(Object.keys(JSON.parse(readFileSync(config.path, 'utf8')).mcpServers)).not.toContain(
+      'github@engineering@org%2Etwo'
+    )
+    config.cleanup()
   })
 
   it('loads installed Skill declarations without a turn and filters only when a runtime is selected', async () => {
@@ -121,6 +155,27 @@ describe('@ankole/agent-computer Skill MCPorter config', () => {
       expect.objectContaining({ name: 'installed-data' }),
       expect.objectContaining({ name: 'shared-data', protocolVersion: '2026-07-28' })
     ])
+  })
+
+  it('renews a live Turn credential without changing the command configuration path', () => {
+    const root = temporaryRoot('ankole-mcp-renew-')
+    const config = materializeMCPorterConfig(
+      [{ name: 'github', transport: 'connector', toolkit: 'github', sourceSkills: ['github'] }],
+      {
+        directory: root,
+        gatewayOrigin: 'https://control.test',
+        gatewayToken: 'turn-first'
+      }
+    )
+    const path = config.env.MCPORTER_CONFIG!
+    const context = config.env.ANKOLE_MCP_CONTEXT_FILE!
+    config.updateGateway({ gatewayOrigin: 'https://control.test', gatewayToken: 'turn-renewed' })
+    expect(JSON.parse(readFileSync(path, 'utf8')).mcpServers.github.bearerToken).toBe('turn-renewed')
+    expect(JSON.parse(readFileSync(context, 'utf8'))).toEqual({ token: 'turn-renewed', origin: 'https://control.test' })
+    expect(statSync(context).mode & 0o777).toBe(0o600)
+    config.cleanup()
+    expect(existsSync(path)).toBe(false)
+    expect(existsSync(context)).toBe(false)
   })
 
   it('merges identical declarations and rejects conflicting declarations', async () => {

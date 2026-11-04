@@ -1,0 +1,184 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Approvals create instance.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "allow_resubmit": {
+        "type": "boolean"
+      },
+      "allow_submit_again": {
+        "type": "boolean"
+      },
+      "approval_code": {
+        "type": "string"
+      },
+      "byte_extra": {
+        "type": "string"
+      },
+      "cancel_bot_notification": {
+        "type": "string"
+      },
+      "department_id": {
+        "type": "string"
+      },
+      "forbid_revoke": {
+        "type": "boolean"
+      },
+      "form": {
+        "oneOf": [
+          {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          {
+            "type": "object"
+          }
+        ]
+      },
+      "i18n_resources": {
+        "items": {
+          "properties": {
+            "is_default": {
+              "type": "boolean"
+            },
+            "locale": {
+              "type": "string"
+            },
+            "texts": {
+              "items": {
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "node_approver_open_id_list": {
+        "items": {
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "node_approver_user_id_list": {
+        "items": {
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "node_auto_approval_list": {
+        "items": {
+          "properties": {
+            "node_id": {
+              "type": "string"
+            },
+            "node_id_type": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "node_cc_open_id_list": {
+        "items": {
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "node_cc_user_id_list": {
+        "items": {
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "title": {
+        "type": "string"
+      },
+      "title_display_method": {
+        "type": "integer"
+      },
+      "uuid": {
+        "type": "string"
+      },
+      "with_link": {
+        "type": "boolean"
+      }
+    },
+    "required": ["approval_code", "form", "uuid"],
+    "type": "object"
+  },
+  "name": "approvals_create_instance",
+  "outputSchema": {
+    "properties": {
+      "instance_code": {
+        "type": "string"
+      },
+      "instance_link": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

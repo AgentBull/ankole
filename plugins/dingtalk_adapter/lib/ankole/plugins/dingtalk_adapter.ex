@@ -1,4 +1,7 @@
 defmodule Ankole.Plugins.DingTalkAdapter do
+  @impl true
+  def activation, do: :always
+
   @moduledoc """
   First-party DingTalk (钉钉) plugin declaration.
 

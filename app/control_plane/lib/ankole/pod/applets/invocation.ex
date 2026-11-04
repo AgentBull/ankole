@@ -45,17 +45,14 @@ defmodule Ankole.Pod.Applets.Invocation do
     started = System.monotonic_time(:millisecond)
     deadline = Keyword.get(limits, :deadline, started + Keyword.get(limits, :timeout_ms, 60_000))
 
-    {:ok, handle, run_id} = AppletClient.start(source, context, limits, deadline)
+    {:ok, handle, run_id} = AppletClient.start(source, context, limits, deadline, authority)
 
     state = %{
       handle: handle,
       run_id: run_id,
       owner_monitor: monitor,
       client_monitor: Process.monitor(handle),
-      context:
-        context
-        |> Map.put("deadline", deadline)
-        |> Map.put(:mcp_tools, :ets.new(__MODULE__, [:set, :public])),
+      context: Map.put(context, "deadline", deadline),
       authority: authority,
       tasks: %{},
       deadline: deadline

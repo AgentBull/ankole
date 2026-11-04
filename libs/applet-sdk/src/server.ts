@@ -64,6 +64,8 @@ export interface HttpError extends Error {
   status: number
   code: string
   details?: unknown
+  retryable?: boolean
+  request_sent?: boolean
 }
 export type RuntimeCapabilities = {
   base: {
@@ -82,7 +84,7 @@ export type RuntimeCapabilities = {
     call<T = unknown>(
       tool: string,
       args: Record<string, unknown>,
-      options: { skill: string; server: string }
+      options: { server: string; connection?: string; account?: string; skill?: string }
     ): Promise<T>
   }
   signals: {

@@ -123,6 +123,10 @@ export type SignalBindingType = {
   /**
    * Field included by default.
    */
+  auth_config_id?: string | null
+  /**
+   * Field included by default.
+   */
   automation_job_id?: number | null
   /**
    * Field included by default.
@@ -138,6 +142,10 @@ export type SignalBindingType = {
   filters: {
     [key: string]: unknown
   }
+  /**
+   * Field included by default.
+   */
+  id: string
   /**
    * Field included by default.
    */
@@ -581,6 +589,12 @@ export type AutomationJobRunType = {
   /**
    * Field included by default.
    */
+  event: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
   exit_code?: number | null
   /**
    * Field included by default.
@@ -794,11 +808,7 @@ export type AutomationJobType = {
   /**
    * Field included by default.
    */
-  action_key?: string | null
-  /**
-   * Field included by default.
-   */
-  agent_uid?: string | null
+  action_key: string
   /**
    * Field included by default.
    */
@@ -820,11 +830,7 @@ export type AutomationJobType = {
   /**
    * Field included by default.
    */
-  drive_prefix?: string | null
-  /**
-   * Field included by default.
-   */
-  executor_kind: 'agent_script' | 'applet_function'
+  human_uid?: string | null
   /**
    * Field included by default.
    */
@@ -848,21 +854,7 @@ export type AutomationJobType = {
   /**
    * Field included by default.
    */
-  owner_session_id?: string | null
-  /**
-   * Field included by default.
-   */
-  page_id?: string | null
-  /**
-   * Field included by default.
-   */
-  provider_message_id?: string | null
-  /**
-   * Field included by default.
-   */
-  reply_route: {
-    [key: string]: unknown
-  }
+  page_id: string
   /**
    * Field included by default.
    */
@@ -885,10 +877,6 @@ export type AutomationJobType = {
    * Field included by default.
    */
   updated_at: string
-  /**
-   * Field included by default.
-   */
-  wake_on_failure: boolean
 }
 
 /**
@@ -1032,6 +1020,26 @@ export type PodAdminOperationFilter = {
   and?: Array<PodAdminOperationFilter>
   not?: PodAdminOperationFilter
   or?: Array<PodAdminOperationFilter>
+}
+
+/**
+ * A "Resource object" representing a connector_operation
+ */
+export type ConnectorOperation = {
+  /**
+   * An attributes object for a connector_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a connector_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
 }
 
 /**
@@ -1238,6 +1246,15 @@ export type EventBindingOperation = {
 }
 
 /**
+ * Filters the query to results matching the given filter object
+ */
+export type ConnectorOperationFilter = {
+  and?: Array<ConnectorOperationFilter>
+  not?: ConnectorOperationFilter
+  or?: Array<ConnectorOperationFilter>
+}
+
+/**
  * A "Resource object" representing a meta_library
  */
 export type MetaLibrary = {
@@ -1364,6 +1381,44 @@ export type PodBaseTableRenameResponses = {
 }
 
 export type PodBaseTableRenameResponse = PodBaseTableRenameResponses[keyof PodBaseTableRenameResponses]
+
+export type PodJobSchedulesRunData = {
+  /**
+   * Request body for the podJobSchedulesRun operation on applet_job_operation resource
+   */
+  body: {
+    data: {
+      idempotency_key: string
+    }
+  }
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/run'
+}
+
+export type PodJobSchedulesRunErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesRunError = PodJobSchedulesRunErrors[keyof PodJobSchedulesRunErrors]
+
+export type PodJobSchedulesRunResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesRunResponse = PodJobSchedulesRunResponses[keyof PodJobSchedulesRunResponses]
 
 export type UpdateConversationParticipantsData = {
   /**
@@ -1735,6 +1790,53 @@ export type PodPageMoveResponses = {
 
 export type PodPageMoveResponse = PodPageMoveResponses[keyof PodPageMoveResponses]
 
+export type PodConnectorAccountsListData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/connectors/accounts'
+}
+
+export type PodConnectorAccountsListErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorAccountsListError = PodConnectorAccountsListErrors[keyof PodConnectorAccountsListErrors]
+
+export type PodConnectorAccountsListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    accounts: Array<{
+      account_key: string
+      auth_config_id: string
+      expires_at?: string | null
+      external_subject_id?: string | null
+      granted_scopes: Array<string>
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      owner_principal_uid?: string | null
+      plugin_id: string
+      public_metadata: {
+        [key: string]: unknown
+      }
+      refresh_expires_at?: string | null
+      status: string
+      subject_kind: string
+      updated_at: string
+    }>
+  }
+}
+
+export type PodConnectorAccountsListResponse =
+  PodConnectorAccountsListResponses[keyof PodConnectorAccountsListResponses]
+
 export type DisablePodAgentData = {
   body?: never
   path: {
@@ -1839,6 +1941,7 @@ export type PodAdminIdentityProvidersResponses = {
               } | null
             }
       }>
+      plugin_id: string
     }>
     providers: Array<{
       adapter_id: string
@@ -1897,6 +2000,37 @@ export type PodVersionsResponses = {
 }
 
 export type PodVersionsResponse = PodVersionsResponses[keyof PodVersionsResponses]
+
+export type PodJobSchedulesDeleteData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}'
+}
+
+export type PodJobSchedulesDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesDeleteError = PodJobSchedulesDeleteErrors[keyof PodJobSchedulesDeleteErrors]
+
+export type PodJobSchedulesDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesDeleteResponse = PodJobSchedulesDeleteResponses[keyof PodJobSchedulesDeleteResponses]
 
 export type PodAppletJobsData = {
   body?: never
@@ -2005,6 +2139,113 @@ export type MetaGlobalContractsResponses = {
 }
 
 export type MetaGlobalContractsResponse = MetaGlobalContractsResponses[keyof MetaGlobalContractsResponses]
+
+export type PodJobSchedulesListData = {
+  body?: never
+  path: {
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules'
+}
+
+export type PodJobSchedulesListErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesListError = PodJobSchedulesListErrors[keyof PodJobSchedulesListErrors]
+
+export type PodJobSchedulesListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesListResponse = PodJobSchedulesListResponses[keyof PodJobSchedulesListResponses]
+
+export type PodJobSchedulesPutData = {
+  /**
+   * Request body for the podJobSchedulesPut operation on applet_job_operation resource
+   */
+  body?: {
+    data: {
+      id?: string | null
+      idempotency_key?: string | null
+      name?: string | null
+      payload?: {
+        [key: string]: unknown
+      } | null
+      schedule?: {
+        [key: string]: unknown
+      } | null
+      timezone?: string | null
+    }
+  }
+  path: {
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules'
+}
+
+export type PodJobSchedulesPutErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesPutError = PodJobSchedulesPutErrors[keyof PodJobSchedulesPutErrors]
+
+export type PodJobSchedulesPutResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesPutResponse = PodJobSchedulesPutResponses[keyof PodJobSchedulesPutResponses]
+
+export type PodJobWebhooksResumeData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/resume'
+}
+
+export type PodJobWebhooksResumeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksResumeError = PodJobWebhooksResumeErrors[keyof PodJobWebhooksResumeErrors]
+
+export type PodJobWebhooksResumeResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksResumeResponse = PodJobWebhooksResumeResponses[keyof PodJobWebhooksResumeResponses]
 
 export type MetaSkillsData = {
   body?: never
@@ -2508,6 +2749,84 @@ export type PodAppletOwnerResponses = {
 
 export type PodAppletOwnerResponse = PodAppletOwnerResponses[keyof PodAppletOwnerResponses]
 
+export type PodJobWebhooksCancelData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/cancel'
+}
+
+export type PodJobWebhooksCancelErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksCancelError = PodJobWebhooksCancelErrors[keyof PodJobWebhooksCancelErrors]
+
+export type PodJobWebhooksCancelResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksCancelResponse = PodJobWebhooksCancelResponses[keyof PodJobWebhooksCancelResponses]
+
+export type PodConnectorTriggersRetryData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/connectors/triggers/{id}/retry'
+}
+
+export type PodConnectorTriggersRetryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorTriggersRetryError = PodConnectorTriggersRetryErrors[keyof PodConnectorTriggersRetryErrors]
+
+export type PodConnectorTriggersRetryResponses = {
+  /**
+   * Success
+   */
+  201: {
+    trigger: {
+      auth_config_id: string
+      config: {
+        [key: string]: unknown
+      }
+      config_ref: string
+      connected_account_id?: string | null
+      external_subscription_id?: string | null
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      plugin_id: string
+      scope_key: string
+      status: string
+      trigger_type: string
+      updated_at: string
+    }
+  }
+}
+
+export type PodConnectorTriggersRetryResponse =
+  PodConnectorTriggersRetryResponses[keyof PodConnectorTriggersRetryResponses]
+
 export type MetaAgentContractsData = {
   body?: never
   path: {
@@ -2547,6 +2866,36 @@ export type MetaAgentContractsResponses = {
 }
 
 export type MetaAgentContractsResponse = MetaAgentContractsResponses[keyof MetaAgentContractsResponses]
+
+export type PodAppletJobRunsData = {
+  body?: never
+  path: {
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/runs'
+}
+
+export type PodAppletJobRunsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletJobRunsError = PodAppletJobRunsErrors[keyof PodAppletJobRunsErrors]
+
+export type PodAppletJobRunsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    runs: Array<AutomationJobRunType>
+  }
+}
+
+export type PodAppletJobRunsResponse = PodAppletJobRunsResponses[keyof PodAppletJobRunsResponses]
 
 export type MetaDeleteSkillData = {
   body?: never
@@ -4475,6 +4824,37 @@ export type StopPodPeerExchangeResponses = {
 
 export type StopPodPeerExchangeResponse = StopPodPeerExchangeResponses[keyof StopPodPeerExchangeResponses]
 
+export type PodJobWebhooksPauseData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/pause'
+}
+
+export type PodJobWebhooksPauseErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksPauseError = PodJobWebhooksPauseErrors[keyof PodJobWebhooksPauseErrors]
+
+export type PodJobWebhooksPauseResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksPauseResponse = PodJobWebhooksPauseResponses[keyof PodJobWebhooksPauseResponses]
+
 export type SyncPodDirectoryData = {
   body?: never
   path: {
@@ -4503,6 +4883,109 @@ export type SyncPodDirectoryResponses = {
 }
 
 export type SyncPodDirectoryResponse = SyncPodDirectoryResponses[keyof SyncPodDirectoryResponses]
+
+export type PodConnectorAuthConfigsListData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/connectors/auth-configs'
+}
+
+export type PodConnectorAuthConfigsListErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorAuthConfigsListError =
+  PodConnectorAuthConfigsListErrors[keyof PodConnectorAuthConfigsListErrors]
+
+export type PodConnectorAuthConfigsListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    connections: Array<{
+      auth_scheme: string
+      configured_credential_fields: Array<string>
+      display_name: string
+      id: string
+      inserted_at: string
+      is_default: boolean
+      plugin_id: string
+      public_metadata: {
+        [key: string]: unknown
+      }
+      slug: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type PodConnectorAuthConfigsListResponse =
+  PodConnectorAuthConfigsListResponses[keyof PodConnectorAuthConfigsListResponses]
+
+export type PodConnectorAuthConfigsCreateData = {
+  /**
+   * Request body for the podConnectorAuthConfigsCreate operation on connector_operation resource
+   */
+  body: {
+    data: {
+      auth_scheme: string
+      display_name?: string | null
+      is_default?: boolean | null
+      plugin_id: string
+      public_metadata?: {
+        [key: string]: unknown
+      } | null
+      secret: {
+        [key: string]: unknown
+      }
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/connectors/auth-configs'
+}
+
+export type PodConnectorAuthConfigsCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorAuthConfigsCreateError =
+  PodConnectorAuthConfigsCreateErrors[keyof PodConnectorAuthConfigsCreateErrors]
+
+export type PodConnectorAuthConfigsCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    connection: {
+      auth_scheme: string
+      configured_credential_fields: Array<string>
+      display_name: string
+      id: string
+      inserted_at: string
+      is_default: boolean
+      plugin_id: string
+      public_metadata: {
+        [key: string]: unknown
+      }
+      slug: string
+      status: string
+      updated_at: string
+    }
+  }
+}
+
+export type PodConnectorAuthConfigsCreateResponse =
+  PodConnectorAuthConfigsCreateResponses[keyof PodConnectorAuthConfigsCreateResponses]
 
 export type PodFilesData = {
   body?: never
@@ -4734,6 +5217,37 @@ export type PodFileCopyResponses = {
 
 export type PodFileCopyResponse = PodFileCopyResponses[keyof PodFileCopyResponses]
 
+export type PodJobSchedulesPauseData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/pause'
+}
+
+export type PodJobSchedulesPauseErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesPauseError = PodJobSchedulesPauseErrors[keyof PodJobSchedulesPauseErrors]
+
+export type PodJobSchedulesPauseResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesPauseResponse = PodJobSchedulesPauseResponses[keyof PodJobSchedulesPauseResponses]
+
 export type PodAgentsData = {
   body?: never
   path?: never
@@ -4936,6 +5450,76 @@ export type DisablePodMemberResponses = {
 }
 
 export type DisablePodMemberResponse = DisablePodMemberResponses[keyof DisablePodMemberResponses]
+
+export type PodJobWebhooksDeleteData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}'
+}
+
+export type PodJobWebhooksDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksDeleteError = PodJobWebhooksDeleteErrors[keyof PodJobWebhooksDeleteErrors]
+
+export type PodJobWebhooksDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksDeleteResponse = PodJobWebhooksDeleteResponses[keyof PodJobWebhooksDeleteResponses]
+
+export type PodJobWebhooksUpdateData = {
+  /**
+   * Request body for the podJobWebhooksUpdate operation on applet_job_operation resource
+   */
+  body?: {
+    data: {
+      expires_at?: unknown | null
+      label?: string | null
+    }
+  }
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}'
+}
+
+export type PodJobWebhooksUpdateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksUpdateError = PodJobWebhooksUpdateErrors[keyof PodJobWebhooksUpdateErrors]
+
+export type PodJobWebhooksUpdateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksUpdateResponse = PodJobWebhooksUpdateResponses[keyof PodJobWebhooksUpdateResponses]
 
 export type PodBaseFieldCreateData = {
   /**
@@ -5305,6 +5889,55 @@ export type RevokePodInvitationResponses = {
 
 export type RevokePodInvitationResponse = RevokePodInvitationResponses[keyof RevokePodInvitationResponses]
 
+export type PodConnectorsCatalogData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/connectors'
+}
+
+export type PodConnectorsCatalogErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorsCatalogError = PodConnectorsCatalogErrors[keyof PodConnectorsCatalogErrors]
+
+export type PodConnectorsCatalogResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_manage: boolean
+    connectors?: Array<{
+      auth_schemes: Array<string>
+      credential_fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      display_name: string
+      event_streams?: Array<{
+        event_types: Array<string>
+        id: string
+        label: string
+      }> | null
+      id: string
+      plugin_id: string
+      public_fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      toolkits: Array<string>
+      trigger_types?: Array<{
+        [key: string]: unknown
+      }> | null
+    }> | null
+    oauth_callback_url: string
+  }
+}
+
+export type PodConnectorsCatalogResponse = PodConnectorsCatalogResponses[keyof PodConnectorsCatalogResponses]
+
 export type PodPageChildrenData = {
   body?: never
   path?: never
@@ -5370,6 +6003,59 @@ export type PodPageChildrenResponses = {
 }
 
 export type PodPageChildrenResponse = PodPageChildrenResponses[keyof PodPageChildrenResponses]
+
+export type PodConnectorOAuthClaimData = {
+  /**
+   * Request body for the podConnectorOAuthClaim operation on connector_operation resource
+   */
+  body: {
+    data: {
+      completion_code: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/connectors/oauth/claim'
+}
+
+export type PodConnectorOAuthClaimErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorOAuthClaimError = PodConnectorOAuthClaimErrors[keyof PodConnectorOAuthClaimErrors]
+
+export type PodConnectorOAuthClaimResponses = {
+  /**
+   * Success
+   */
+  201: {
+    account: {
+      account_key: string
+      auth_config_id: string
+      expires_at?: string | null
+      external_subject_id?: string | null
+      granted_scopes: Array<string>
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      owner_principal_uid?: string | null
+      plugin_id: string
+      public_metadata: {
+        [key: string]: unknown
+      }
+      refresh_expires_at?: string | null
+      status: string
+      subject_kind: string
+      updated_at: string
+    }
+  }
+}
+
+export type PodConnectorOAuthClaimResponse = PodConnectorOAuthClaimResponses[keyof PodConnectorOAuthClaimResponses]
 
 export type PodAppletRunData = {
   body?: never
@@ -6309,6 +6995,37 @@ export type SavePodIdentityProviderResponses = {
 
 export type SavePodIdentityProviderResponse = SavePodIdentityProviderResponses[keyof SavePodIdentityProviderResponses]
 
+export type PodJobSchedulesRunsData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/runs'
+}
+
+export type PodJobSchedulesRunsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesRunsError = PodJobSchedulesRunsErrors[keyof PodJobSchedulesRunsErrors]
+
+export type PodJobSchedulesRunsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesRunsResponse = PodJobSchedulesRunsResponses[keyof PodJobSchedulesRunsResponses]
+
 export type PodPageDeleteData = {
   body?: never
   path: {
@@ -6463,6 +7180,67 @@ export type PodPageCommentSummaryResponses = {
 
 export type PodPageCommentSummaryResponse = PodPageCommentSummaryResponses[keyof PodPageCommentSummaryResponses]
 
+export type PodConnectorAuthConfigsUpdateData = {
+  /**
+   * Request body for the podConnectorAuthConfigsUpdate operation on connector_operation resource
+   */
+  body?: {
+    data: {
+      display_name?: string | null
+      is_default?: boolean | null
+      public_metadata?: {
+        [key: string]: unknown
+      } | null
+      secret?: {
+        [key: string]: unknown
+      } | null
+      slug?: string | null
+      status?: string | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/connectors/auth-configs/{id}'
+}
+
+export type PodConnectorAuthConfigsUpdateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorAuthConfigsUpdateError =
+  PodConnectorAuthConfigsUpdateErrors[keyof PodConnectorAuthConfigsUpdateErrors]
+
+export type PodConnectorAuthConfigsUpdateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    connection: {
+      auth_scheme: string
+      configured_credential_fields: Array<string>
+      display_name: string
+      id: string
+      inserted_at: string
+      is_default: boolean
+      plugin_id: string
+      public_metadata: {
+        [key: string]: unknown
+      }
+      slug: string
+      status: string
+      updated_at: string
+    }
+  }
+}
+
+export type PodConnectorAuthConfigsUpdateResponse =
+  PodConnectorAuthConfigsUpdateResponses[keyof PodConnectorAuthConfigsUpdateResponses]
+
 export type EnablePodAgentData = {
   body?: never
   path: {
@@ -6564,6 +7342,76 @@ export type PodKnowledgePanelResponses = {
 }
 
 export type PodKnowledgePanelResponse = PodKnowledgePanelResponses[keyof PodKnowledgePanelResponses]
+
+export type PodJobWebhooksListData = {
+  body?: never
+  path: {
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks'
+}
+
+export type PodJobWebhooksListErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksListError = PodJobWebhooksListErrors[keyof PodJobWebhooksListErrors]
+
+export type PodJobWebhooksListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksListResponse = PodJobWebhooksListResponses[keyof PodJobWebhooksListResponses]
+
+export type PodJobWebhooksCreateData = {
+  /**
+   * Request body for the podJobWebhooksCreate operation on applet_job_operation resource
+   */
+  body: {
+    data: {
+      event_format?: string | null
+      expires_at: unknown
+      label: string
+      mode?: string | null
+    }
+  }
+  path: {
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks'
+}
+
+export type PodJobWebhooksCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksCreateError = PodJobWebhooksCreateErrors[keyof PodJobWebhooksCreateErrors]
+
+export type PodJobWebhooksCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksCreateResponse = PodJobWebhooksCreateResponses[keyof PodJobWebhooksCreateResponses]
 
 export type PodAdminAgentsData = {
   body?: never
@@ -6814,6 +7662,92 @@ export type UnbindPodMemberCredentialResponses = {
 export type UnbindPodMemberCredentialResponse =
   UnbindPodMemberCredentialResponses[keyof UnbindPodMemberCredentialResponses]
 
+export type PodConnectorOAuthBeginData = {
+  /**
+   * Request body for the podConnectorOAuthBegin operation on connector_operation resource
+   */
+  body: {
+    data: {
+      connection: string
+      plugin_id?: string | null
+      return_to?: string | null
+      scopes?: Array<string> | null
+      subject_kind?: string | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/connectors/oauth'
+}
+
+export type PodConnectorOAuthBeginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorOAuthBeginError = PodConnectorOAuthBeginErrors[keyof PodConnectorOAuthBeginErrors]
+
+export type PodConnectorOAuthBeginResponses = {
+  /**
+   * Success
+   */
+  201: {
+    authorization_url: string
+    expires_in: number
+  }
+}
+
+export type PodConnectorOAuthBeginResponse = PodConnectorOAuthBeginResponses[keyof PodConnectorOAuthBeginResponses]
+
+export type PodConnectorTriggersDeleteData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/connectors/triggers/{id}'
+}
+
+export type PodConnectorTriggersDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorTriggersDeleteError = PodConnectorTriggersDeleteErrors[keyof PodConnectorTriggersDeleteErrors]
+
+export type PodConnectorTriggersDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    trigger: {
+      auth_config_id: string
+      config: {
+        [key: string]: unknown
+      }
+      config_ref: string
+      connected_account_id?: string | null
+      external_subscription_id?: string | null
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      plugin_id: string
+      scope_key: string
+      status: string
+      trigger_type: string
+      updated_at: string
+    }
+  }
+}
+
+export type PodConnectorTriggersDeleteResponse =
+  PodConnectorTriggersDeleteResponses[keyof PodConnectorTriggersDeleteResponses]
+
 export type PodKnowledgeExportData = {
   body?: never
   path: {
@@ -6844,6 +7778,56 @@ export type PodKnowledgeExportResponses = {
 }
 
 export type PodKnowledgeExportResponse = PodKnowledgeExportResponses[keyof PodKnowledgeExportResponses]
+
+export type PodConnectorAccountsDisconnectData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/connectors/accounts/{id}'
+}
+
+export type PodConnectorAccountsDisconnectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorAccountsDisconnectError =
+  PodConnectorAccountsDisconnectErrors[keyof PodConnectorAccountsDisconnectErrors]
+
+export type PodConnectorAccountsDisconnectResponses = {
+  /**
+   * Success
+   */
+  200: {
+    account: {
+      account_key: string
+      auth_config_id: string
+      expires_at?: string | null
+      external_subject_id?: string | null
+      granted_scopes: Array<string>
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      owner_principal_uid?: string | null
+      plugin_id: string
+      public_metadata: {
+        [key: string]: unknown
+      }
+      refresh_expires_at?: string | null
+      status: string
+      subject_kind: string
+      updated_at: string
+    }
+  }
+}
+
+export type PodConnectorAccountsDisconnectResponse =
+  PodConnectorAccountsDisconnectResponses[keyof PodConnectorAccountsDisconnectResponses]
 
 export type PodAdminSettingsData = {
   body?: never
@@ -7037,6 +8021,66 @@ export type PodBaseTableConfigureResponses = {
 
 export type PodBaseTableConfigureResponse = PodBaseTableConfigureResponses[keyof PodBaseTableConfigureResponses]
 
+export type PodJobSchedulesResumeData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/resume'
+}
+
+export type PodJobSchedulesResumeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesResumeError = PodJobSchedulesResumeErrors[keyof PodJobSchedulesResumeErrors]
+
+export type PodJobSchedulesResumeResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesResumeResponse = PodJobSchedulesResumeResponses[keyof PodJobSchedulesResumeResponses]
+
+export type PodAppletJobActionsData = {
+  body?: never
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/job-actions'
+}
+
+export type PodAppletJobActionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletJobActionsError = PodAppletJobActionsErrors[keyof PodAppletJobActionsErrors]
+
+export type PodAppletJobActionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    actions: Array<string>
+  }
+}
+
+export type PodAppletJobActionsResponse = PodAppletJobActionsResponses[keyof PodAppletJobActionsResponses]
+
 export type PodSpaceAgentDeleteData = {
   body?: never
   path: {
@@ -7181,6 +8225,109 @@ export type CreatePodInvitationResponses = {
 }
 
 export type CreatePodInvitationResponse = CreatePodInvitationResponses[keyof CreatePodInvitationResponses]
+
+export type PodConnectorTriggersListData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/connectors/triggers'
+}
+
+export type PodConnectorTriggersListErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorTriggersListError = PodConnectorTriggersListErrors[keyof PodConnectorTriggersListErrors]
+
+export type PodConnectorTriggersListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    triggers: Array<{
+      auth_config_id: string
+      config: {
+        [key: string]: unknown
+      }
+      config_ref: string
+      connected_account_id?: string | null
+      external_subscription_id?: string | null
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      plugin_id: string
+      scope_key: string
+      status: string
+      trigger_type: string
+      updated_at: string
+    }>
+  }
+}
+
+export type PodConnectorTriggersListResponse =
+  PodConnectorTriggersListResponses[keyof PodConnectorTriggersListResponses]
+
+export type PodConnectorTriggersCreateData = {
+  /**
+   * Request body for the podConnectorTriggersCreate operation on connector_operation resource
+   */
+  body: {
+    data: {
+      auth_config_id: string
+      config?: {
+        [key: string]: unknown
+      } | null
+      connected_account_id?: string | null
+      scope_key: string
+      trigger_type: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/connectors/triggers'
+}
+
+export type PodConnectorTriggersCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorTriggersCreateError = PodConnectorTriggersCreateErrors[keyof PodConnectorTriggersCreateErrors]
+
+export type PodConnectorTriggersCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    trigger: {
+      auth_config_id: string
+      config: {
+        [key: string]: unknown
+      }
+      config_ref: string
+      connected_account_id?: string | null
+      external_subscription_id?: string | null
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      plugin_id: string
+      scope_key: string
+      status: string
+      trigger_type: string
+      updated_at: string
+    }
+  }
+}
+
+export type PodConnectorTriggersCreateResponse =
+  PodConnectorTriggersCreateResponses[keyof PodConnectorTriggersCreateResponses]
 
 export type PodPageHistoryData = {
   body?: never

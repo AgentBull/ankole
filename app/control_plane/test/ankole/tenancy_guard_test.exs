@@ -26,7 +26,10 @@ defmodule Ankole.TenancyGuardTest do
   # Base physical SQL resolves only the current tenant schema and UUID-derived table/column
   # names. Inline uniqueness binds tenant_id and table_id; the schedule sequence only
   # allocates an opaque database ID and reads no tenant data.
+  # Connector maintenance enumerates the site, then enters each row's tenant before work.
   @reviewed_query_escapes %{
+    "across_tenants:lib/ankole/connectors/jobs/reconcile_triggers.ex:run" => 1,
+    "across_tenants:lib/ankole/connectors/jobs/refresh_accounts.ex:run" => 1,
     "raw_sql:lib/ankole/schedule/store.ex:reserve_event_id" => 1,
     "raw_sql:lib/ankole/pod/bases/physical.ex:unique_index!" => 2,
     "raw_sql:lib/ankole/pod/bases/physical.ex:append_changes" => 1,
@@ -47,6 +50,7 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/principals/rename/references.ex:rewrite_json_actor" => 1,
     "raw_sql:lib/ankole/principals/rename/references.ex:rewrite_actor" => 1,
     "raw_sql:lib/ankole/principals/rename/references.ex:rename_browser_subject" => 1,
+    "raw_sql:lib/ankole/principals/rename/references.ex:rename_connector_account_key" => 1,
     "raw_sql:lib/ankole/principals/rename/references.ex:rewrite_array" => 1,
     "raw_sql:lib/ankole/principals/rename/references.ex:rewrite_json_scalar" => 1,
     "raw_sql:lib/ankole/principals/rename/references.ex:rewrite_actor_array" => 1,
@@ -77,7 +81,8 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole_web/plugs/oidc_cors.ex:call" => 1,
     "across_tenants:lib/ankole/app_configure.ex:platform_application_in_other_tenant?" => 1,
     "across_tenants:lib/ankole/ash.ex:read_across_tenants!" => 1,
-    "across_tenants:lib/ankole/agent_workers.ex:assign_legacy_provider_in_tx" => 1,
+    "across_tenants:lib/ankole/upgrade_202610/worker_providers.ex:assign_legacy_provider_in_tx" =>
+      1,
     "across_tenants:lib/ankole/agent_workers.ex:assigned_worker" => 1,
     "across_tenants:lib/ankole/agent_workers.ex:clear_provider_rejections_in_tx" => 1,
     "across_tenants:lib/ankole/agent_workers.ex:provider_worker_counts" => 1,
@@ -102,7 +107,7 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole/upgrade_202610.ex:agents" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:backfill_application_identities" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:legacy_intents" => 1,
-    "across_tenants:lib/ankole/upgrade_202610.ex:legacy_jobs" => 1,
+    "across_tenants:lib/ankole/upgrade_202610.ex:migrate_job_recovery_metadata" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_binding_configurations" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_shared_key" => 1,
     "across_tenants:lib/ankole/workflow/recovery.ex:reconcile_run_wakeups" => 1,
@@ -190,7 +195,6 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/tenants/jobs/delete.ex:delete_rows" => 1,
     "raw_sql:lib/ankole/tenants/jobs/delete.ex:delete_batch" => 1,
     "raw_sql:lib/ankole/tenants/jobs/delete.ex:finish_in_tx" => 1,
-    "sql_fragment:lib/ankole/background_agent_jobs/trajectory_reader.ex:lineage_query" => 1,
     "sql_fragment:lib/ankole/browser_sessions/revocation.ex:cleanup_expired" => 1,
     "sql_fragment:lib/ankole/conversations/delivery/interactions.ex:older_reply_interaction_events" =>
       1,
@@ -231,6 +235,22 @@ defmodule Ankole.TenancyGuardTest do
   @allowed_site_tables MapSet.new(@site_tables ++ @private_site_tables)
 
   @global_unique_indexes %{
+    "connector_auth_configs_pkey" =>
+      "The application generates each connection's UUIDv7; reads bind tenant_id.",
+    "connector_connected_accounts_pkey" =>
+      "The application generates each account's UUIDv7; reads bind tenant_id.",
+    "connector_oauth_sessions_pkey" =>
+      "The application generates each OAuth session's UUIDv7; claims bind tenant and actor.",
+    "connector_triggers_pkey" =>
+      "The application generates each trigger's UUIDv7; reads bind tenant_id.",
+    "connector_auth_configs_active_platform_app_uidx" =>
+      "One active consuming connection owns a platform application across the site.",
+    "connector_auth_configs_active_platform_client_uidx" =>
+      "A Slack connection owns its OAuth client even when its verified bot application identity is added.",
+    "connector_oauth_sessions_oauth_state_digest_key" =>
+      "A random OAuth state locates one session before verified tenant and actor claim.",
+    "connector_oauth_sessions_completion_code_digest_key" =>
+      "A random completion code locates one pending claim bound to its tenant and actor.",
     "base_change_outbox_pkey" =>
       "Application UUIDv7 identifies one committed Base batch; reads bind tenant_id",
     "agent_workers_token_digest_index" =>

@@ -1,3 +1,4 @@
+import { ConnectorConfigFields } from '../connector-config-fields'
 import { TableRow, useMutation, useQuery, Link, useNavigate } from '../tenant-context'
 import { flushSync } from 'react-dom'
 import { DirectoryAccessSection } from './directory-access'
@@ -22,7 +23,6 @@ import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from '@tanstack/react-router'
 import {
-  ConfigFields,
   type ConfigFieldDefinition,
   type LocalizedText,
   configFieldServerError,
@@ -369,7 +369,11 @@ export function IdentityProviderEditorPage() {
         />
 
         {activeAdapter ? (
-          <ConfigFields
+          <ConnectorConfigFields
+            pluginId={activeAdapter.plugin_id ?? activeAdapter.adapter_id}
+            onConnectionChange={config => {
+              model.config.value = config
+            }}
             config={model.config.value}
             fields={activeFields}
             locale={locale}

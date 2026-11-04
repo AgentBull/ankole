@@ -60,6 +60,8 @@ describe('browser runtime reached by Agent commands', () => {
   test('OfficeCLI discovers Chromium and produces a real document screenshot', () => {
     const document = join(workspaceRoot, 'office-preview.docx')
     const output = join(workspaceRoot, 'office-preview.png')
+    const version = runCommand(['officecli', '--version'])
+    expect(version.status, `${version.stderr}\n${version.stdout}`).toBe(0)
     for (const args of [
       ['create', document],
       ['add', document, '/body', '--type', 'paragraph', '--prop', 'text=Screenshot regression'],
@@ -73,6 +75,9 @@ describe('browser runtime reached by Agent commands', () => {
     expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
     expect(png.readUInt32BE(16)).toBeGreaterThan(0)
     expect(png.readUInt32BE(20)).toBeGreaterThan(0)
+    const versionAfter = runCommand(['officecli', '--version'])
+    expect(versionAfter.status, `${versionAfter.stderr}\n${versionAfter.stdout}`).toBe(0)
+    expect(versionAfter.stdout.trim()).toBe(version.stdout.trim())
   }, 40_000)
 
   test('the CLI reaches the Worker browser daemon from a command environment', () => {

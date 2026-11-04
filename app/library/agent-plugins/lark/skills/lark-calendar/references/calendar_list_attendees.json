@@ -1,0 +1,145 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Calendar list attendees.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "calendar_id": {
+        "type": "string"
+      },
+      "event_id": {
+        "type": "string"
+      },
+      "need_resource_customization": {
+        "type": "boolean"
+      },
+      "op_user_id": {
+        "type": "string"
+      },
+      "page_size": {
+        "type": "integer"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": ["event_id"],
+    "type": "object"
+  },
+  "name": "calendar_list_attendees",
+  "outputSchema": {
+    "properties": {
+      "has_more": {
+        "type": "boolean"
+      },
+      "items": {
+        "items": {
+          "properties": {
+            "approval_reason": {
+              "type": "string"
+            },
+            "attendee_id": {
+              "type": "string"
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "chat_members": {
+              "items": {
+                "properties": {
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "is_external": {
+                    "type": "boolean"
+                  },
+                  "is_optional": {
+                    "type": "boolean"
+                  },
+                  "is_organizer": {
+                    "type": "boolean"
+                  },
+                  "rsvp_status": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "display_name": {
+              "type": "string"
+            },
+            "is_external": {
+              "type": "boolean"
+            },
+            "is_optional": {
+              "type": "boolean"
+            },
+            "is_organizer": {
+              "type": "boolean"
+            },
+            "operate_id": {
+              "type": "string"
+            },
+            "resource_customization": {
+              "items": {
+                "properties": {
+                  "index_key": {
+                    "type": "string"
+                  },
+                  "input_content": {
+                    "type": "string"
+                  },
+                  "options": {
+                    "items": {
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "room_id": {
+              "type": "string"
+            },
+            "rsvp_status": {
+              "type": "string"
+            },
+            "third_party_email": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "page_token": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

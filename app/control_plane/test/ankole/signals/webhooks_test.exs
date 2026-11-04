@@ -3,10 +3,8 @@ defmodule Ankole.Signals.WebhooksTest do
   # `unboxed_run` to prove real row locking.
   use Ankole.DataCase, async: false
 
-  import Ankole.FilesFixtures
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AutomationJobs
   alias Ankole.AutomationJobs.Jobs.ExecuteRun
   alias Ankole.Repo
   alias Ankole.Signals.Signal
@@ -252,14 +250,14 @@ defmodule Ankole.Signals.WebhooksTest do
              Webhooks.receive(token, [], "replayed", now: DateTime.add(@now, 1, :second))
   end
 
-  test "a webhook cannot bind an automation job owned by another Agent" do
+  test "a webhook cannot bind an Applet Job without Page contribution access" do
     %{principal: owner} = agent_fixture()
     %{principal: other} = agent_fixture()
     source = source_event!(owner.uid)
     other_source = source_event!(other.uid)
     other_job = automation_job!(other_source)
 
-    assert {:error, :automation_job_not_owned} =
+    assert {:error, :forbidden} =
              Webhooks.create_endpoint(
                endpoint_attrs(source, DateTime.add(@now, 1, :day),
                  automation_job_id: other_job.id
@@ -452,27 +450,5 @@ defmodule Ankole.Signals.WebhooksTest do
     }
   end
 
-  defp automation_job!(source) do
-    drive_file_fixture(source.agent_uid, "automation/webhook-test/main.ts")
-
-    assert {:ok, job} =
-             AutomationJobs.create_job(%{
-               agent_uid: source.agent_uid,
-               owner_session_id: source.session_id,
-               source_signal_id: source.id,
-               provider_message_id: source.provider_message_id,
-               source_provenance: %{"kind" => "test"},
-               reply_route: %{
-                 "binding_name" => source.reply_binding_name,
-                 "conversation_id" => source.conversation_id,
-                 "provider_thread_id" => source.provider_thread_id,
-                 "provider_message_id" => source.provider_message_id
-               },
-               drive_prefix: "automation/webhook-test",
-               label: "Webhook deterministic consumer",
-               wake_on_failure: false
-             })
-
-    job
-  end
+  defp automation_job!(source), do: Ankole.WorkFixtures.applet_job(source.agent_uid)
 end

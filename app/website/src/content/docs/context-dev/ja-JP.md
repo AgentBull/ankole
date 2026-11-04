@@ -53,7 +53,7 @@ Which NAICS code fits stripe.com?
 
 **Console → Agent Library** を開き、`context-dev` を探してテナント全体または必要な Agent に対して有効化します。既定値と個別上書きの仕組みについては、[Agent Library](../skills/)を参照してください。
 
-有効化は対象 Agent の次の turn から反映されます。逆に無効化すると、次の turn、次の Background Agent Job、および次の Automation Job の試行から接続が外れます。
+`context-dev` の有効・無効の変更は、以後の Agent ターンと Background Agent Job に適用されます。
 
 ### 4. 動作を確認する
 
@@ -61,7 +61,7 @@ Which NAICS code fits stripe.com?
 
 ## Ankole の接続方法
 
-Context.dev は `https://mcp.context.dev/mcp` で MCP サーバーを公開しており、`context-dev` Skill はこれを [Skill ベースの MCP 依存関係](../mcp/)として宣言しています。そのため接続は有効な実行が動いている間だけ確立されます。Ankole は各 turn、Background Agent Job の実行、および Automation Job の試行ごとに使い捨ての専用 `mcporter` 設定ファイルを生成し、ファイル内には環境変数名だけを記述します。実際の API キー文字列は実行時のプロセス環境変数内に留まり、設定ファイルに書き出されることはありません。
+Context.dev の `https://mcp.context.dev/mcp` は Skill のリモート MCP 依存関係として宣言されています。Worker は短期 Turn トークンで制御プレーンの Skill プロキシを呼び出します。プロキシが設定済みの `CONTEXT_DEV_API_KEY` を読み取り、上流を認証します。この秘密情報は Worker の環境スナップショットから除外され、一時 MCPorter 設定は内部ゲートウェイを参照します。
 
 なお、Context.dev 公式のデスクトップ向けガイドではブラウザーによる OAuth サインインが案内されていますが、ヘッドレスで動作する Worker 上では対話ログインを行えません。そのため Ankole では、同じ MCP サーバーがサポートしている `Authorization` ヘッダー経由の API キー認証方式を使用し、対話操作なしで接続します。
 

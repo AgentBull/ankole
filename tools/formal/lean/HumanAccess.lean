@@ -20,9 +20,9 @@ inductive Change where | suspend | offboard | restore
 
 def change (s : Access) (event : Change) (now : Nat) : Access :=
   match event with
-  | .suspend => {s with active := false, version := s.version + 1, restrictions := ⟨false, none⟩ :: s.restrictions}
-  | .offboard => {s with active := false, version := s.version + 1, restrictions := ⟨true, none⟩ :: s.restrictions, release := max s.release now}
-  | .restore => {s with active := true, version := s.version + 1, restore := some now, restrictions := s.restrictions.map (fun r => if r.cleared.isNone then {r with cleared := some now} else r)}
+  | .suspend => {s with active := false, version := s.version + if s.active then 1 else 0, restrictions := ⟨false, none⟩ :: s.restrictions}
+  | .offboard => {s with active := false, version := s.version + if s.active then 1 else 0, restrictions := ⟨true, none⟩ :: s.restrictions, release := max s.release now}
+  | .restore => {s with active := true, restore := some now, restrictions := s.restrictions.map (fun r => if r.cleared.isNone then {r with cleared := some now} else r)}
 
 def inCycle (restored : Option Nat) (r : Restriction) : Prop :=
   r.offboard = true ∧ match restored, r.cleared with
@@ -47,8 +47,42 @@ theorem restore_ends_disabled_cycle (s : Access) (now : Nat) :
 theorem offboard_releases_disabled (s : Access) (now : Nat) :
     now ≤ (change s .offboard now).release := Nat.le_max_right _ _
 
-theorem every_change_invalidates_old_version (s : Access) (e : Change) (now : Nat) :
-    (change s e now).version ≠ s.version := by cases e <;> simp [change]
+theorem revoking_active_access_invalidates_old_version (s : Access) (e : Change) (now : Nat)
+    (active : s.active = true) (revoke : e ≠ .restore) :
+    (change s e now).version = s.version + 1 := by cases e <;> simp_all [change]
+
+theorem disabled_cycle_keeps_version (s : Access) (e : Change) (now : Nat)
+    (disabled : s.active = false) :
+    (change s e now).version = s.version := by cases e <;> simp [change, disabled]
+
+theorem restoration_keeps_version (s : Access) (now : Nat) :
+    (change s .restore now).version = s.version := rfl
+
+theorem change_never_decreases_version (s : Access) (e : Change) (now : Nat) :
+    s.version ≤ (change s e now).version := by
+  cases active : s.active <;> cases e <;> simp [change, active]
+
+def applyChanges (s : Access) : List (Change × Nat) → Access
+  | [] => s
+  | (event, now) :: rest => applyChanges (change s event now) rest
+
+theorem trace_never_decreases_version (s : Access) (events : List (Change × Nat)) :
+    s.version ≤ (applyChanges s events).version := by
+  induction events generalizing s with
+  | nil => exact Nat.le_refl _
+  | cons event rest ih =>
+    exact Nat.le_trans (change_never_decreases_version s event.1 event.2) (ih _)
+
+theorem revoked_version_never_returns (s : Access) (events : List (Change × Nat))
+    (captured : Nat) (revoked : captured < s.version) :
+    captured < (applyChanges s events).version := by
+  have monotone := trace_never_decreases_version s events
+  omega
+
+-- One disabled cycle revokes once. Restoring membership permits fresh work
+-- under the new version without reviving work captured before revocation.
+example : (applyChanges ⟨true, 5, none, [], 0⟩
+    [(.suspend, 1), (.offboard, 2), (.restore, 3)]).version = 6 := rfl
 
 def claimCurrent (release started : Nat) := release < started
 

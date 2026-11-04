@@ -1,4 +1,7 @@
 defmodule Ankole.Plugins.GoogleWorkspaceAdapter do
+  @impl true
+  def activation, do: :always
+
   @moduledoc "First-party Google Workspace identity (login + directory) plugin."
 
   @behaviour Ankole.Plugins.Plugin

@@ -16,7 +16,7 @@ When launched from a chat conversation, the Workflow returns a `run_id` immediat
 | A short task tied to the current conversation | Main Agent turn | Keeps full conversation context and the complete main-turn tool set. |
 | A finite batch of independent checks or fixed multi-stage synthesis | Workflow | Runs bounded subagent calls in parallel and returns one structured aggregate result. |
 | A long, stateful task needing files, a workspace, steering messages, or mid-run user input | [Background Agent Job](../background-jobs/) | Owns a durable Codex thread that can pause, accept steering, and resume. |
-| A scheduled or webhook-triggered deterministic check | [Automation Job](../automation-jobs/) | Runs deterministic TypeScript without a model turn whenever open-ended judgment is unnecessary. |
+| A scheduled or webhook-triggered deterministic check | [Automation Job](../automation-jobs/) | Runs an Applet Action in Function Runtime without a model turn whenever open-ended judgment is unnecessary. |
 
 A Workflow is neither a general-purpose DAG engine, a cron scheduler, nor an event bus: it cannot block on external webhooks or prompt you mid-run. Whenever a task needs to adapt its plan interactively after starting, use a Background Agent Job instead.
 

@@ -1,0 +1,27 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Approvals cancel.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval_code": {
+        "type": "string"
+      },
+      "instance_code": {
+        "type": "string"
+      }
+    },
+    "required": ["approval_code", "instance_code"],
+    "type": "object"
+  },
+  "name": "approvals_cancel",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

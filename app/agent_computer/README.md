@@ -3,7 +3,7 @@
 Agent Computer is the Bun and TypeScript Worker runtime for Ankole execution.
 Inside the Linux Worker image, it runs environment tools, materializes Skills,
 manages `mcporter` configuration for each invocation, executes `CodexRunner`
-Jobs and Automation Jobs, routes browser sessions, and serves the Worker side of
+Jobs, routes browser sessions, and serves the Worker side of
 RuntimeFabric lanes. Meanwhile, the Elixir control plane runs the main Agent
 loop and tracks its progress.
 
@@ -155,11 +155,12 @@ resumes the declared thread, runs the bounded recovery ladder, records each
 Turn, and closes session resources when finished. Callers pass this handoff as a
 unit rather than reconstructing parts of it.
 
-Environment workspaces, Codex Jobs, and Automation Jobs prepare execution
-materials through a single coordinator. It resolves `WorkerEnv` values and
-materializes the optional Lark credential, `mcporter` configuration, and browser
-runtime. Cleanup runs in the fixed order `browser`, `mcporter`, then `Lark`, and
-preserves the first failure encountered.
+Environment workspaces and Codex Jobs prepare execution materials through a
+single coordinator. It resolves `WorkerEnv` values, the active Turn MCP token,
+`mcporter` configuration, and browser runtime. Cleanup closes the browser before
+removing the MCP configuration and preserves the first failure encountered.
+Remote credentials stay in the control-plane Connectors domain; local Git
+authentication uses the active Turn through `GIT_ASKPASS`.
 
 Agents read Skill manifests on demand through `skill_view`, and read referenced
 files explicitly by relative path. Each enabled package is readable as a whole.
@@ -260,8 +261,12 @@ devkit resolves and reuses it. If the Worker inputs have changed, devkit builds
 a content-addressed local image: it reuses the pinned Agent OS base when
 `Dockerfile.base` matches the lockfile, or builds the base from the current
 recipe otherwise. Codex, MCPorter, OfficeCLI, Typst, `kubectl`, and the AWS CLI
-are installed as layers of the Worker image. To run an explicit manual build on
-the pinned base, use a disposable tag:
+are installed as layers of the Worker image. The OfficeCLI launcher disables
+background self-updates by default, including in isolated Agent command
+environments, so document rendering uses the version tested with that image.
+Operators update the pinned version through the image recipe. An explicit
+`OFFICECLI_SKIP_UPDATE=0 officecli ...` invocation enables upstream update behavior.
+To run an explicit manual build on the pinned base, use a disposable tag:
 
 ```shell
 docker build \

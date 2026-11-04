@@ -83,6 +83,14 @@ defmodule Ankole.ApplicationTest do
   end
 
   test "Plugin registry and snapshot consumers restart as one failure cohort" do
+    {:ok, token_manager} =
+      DynamicSupervisor.start_child(
+        WeComOpenAPI.TokenManager.Supervisor,
+        {WeComOpenAPI.TokenManager,
+         WeComOpenAPI.Corp.Client.new(corp_id: "cohort-restart", secret: "test-secret")}
+      )
+
+    token_manager_monitor = Process.monitor(token_manager)
     old_registry = Process.whereis(PluginRegistry)
     old_supervisor = Process.whereis(Ankole.Plugins.Supervisor)
     active_ids = Enum.map(PluginRegistry.list_active(old_registry), & &1.id)
@@ -94,6 +102,7 @@ defmodule Ankole.ApplicationTest do
 
     assert new_registry != old_registry
     assert new_supervisor != old_supervisor
+    assert_receive {:DOWN, ^token_manager_monitor, :process, ^token_manager, _reason}
     assert Enum.map(PluginRegistry.list_active(new_registry), & &1.id) == active_ids
     assert new_child_ids == child_ids
 
@@ -215,21 +224,25 @@ defmodule Ankole.ApplicationTest do
   # A plugin child that starts during a test does start work with the shared
   # SQL Sandbox connection of the test: a reconciler makes one pass in
   # `handle_continue/2`, and a startup sync runs once as a `:temporary` task.
-  # Wait for this work before the sandbox owner stops. Otherwise a reconciler
+  # Wait through static Plugin supervisors before the sandbox owner stops. Otherwise a reconciler
   # can crash, restart, and read the data of a later test. A `:temporary` child
   # leaves the child list when it stops, so the result contains only the
   # children that stay.
   defp await_plugin_child_ids!(supervisor) do
     supervisor
     |> Supervisor.which_children()
-    |> Enum.flat_map(fn {id, pid, _type, _modules} ->
+    |> Enum.flat_map(fn {id, pid, type, _modules} ->
       case :supervisor.get_childspec(supervisor, id) do
         {:ok, %{restart: :temporary}} ->
           await_exit!(pid)
           []
 
         {:ok, _spec} ->
-          :sys.get_state(pid)
+          state = :sys.get_state(pid)
+
+          if type == :supervisor and not is_struct(state, DynamicSupervisor),
+            do: await_plugin_child_ids!(pid)
+
           [id]
 
         {:error, :not_found} ->

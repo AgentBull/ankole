@@ -1,0 +1,61 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create or update a comment; use id for an edit and a parent resource for a new comment.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "body": {
+        "type": ["string", "null"]
+      },
+      "id": {
+        "type": ["string", "null"]
+      },
+      "initiative": {
+        "type": ["string", "null"]
+      },
+      "issue": {
+        "type": ["string", "null"]
+      },
+      "parentId": {
+        "type": ["string", "null"]
+      },
+      "project": {
+        "type": ["string", "null"]
+      },
+      "projectUpdate": {
+        "type": ["string", "null"]
+      }
+    },
+    "required": ["body"],
+    "type": "object"
+  },
+  "name": "save_comment",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "properties": {
+          "body": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "type": "object"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -89,6 +89,13 @@ spec:
         - port: 9000
           protocol: TCP
   egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 14 }}
+      ports:
+        - port: {{ .Values.controlPlane.port }}
+          protocol: TCP
     - ports:
         - port: 53
           protocol: UDP

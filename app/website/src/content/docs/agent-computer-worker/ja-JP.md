@@ -9,7 +9,7 @@ Agent Computer Worker は、個々の Agent に割り当てられる専用コン
 
 ## 実行と所有権
 
-Bun ベースの Worker は、シェルコマンド、ファイル操作やブラウザ操作のツール、Skills、MCP 呼び出し、automation スクリプト、および Codex Job を実行します。一方、メインの Agent ループ、入力完了やツール実行結果のコミット、最終返信の確定は control plane の `Ankole.Sessions` が担当し、永続 Response チェーンと hosted ツールは AIGateway が管理します。
+Bun ベースの Worker は、シェルコマンド、ファイル操作やブラウザ操作のツール、Skills、MCP 呼び出し、および Codex Job を実行します。一方、メインの Agent ループ、入力完了やツール実行結果のコミット、最終返信の確定は control plane の `Ankole.Sessions` が担当し、永続 Response チェーンと hosted ツールは AIGateway が管理します。
 
 起動時、control plane は Worker に対して `WORKER_ID`、RuntimeFabric の URL、世代（generation）ごとの認証情報、およびストレージ設定を渡します。Worker は担当する 1 つの Agent の処理だけを行い、子プロセスの環境変数からは認証情報を除外し、データベースにも直接接続しません。コンテナ自体が Agent ごとの分離境界となり、内部のコマンドは `sudo` 権限を持たない `uid 1000` として動作します。
 

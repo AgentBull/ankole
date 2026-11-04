@@ -462,8 +462,7 @@ This read-only projection omits script source, full result bodies, and raw memo
 payloads, triggers no cancellations, wakeups, or cleanups, and keeps delegated
 `BackgroundAgentJob` counts (linked via `owner_session_id`) separate rather than
 summing them into a combined busy counter; see
-[Background Agent Job](BackgroundAgentJob.md) and
-[Automation Jobs](AutomationJobs.md) for the sibling activity sections.
+[Background Agent Job](BackgroundAgentJob.md) for the sibling activity section.
 
 ## Module Owners
 

@@ -28,6 +28,7 @@ defmodule Ankole.AppConfigure do
 
   defdelegate rename_agent_in_tx(old_uid, new_uid), to: Ankole.AppConfigure.AgentScope
   defdelegate publish_agent_rename(keys), to: Ankole.AppConfigure.AgentScope
+  defdelegate read_configuration(key), to: Ankole.AppConfigure.Codec
 
   resources do
     resource(Ankole.AppConfigure.ConsoleOperations)
@@ -51,6 +52,24 @@ defmodule Ankole.AppConfigure do
     show_raised_errors?(false)
 
     routes do
+      route(
+        Ankole.AppConfigure.ConsoleOperations,
+        :get,
+        "/connector-catalog",
+        :console_connector_catalog,
+        name: "list_connector_catalog",
+        wrap_in_result?: false
+      )
+
+      route(
+        Ankole.AppConfigure.ConsoleOperations,
+        :get,
+        "/connector-auth-configs",
+        :console_connector_auth_configs,
+        name: "list_connector_auth_configs",
+        wrap_in_result?: false
+      )
+
       base_route "/app-configurations", Ankole.AppConfigure.ConsoleOperations do
         route(:get, "/", :console_list, name: "list_app_configurations")
 
@@ -763,7 +782,7 @@ defmodule Ankole.AppConfigure do
              key: key,
              input: value
            }),
-         {:ok, parsed} <- Codec.load(definition, scope, key, row.value) do
+         {:ok, parsed} <- Codec.load(definition, scope, key, row.value, :configuration) do
       {:ok, {parsed, scope, key}}
     end
   end
@@ -835,7 +854,7 @@ defmodule Ankole.AppConfigure do
 
   defp validate_refreshed_state(scope, key, {:row, envelope}) do
     with {:ok, definition} <- Registry.require_key(key) do
-      case Codec.load(definition, scope, key, envelope) do
+      case Codec.load(definition, scope, key, envelope, :configuration) do
         {:ok, _value} ->
           :ok
 

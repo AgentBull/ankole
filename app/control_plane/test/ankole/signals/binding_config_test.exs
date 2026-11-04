@@ -13,7 +13,7 @@ defmodule Ankole.Signals.BindingConfigTest do
   alias Ankole.Conversations.Delivery.Intent
 
   defmodule FailingSaveHook do
-    def handle_binding_saved(_binding, %{"channelSecret" => "raise"}),
+    def handle_binding_saved(%{unmatched_sender_policy: :create_standalone}, _config),
       do: raise("adapter save unavailable")
 
     def handle_binding_saved(_binding, _config), do: {:error, :adapter_save_unavailable}
@@ -142,10 +142,13 @@ defmodule Ankole.Signals.BindingConfigTest do
       ExUnit.CaptureLog.capture_log([format: "$metadata $message\n", metadata: :all], fn ->
         assert {:ok, %{binding: saved}} =
                  Bindings.put_binding(binding.agent_uid, "line", binding.name, %{
-                   "config" => config
+                   "config" => config,
+                   "unmatched_sender_policy" => "manual_review"
                  })
 
-        assert {:ok, ^config} = Bindings.stored_binding_config(saved)
+        assert {:ok, persisted} = Bindings.stored_binding_config(saved)
+        assert Map.delete(persisted, "authConfigId") == config
+        assert persisted["authConfigId"] == saved.auth_config_id
 
         conversation =
           Ankole.ExternalConversationsFixtures.external_conversation_fixture("line:hook-test")
@@ -177,10 +180,15 @@ defmodule Ankole.Signals.BindingConfigTest do
         assert {:ok, %{binding: updated}} =
                  Bindings.update_binding(
                    Ankole.Signals.get_agent_binding!(saved.agent_uid, saved.name).id,
-                   %{"agent_uid" => saved.agent_uid, "config" => %{"channelSecret" => "raise"}}
+                   %{
+                     "agent_uid" => saved.agent_uid,
+                     "config" => %{},
+                     "unmatched_sender_policy" => "create_standalone"
+                   }
                  )
 
-        assert {:ok, %{"channelSecret" => "raise"}} = Bindings.stored_binding_config(updated)
+        assert updated.unmatched_sender_policy == :create_standalone
+        assert {:ok, ^persisted} = Bindings.stored_binding_config(updated)
 
         woken =
           Repo.get_by!(Intent,

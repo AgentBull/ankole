@@ -1,0 +1,138 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create or update an issue. Supply id to update; supply title and team to create.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "anyOf": [
+      {
+        "required": ["id"]
+      },
+      {
+        "required": ["title", "team"]
+      }
+    ],
+    "properties": {
+      "assignee": {
+        "type": ["string", "null"]
+      },
+      "blockedBy": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "blocks": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "cycle": {
+        "type": ["string", "null"]
+      },
+      "description": {
+        "type": ["string", "null"]
+      },
+      "dueDate": {
+        "type": ["string", "null"]
+      },
+      "duplicateOf": {
+        "type": ["string", "null"]
+      },
+      "estimate": {
+        "type": "integer"
+      },
+      "id": {
+        "type": ["string", "null"]
+      },
+      "labels": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "milestone": {
+        "type": ["string", "null"]
+      },
+      "parentId": {
+        "type": ["string", "null"]
+      },
+      "priority": {
+        "type": "integer"
+      },
+      "project": {
+        "type": ["string", "null"]
+      },
+      "relatedTo": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "state": {
+        "type": ["string", "null"]
+      },
+      "team": {
+        "type": ["string", "null"]
+      },
+      "title": {
+        "type": ["string", "null"]
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "name": "save_issue",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "properties": {
+          "assignee": {
+            "type": ["object", "string", "null"]
+          },
+          "createdAt": {
+            "type": ["string", "null"]
+          },
+          "description": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": ["string", "null"]
+          },
+          "identifier": {
+            "type": ["string", "null"]
+          },
+          "priority": {
+            "type": ["number", "null"]
+          },
+          "project": {
+            "type": ["object", "string", "null"]
+          },
+          "status": {
+            "type": ["object", "string", "null"]
+          },
+          "team": {
+            "type": ["object", "string", "null"]
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": ["string", "null"]
+          },
+          "url": {
+            "type": ["string", "null"]
+          }
+        },
+        "type": "object"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

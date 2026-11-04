@@ -13,6 +13,7 @@ type State = {
     missing_files: unknown[]
   }
   document_agent_uid?: string
+  connector_provider_url?: string
   agent_actions_url: string
   base_url: string
   mailbox_path: string

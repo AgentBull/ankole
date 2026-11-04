@@ -2,8 +2,7 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
   use AnkoleWeb.ConnCase, async: false
   import Ecto.Query
   import Ankole.PrincipalsFixtures
-  import Ankole.FilesFixtures
-  alias Ankole.{AutomationJobs, BackgroundAgentJobs, Repo, Workflow}
+  alias Ankole.{BackgroundAgentJobs, Repo, Workflow}
   alias Ankole.Workflow.Schemas.{AgentCall, Run}
 
   setup do
@@ -25,17 +24,6 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
 
     Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     source = Ankole.WorkFixtures.service_source(agent.uid)
-    {job, run} = automation_run(agent.uid, source)
-
-    assert {:ok, _worker} =
-             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
-               worker_id: agent.uid
-             })
-
-    assert {:ok, %{run: attempt}} = AutomationJobs.start_attempt(run.id)
-
-    assert {:ok, %{status: :cancelled}} =
-             AutomationJobs.cancel_job(agent.uid, source.session_id, job.id)
 
     assert {:ok, native} =
              Ankole.ConversationsFixtures.create(human.uid, %{
@@ -112,18 +100,6 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     task_count = Repo.aggregate(Oban.Job, :count)
     conn = console_conn(conn)
 
-    automation =
-      conn |> api_get(activity_path(agent.uid, "automation-runs")) |> json_response(200)
-
-    assert [visible] = automation["runs"]
-    assert visible["id"] == run.id
-    assert visible["automation_job_id"] == job.id
-    assert visible["definition_status"] == "cancelled"
-    assert visible["status"] == "running"
-    assert visible["attempt_id"] == attempt.attempt_id
-    refute Map.has_key?(visible, "stdout")
-    refute Map.has_key?(visible, "event")
-
     workflow_page =
       conn |> recycle_api() |> api_get(activity_path(agent.uid, "workflow")) |> json_response(200)
 
@@ -164,7 +140,6 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     assert Repo.aggregate(Ankole.Signals.Signal, :count) == signal_count
     assert Repo.aggregate(Oban.Job, :count) == task_count
     assert Repo.get!(AgentCall, admitted.id).status == :running
-    assert Repo.get!(Ankole.AutomationJobs.Schemas.Run, run.id).attempt_id == attempt.attempt_id
   end
 
   test "activity filters precede independent pagination and retain tenant and Agent scope", %{
@@ -172,67 +147,13 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     tenant: tenant
   } do
     %{principal: agent} = agent_fixture()
-    %{principal: other} = agent_fixture()
     source = Ankole.WorkFixtures.service_source(agent.uid)
-    {_, first} = automation_run(agent.uid, source)
-    {_, second} = automation_run(agent.uid, source)
-    {_, terminal} = automation_run(agent.uid, source)
-
-    assert {:ok, _worker} =
-             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
-               worker_id: agent.uid
-             })
-
-    {:ok, %{run: attempt}} = AutomationJobs.start_attempt(terminal.id)
-
-    {:ok, _} =
-      AutomationJobs.finish_attempt(terminal.id, attempt.attempt_id, %{
-        status: "succeeded",
-        exit_code: 0
-      })
-
-    automation_run(other.uid, Ankole.WorkFixtures.service_source(other.uid))
     conn = console_conn(conn)
-
-    one =
-      conn
-      |> api_get(activity_path(agent.uid, "automation-runs") <> "?limit=1")
-      |> json_response(200)
-
-    assert Enum.map(one["runs"], & &1["id"]) == [second.id]
-    assert is_binary(one["next_cursor"])
-
-    two =
-      conn
-      |> recycle_api()
-      |> api_get(
-        activity_path(agent.uid, "automation-runs") <> "?limit=1&cursor=#{one["next_cursor"]}"
-      )
-      |> json_response(200)
-
-    assert Enum.map(two["runs"], & &1["id"]) == [first.id]
-    assert is_nil(two["next_cursor"])
-
     Repo.put_tenant_id(tenant.id)
     for _ <- 1..2, do: workflow(agent.uid, source, "No calls")
     run = workflow(agent.uid, source, "Two live calls")
 
-    {:ok, %{new_calls: calls}} =
-      Workflow.Replay.commit_replay_pending(
-        run.id,
-        for(
-          n <- 1..2,
-          do: %{namespace: nil, name: "agent", arguments: %{"prompt" => "Question #{n}"}}
-        ),
-        0
-      )
-
-    for call <- calls,
-        do:
-          Ankole.SessionsCase.stub_driver(%{
-            agent_uid: agent.uid,
-            session_id: Workflow.task_session_id(call.id)
-          })
+    calls = queued_calls(run, 2)
 
     page =
       conn
@@ -263,8 +184,6 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     other_tenant = Ankole.DataCase.create_tenant()
 
     Repo.with_tenant(other_tenant.id, fn ->
-      assert %{runs: []} = Ankole.AutomationJobs.ConsoleQueries.activity(agent.uid, nil, 25)
-
       assert %{runs: [], live_calls: []} =
                Ankole.Workflow.ConsoleQueries.activity(agent.uid, nil, nil, 25)
 
@@ -278,7 +197,7 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
   } do
     %{principal: agent} = agent_fixture()
 
-    for group <- ["background-jobs", "workflow", "automation-runs"] do
+    for group <- ["background-jobs", "workflow"] do
       assert conn |> api_get(activity_path(agent.uid, group)) |> json_response(401)
     end
 
@@ -290,20 +209,6 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
         where: grant.resource_pattern in ["site_console:**", "tenant_console:**"]
       )
     )
-
-    assert {:ok, _} =
-             Ankole.AuthZ.create_permission_grant(%{
-               principal_uid: uid,
-               resource_pattern: "site_console:agent:#{agent.uid}:automation_jobs",
-               action: "read",
-               condition: "true",
-               metadata: %{}
-             })
-
-    assert conn
-           |> recycle_api()
-           |> api_get(activity_path(agent.uid, "automation-runs"))
-           |> json_response(200)
 
     assert conn
            |> recycle_api()
@@ -337,71 +242,7 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
            |> json_response(422)
   end
 
-  test "automation execution inspection uses one bounded join and a real query plan" do
-    %{principal: agent} = agent_fixture()
-    source = Ankole.WorkFixtures.service_source(agent.uid)
-    for _ <- 1..4, do: automation_run(agent.uid, source)
-    handler = {__MODULE__, make_ref()}
-
-    :ok =
-      :telemetry.attach(
-        handler,
-        [:ankole, :repo, :query],
-        &__MODULE__.capture_query/4,
-        {self(), handler}
-      )
-
-    try do
-      assert %{runs: [_, _], next_cursor: cursor} =
-               Ankole.AutomationJobs.ConsoleQueries.activity(agent.uid, nil, 2)
-
-      assert is_binary(cursor)
-    after
-      :telemetry.detach(handler)
-    end
-
-    assert_receive {^handler, sql, params}
-    refute_receive {^handler, _, _}
-    assert sql =~ "LIMIT"
-    assert sql =~ "JOIN"
-    plan = Ecto.Adapters.SQL.query!(Repo, "EXPLAIN " <> sql, params)
-    assert length(plan.rows) > 0
-    assert inspect(plan.rows) =~ "automation_job_runs"
-  end
-
-  def capture_query(_, _, metadata, {owner, handler}) do
-    if self() == owner, do: send(owner, {handler, metadata.query, metadata.params})
-  end
-
   defp activity_path(agent, group), do: "/api/v2/agents/#{agent}/background-activities/#{group}"
-
-  defp automation_run(agent_uid, source) do
-    suffix = Ecto.UUID.generate()
-    drive_file_fixture(agent_uid, "automation/#{suffix}/main.ts")
-
-    {:ok, job} =
-      AutomationJobs.create_job(%{
-        agent_uid: agent_uid,
-        owner_session_id: source.session_id,
-        source_signal_id: source.id,
-        reply_route: %{"binding_name" => "bot"},
-        drive_prefix: "automation/#{suffix}",
-        label: "Diagnostics #{suffix}"
-      })
-
-    {:ok, %{automation_job_run: run}} =
-      Repo.transact(fn ->
-        Ankole.WorkFixtures.dispatch_job_in_tx(job, %{
-          "specversion" => "1.0",
-          "source" => "test://activity",
-          "id" => suffix,
-          "type" => "test.trigger",
-          "data" => %{"scheduled_event_id" => "42"}
-        })
-      end)
-
-    {job, run}
-  end
 
   defp workflow(agent_uid, source, title) do
     {:ok, %{run: run}} =
@@ -430,20 +271,35 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     call
   end
 
-  defp queued_call(run) do
-    {:ok, %{new_calls: [call]}} =
-      Workflow.Replay.commit_replay_pending(
-        run.id,
-        [%{namespace: nil, name: "agent", arguments: %{"prompt" => "Inspect evidence"}}],
-        0
-      )
+  defp queued_call(run), do: hd(queued_calls(run, 1))
 
-    Ankole.SessionsCase.stub_driver(%{
-      agent_uid: run.agent_uid,
-      session_id: Workflow.task_session_id(call.id)
-    })
+  defp queued_calls(run, count) do
+    {:ok, calls} =
+      Repo.transact(fn ->
+        calls =
+          for index <- 0..(count - 1) do
+            AgentCall
+            |> Ankole.Ash.for_create(:create_call, %{
+              run_id: run.id,
+              agent_uid: run.agent_uid,
+              call_seq: index,
+              arguments: %{"prompt" => "Question #{index}"}
+            })
+            |> Ankole.Ash.create!()
+          end
 
-    call
+        {:ok, _} = Workflow.Mail.append_dispatch_events(run, calls, DateTime.utc_now())
+        {:ok, calls}
+      end)
+
+    for call <- calls do
+      Ankole.SessionsCase.stub_driver(%{
+        agent_uid: run.agent_uid,
+        session_id: Workflow.task_session_id(call.id)
+      })
+    end
+
+    calls
   end
 
   defp api_request(conn, method, path, body \\ nil) do

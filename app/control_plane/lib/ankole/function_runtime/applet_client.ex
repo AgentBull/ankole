@@ -30,7 +30,7 @@ defmodule Ankole.FunctionRuntime.AppletClient do
     end
   end
 
-  def start(package, context, limits, deadline \\ nil) do
+  def start(package, context, limits, deadline \\ nil, authority \\ nil) do
     limits =
       if Keyword.get(limits, :lane) == :action,
         do: Keyword.put(limits, :endpoint_url, Ankole.Pod.Config.action_runtime_url()),
@@ -41,6 +41,9 @@ defmodule Ankole.FunctionRuntime.AppletClient do
 
     deadline =
       deadline || System.monotonic_time(:millisecond) + Keyword.get(limits, :timeout_ms, 60_000)
+
+    {:ok, mcp_headers} = Ankole.Connectors.Tokens.invocation(context, authority, run_id, deadline)
+    limits = Keyword.put(limits, :mcp_headers, mcp_headers)
 
     {:ok, pid} =
       Task.Supervisor.start_child(Ankole.FunctionRuntime.Tasks, fn ->
@@ -132,7 +135,7 @@ defmodule Ankole.FunctionRuntime.AppletClient do
         })
 
       path = "/v1/applet/invoke?" <> query
-      result = preflight(endpoint, path, deadline)
+      result = preflight(endpoint, path, deadline, Keyword.fetch!(limits, :mcp_headers))
 
       result =
         case result do
@@ -144,8 +147,11 @@ defmodule Ankole.FunctionRuntime.AppletClient do
                    %{source: package.source, env: package.env},
                    remaining_timeout(deadline, 10_000)
                  ) do
-              {:ok, 204, _} -> preflight(endpoint, path, deadline)
-              other -> {:error, other}
+              {:ok, 204, _} ->
+                preflight(endpoint, path, deadline, Keyword.fetch!(limits, :mcp_headers))
+
+              other ->
+                {:error, other}
             end
 
           other ->
@@ -177,10 +183,10 @@ defmodule Ankole.FunctionRuntime.AppletClient do
     end
   end
 
-  defp preflight(endpoint, path, deadline) do
+  defp preflight(endpoint, path, deadline, mcp_headers) do
     with :ok <- check_deadline(deadline) do
       case HTTP.at(endpoint, :get, path, %{}, remaining_timeout(deadline, 10_000)) do
-        {:ok, 204, _} -> upgrade(endpoint, path, deadline)
+        {:ok, 204, _} -> upgrade(endpoint, path, deadline, mcp_headers)
         {:ok, status, _} -> {:http, status}
         {:connect_error, reason} -> {:connect_error, reason}
         error -> error
@@ -192,7 +198,7 @@ defmodule Ankole.FunctionRuntime.AppletClient do
   defp retryable?({:connect_error, _}), do: true
   defp retryable?(_), do: false
 
-  defp upgrade(endpoint, path, deadline) do
+  defp upgrade(endpoint, path, deadline, mcp_headers) do
     case Mint.HTTP.connect(endpoint.scheme, endpoint.ip, endpoint.port,
            hostname: endpoint.host,
            protocols: [:http1],
@@ -204,7 +210,7 @@ defmodule Ankole.FunctionRuntime.AppletClient do
                if(endpoint.scheme == :https, do: :wss, else: :ws),
                conn,
                path,
-               EndpointPool.authorization()
+               EndpointPool.authorization() ++ mcp_headers
              ) do
           {:ok, conn, ref} ->
             handshake(conn, ref, nil, [], deadline)

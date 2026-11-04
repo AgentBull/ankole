@@ -1,0 +1,53 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Im delete reaction.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "message_id": {
+        "type": "string"
+      },
+      "reaction_id": {
+        "type": "string"
+      }
+    },
+    "required": ["message_id", "reaction_id"],
+    "type": "object"
+  },
+  "name": "im_delete_reaction",
+  "outputSchema": {
+    "properties": {
+      "action_time": {
+        "type": "string"
+      },
+      "operator": {
+        "properties": {
+          "operator_id": {
+            "type": "string"
+          },
+          "operator_type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "reaction_id": {
+        "type": "string"
+      },
+      "reaction_type": {
+        "properties": {
+          "emoji_type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object"
+  }
+}

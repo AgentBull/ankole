@@ -8,15 +8,13 @@ import { linkTarget } from '../../common/router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import {
   backgroundActivityJobsOptions,
-  backgroundActivityWorkflowOptions,
-  backgroundActivityAutomationRunsOptions
+  backgroundActivityWorkflowOptions
 } from '../api/v2/generated/@tanstack/react-query.gen'
 import type { AgentItem } from '../api/agents'
 import type {
   BackgroundActivityJob,
   BackgroundActivityWorkflowCall,
   BackgroundActivityWorkflowRun,
-  BackgroundActivityAutomationRun,
   WorkflowActivityCounts
 } from '../api/runtime-types'
 import { resolveAgentUID } from '../console-agent-scope'
@@ -33,7 +31,7 @@ import {
 } from '../state/cursor-pagination'
 
 const key = 'console.home.background_activity.'
-const prefixes = ['activity_jobs_', 'activity_calls_', 'activity_runs_', 'activity_automation_']
+const prefixes = ['activity_jobs_', 'activity_calls_', 'activity_runs_']
 
 export function BackgroundActivity({ agents }: { agents: Pick<AgentItem, 'uid' | 'display_name'>[] }) {
   const { t } = useTranslation()
@@ -70,10 +68,9 @@ export function BackgroundActivity({ agents }: { agents: Pick<AgentItem, 'uid' |
         </Select>
       </div>
       {uid ? (
-        <div className="grid items-start gap-4 xl:grid-cols-3">
+        <div className="grid items-start gap-4 xl:grid-cols-2">
           <Jobs agentUID={uid} />
           <Workflow agentUID={uid} />
-          <Automation agentUID={uid} />
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">{t(`${key}choose_agent`)}</p>
@@ -152,30 +149,6 @@ function Workflow({ agentUID }: { agentUID: string }) {
     </Group>
   )
 }
-function Automation({ agentUID }: { agentUID: string }) {
-  const { t } = useTranslation()
-  const [params] = useSearchParams()
-  const query = useQuery({
-    ...backgroundActivityAutomationRunsOptions({
-      path: { agent_uid: agentUID },
-      query: { limit: 10, cursor: params.get('activity_automation_cursor') ?? undefined }
-    }),
-    refetchInterval: ACTIVITY_REFRESH_MS
-  })
-  const rows = query.data?.runs ?? []
-  return (
-    <Group title={t(`${key}automation`)} query={query}>
-      {!rows.length ? <Empty /> : null}
-      <ul className="divide-y divide-border">
-        {rows.map(row => (
-          <AutomationRow key={row.id} row={row} />
-        ))}
-      </ul>
-      <Paging prefix="activity_automation_" count={rows.length} next={query.data?.next_cursor} />
-    </Group>
-  )
-}
-
 type GroupQuery = { isPending: boolean; error: unknown; data?: { observed_at: string }; refetch: () => unknown }
 function Group({ title, query, children }: { title: string; query: GroupQuery; children: ReactNode }) {
   const { t } = useTranslation()
@@ -367,44 +340,5 @@ function Counts({ counts }: { counts: WorkflowActivityCounts }) {
         .map(([status, count]) => `${t(`${key}status_${status}`, { defaultValue: status })} ${count}`)
         .join(' · ')}
     </p>
-  )
-}
-function AutomationRow({ row }: { row: BackgroundActivityAutomationRun }) {
-  const { t } = useTranslation()
-  return (
-    <Row
-      kind="automation_kind"
-      id={row.id}
-      title={
-        <Link
-          className="hover:underline"
-          {...linkTarget(`/automation-jobs?agent=${encodeURIComponent(row.agent_uid)}&job=${row.automation_job_id}`)}>
-          {row.label || `#${row.automation_job_id}`}
-        </Link>
-      }
-      status={row.status}>
-      <p>
-        {t(`${key}definition`, {
-          id: row.automation_job_id,
-          status: t(`${key}status_${row.definition_status}`, { defaultValue: row.definition_status })
-        })}
-      </p>
-      <Ownership agent={row.agent_uid} owner={row.owner_session_id} />
-      {row.scheduled_event_id ? (
-        <p className="font-mono break-all">
-          {t(`${key}scheduled_event`)}: {row.scheduled_event_id}
-        </p>
-      ) : null}
-      <p>{t(`${key}attempts`, { count: row.attempts })}</p>
-      {row.attempt_id ? (
-        <p className="font-mono break-all">
-          {t(`${key}attempt_id`)}: {row.attempt_id}
-        </p>
-      ) : null}
-      <Failure summary={row.error} />
-      <p className="text-muted-foreground">{t(`${key}created`, { time: formatConsoleDate(row.inserted_at) })}</p>
-      <p className="text-muted-foreground">{t(`${key}started`, { time: formatConsoleDate(row.started_at) })}</p>
-      <p className="text-muted-foreground">{t(`${key}updated`, { time: formatConsoleDate(row.updated_at) })}</p>
-    </Row>
   )
 }

@@ -71,6 +71,10 @@ defmodule Ankole.Schedule do
     end
   end
 
+  defdelegate job_source_operation_in_tx(job, operation, attrs), to: Cron
+  defdelegate job_source_ids(job_ids), to: Cron
+  defdelegate purge_job_sources_in_tx(ids), to: Cron
+
   @doc """
   Creates one delayed trigger for an Agent session or automation job.
   """

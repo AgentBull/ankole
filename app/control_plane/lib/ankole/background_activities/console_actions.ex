@@ -1,5 +1,5 @@
 defmodule Ankole.BackgroundActivities.ConsoleActions do
-  @moduledoc "Reads live Jobs, Workflow activity, and Automation runs independently."
+  @moduledoc "Reads live Jobs and Workflow activity independently."
   use Ash.Resource.Actions.Implementation
   alias Ankole.Errors
   @impl true
@@ -18,13 +18,6 @@ defmodule Ankole.BackgroundActivities.ConsoleActions do
              limit: attrs.limit
            ),
          do: {:ok, page(page, [:jobs])}
-  end
-
-  defp execute(%{action: %{name: :console_automation_runs}, arguments: attrs}, uid) do
-    with {:ok, cursor} <- cursor(Map.get(attrs, :cursor)) do
-      {:ok,
-       page(Ankole.AutomationJobs.ConsoleQueries.activity(uid, cursor, attrs.limit), [:runs])}
-    end
   end
 
   defp execute(%{action: %{name: :console_workflow}, arguments: attrs}, uid) do

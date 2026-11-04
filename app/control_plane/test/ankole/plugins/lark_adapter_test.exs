@@ -66,7 +66,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  contract_id: "signals.adapter",
                  id: "lark",
                  config_key_pattern: "signals.lark.binding_configs.<id>",
-                 worker_env_module: Ankole.Plugins.LarkAdapter.RuntimeEnv,
                  fields: chat_fields,
                  supported_group_message_modes: [
                    "addressed_only",
@@ -80,8 +79,15 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  config_key_pattern: "principals.identity_providers.lark.<id>",
                  capabilities: identity_capabilities,
                  fields: identity_fields
+               },
+               %{
+                 contract_id: "connectors.connector",
+                 id: "lark",
+                 module: Ankole.Plugins.LarkAdapter.Connector
                }
              ] = LarkAdapter.adapter_declarations()
+
+      refute Map.has_key?(hd(LarkAdapter.adapter_declarations()), :worker_env_module)
 
       assert identity_capabilities == [
                "oidc_authorization",
@@ -2500,7 +2506,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       %{principal: agent} = agent_fixture()
       identity_config = identity_config()
 
-      assert {:ok, ^identity_config} =
+      assert {:ok, persisted_identity_config} =
                Ankole.IdentityProviders.Config.save_provider(
                  %{
                    "provider_id" => "feishu",
@@ -2511,6 +2517,11 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  },
                  identity_config
                )
+
+      assert Map.delete(persisted_identity_config, "authConfigId") ==
+               Map.delete(identity_config, "authConfigId")
+
+      assert is_binary(persisted_identity_config["authConfigId"])
 
       assert {:ok, observed} =
                IdentityProvider.upsert_user("feishu", %{
@@ -3278,7 +3289,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     test "full directory sync reads users and departments through paginated contact API" do
       config = put_in(identity_config(), ["sync", "pageSize"], 17)
 
-      assert {:ok, ^config} =
+      assert {:ok, persisted} =
                Ankole.IdentityProviders.Config.save_provider(
                  %{
                    "provider_id" => "lark-main",
@@ -3290,6 +3301,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  config
                )
 
+      assert Map.delete(persisted, "authConfigId") == Map.delete(config, "authConfigId")
+      assert is_binary(persisted["authConfigId"])
+      config = persisted
       put_tenant_token(config)
       on_exit(fn -> delete_tenant_token(config) end)
 
@@ -3426,7 +3440,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         "enabled" => true
       }
 
-      assert {:ok, ^config} = Ankole.IdentityProviders.Config.save_provider(activation, config)
+      assert {:ok, persisted} = Ankole.IdentityProviders.Config.save_provider(activation, config)
+      assert Map.delete(persisted, "authConfigId") == Map.delete(config, "authConfigId")
+      assert is_binary(persisted["authConfigId"])
+      config = persisted
       put_tenant_token(config)
       on_exit(fn -> delete_tenant_token(config) end)
       parent = self()
@@ -3515,12 +3532,15 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         "enabled" => true
       }
 
-      assert {:ok, ^config} = Ankole.IdentityProviders.Config.save_provider(activation, config)
+      assert {:ok, persisted} = Ankole.IdentityProviders.Config.save_provider(activation, config)
+      assert Map.delete(persisted, "authConfigId") == Map.delete(config, "authConfigId")
+      assert is_binary(persisted["authConfigId"])
+      config = persisted
 
       assert {:ok, ticket} =
                Ankole.IdentityProviders.DirectoryAccess.begin_sync("lark-main", config)
 
-      changed = Map.put(config, "appID", "cli_changed_scope")
+      changed = put_in(config, ["sync", "admissionScope"], "contact")
       assert {:ok, ^changed} = Ankole.IdentityProviders.Config.save_provider(activation, changed)
 
       assert {:error, :directory_configuration_changed} =

@@ -32,6 +32,14 @@ defmodule Ankole.AppConfigure.ConsoleActions do
          do: {:ok, %{app_configurations: items}}
   end
 
+  defp execute(%{action: %{name: :console_connector_catalog}}, :tenant),
+    do: {:ok, %{connectors: Ankole.Connectors.catalog()}}
+
+  defp execute(%{action: %{name: :console_connector_auth_configs}}, :tenant) do
+    with {:ok, connections} <- Ankole.Connectors.list_public_auth_configs(),
+         do: {:ok, %{connections: connections}}
+  end
+
   defp execute(%{action: %{name: :console_show}, arguments: %{key: key}}, scope),
     do: item(AppConfigure.console_detail(scope, key))
 

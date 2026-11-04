@@ -35,7 +35,7 @@ OTP 监督树为不同 Agent、网络连接和后台任务划分了独立的故�
 
 ### Worker 提供 Agent 工作环境
 
-主 Agent 循环直接在控制面内运行；只有当会话需要调用电脑环境工具或启动 Codex 任务时，控制面才会按需拉起 Agent Computer Worker。Worker 负责执行各类环境工具、Skills、浏览器自动化、终端命令、文件读写、自动化脚本与 Codex 任务，而具有持久意义的结果仍由控制面统一提交。
+主 Agent 循环直接在控制面内运行；只有当会话需要调用电脑环境工具或启动 Codex 任务时，控制面才会按需拉起 Agent Computer Worker。Worker 负责执行各类环境工具、Skills、浏览器自动化、终端命令、文件读写与 Codex 任务，而具有持久意义的结果仍由控制面统一提交。
 
 每个 Agent 拥有唯一的 Worker 身份，同一时刻最多关联一个活跃的 Worker 实例；不同 Agent 之间从不共享 Worker、缓存盘或凭证。Worker 容器（或 Kubernetes Pod）本身即是隔离边界：Agent 执行命令时不设内层沙箱，可以自由改动自己的这台电脑；在 Kubernetes 环境中，还可通过 Pod 模板的 RuntimeClass 挂载 gVisor 以强化隔离。
 
@@ -139,7 +139,7 @@ Ankole 将人类员工、Agent 和系统服务统一抽象为主体（Principal�
 
 PostgreSQL 18+ 控制面数据库保存全部权威领域状态，涵盖身份、权限、系统配置、Pod 元数据与协同文档、对话消息、执行会话、后台任务、Brain 记忆、消息投递状态及审计记录；物理 **Base 分片数据库（`BASE_DB_URLS`）**则专门承载各租户的 Base 物理表数据。执行时间点恢复（PITR）时，每个 Base 分片库的恢复目标时间点都必须晚于或等于（`>=`）控制面数据库的恢复时间点。凡需核实某项业务操作是否已正式提交，一律以 PostgreSQL 中的记录为准。
 
-对象存储（控制面文件存储）负责保存 Pod 文件、Pod 与会话消息附件、编译后的 Applet 产物包、Agent 发布的文件、已安装 Skill 以及 Automation 脚本；每台 Worker 的持久 Home 则单独保存工作区文件、用户自行安装的软件与 Codex 线程记录。执行灾备备份时，必须将控制面 PostgreSQL 数据库、全部物理 Base 分片数据库、对象存储、所有 Agent 的持久 Home 以及原部署环境的加密主密钥一并纳入备份。
+对象存储（控制面文件存储）负责保存 Pod 文件、Pod 与会话消息附件、编译后的 Applet 产物包、Agent 发布的文件和已安装 Skill；每台 Worker 的持久 Home 则单独保存工作区文件、用户自行安装的软件与 Codex 线程记录。执行灾备备份时，必须将控制面 PostgreSQL 数据库、全部物理 Base 分片数据库、对象存储、所有 Agent 的持久 Home 以及原部署环境的加密主密钥一并纳入备份。
 
 相比之下，RuntimeFabric 连接、`ankole-function-runtime` 隔离实例、Worker 容器进程、流式输出预览以及 `/var/cache/ankole` 目录均属于无状态或可随时重建的派生数据。唯独持久 Home 必须在实例销毁重建后依然完好保留，并纳入常规存储备份。参见[备份与还原](../backup-and-restore/)。
 

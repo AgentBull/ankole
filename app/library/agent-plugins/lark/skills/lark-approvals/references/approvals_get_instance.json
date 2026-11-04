@@ -1,0 +1,258 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Approvals get instance.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "instance_id": {
+        "type": "string"
+      },
+      "locale": {
+        "type": "string"
+      },
+      "nested_mutable_group": {
+        "type": "boolean"
+      },
+      "user_id": {
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": ["instance_id"],
+    "type": "object"
+  },
+  "name": "approvals_get_instance",
+  "outputSchema": {
+    "properties": {
+      "approval_code": {
+        "type": "string"
+      },
+      "approval_name": {
+        "type": "string"
+      },
+      "comment_list": {
+        "items": {
+          "properties": {
+            "comment": {
+              "type": "string"
+            },
+            "create_time": {
+              "type": "string"
+            },
+            "files": {
+              "items": {
+                "properties": {
+                  "file_size": {
+                    "type": "integer"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "open_id": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "department_id": {
+        "type": "string"
+      },
+      "end_time": {
+        "type": "string"
+      },
+      "form": {
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object"
+          },
+          {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        ]
+      },
+      "instance_code": {
+        "type": "string"
+      },
+      "modified_instance_code": {
+        "type": "string"
+      },
+      "open_id": {
+        "type": "string"
+      },
+      "reverted": {
+        "type": "boolean"
+      },
+      "reverted_instance_code": {
+        "type": "string"
+      },
+      "serial_number": {
+        "type": "string"
+      },
+      "start_time": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      },
+      "task_list": {
+        "items": {
+          "properties": {
+            "custom_node_id": {
+              "type": "string"
+            },
+            "end_time": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "node_id": {
+              "type": "string"
+            },
+            "node_name": {
+              "type": "string"
+            },
+            "open_id": {
+              "type": "string"
+            },
+            "start_time": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "timeline": {
+        "items": {
+          "properties": {
+            "cc_user_list": {
+              "items": {
+                "properties": {
+                  "cc_id": {
+                    "type": "string"
+                  },
+                  "open_id": {
+                    "type": "string"
+                  },
+                  "user_id": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "comment": {
+              "type": "string"
+            },
+            "create_time": {
+              "type": "string"
+            },
+            "ext": {
+              "type": "string"
+            },
+            "files": {
+              "items": {
+                "properties": {
+                  "file_size": {
+                    "type": "integer"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "node_key": {
+              "type": "string"
+            },
+            "open_id": {
+              "type": "string"
+            },
+            "open_id_list": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            },
+            "user_id_list": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "user_id": {
+        "type": "string"
+      },
+      "uuid": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

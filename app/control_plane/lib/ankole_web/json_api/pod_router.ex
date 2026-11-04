@@ -2,7 +2,7 @@ defmodule AnkoleWeb.JSONAPI.PodRouter do
   @moduledoc "The selected Pod's browser API. Domain operations authorize the current human."
   use AnkoleWeb.JSONAPI.Router,
     scope: :pod,
-    domains: [Ankole.Pod, AnkoleWeb.MemberAPI],
+    domains: [Ankole.Pod, AnkoleWeb.MemberAPI, Ankole.Connectors],
     prefix: "/api/v2/pod",
     before_dispatch: {__MODULE__, :context, []}
 

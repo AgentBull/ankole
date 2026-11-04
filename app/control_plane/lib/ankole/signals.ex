@@ -100,6 +100,7 @@ defmodule Ankole.Signals do
       )
 
       define(:list_bindings, action: :read)
+      define(:link_binding_auth_config, action: :link_auth_config)
     end
 
     resource(Ankole.Signals.WebhookEndpoint)
@@ -114,13 +115,36 @@ defmodule Ankole.Signals do
   defdelegate lock_dispatch_in_tx(plan, works \\ []), to: Ankole.Signals.Dispatch, as: :lock_in_tx
   defdelegate deliver_dispatch_in_tx(plan), to: Ankole.Signals.Dispatch, as: :deliver_in_tx
   defdelegate delivery_receipts(signal_id), to: Ankole.Signals.Dispatch, as: :receipts
+  defdelegate source_deliveries(reference), to: Ankole.Signals.SourceBindings, as: :deliveries
+
+  defdelegate bindings_for_jobs(job_ids, references),
+    to: Ankole.Signals.SourceBindings,
+    as: :for_jobs
+
+  defdelegate purge_source_bindings_in_tx(ids),
+    to: Ankole.Signals.SourceBindings,
+    as: :purge_in_tx
+
+  defdelegate job_webhook_operation_in_tx(job, operation, attrs),
+    to: Ankole.Signals.Webhooks,
+    as: :job_source_operation_in_tx
+
+  defdelegate job_webhook_ids(job_ids), to: Ankole.Signals.Webhooks, as: :job_source_ids
+
+  defdelegate purge_job_webhooks_in_tx(ids),
+    to: Ankole.Signals.Webhooks,
+    as: :purge_job_sources_in_tx
+
   defdelegate source_reference(source), to: Ankole.Signals.SourceBindings, as: :reference
   defdelegate source_automation_job_id(source), to: Ankole.Signals.SourceBindings, as: :job_id
+  defdelegate source_routing_mode(source), to: Ankole.Signals.SourceBindings, as: :routing_mode
   defdelegate source_automation_job_ids(sources), to: Ankole.Signals.SourceBindings, as: :job_ids
 
   defdelegate lock_source_bindings_in_tx(reference, job_id \\ nil),
     to: Ankole.Signals.SourceBindings,
     as: :lock_in_tx
+
+  defdelegate remove_disabled_source_bindings_in_tx(reference), to: Ankole.Signals.SourceBindings
 
   defdelegate put_source_binding_in_tx(reference, uid, session_id, job_id),
     to: Ankole.Signals.SourceBindings,

@@ -131,6 +131,41 @@ defmodule Ankole.Schedule.Normalizer do
     }
   end
 
+  def job_schedule_attrs(attrs, job, now, opts) do
+    attrs = Ankole.Attrs.normalize_external_attrs(attrs)
+
+    with {:ok, name} <- Attrs.required_text(attrs, "name"),
+         {:ok, idempotency_key} <- Attrs.required_text(attrs, "idempotency_key"),
+         {:ok, schedule, timezone} <-
+           Planner.normalize_schedule_json(attrs["schedule"], attrs, opts),
+         {:ok, status} <- normalize_cron_status(attrs["status"] || "active"),
+         payload = attrs["payload"] || %{},
+         true <- is_map(payload),
+         {:ok, next_fire_at} <- Planner.next_fire_after(schedule, timezone, now),
+         :ok <- reject_exhausted_bound(schedule, next_fire_at) do
+      {:ok,
+       Map.merge(Ankole.Principals.WorkAccess.fields(job), %{
+         owner_job_id: job.id,
+         agent_uid: nil,
+         owner_session_id: nil,
+         binding_name: nil,
+         delivery: nil,
+         name: name,
+         status: status,
+         schedule: schedule,
+         timezone: timezone,
+         payload: payload,
+         next_fire_at: next_fire_at_for_status(status, next_fire_at),
+         idempotency_key: idempotency_key,
+         created_by: Keyword.get(opts, :created_by, %{}),
+         automation_job_id: job.id
+       })}
+    else
+      false -> {:error, :invalid_cron_payload}
+      error -> error
+    end
+  end
+
   @spec cron_schedule_attrs(map(), DateTime.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def cron_schedule_attrs(attrs, now, opts) do
     attrs = Ankole.Attrs.normalize_external_attrs(attrs)
@@ -148,7 +183,8 @@ defmodule Ankole.Schedule.Normalizer do
          {:ok, status} <- normalize_cron_status(Attrs.map_text(attrs, "status") || "active"),
          {:ok, automation_job_id} <- automation_job_id(attrs),
          payload = Attrs.map_value(attrs, "payload") || %{},
-         :ok <- validate_cron_task(payload, automation_job_id),
+         :ok <-
+           validate_cron_task(payload, if(automation_job_id, do: :action, else: :ai_colleague)),
          {:ok, next_fire_at} <- Planner.next_fire_after(schedule, timezone, now),
          :ok <- reject_exhausted_bound(schedule, next_fire_at) do
       {:ok,
@@ -187,8 +223,8 @@ defmodule Ankole.Schedule.Normalizer do
              effective_updated_value(
                attrs,
                "automation_job_id",
-               automation_job_id,
-               Ankole.Signals.source_automation_job_id(existing)
+               if(automation_job_id, do: :action, else: :ai_colleague),
+               Ankole.Signals.source_routing_mode(existing)
              )
            ) do
       changes =
@@ -241,17 +277,18 @@ defmodule Ankole.Schedule.Normalizer do
 
   # A direct-Agent cron runs in its own execution session and must not depend
   # on the owner conversation's transcript, so its stored input has to carry
-  # the whole repeatable instruction. An AutomationJob consumer brings its own
-  # committed script instead.
+  # the whole repeatable instruction. An Action executes its published code;
+  # deleting its default Binding does not turn the source into an Agent task.
   @doc false
-  @spec validate_cron_task(map(), integer() | nil) :: :ok | {:error, :cron_task_required}
-  def validate_cron_task(payload, automation_job_id) do
-    cond do
-      is_integer(automation_job_id) -> :ok
-      is_map(payload) and is_binary(payload["task"]) and String.trim(payload["task"]) != "" -> :ok
-      true -> {:error, :cron_task_required}
-    end
+  @spec validate_cron_task(map(), :action | :ai_colleague | nil) ::
+          :ok | {:error, :cron_task_required}
+  def validate_cron_task(payload, :ai_colleague) do
+    if is_map(payload) and is_binary(payload["task"]) and String.trim(payload["task"]) != "",
+      do: :ok,
+      else: {:error, :cron_task_required}
   end
+
+  def validate_cron_task(_payload, routing_mode) when routing_mode in [:action, nil], do: :ok
 
   defp effective_updated_value(attrs, key, normalized, existing) do
     if Map.has_key?(attrs, key), do: normalized, else: existing

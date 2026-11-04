@@ -1,46 +1,30 @@
 ---
 name: lark-im
-description: "Operate Lark as this digital employee's application bot: messages and chats, contacts, calendars, video meetings, in-meeting bot actions, and Minutes. Use for Lark cloud communication work; never for local document files."
-default_enabled: true
-category: productivity
-tags: [lark, im, contact, calendar, vc, minutes]
-metadata:
-  upstream: https://github.com/larksuite/cli/tree/v1.0.69/skills
-  upstream_tag: v1.0.69
-  validated_against: v1.0.86
-  modified_for: Ankole bot-only Agent Plugin runtime
+description: "Send, read, update, and withdraw Feishu or Lark messages and cards; manage reactions, chats, and attachments."
 ---
 
-# Lark IM and collaboration
+# lark-im
 
-Use `lark-cli` with the application bot identity already supplied by the current Agent's Lark signal binding. This skill never creates credentials, starts an authorization flow, or acts as a human user.
+Send, read, update, and withdraw Feishu or Lark messages and cards; manage reactions, chats, and attachments.
 
-Before the first command, read [references/bot-runtime.md](references/bot-runtime.md). Then read only the domain reference needed for the task:
+Find the operation in [the operation index](references/index.md), then read only its linked JSON contract for inputs, outputs, and retry annotations.
 
-- Messages, chats, members, contacts, and directories: [references/im-contact.md](references/im-contact.md)
-- Calendars, events, attendees, and free/busy: [references/calendar.md](references/calendar.md)
-- Video meetings, in-meeting actions, recordings metadata, and Minutes: [references/meetings-minutes.md](references/meetings-minutes.md)
-- Capability limits and permission failures: [references/unsupported-and-permissions.md](references/unsupported-and-permissions.md)
+Write the JSON argument object to a temporary file, then pass it over stdin so quotes and shell metacharacters remain data:
 
-## Routing rules
+```sh
+mcporter call 'lark_im.<tool-name>' --json - --output json --timeout 360000 < /absolute/path/arguments.json
+```
 
-- An inbound signal reply belongs to the Signals Gateway. Use this skill when the Agent must initiate a new message, send to another chat or person, search communication history, or manage Lark collaboration resources.
-- For an inbound Lark Turn, a human `uid` in `speaker: name(uid)` is usually the Feishu/Lark `user_id`. Treat it as a known ID, not a display name or an ambiguous person lookup.
-- Use Contact only to verify a known stable `open_id`, `user_id`, or `union_id`. If a person or destination is ambiguous, request a stable user or `chat_id`; the bot-only Contact surface cannot search by display name, email, or phone.
-- Treat message sends, membership changes, event changes, meeting joins/leaves, and transcript mutations as writes. Inspect command help and use `--dry-run` when the target or payload is uncertain.
-- If the task needs cloud documents, spreadsheets, Base, Wiki, Drive, Slides, Whiteboard, or Lark Markdown, switch to `lark-office-suite`.
-- If the task needs tasks, OKRs, or attendance, switch to `lark-oa`.
-- If the task needs approval definitions, instances, or approval tasks, switch to `lark-approvals`.
+After the call finishes, delete the temporary argument file and check the process exit code before parsing stdout.
 
-## Completeness contract
+Run `mcporter list` to discover the available connections. The default server is `lark_im`. Select `lark_im@<connection-slug>` for a particular application, or copy the exact `lark_im@<connection-slug>@<account-key>` server name from the list to select one application account. Account keys in server names are URL-encoded. If the intended workspace is unclear, ask the user to choose; do not switch accounts to work around an authorization failure.
 
-Every `lark-cli` command line shown in this skill's references is validated against the image's pinned CLI version at build time. Run a referenced command directly with your values; do not re-verify it with `--help` first.
+Applet routes and Actions use `await AnkoleRuntime.mcp.call(tool, args, { server: "lark_im", connection, account })` with the same contract. Omit connection/account only when the intended default is unambiguous. `AnkoleRuntime.admin.mcp.call` represents the current page owner; it does not select an application account.
 
-The references do not freeze the CLI surface. For an IM, Contact, Calendar, VC, or Minutes operation the references do not cover:
+Use stable user_id for people across the tenant's applications. Supply principal_uid when addressing a known Ankole colleague. Use file_ref in the form `pages/<page-id>/<path>` for files; attachments stream through the control plane. Message content accepts a structured object. im_send_message and im_reply_message have optional uuid; reuse it if the caller already has a stable request ID.
 
-1. Run `lark-cli <service> --help` to find the shortcut or typed resource.
-2. Run command-level `--help` and require that the identity line includes `bot`.
-3. For typed resources, run `lark-cli schema <service>.<resource>.<method>` before constructing `--data` or `--params`.
-4. Execute with `--as bot --format json` and decide success from exit code zero or top-level `ok: true`.
+If no suitable connection or application account is listed, direct the user to the tenant’s Connectors page; a tenant administrator connects an application workspace, and members connect their own personal accounts.
 
-If the installed CLI exposes a bot-capable endpoint not enumerated here, it is supported by this skill. An endpoint that requires a person's identity is unsupported even if a similar Lark web UI feature exists.
+For a file created in the Worker workspace, use the Pod `files.upload` operation with the target page ID, `local_path`, and role before calling an upload tool. Follow the `pod-content` Skill to choose or create that page and handle file versions. Use the returned `page_id` and `file.path` as `pages/<page-id>/<path>` in `file_ref`; a Worker filesystem path is not a Pod file reference.
+
+An `oauth_consent_required` result identifies a missing personal authorization. Present the returned consent link, then repeat the intended operation after authorization. `upstream_outcome_unknown` means a write may have completed; inspect its result before repeating it. Respect `retryAfterSeconds` and use `continueSlice` for long waits in Applet Actions. In Applet error handlers, read recovery metadata such as `authorization_url`, `retryAfterSeconds`, and a partially created `resource_id` from `error.details`; `error.code` identifies the failure.

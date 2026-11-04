@@ -4,8 +4,7 @@ defmodule AnkoleWeb.Plugs.ProviderWebhookBodyReader do
 
   `Plug.Parsers` calls `read_body/2` in place of `Plug.Conn.read_body/2`. A
   provider signs the bytes it sent, so a handler that verifies a signature
-  cannot use the parsed map. Only `/webhooks/v1/:handler/:instance/:kind`
-  requests keep the copy; every other request reads its body as before.
+  cannot use the parsed map. Provider and Connector webhook requests keep the copy for signature verification.
   """
 
   import Plug.Conn
@@ -23,6 +22,17 @@ defmodule AnkoleWeb.Plugs.ProviderWebhookBodyReader do
       {:ok, chunk, conn} -> {:ok, chunk, keep(conn, chunk)}
       {:more, chunk, conn} -> {:more, chunk, keep(conn, chunk)}
       {:error, _reason} = error -> error
+    end
+  end
+
+  def read_body(
+        %Plug.Conn{method: "POST", path_info: ["webhooks", "connectors" | _]} = conn,
+        opts
+      ) do
+    case Plug.Conn.read_body(conn, opts) do
+      {:ok, chunk, conn} -> {:ok, chunk, keep(conn, chunk)}
+      {:more, chunk, conn} -> {:more, chunk, keep(conn, chunk)}
+      {:error, _} = error -> error
     end
   end
 

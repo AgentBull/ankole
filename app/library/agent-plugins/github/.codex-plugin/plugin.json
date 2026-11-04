@@ -1,6 +1,6 @@
 {
   "name": "github",
-  "version": "1.3.0",
-  "description": "Authenticate with GitHub; manage issues, pull requests, repositories, CI, releases, and durable webhook delegations.",
+  "version": "2.0.0",
+  "description": "GitHub repository collaboration through Ankole Connectors, with live Turn Git authentication.",
   "skills": "./skills/"
 }

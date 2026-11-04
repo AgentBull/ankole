@@ -1,0 +1,28 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tasks delete.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "task_guid": {
+        "type": "string"
+      }
+    },
+    "required": ["task_guid"],
+    "type": "object"
+  },
+  "name": "tasks_delete",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

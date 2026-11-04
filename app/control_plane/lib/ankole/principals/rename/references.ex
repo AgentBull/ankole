@@ -20,6 +20,9 @@ defmodule Ankole.Principals.Rename.References do
     {"conversation_action_cards", "agent_uid"},
     {"conversation_action_cards", "resolved_by_uid"},
     {"conversation_inbound_batches", "requester_sender_key"},
+    {"connector_auth_configs", "created_by_uid"},
+    {"connector_connected_accounts", "owner_principal_uid"},
+    {"connector_oauth_sessions", "actor_uid"},
     {"cron_schedules", "human_uid"},
     {"delivery_attachments", "agent_uid"},
     {"human_access_events", "principal_uid"},
@@ -28,6 +31,7 @@ defmodule Ankole.Principals.Rename.References do
     {"page_user_states", "principal_uid"},
     {"principal_site_credentials", "principal_uid"},
     {"scheduled_events", "human_uid"},
+    {"signal_webhook_endpoints", "human_uid"},
     {"signals", "human_uid"},
     {"signals", "sender_key"},
     {"workflow_runs", "human_uid"}
@@ -137,6 +141,7 @@ defmodule Ankole.Principals.Rename.References do
       Enum.each(@json_actor_refs, &rewrite_json_actor(&1, tenant_id, old_uid, new_uid))
     end)
 
+    rename_connector_account_key(tenant_id, old_uid, new_uid)
     rename_browser_subject(tenant_id, old_uid, new_uid)
     rename_pending_jobs(tenant_id, old_uid, new_uid)
     rename_conversation_keys(tenant_id, old_uid, new_uid)
@@ -286,6 +291,13 @@ defmodule Ankole.Principals.Rename.References do
   end
 
   defp replace_path(value, _path, _old, _new), do: value
+
+  defp rename_connector_account_key(tenant_id, old, new) do
+    Repo.query!(
+      "UPDATE connector_connected_accounts SET account_key=$3 WHERE tenant_id=$1::text::uuid AND subject_kind='human' AND account_key=$2",
+      [tenant_id, old, new]
+    )
+  end
 
   defp rename_browser_subject(tenant_id, old, new) do
     Repo.query!(

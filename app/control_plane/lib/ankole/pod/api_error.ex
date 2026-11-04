@@ -15,6 +15,9 @@ defmodule Ankole.Pod.APIError do
       {409, "A file and a directory cannot share a path. Choose another path."},
     invalid_contract: {422, "Select a valid contract slot and inheritance mode."},
     principal_owned_object: {422, "Rename this person or Agent through its identity settings."},
+    connection_application_change_requires_new_connection:
+      {422,
+       "Create a separate connection for a different external application. You can rotate this application's secret here."},
     comment_conflict: {409, "The comment changed. Reload it before trying again."},
     invalid_comment_body: {422, "Enter a comment of at most 20,000 characters."},
     invalid_comment_reply:
@@ -53,6 +56,15 @@ defmodule Ankole.Pod.APIError do
   def message(error), do: public_error(error.reason).message
 
   def public_error({:blob_missing, _}), do: public_error(:attachment_expired)
+
+  def public_error(%{code: "oauth_consent_required"} = details),
+    do: %{
+      code: details.code,
+      message:
+        "Authorize the account owner to use this connection with the requested permissions.",
+      status: 422,
+      details: details
+    }
 
   def public_error(reason) do
     case @chat_errors[reason] do

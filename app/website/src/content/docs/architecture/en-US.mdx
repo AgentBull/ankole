@@ -123,7 +123,7 @@ See [Principals and permission groups](../principal-and-groups/), [Signal routin
 
 PostgreSQL 18+ stores durable domain facts in the control-plane database—identity, access, configuration, Pod metadata and documents, messages, sessions, Jobs, memory, delivery state, and audit records—while physical **Base shard databases (`BASE_DB_URLS`)** store tenant Base table rows. During point-in-time recovery, every Base shard recovery target must be greater than or equal to (`>=`) the control-plane database recovery target. Treat these PostgreSQL records as the source of truth for whether Ankole committed an outcome.
 
-The object store (control-plane file store) holds Pod files, Pod and conversation attachments, compiled Applet bundles, published files, Skills, and Automation scripts, while persistent Home separately holds workspaces, local packages, and Codex threads. Always back up the control-plane PostgreSQL database, all physical Base shard databases, the object store, all Agent Homes, and the deployment encryption key together.
+The object store (control-plane file store) holds Pod files, Pod and conversation attachments, compiled Applet bundles, published files, and Skills, while persistent Home separately holds workspaces, local packages, and Codex threads. Always back up the control-plane PostgreSQL database, all physical Base shard databases, the object store, all Agent Homes, and the deployment encryption key together.
 
 RuntimeFabric connections, `ankole-function-runtime` isolates, live Worker processes, stream previews, and `/var/cache/ankole` are stateless or rebuildable, whereas persistent Home must survive instance replacement and requires durable storage backups; see [Backup and restore](../backup-and-restore/).
 

@@ -1,0 +1,24 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Im delete message.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "message_id": {
+        "type": "string"
+      }
+    },
+    "required": ["message_id"],
+    "type": "object"
+  },
+  "name": "im_delete_message",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

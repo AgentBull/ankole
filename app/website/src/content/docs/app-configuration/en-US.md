@@ -42,7 +42,6 @@ Ankole ships with the built-in AppConfigure keys listed below, and Control Plane
 | `ai_agent.inactivity_timeout_ms` | Tenant | Time to wait for an inactive model or Provider before ending the turn |
 | `ai_agent.library.agent_plugin_defaults` | Tenant | Default enablement for Agent Plugins |
 | `background_agent_jobs.max_running_per_agent` | Tenant | Maximum concurrently running BackgroundAgentJobs per Agent; default `3`, valid range `1`–`64` |
-| `automation_jobs.max_running_per_agent` | Tenant | Maximum concurrently running automation scripts per Agent; default `10`, valid range `1`–`64` |
 
 ### Pod, Base, and Applet
 
@@ -51,7 +50,7 @@ Ankole ships with the built-in AppConfigure keys listed below, and Control Plane
 | `pod.allow_external_guests` | Tenant | Allow invited external guests to access shared Pod pages; default `true` |
 | `pod.applet.limits` | Tenant | Applet invocation limits (`timeout_ms: 60000`, `heap_mb: 128`) |
 | `pod.base.limits` | Tenant | Base query and record limits (`query_rows: 1000`, `record_bytes: 1000000`, `group_count: 1000`, `statement_timeout_ms: 5000`) |
-| `drive.trash_retention_days` | Tenant  Days Ankole retains deleted Drive nodes before automatic purge; default `30`, `0` keeps them indefinitely |
+| `drive.trash_retention_days` | Tenant | Days Ankole retains deleted Drive nodes before automatic purge; default `30`, `0` keeps them indefinitely |
 | `pod.ot_replay_window` | Tenant | Number of recent document change batches retained for OT replay; default `1000` |
 
 ### Workflows
@@ -122,7 +121,6 @@ See [LLM observability](../llm-observability/) for Langfuse, LangSmith, Victoria
 
 | Key | Scope | Purpose |
 |---|---|---|
-| `runtime_fabric.worker_auth_key` | Site, read-only | Installation key that the control plane generates at first start; it names Lark profiles, and it is not a Worker credential |
 | `agent_workers.ready_timeout_seconds` | Site | Seconds that a Worker may stay not ready before it is rebuilt with a new cache disk; default `600` (10 minutes) |
 | `agent_workers.rendered_fetch_idle_ttl_ms` | Tenant | Idle lifetime for the built-in `web_fetch` rendered fallback |
 | `security.ssrf_filter` | Site | Whether model-controlled fetches reject private, loopback, link-local, and CGNAT addresses |

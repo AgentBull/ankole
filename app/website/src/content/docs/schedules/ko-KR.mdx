@@ -89,13 +89,13 @@ Tell me if it failed, became blocked, or changed state. Stay silent if nothing c
 
 Console의 **Checkbacks** 탭에서는 선택한 대화에 등록된 대기 중인 알림 목록을 볼 수 있습니다. 예정 기한, 등록 사유, 라우팅 규칙을 확인할 수 있으며, 더 이상 필요 없는 항목은 취소할 수 있습니다.
 
-## 기계적 확인에는 automation job 사용
+## Applet Job 일정
 
-Cron 실행과 Checkback은 기본적으로 지정된 Agent 대화를 깨우는 이벤트를 발생시킵니다. 만약 매번 수행할 작업이 단순 조회(fetch), 값 비교, 파싱처럼 모델 판단이 필요 없는 결정론적 처리라면, Agent에게 automation job을 생성하고 트리거를 `automation_job_id`에 바인딩해 달라고 요청하세요. 이렇게 하면 동일한 트리거 이벤트가 들어올 때 모델 턴을 여는 대신 영속적인 스크립트 실행이 시작되며, 스크립트는 조용히 종료하거나 사람의 주의·모델 판단이 필요한 경우에만 `emitEvent`를 호출해 소유 대화를 깨울 수 있습니다.
+정형 처리를 Applet Action으로 게시하고 자동화 패널에서 Job과 소유 일정을 만듭니다. Agent 세션, 작업 프롬프트, 채팅 대상은 필요하지 않습니다. Cron, 고정 간격, 지정 시각 중 하나를 선택하고 시간대와 Action에 전달할 JSON을 설정합니다.
 
-예를 들어 5분마다 가격을 조회하는 작업이라면 가격이 기준치 이상인 동안에는 스크립트만 돌고 조용히 끝내다가, 기준치를 밑도는 순간에만 현재 가격과 출처 정보를 담아 이벤트를 발행하도록 구성할 수 있습니다. 반대로 매 실행마다 기억 조회나 추론, 대화형 응답이 필요한 작업에는 기본 Agent wake 방식을 그대로 사용하세요.
+수정, 일시 중지, 재개, 즉시 실행, 삭제를 지원하며 실행 이력에서 Run 결과, 실패, 입력 병합 상태를 확인할 수 있습니다. Action은 `ctx.signal.data`와 영구 저장되는 `ctx.state`를 사용합니다. 개인 일정은 Job 소유자 권한, 팀 일정은 페이지 편집 권한을 따릅니다.
 
-자세한 개요와 실행 이력, 정리 규칙은 [Automation Jobs](../automation-jobs/)에서, 스크립트 SDK와 CLI 명령 규격은 [Worker CLI 기능](../cli-capabilities/)에서 확인할 수 있습니다.
+Agent가 만든 Cron과 Checkback도 소비자 연결을 통해 Applet Job에 전달할 수 있습니다. 매번 판단이나 대화가 필요하면 Agent를 소비자로 유지하세요. [Automation Jobs](../automation-jobs/)와 [Worker CLI](../cli-capabilities/)를 참고하세요.
 
 ## 흔한 문제
 

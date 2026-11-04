@@ -9,9 +9,13 @@ defmodule Ankole.AIAgent do
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
-  defdelegate resolve_mcp_server(principal, skill, name),
+  defdelegate resolve_mcp_server(principal, skill, name, opts \\ []),
     to: Ankole.AIAgent.Library.MCP,
     as: :resolve
+
+  defdelegate mcp_credential_env_keys(),
+    to: Ankole.AIAgent.Library.MCP,
+    as: :credential_env_keys
 
   resources do
     resource(Ankole.AIAgent.Library.AgentPlugins.Schemas.AgentPluginOverride)

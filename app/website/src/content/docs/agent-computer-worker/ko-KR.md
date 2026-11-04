@@ -9,7 +9,7 @@ Agent Computer Worker는 개별 Agent에게 할당되는 전용 컴퓨터 환경
 
 ## 실행과 소유권
 
-Bun 기반 Worker는 셸 명령, 파일 및 브라우저 도구, Skill, MCP 호출, automation script, Codex Job을 실행합니다. 반면 주 Agent loop와 입력 완료 처리, 도구 결과 커밋, 최종 응답 생성은 control plane의 `Ankole.Sessions`가 담당하며, 영구 Response 체인과 hosted 도구는 AIGateway가 관리합니다.
+Bun 기반 Worker는 셸 명령, 파일 및 브라우저 도구, Skill, MCP 호출, Codex Job을 실행합니다. 반면 주 Agent loop와 입력 완료 처리, 도구 결과 커밋, 최종 응답 생성은 control plane의 `Ankole.Sessions`가 담당하며, 영구 Response 체인과 hosted 도구는 AIGateway가 관리합니다.
 
 control plane은 Worker를 시작할 때 `WORKER_ID`, RuntimeFabric URL, generation 자격 증명, 스토리지 설정을 전달합니다. 각 Worker는 지정된 단일 Agent의 작업만 처리하며, 자식 프로세스를 실행할 때 환경 변수에서 자격 증명을 제거하고 데이터베이스에도 직접 연결하지 않습니다. 컨테이너 자체가 Agent 간 격리 경계 역할을 하며, 내부 명령은 `sudo` 권한 없이 `uid 1000`으로 실행됩니다.
 

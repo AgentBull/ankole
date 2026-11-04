@@ -1,0 +1,28 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Task sections delete.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "section_guid": {
+        "type": "string"
+      }
+    },
+    "required": ["section_guid"],
+    "type": "object"
+  },
+  "name": "task_sections_delete",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

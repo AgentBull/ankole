@@ -1,4 +1,5 @@
 import { parse } from 'acorn'
+import { InvocationMCP, bridgeAppletSockets } from './mcp.ts'
 import { buildAppletWorkerBootstrap } from './applet_bootstrap.ts'
 import { CodeCache, type AppletCode } from './code_cache.ts'
 import { InvocationCapacity } from './capacity.ts'
@@ -19,8 +20,10 @@ const invocations = new Map<
     code: AppletCode
     release: (aborted?: boolean) => Promise<void>
     started: boolean
+    deadline: number
     worker?: ReturnType<typeof worker>
     createdAt?: number
+    bridgeToken?: string
   }
 >()
 type WarmWorker = { instance: EdgeRuntime.UserWorker; memory: number; createdAt: number; idleAt: number }
@@ -125,6 +128,9 @@ function forward(req: Request, body?: string) {
   const headers = new Headers(req.headers)
   headers.delete('authorization')
   headers.delete('content-length')
+  headers.delete('x-ankole-caller-mcp-token')
+  headers.delete('x-ankole-admin-mcp-token')
+  headers.delete('x-ankole-mcp-origin')
   const forwarded = new Request(req.url, { method: req.method, headers, body })
   EdgeRuntime.applySupabaseTag(req, forwarded)
   return forwarded
@@ -140,6 +146,20 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url)
   if (url.pathname === '/_internal/health') {
     return json(draining ? 503 : 200, draining ? 'draining' : 'ok')
+  }
+  const bridge = /^\/_internal\/applet\/bridge\/([^/]+)$/.exec(url.pathname)
+  if (bridge) {
+    const invocation = invocations.get(bridge[1])
+    if (!invocation?.bridgeToken || invocation.bridgeToken !== url.searchParams.get('token')) {
+      return json(401, 'unauthorized')
+    }
+    invocation.bridgeToken = undefined
+    const instance = await invocation.worker!
+    const target = new URL('/v1/applet/invoke', req.url)
+    target.searchParams.set('timeout_ms', String(Math.max(1, invocation.deadline - Date.now())))
+    const request = new Request(target.toString(), { headers: req.headers })
+    EdgeRuntime.applySupabaseTag(req, request)
+    return instance.fetch(forward(request))
   }
   if (!url.pathname.startsWith('/v1/')) return json(404, 'not_found')
   if (req.headers.get('authorization') !== `Bearer ${token}`) return json(401, 'unauthorized')
@@ -280,7 +300,7 @@ Deno.serve(async (req: Request) => {
         const timer = setTimeout(() => {
           void release(true).catch(error => console.error('Applet worker retirement failed', error))
         }, timeout + 500)
-        lease = { code, release, started: false }
+        lease = { code, release, started: false, deadline: Date.now() + timeout }
         invocations.set(runId, lease)
       }
       if (req.headers.get('upgrade')?.toLowerCase() !== 'websocket') return new Response(null, { status: 204 })
@@ -311,10 +331,26 @@ Deno.serve(async (req: Request) => {
               }
             })
         instance = await lease.worker
-        const response = await instance.fetch(forward(req))
-        if (response.status !== 101) {
+        const origin = req.headers.get('x-ankole-mcp-origin')
+        const caller = req.headers.get('x-ankole-caller-mcp-token')
+        const admin = req.headers.get('x-ankole-admin-mcp-token')
+        if (!origin || !caller || !admin) {
           await release(true)
+          return json(400, 'mcp_context_required')
         }
+        const mcp = new InvocationMCP(origin, caller, admin, lease.deadline)
+        lease.bridgeToken = crypto.randomUUID()
+        const { socket, response } = Deno.upgradeWebSocket(req)
+        socket.addEventListener(
+          'open',
+          () => {
+            const inner = new WebSocket(
+              `ws://127.0.0.1:9000/_internal/applet/bridge/${runId}?token=${lease!.bridgeToken}`
+            )
+            bridgeAppletSockets(socket, inner, mcp)
+          },
+          { once: true }
+        )
         return response
       } catch (error: any) {
         if (!instance) lease.worker = undefined

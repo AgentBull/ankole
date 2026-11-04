@@ -97,7 +97,12 @@ defmodule Ankole.Plugins.LineAdapter.Webhook do
   end
 
   defp binding_consumer(binding, channel_id) do
-    case Bindings.binding_config(binding, Config) do
+    config =
+      Ankole.Repo.with_tenant(binding.tenant_id, fn ->
+        Bindings.binding_config(binding, Config)
+      end)
+
+    case config do
       {:ok, %{"channelId" => ^channel_id} = config} ->
         config = Config.runtime_config(config)
 

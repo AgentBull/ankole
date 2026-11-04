@@ -3,7 +3,7 @@ defmodule Ankole.Principals.AccessView do
   @work_fields [
     kind: [type: :string, allow_nil?: false],
     id: [type: :string, allow_nil?: false],
-    agent_uid: [type: :string, allow_nil?: false],
+    agent_uid: [type: :string],
     status: [type: :string, allow_nil?: false],
     authorization_kind: [type: :string, allow_nil?: false],
     human_uid: [type: :string],

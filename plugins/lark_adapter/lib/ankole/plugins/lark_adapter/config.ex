@@ -149,6 +149,18 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
          sync <- MapHelpers.fetch_map(value, "sync", %{}),
          {:ok, oidc_enabled} <- optional_boolean(oidc, "enabled", true),
          {:ok, oidc_scopes} <- string_array(oidc, "scopes", @default_oidc_scopes),
+         {:ok, personal_scopes_enabled} <-
+           optional_boolean(oidc, "requestPersonalConnectorScopes", false),
+         {:ok, personal_scopes} <-
+           string_array(oidc, "personalConnectorScopes", [
+             "offline_access",
+             "task:task:write",
+             "task:tasklist:write",
+             "task:comment:write",
+             "task:section:write",
+             "calendar:calendar",
+             "approval:approval"
+           ]),
          {:ok, sync_contacts} <- optional_boolean(sync, "contacts", true),
          {:ok, sync_websocket} <- optional_boolean(sync, "websocket", true),
          {:ok, sync_page_size} <- integer_between(sync, "pageSize", 50, 1, 50),
@@ -162,7 +174,13 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
          "appID" => app_id,
          "appSecret" => app_secret,
          "domain" => domain,
-         "oidc" => %{"enabled" => oidc_enabled, "scopes" => oidc_scopes},
+         "authConfigId" => value["authConfigId"],
+         "oidc" => %{
+           "enabled" => oidc_enabled,
+           "scopes" => oidc_scopes,
+           "requestPersonalConnectorScopes" => personal_scopes_enabled,
+           "personalConnectorScopes" => personal_scopes
+         },
          "sync" => %{
            "contacts" => sync_contacts,
            "websocket" => sync_websocket,

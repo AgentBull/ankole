@@ -15,7 +15,7 @@ order: 317
 | --- | --- | --- |
 | **Agent 主目录（Home）**：`/workspace` | 任务工作区文件、用户态安装的软件包、`/workspace/.codex` 下的持久化线程 | 销毁实例或升级镜像后必须完整保留，需纳入定期备份 |
 | **Worker 运行缓存**：`/var/cache/ankole` | `codex/` 子目录下的 SQLite 数据库、WAL 日志及本地进程文件锁 | 允许随时清空重建，但每个 Agent 必须严格独享 |
-| **控制面云盘** | 聊天收发附件、对外发布产物、已安装 Skill 与自动化脚本 | 由 PostgreSQL 元数据与 OpenDAL 对象存储共同承载，需纳入定期备份 |
+| **控制面云盘** | 聊天收发附件、对外发布产物、已安装 Skill | 由 PostgreSQL 元数据与 OpenDAL 对象存储共同承载，需纳入定期备份 |
 
 请勿混淆三者的职责：控制面云盘所用的 S3 存储桶不能拿来充当 Worker 的 `/workspace` 主目录或本地 SQLite 缓存盘；同样地，Cloudflare 用于备份主目录的 R2 桶、阿里云函数计算挂载的 OSS 主目录前缀，也与控制面云盘各自独立配置。云盘后端设置见 [云盘存储配置](../drive-storage/)。
 

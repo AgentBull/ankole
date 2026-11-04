@@ -1487,8 +1487,8 @@ a bound preserves the local draft and prompts for explicit reset or reload.
 
 Agents read business content within the current requester and room disclosure
 boundary. The broker evaluates each reader's conditional grants with the trusted
-ingress IP and RPC surface carried by the executing actor. Autonomous Automation
-Job attempts use the Agent's own permissions and their live attempt fence.
+ingress IP and RPC surface carried by the executing actor. Applet Action attempts use their enabling Human or Page owner and their live
+attempt fence.
 Document reads return Markdown, revision, and resolved `references` metadata
 for any `<mention />` targets visible to the caller via `ankole-pod pages.read`,
 which holds a shared page lock across the content read (and across any revision
@@ -2071,7 +2071,11 @@ inherits the original `ctx.principal` and ordinary capability identity. A team
 Job's child therefore has no current user and uses `admin` for owner operations.
 `signals.emit({targetJobId})` durably accepts a same-Page Job and returns its Run
 ID. [Automation Jobs](AutomationJobs.md#applet-actions) defines persistent state,
-serial queues, continuation and authorized progress subscriptions.
+serial queues, continuation and authorized progress subscriptions. Applets use
+`useJobSources(jobID)` to manage Job-owned schedules and Webhooks. These sources
+inherit the Job's Page and work authority, route directly to its Action, and need
+no conversation or Agent. Trash suppresses callbacks and cron slots, restoration
+permits future triggers, and permanent deletion removes sources with their Job.
 
 Browser requests hit `/api/v2/pod/pages/:id/routes/*path` under standard Pod
 session + CSRF checks and must send `x-ankole-applet-revision` (Agent RPC
@@ -2176,8 +2180,9 @@ business write:
   selected ordinary or `admin` execution Principal. Missing `light` configuration
   falls back to primary. An unconfigured slot returns `422 ai_not_configured`,
   invalid model/effort parameters return `422`, and provider failures return `502`.
-- **MCP and files**: `mcp.call` resolves tools through enabled Skills and the
-  selected execution Principal. Server annotations govern GET access and safe
+- **MCP and files**: `mcp.call` selects a Connector Toolkit or an HTTP server
+  from enabled Skills. The Function Runtime host calls the control-plane gateway
+  through MCPorter using the selected execution Principal. Tool annotations govern GET access and safe
   retries; the shared File/HTTP bridge streams large uploads and downloads.
   [MCP-backed Skills](MCPBackedSkills.md#applet-tools-and-streaming-files) defines
   protocol negotiation, JSON limits and unknown upstream outcomes.

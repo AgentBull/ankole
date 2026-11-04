@@ -1,19 +1,14 @@
 defmodule Ankole.Sessions.ReplyRouteTest do
   use Ankole.DataCase, async: false
 
-  import Ankole.FilesFixtures
   import Ankole.AIGatewayCase, only: [background_agent_fixture: 0]
 
-  alias Ankole.AutomationJobs
-  alias Ankole.AutomationJobs.RPCBroker, as: AutomationBroker
-  alias Ankole.AutomationJobs.Schemas.Run, as: AutomationRun
   alias Ankole.BackgroundAgentJobs
   alias Ankole.Sessions.JobTurnRef
   alias Ankole.Sessions.RunRef
   alias Ankole.Principals.WorkAccess
   alias Ankole.RuntimeFabric.V1, as: Proto
 
-  alias Ankole.Signals.Signal
   alias Ankole.Signals.WebhookEndpoint
   alias Ankole.Signals.Webhooks
   alias Ankole.Conversations.Route
@@ -197,7 +192,7 @@ defmodule Ankole.Sessions.ReplyRouteTest do
              )
   end
 
-  test "unresolved Job creation fails before writing either long-lived resource" do
+  test "unresolved Job webhook creation fails before writing a long-lived resource" do
     %{principal: agent} = background_agent_fixture()
     parent = job!(source!(agent.uid, "origin"))
 
@@ -209,68 +204,11 @@ defmodule Ankole.Sessions.ReplyRouteTest do
     )
 
     turn = job_ref(parent)
-    drive_file_fixture(agent.uid, "automation/b07/main.ts")
 
     assert {:error, %{"code" => "long_lived_reply_owner_not_found"}} =
              WebhookBroker.handle_create(turn, webhook_request(), @ctx)
 
-    assert {:error, %{"code" => "long_lived_reply_owner_not_found"}} =
-             AutomationBroker.handle_create(turn, automation_request(), @ctx)
-
     assert Repo.aggregate(WebhookEndpoint, :count) == 0
-    assert Repo.aggregate(Ankole.AutomationJobs.Schemas.Job, :count) == 0
-  end
-
-  test "Job automation create, list, show and cancel use the same origin and caller authorization" do
-    %{principal: agent} = background_agent_fixture()
-    source = source!(agent.uid, "origin")
-    parent = job!(source)
-    turn = job_ref(parent)
-    drive_file_fixture(agent.uid, "automation/b07/main.ts")
-
-    assert {:ok, %{"automation_job" => %{"id" => id}}} =
-             AutomationBroker.handle_create(turn, automation_request(), @ctx)
-
-    job = Repo.get!(Ankole.AutomationJobs.Schemas.Job, id)
-    assert job.owner_session_id == source.session_id
-    assert job.source_signal_id == parent.dispatch_event.id
-    assert job.authorization_kind == parent.dispatch_event.authorization_kind
-    assert job.reply_route == Route.snapshot(ref(source))
-
-    for caller <- [turn, ref(source)] do
-      assert {:ok, %{"automation_jobs" => [%{"id" => ^id}]}} =
-               AutomationBroker.handle_list(caller, %Proto.AutomationJobListRequest{}, @ctx)
-
-      assert {:ok, %{"result" => %{"automation_job" => %{"id" => ^id}}}} =
-               AutomationBroker.handle_show(
-                 caller,
-                 %Proto.AutomationJobShowRequest{automation_job_id: to_string(id)},
-                 @ctx
-               )
-    end
-
-    outside = %{ref(source) | session_id: "unrelated"}
-
-    assert {:error, %{"code" => "automation_job_not_found"}} =
-             AutomationBroker.handle_show(
-               outside,
-               %Proto.AutomationJobShowRequest{automation_job_id: to_string(id)},
-               @ctx
-             )
-
-    assert {:ok, %{"status" => "cancelled"}} =
-             AutomationBroker.handle_cancel(
-               turn,
-               %Proto.AutomationJobTargetRequest{automation_job_id: to_string(id)},
-               @ctx
-             )
-
-    parent.dispatch_event |> change(authorization_kind: "review_required") |> Repo.update!()
-
-    assert {:error, %{"code" => "work_authorization_review_required"}} =
-             AutomationBroker.handle_create(turn, automation_request(), @ctx)
-
-    assert Repo.aggregate(Ankole.AutomationJobs.Schemas.Job, :count) == 1
   end
 
   test "legacy webhook routes resolve through the same owner and an orphan does not consume its token" do
@@ -321,66 +259,6 @@ defmodule Ankole.Sessions.ReplyRouteTest do
     assert [legacy] = Webhooks.list_endpoints(agent.uid, nil)
     assert legacy.id == endpoint.id
     assert {:ok, %{status: :cancelled}} = Webhooks.cancel_endpoint(agent.uid, nil, endpoint.id)
-  end
-
-  test "legacy automation emits after its calling Job ends and records failed owner notification" do
-    %{principal: agent} = background_agent_fixture()
-    source = source!(agent.uid, "origin")
-    parent = job!(source)
-    drive_file_fixture(agent.uid, "automation/b07/main.ts")
-
-    assert {:ok, job} =
-             AutomationJobs.create_job(%{
-               agent_uid: agent.uid,
-               owner_session_id: parent.dispatch_event.session_id,
-               source_signal_id: parent.dispatch_event.id,
-               source_provenance: %{},
-               reply_route: Route.snapshot(job_ref(parent)),
-               drive_prefix: "automation/b07",
-               label: "Legacy automation",
-               wake_on_failure: true
-             })
-
-    assert {:ok, %{automation_job_run: queued}} =
-             Repo.transact(fn ->
-               Ankole.WorkFixtures.dispatch_job_in_tx(job, %{"id" => "trigger"})
-             end)
-
-    assert {:ok, _worker} =
-             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
-               worker_id: agent.uid
-             })
-
-    assert {:ok, %{run: run}} = AutomationJobs.start_attempt(queued.id)
-    finish_job!(parent.job)
-    assert {:ok, emitted} = AutomationJobs.emit_event(agent.uid, run.id, run.attempt_id, %{})
-    assert emitted.session_id == source.session_id
-    assert emitted.conversation_id == source.conversation_id
-    assert emitted.authorization_kind == job.authorization_kind
-
-    Repo.delete!(
-      Repo.get!(
-        Ankole.AIGateway.Schemas.Conversation,
-        parent.job.metadata["owner_conversation_id"]
-      )
-    )
-
-    assert {:error, :long_lived_reply_owner_not_found} =
-             AutomationJobs.emit_event(agent.uid, run.id, run.attempt_id, %{})
-
-    assert {:ok, %AutomationRun{status: :failed, error: error}} =
-             AutomationJobs.finish_attempt(run.id, run.attempt_id, %{
-               "status" => "failed",
-               "error" => String.duplicate("script rejected emission ", 4_000)
-             })
-
-    assert error =~ "script rejected emission"
-    assert String.ends_with?(error, "; long_lived_reply_owner_not_found")
-    assert byte_size(error) <= 65_536
-    assert Repo.reload!(run).error == error
-    refute Repo.exists?(from(e in Signal, where: e.type == "automation_job.run_failed"))
-    assert {:ok, %{automation_job: old}} = AutomationJobs.show_job(agent.uid, nil, job.id)
-    assert old.id == job.id
   end
 
   defp source!(agent_uid, session_id) do
@@ -496,13 +374,6 @@ defmodule Ankole.Sessions.ReplyRouteTest do
       expires_at: DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), 3600))
     }
 
-  defp automation_request,
-    do: %Proto.AutomationJobCreateRequest{
-      label: "B07 automation",
-      drive_prefix: "automation/b07",
-      wake_on_failure: true
-    }
-
   defp endpoint_attrs(source),
     do: %{
       agent_uid: source.agent_uid,
@@ -511,6 +382,9 @@ defmodule Ankole.Sessions.ReplyRouteTest do
       conversation_id: source.conversation_id,
       provider_thread_id: source.provider_thread_id,
       source_signal_id: source.id,
+      authorization_kind: source.authorization_kind,
+      human_uid: source.human_uid,
+      human_access_version: source.human_access_version,
       provider_message_id: source.provider_message_id,
       source_provenance: %{},
       label: "Legacy callback",

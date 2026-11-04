@@ -7,6 +7,7 @@ import {
   useSyncExternalStore,
   useEffect,
   useRef,
+  useMemo,
   useState,
   type ComponentType,
   type ReactNode
@@ -43,6 +44,10 @@ import type {
   Versions
 } from './types'
 export type * from './types'
+export * from './job-sources'
+export * from './jobs'
+import { createJobSources } from './job-sources'
+import { createAppletJobs } from './jobs'
 
 const Runtime = createContext<AppletRuntime | null>(null)
 export function AppletRuntimeProvider({ runtime, children }: { runtime: AppletRuntime; children: ReactNode }) {
@@ -52,6 +57,17 @@ export function usePod() {
   const runtime = useContext(Runtime)
   if (!runtime) throw new Error('This component must run inside an Ankole applet')
   return runtime
+}
+
+/** Manage a persistent Action's native schedules and webhook endpoints. */
+export function useJobSources(jobID: number) {
+  const { pod, pageID } = usePod()
+  return useMemo(() => createJobSources(pod, pageID, jobID), [pod, pageID, jobID])
+}
+
+export function useAppletJobs() {
+  const { pod, pageID } = usePod()
+  return useMemo(() => createAppletJobs(pod, pageID), [pod, pageID])
 }
 
 function useTableUpdates(tableID: string) {

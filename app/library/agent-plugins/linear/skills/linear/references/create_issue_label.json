@@ -1,0 +1,55 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create an issue label.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "color": {
+        "type": ["string", "null"]
+      },
+      "description": {
+        "type": ["string", "null"]
+      },
+      "name": {
+        "type": ["string", "null"]
+      },
+      "parent": {
+        "type": ["string", "null"]
+      },
+      "team": {
+        "type": ["string", "null"]
+      }
+    },
+    "required": ["name"],
+    "type": "object"
+  },
+  "name": "create_issue_label",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "properties": {
+          "color": {
+            "type": ["string", "null"]
+          },
+          "description": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": ["string", "null"]
+          },
+          "name": {
+            "type": ["string", "null"]
+          }
+        },
+        "type": "object"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

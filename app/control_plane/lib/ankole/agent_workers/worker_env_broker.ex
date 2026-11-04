@@ -2,9 +2,9 @@ defmodule Ankole.AgentWorkers.WorkerEnvBroker do
   @moduledoc """
   RuntimeFabric RPC broker for worker shell environment reads.
 
-  Agent Computer is a trusted first-party runtime node, so it receives the
-  merged environment with secrets already decrypted. The flat map stays on
-  the ephemeral RPC path; nothing durable stores it.
+  Operator shell variables travel on the ephemeral RPC path. Credentials named
+  by remote MCP Skill declarations stay in the control plane; the Worker uses
+  its short-lived internal gateway context.
   """
 
   alias Ankole.Principals
@@ -24,7 +24,12 @@ defmodule Ankole.AgentWorkers.WorkerEnvBroker do
            {:ok, %{operator: operator, binding: binding}} <-
              WorkerEnv.effective_env_parts(principal.uid,
                binding_name: Ankole.Attrs.optional_text(request.binding_name)
-             ) do
+             ),
+           {:ok, mcp_secret_keys} <- Ankole.AIAgent.mcp_credential_env_keys(),
+           {:ok, mcp_env} <- Ankole.Connectors.Tokens.worker(agent_uid, ctx[:turn_ref]) do
+        operator = Map.drop(operator, mcp_secret_keys)
+        binding = binding |> Map.drop(mcp_secret_keys) |> Map.merge(mcp_env)
+
         {:ok,
          %FabricProto.WorkerEnvResolveResponse{
            vars: Map.merge(operator, binding),

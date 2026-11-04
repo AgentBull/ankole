@@ -1,0 +1,20 @@
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "lark_calendar"
+      transport: "connector"
+      toolkit: "lark_calendar"
+      enabled_tools:
+        - "calendar_create_event"
+        - "calendar_create_shared"
+        - "calendar_delete_event"
+        - "calendar_get_event"
+        - "calendar_get_primary"
+        - "calendar_list"
+        - "calendar_list_attendees"
+        - "calendar_list_events"
+        - "calendar_manage_attendees"
+        - "calendar_patch_event"
+        - "calendar_query_freebusy"
+        - "calendar_reply_event"
+        - "calendar_search_events"

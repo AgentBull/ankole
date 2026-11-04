@@ -15,7 +15,7 @@ Vercel 백엔드를 쓰려면 `vercel-worker-provider` Control Plane Plugin이 �
 | --- | --- | --- |
 | Agent Home (`/workspace`) | 작업 공간 파일, 사용자 설치 패키지, `/workspace/.codex` 스레드 | 인스턴스 삭제 및 이미지 교체 후에도 유지되며 별도 백업 필요 |
 | Worker 캐시 (`/var/cache/ankole`) | `codex/` 하위 SQLite DB, WAL, 로컬 프로세스 잠금 파일 | 손실 시 재구축 가능하며 Agent별로 격리 사용 |
-| 제어 플레인 드라이브 | 채팅 첨부 파일, 게시된 파일, Skill, Automation 스크립트 | PostgreSQL 메타데이터 참조와 OpenDAL 객체 바이트를 함께 백업 |
+| 제어 플레인 드라이브 | 채팅 첨부 파일, 게시된 파일, Skill | PostgreSQL 메타데이터 참조와 OpenDAL 객체 바이트를 함께 백업 |
 
 제어 플레인 드라이브용 S3 버킷으로 Agent Home이나 SQLite 캐시 디스크를 대신할 수는 없으며, Cloudflare의 R2 Home 백업과 Function Compute의 OSS Home 마운트 역시 드라이브와는 독립된 별도 설정입니다. 드라이브 구성은 [드라이브 저장소](../drive-storage/)를 참조하세요.
 

@@ -20,8 +20,9 @@ COPY app/function_runtime/package.json ./app/function_runtime/package.json
 COPY libs/applet-sdk/package.json ./libs/applet-sdk/package.json
 RUN bun install --filter @ankole/function-runtime --production --frozen-lockfile --ignore-scripts
 COPY app/function_runtime/main ./app/function_runtime/main
+COPY app/function_runtime/build.ts ./app/function_runtime/build.ts
 COPY libs/applet-sdk/src ./libs/applet-sdk/src
-RUN bun build app/function_runtime/main/index.ts --target=browser --external=node:* --outdir=build
+RUN bun app/function_runtime/build.ts /build/build
 
 FROM ghcr.io/supabase/edge-runtime:v1.77.4
 ARG RELEASE_REVISION

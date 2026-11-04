@@ -14,7 +14,7 @@ order: 313
 | 이전 1.x 구성 | 2.0 구성 | 필요한 운영 작업 |
 | --- | --- | --- |
 | 풀(pool) 방식 Worker와 공유 `/agents` 볼륨 | Agent별 전용 Worker와 전용 `/workspace` | Agent Home 이전(또는 인계) 및 WorkerProvider 할당 |
-| Home 내부의 Skill 및 Automation 스크립트 | 제어 플레인 드라이브의 `skills/`, `automation/` 경로 | 일회성 파일 가져오기(import) 실행 |
+| Home의 설치된 Skill과 Worker 스크립트 자동화 | Skill은 제어면 Drive, 자동화 코드는 게시된 Applet Action | Skill을 가져오고 스크립트 Job을 내보낸 뒤 Applet Job으로 재생성 |
 | Worker 로컬의 임시 Codex 상태 | `/workspace/.codex`에 영속 스레드, `/var/cache/ankole/codex`에 재구축 가능한 캐시 분리 | Home 보존 및 별도 캐시 디스크 준비 |
 | 인프로세스 스크립트 실행 및 2개 이미지 구성 | 외부 무상태 `ankole-function-runtime` 분리(동일 버전 3개 이미지: `control-plane`, `worker`, `function-runtime`) | `ANKOLE_FUNCTION_RUNTIME_TOKEN` 추가 및 버전이 일치하는 세 이미지 동시 업그레이드 |
 | 테넌트 구분이 없는 데이터 및 설정 | 기존 데이터를 `default` 테넌트로 귀속, Pod / Base 저장소에 **PostgreSQL 18+** 필수(선택적 `BASE_DB_URLS` 전용 샤드 지원) | PostgreSQL 18+로 먼저 업그레이드한 뒤 기존 암호화 키로 스키마 및 설정 마이그레이션 |
@@ -22,6 +22,8 @@ order: 313
 | `/console` 경로의 Console | `/site-admin-console`(또는 `ANKOLE_SITE_ADMIN_CONSOLE_PATH`) 경로의 사이트 관리 Console | 북마크 및 Ingress 라우팅 규칙 업데이트 |
 
 이미 전용 Worker나 드라이브 저장소를 사용 중인 1.x 사이트라면 해당하는 단계만 수행하면 됩니다. 기존 Agent Home이나 드라이브 볼륨을 빈 저장소로 덮어쓰지 않도록 주의하세요.
+
+업그레이드 전에 모든 `agent_script` Job의 정의, 코드, 설정, 필요한 Run 이력을 내보내세요. Applet-only 마이그레이션은 해당 Job과 Run 이력, 연결, 전달 기록을 영구 삭제하므로 컨테이너 이미지를 되돌려도 복구할 수 없습니다. 업그레이드 후 대체 Applet Action과 Job을 만들고 일정이나 Webhook을 다시 연결한 다음 자동화를 재개하세요. 이전 automation-job CLI 명령과 `automation_jobs.max_running_per_agent` 설정은 삭제됩니다. 삭제한 데이터를 복구하려면 업그레이드 전 데이터베이스 백업을 복원해야 합니다.
 
 ## 업그레이드 준비
 
@@ -75,7 +77,7 @@ docker compose run --rm --no-deps -v ankole_agents_data:/agents:ro control-plane
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
-이 명령은 기존 Home에 있던 Skill, Automation 스크립트, 미전송 Outbox 첨부 파일을 드라이브로 복사하며, 이미 드라이브에 존재하는 경로는 덮어쓰지 않습니다. 그 밖의 일반 작업 파일과 Session/Job 워크스페이스는 각 Agent의 새 Home에 그대로 남습니다. 출력된 결과 보고서를 보관해 두고, `Skipped`로 표시된 파일이나 `main.ts`가 누락된 Automation Job이 있다면 정리한 뒤 가져오기를 다시 실행하세요. 모든 파일 확인과 복원 리허설을 마칠 때까지 이전 볼륨은 삭제하지 말고 그대로 두세요.
+가져오기는 Skill과 미전송된 이전 Outbox 첨부 파일을 드라이브로 복사하며 기존 경로를 덮어쓰지 않습니다. 일반 파일과 Session·Background Job 작업 공간은 Home에 남습니다. 보고서를 보관하고 건너뛴 파일을 수정한 뒤 다시 실행하세요. Applet Action으로 옮길 스크립트는 별도로 백업하고 파일 검증과 복원 연습이 끝날 때까지 이전 볼륨을 보관하세요.
 
 ## Kubernetes / Helm 업그레이드
 
@@ -117,7 +119,7 @@ Deployment 전략은 `Recreate`로 동작하며, 새 Pod가 뜰 때 `db-migrate`
 ## 검증과 복구
 
 - Console에 접속해 `default` 테넌트 아래에 기존 Agent, identity provider, signal binding, Job이 정상 조회되는지 확인하세요. 또한 기존 Agent마다 WorkerProvider가 할당되어 있어야 합니다(기본 provider 설정은 새로 만드는 Agent의 초기 배치에만 사용됩니다).
-- 먼저 테스트할 Agent 하나만 활성화해 실제 파일 읽고 쓰기와 Job 실행을 검증하세요. 기존 Home 파일 접근, Codex 스레드 이어가기, Skill 로드, Automation 스크립트 실행, 드라이브 업로드·다운로드, 채팅 첨부 전송이 모두 정상인지 확인한 다음 나머지 Agent와 예약 스케줄을 순차적으로 다시 켜세요.
+- 먼저 테스트할 Agent 하나만 활성화해 실제 파일 읽고 쓰기와 Job 실행을 검증하세요. 기존 Home 파일 접근, Codex 스레드 이어가기, Skill 로드, 게시된 Applet Action 실행, 드라이브 업로드·다운로드, 채팅 첨부 전송이 모두 정상인지 확인한 다음 나머지 Agent와 예약 스케줄을 순차적으로 다시 켜세요.
 - 마이그레이션이 실패하면 1.x 제어 플레인을 절대 다시 띄우지 말고 멈춘 상태 그대로 Compose의 `migrate` 로그나 Kubernetes의 `db-migrate` 컨테이너 로그를 확인하세요. 암호화 키, 플랫폼 자격 증명, 예약 그룹 이름 충돌, 볼륨 권한 등 원인을 해결한 뒤 동일한 2.0 버전의 마이그레이션을 다시 실행하면 됩니다.
 - 가져오기 보고서에 이미 삭제된 과거 Agent의 잔여 디렉터리가 표시되더라도, 그 디렉터리를 재활용해 새 Agent를 만들려 하지 마세요. 이전 디렉터리나 볼륨은 더 이상 참조할 파일이 없음을 완전히 확인한 뒤에 정리하세요.
 - 부득이하게 1.x로 롤백해야 한다면 2.0 제어 플레인, `ankole-function-runtime`, 모든 Worker를 먼저 내린 뒤 업그레이드 직전에 떠 둔 PostgreSQL 백업(`BASE_DB_URLS` 전용 샤드 포함), 파일 저장소, Agent Home, 설정 파일, 원래 암호화 키를 한 세트로 복원하고 기존 1.x 이미지를 기동하세요. 단순 `helm rollback`이나 컨테이너 이미지 태그 변경만으로는 패스워드리스 자격 증명 변환이나 스키마 변경을 되돌릴 수 없으며, 업그레이드 이후 새로 기록된 데이터도 별도로 내보내지 않는 한 유지되지 않습니다.

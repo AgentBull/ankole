@@ -1,4 +1,7 @@
 defmodule Ankole.Plugins.LarkAdapter do
+  @impl true
+  def activation, do: :always
+
   @moduledoc """
   First-party Lark / Feishu plugin declaration.
   """
@@ -15,7 +18,6 @@ defmodule Ankole.Plugins.LarkAdapter do
   alias Ankole.Plugins.LarkAdapter.Inbound
   alias Ankole.Plugins.LarkAdapter.Delivery
   alias Ankole.Plugins.LarkAdapter.CardKit
-  alias Ankole.Plugins.LarkAdapter.RuntimeEnv
 
   @impl true
   def plugin_id, do: "lark-adapter"
@@ -55,7 +57,6 @@ defmodule Ankole.Plugins.LarkAdapter do
         config_key_pattern: "signals.lark.binding_configs.<id>",
         config_module: Config,
         application_bindings: :one,
-        worker_env_module: RuntimeEnv,
         fields: chat_fields(),
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
         observe_module: Inbound,
@@ -96,6 +97,45 @@ defmodule Ankole.Plugins.LarkAdapter do
           "oidc_code_exchange",
           "directory_full_sync",
           "directory_realtime_sync"
+        ]
+      },
+      %{
+        contract_id: "connectors.connector",
+        id: "lark",
+        plugin_id: plugin_id(),
+        module: Ankole.Plugins.LarkAdapter.Connector,
+        public_fields: [
+          %{
+            key: "domain",
+            label: "Platform",
+            type: "select",
+            default: "feishu",
+            options: [%{value: "feishu", label: "Feishu"}, %{value: "lark", label: "Lark"}]
+          },
+          %{key: "identityProvider", label: "Employee identity provider", required: false}
+        ],
+        event_streams: [
+          %{
+            id: "lark",
+            label: "Lark business events",
+            event_types:
+              Ankole.Plugins.LarkAdapter.ConnectorEvents.event_types() ++ ["card.action.trigger"]
+          }
+        ],
+        trigger_types: [
+          %{
+            id: "lark_approval",
+            label: "Approval definition",
+            scope_label: "Approval code",
+            requires_personal_account: false
+          },
+          %{
+            id: "lark_calendar",
+            label: "Personal calendar",
+            scope_label: "Calendar ID",
+            requires_personal_account: true,
+            oauth_scopes: ["calendar:calendar.event:read"]
+          }
         ]
       }
     ]
@@ -237,6 +277,37 @@ defmodule Ankole.Plugins.LarkAdapter do
         },
         :string_array,
         default: ["contact:user.employee_id:readonly"],
+        advanced: true
+      ),
+      field(
+        "oidc.requestPersonalConnectorScopes",
+        %{"default" => "Connect personal tools at sign-in", "zh-Hans-CN" => "登录时授权个人工具"},
+        %{
+          "default" =>
+            "Request personal tasks, calendar, and approval access in the same consent screen.",
+          "zh-Hans-CN" => "在同一授权页面请求个人任务、日历和审批权限。"
+        },
+        :boolean,
+        default: false
+      ),
+      field(
+        "oidc.personalConnectorScopes",
+        %{"default" => "Personal tool scopes", "zh-Hans-CN" => "个人工具权限范围"},
+        %{
+          "default" =>
+            "Request only permissions enabled for this application in the developer console.",
+          "zh-Hans-CN" => "填写开发者后台已为该应用开通的权限。"
+        },
+        :string_array,
+        default: [
+          "offline_access",
+          "task:task:write",
+          "task:tasklist:write",
+          "task:comment:write",
+          "task:section:write",
+          "calendar:calendar",
+          "approval:approval"
+        ],
         advanced: true
       ),
       field(

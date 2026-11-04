@@ -192,8 +192,7 @@ Only that intersection is materialized under
 `/workspace/.ankole/turn-skills/<signal-id>/<skill-name>` and admitted to
 `skill_view`, `skills.bundle` and the Job's `/drive/Skills` projection. Admitted
 packages expose their current content; disabling a package removes access.
-Automation materializes selected packages in its temporary run
-directory. Each execution owner removes these local copies when execution closes.
+The Background Job execution owner removes these local copies when execution closes.
 
 The Worker image also installs its Chromium headless shell at
 `/usr/local/bin/chromium`, which `OfficeCLI` locates via `PATH` rather than
@@ -201,6 +200,10 @@ The Worker image also installs its Chromium headless shell at
 image installs the official stable `OfficeCLI` release binary for its Linux
 architecture. The Dockerfile pins the release version and the SHA-256 digest
 of each binary.
+The `officecli` launcher disables background self-updates by default in every
+command environment. Ankole updates OfficeCLI through the Worker image recipe,
+so rendering uses the release verified with that image. Callers can explicitly
+enable upstream update behavior with `OFFICECLI_SKIP_UPDATE=0`.
 
 Ankole refuses to delete a provider while any Worker row still references it.
 At most one provider can be marked as the default; if no default exists and the
@@ -224,7 +227,7 @@ caller omits an explicit provider, Agent creation fails with
 
 File operations resolve symbolic links before checking whether a path stays
 within Agent Home, and Job requests can target `/workspace` directly.
-Attachments, published files, and Automation scripts also map
+Attachments and published files map
 to paths in the Agent's control-plane drive (see [Files](Files.md)). Both Job
 workspaces and Codex thread files live in persistent Home so Background Agent
 Jobs can resume Codex sessions across instance restarts.
@@ -240,7 +243,7 @@ copied content (see [Files](Files.md#conversation-files-and-delivery)).
 Within each Worker instance, the entrypoint, supervisor, and Bun Worker process
 run as `root` and hold the generation credential. Every untrusted or
 model-driven child—shell commands, the Codex `app-server`, MCP servers, the
-headless browser, and Automation scripts—transitions through `agentProcessArgv`
+headless browser—transitions through `agentProcessArgv`
 to run as `uid 1000` with no supplementary groups, no inherited or ambient
 Linux capabilities, `no-new-privs`, and an environment stripped of the Worker
 credential. Standard Linux UID isolation prevents `uid 1000` processes from
@@ -451,9 +454,7 @@ restored from a backup after an old control-plane node stops.
 For live traffic, outbound control-plane calls look up the Agent's current
 `agent_workers` row, while inbound Worker RPCs derive the Agent Principal from
 the authenticated socket—requiring a valid `RunRef` on environment RPCs and the
-active `JobTurnRef` on Codex RPCs. (The site key
-`runtime_fabric.worker_auth_key` only derives Lark profile names in the control
-plane and never authenticates Workers.) When opening a workspace or starting a
+active `JobTurnRef` on Codex RPCs. When opening a workspace or starting a
 turn, the control plane resolves the rendered-fetch idle timeout and SSRF policy
 and passes them in `WorkspaceOpen` or `TurnStart`.
 
@@ -545,7 +546,7 @@ Demand and idle release follow explicit rules:
   without blocking the HTTP response; reconciliation prepares storage and boots
   the Worker, `WorkerAdmission` clears `initial_start_pending` on first join,
   and `SweepJob` recovers pending startups after a node restart or dropped job.
-- Subsequent environment calls, Codex placements, and Automation runs call
+- Subsequent environment calls and Codex placements call
   `request/1` to keep `wanted_until` at least five minutes in the future.
   Disabled Agents never start, and deleting an Agent clears
   `initial_start_pending` before tearing down instances and storage.
@@ -629,7 +630,7 @@ persistent Home and cache storage, and finally deletes the `agent_workers` row
 ### New Attempt Readiness
 
 `AgentWorkers.wait_status/5` is a pure function (with no database I/O) that
-governs readiness waits for new Background Agent Job and Automation Job
+governs readiness waits for new Background Agent Job
 attempts. Given the observed Worker state, the caller's work-capacity result,
 the persisted wait-start timestamp, the current time, and
 `Settings.ready_timeout_ms`, it returns `ready`, `wait`, or `timed_out` together
@@ -651,8 +652,7 @@ one), and retries or node restarts preserve the persisted timestamp. Returning
 
 Each task subsystem owns its own capacity query, admission transaction, wakeup
 trigger, and timeout handling—persisting the wait timestamp on its Job or Run
-row (Background Agent Jobs reserve a Worker slot under the `agent_workers` lock,
-whereas Automation Jobs enforce their per-Agent concurrency limit). This rule
+row. Background Agent Jobs reserve a Worker slot under the `agent_workers` lock. This rule
 applies only to new attempts, not to adopting an in-flight attempt or acquiring
 an environment workspace. Although instance rebuilds in `Decision.next/1` read
 the same `ready_timeout` setting, their local infrastructure observation clock
@@ -1002,14 +1002,14 @@ stores the file with `0600` permissions in a runtime directory outside the works
 and points `ANKOLE_RUNTIME_CLI_LEDGER_DIR` at a SQLite ledger (`state.db`) there.
 Worker CLIs (`ankole-pod`,
 `ankole-files`, the `create-webhook-cli` family, and the
-`create-automation-job-cli` family, plus `ankole-browser` for pipe protection)
+`ankole-browser` for pipe protection)
 install a `stdout` `EPIPE` guard so downstream pipe truncation (`| head`) exits
 with a nonzero status and no stack trace, preserving an existing failure status.
 They read `context-generation.json` with `O_NOFOLLOW` and owner/size checks,
 record `--help` runs in `state.db`, and emit a bounded (`<= 12`
 lines, `<= 1,200` characters) subcommand reference to `stderr` on the first
 successful non-help invocation of each `(contextId, commandKey)` pair while
-keeping `stdout` pure JSON (standalone and Automation runs without a context file
+keeping `stdout` pure JSON (standalone runs without a context file
 emit nothing on `stderr`).
 
 For control-plane connectivity, the Worker reconnects after both normal and

@@ -1,4 +1,7 @@
 defmodule Ankole.Plugins.DiscordAdapter do
+  @impl true
+  def activation, do: :always
+
   @moduledoc "First-party Discord consumer IM adapter."
 
   @behaviour Ankole.Plugins.Plugin

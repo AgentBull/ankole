@@ -2511,7 +2511,7 @@ Agents never share a Worker, just as human teammates each use their own workstat
 
 <DocsKnowledgeNote
   label="💡 Did you know?"
-  text="A Worker's container or Pod is its sole isolation boundary: the Agent's shell commands, Automation scripts, and browser run directly inside it without an inner sandbox or elevated kernel privileges. While an Agent can install packages on its own Worker—or even break it—it can never act as another Agent, and the control plane automatically rebuilds any Worker that fails to become ready in time."
+  text="A Worker's container or Pod is its sole isolation boundary: the Agent's shell commands and browser run directly inside it without an inner sandbox or elevated kernel privileges. While an Agent can install packages on its own Worker—or even break it—it can never act as another Agent, and the control plane automatically rebuilds any Worker that fails to become ready in time."
 />
 
 Every deployment requires PostgreSQL, a control-plane file store, and persistent storage for each Agent Home. In Kubernetes, the default Helm chart provisions a shared `ReadWriteMany` claim for Agent Homes alongside separate `ReadWriteOnce` cache claims—always back up Agent Homes, whereas cache claims are rebuildable.

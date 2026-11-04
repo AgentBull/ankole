@@ -91,7 +91,7 @@ defmodule Ankole.Signals.BindingTenancyTest do
   end
 
   test "same-named Slack bindings retain independent encrypted configuration rows" do
-    stub_bot_identity()
+    stub_bot_identity(distinct_apps?: true)
     %{principal: first} = agent_fixture()
     %{principal: second} = agent_fixture()
 
@@ -228,7 +228,7 @@ defmodule Ankole.Signals.BindingTenancyTest do
 
   for adapter <- ["slack", "lark", "dingtalk", "entra-id", "wecom", "google-workspace"] do
     @adapter adapter
-    test "#{adapter} login-only providers can share an application across tenants" do
+    test "#{adapter} login-only providers keep application credentials in one tenant" do
       Req.Test.stub(__MODULE__, fn _ ->
         flunk("login-only providers must not request a bot identity")
       end)
@@ -243,22 +243,25 @@ defmodule Ankole.Signals.BindingTenancyTest do
       other = create_tenant()
 
       Repo.with_tenant(other.id, fn ->
-        assert {:ok, _} = IdentityProviders.save_provider("login", @adapter, config, false)
+        assert {:error, :platform_app_bound_to_another_tenant} =
+                 IdentityProviders.save_provider("login", @adapter, config, false)
       end)
     end
   end
 
-  test "a login-only provider does not reserve a binding application, but enabling sync does" do
+  test "a login-only provider reserves its application and can enable sync in its own tenant" do
     config = login_config("lark")
     assert {:ok, _} = IdentityProviders.save_provider("login", "lark", config, false)
     other = create_tenant()
 
     Repo.with_tenant(other.id, fn ->
       %{principal: agent} = agent_fixture()
-      assert {:ok, _} = Bindings.put_binding(agent.uid, "lark", "main", %{"config" => config})
+
+      assert {:error, :platform_app_bound_to_another_tenant} =
+               Bindings.put_binding(agent.uid, "lark", "main", %{"config" => config})
     end)
 
-    assert {:error, :platform_app_bound_to_another_tenant} =
+    assert {:ok, _} =
              IdentityProviders.save_provider(
                "login",
                "lark",
@@ -267,7 +270,7 @@ defmodule Ankole.Signals.BindingTenancyTest do
              )
 
     assert {:ok, provider} = IdentityProviders.fetch_configured_provider("login")
-    assert provider["config"]["sync"]["contacts"] == false
+    assert provider["config"]["sync"]["contacts"] == true
   end
 
   test "Slack directory credentials share application exclusion with chat bindings" do
@@ -349,14 +352,20 @@ defmodule Ankole.Signals.BindingTenancyTest do
 
   defp bot_config(_, suffix), do: %{"botToken" => "test-#{suffix}"}
 
-  defp stub_bot_identity do
+  defp stub_bot_identity(opts \\ []) do
     Req.Test.stub(__MODULE__, fn conn ->
       cond do
         String.ends_with?(conn.request_path, "/auth.test") ->
           Req.Test.json(conn, %{"ok" => true, "user_id" => "U1", "bot_id" => "B1"})
 
         String.ends_with?(conn.request_path, "/bots.info") ->
-          Req.Test.json(conn, %{"ok" => true, "bot" => %{"id" => "B1", "app_id" => "A1"}})
+          app_id =
+            if opts[:distinct_apps?] &&
+                 Plug.Conn.get_req_header(conn, "authorization") == ["Bearer xoxb-second"],
+               do: "A2",
+               else: "A1"
+
+          Req.Test.json(conn, %{"ok" => true, "bot" => %{"id" => "B1", "app_id" => app_id}})
 
         String.ends_with?(conn.request_path, "/apps.connections.open") ->
           Req.Test.json(conn, %{"ok" => false, "error" => "service_unavailable"})

@@ -1,0 +1,36 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Approvals transfer.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval_code": {
+        "type": "string"
+      },
+      "comment": {
+        "type": "string"
+      },
+      "instance_code": {
+        "type": "string"
+      },
+      "task_id": {
+        "type": "string"
+      },
+      "transfer_user_id": {
+        "type": "string"
+      }
+    },
+    "required": ["approval_code", "instance_code", "task_id", "transfer_user_id"],
+    "type": "object"
+  },
+  "name": "approvals_transfer",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

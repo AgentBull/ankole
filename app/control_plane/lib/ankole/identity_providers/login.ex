@@ -59,10 +59,10 @@ defmodule Ankole.IdentityProviders.Login do
          {:ok, %{user: _user} = login} <- module.exchange_code(config, code, opts),
          {:ok, auth_time} <-
            OIDC.verify_login(module.id_token_verification(config), login, opts),
-         do: admit_login(module, provider_id, login, auth_time, opts)
+         do: admit_login(module, provider_id, config, login, auth_time, opts)
   end
 
-  defp admit_login(module, provider_id, login, auth_time, opts) do
+  defp admit_login(module, provider_id, config, login, auth_time, opts) do
     Ankole.Repo.transact_top_level(fn ->
       with :ok <- lock_browser(Keyword.get(opts, :browser_reference)),
            {:ok, invitation} <-
@@ -77,6 +77,7 @@ defmodule Ankole.IdentityProviders.Login do
                if(invitation, do: [membership: invitation.membership], else: [])
              ),
            :ok <- Ankole.Principals.HumanAccess.check(principal.uid, principal.access_version),
+           :ok <- complete_connector_login(module, config, login, principal),
            {:ok, _} <- Ankole.Principals.accept_oidc_invitation_in_tx(invitation, observed) do
         result = %{
           principal_uid: principal.uid,
@@ -90,6 +91,12 @@ defmodule Ankole.IdentityProviders.Login do
         Keyword.get(opts, :complete, &{:ok, &1}).(result)
       end
     end)
+  end
+
+  defp complete_connector_login(module, config, login, principal) do
+    if function_exported?(module, :complete_connector_login_in_tx, 3),
+      do: module.complete_connector_login_in_tx(config, login, principal),
+      else: :ok
   end
 
   defp lock_browser(nil), do: :ok

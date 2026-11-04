@@ -285,10 +285,15 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
       %{principal: third} = agent_fixture()
 
-      assert {:error, {:platform_application_already_bound, ^application, _agent, "mail"}} =
+      assert {:error, {:credential_conflict, ["username"]}} =
                Ankole.Signals.Bindings.put_binding(third.uid, "email", "cased", %{
                  "config" => Map.put(binding_config(), "username", "AGENT")
                })
+
+      refute Repo.get_by(Ankole.Signals.Binding, agent_uid: third.uid, name: "cased")
+
+      assert {:ok, %{"username" => "agent"}} =
+               Ankole.Connectors.resolve_credentials(binding.auth_config_id)
     end
   end
 

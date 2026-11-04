@@ -57,14 +57,23 @@ defmodule Ankole.Schedule.Cron do
       with :ok <- WorkAccess.check_attrs_in_tx(attrs),
            :ok <- validate_native_delivery_in_tx(attrs.agent_uid, attrs.delivery),
            :ok <-
-             AutomationJobs.validate_bindable_in_tx(
-               attrs.automation_job_id,
-               attrs.agent_uid
+             AutomationJobs.authorize_bindable_in_tx(
+               attrs.agent_uid,
+               attrs.automation_job_id
              ) do
         insert_cron_schedule_in_tx(attrs)
       end
     end
   end
+
+  def create_job_schedule_in_tx(attrs, job, opts \\ []) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    with {:ok, attrs} <- Normalizer.job_schedule_attrs(attrs, job, now, opts),
+         do: insert_cron_schedule_in_tx(attrs)
+  end
+
+  defp validate_native_delivery_in_tx(nil, nil), do: :ok
 
   defp validate_native_delivery_in_tx(agent_uid, delivery) do
     Enum.reduce_while(delivery["targets"], :ok, fn target, :ok ->
@@ -83,10 +92,10 @@ defmodule Ankole.Schedule.Cron do
 
     with %CronSchedule{} = snapshot <- Store.get_cron_schedule(cron_schedule_id),
          {:ok, job_id} <- Normalizer.automation_job_id(attrs),
-         :ok <- AutomationJobs.validate_bindable_in_tx(job_id, snapshot.agent_uid),
          %CronSchedule{} = schedule <-
            Store.lock_cron_schedule(cron_schedule_id, job_id),
          true <- schedule.agent_uid == snapshot.agent_uid,
+         :ok <- AutomationJobs.authorize_bindable_in_tx(schedule.agent_uid, job_id),
          :ok <- Store.reject_terminal(schedule),
          {:ok, attrs} <- Normalizer.cron_schedule_update_attrs(schedule, attrs, now, opts),
          :ok <-
@@ -148,7 +157,7 @@ defmodule Ankole.Schedule.Cron do
           with :ok <-
                  Normalizer.validate_cron_task(
                    schedule.payload,
-                   Ankole.Signals.source_automation_job_id(schedule)
+                   Ankole.Signals.source_routing_mode(schedule)
                  ),
                :ok <- schedule_wake_in_tx(schedule) do
             {:ok, schedule}
@@ -173,7 +182,7 @@ defmodule Ankole.Schedule.Cron do
     with :ok <-
            Normalizer.validate_cron_task(
              schedule.payload,
-             Ankole.Signals.source_automation_job_id(schedule)
+             Ankole.Signals.source_routing_mode(schedule)
            ),
          {:ok, next_fire_at} <-
            Planner.next_fire_after(schedule.schedule, schedule.timezone, now) do
@@ -219,7 +228,7 @@ defmodule Ankole.Schedule.Cron do
          :ok <-
            Normalizer.validate_cron_task(
              schedule.payload,
-             Ankole.Signals.source_automation_job_id(schedule)
+             Ankole.Signals.source_routing_mode(schedule)
            ),
          {:ok, request_id} <- manual_request_id(opts),
          {:ok, result} <- arm_manual_cron_fire_in_tx(schedule, request_id, now, opts) do
@@ -320,7 +329,7 @@ defmodule Ankole.Schedule.Cron do
   defp validate_fire_task(%CronSchedule{} = schedule) do
     case Normalizer.validate_cron_task(
            schedule.payload,
-           Ankole.Signals.source_automation_job_id(schedule)
+           Ankole.Signals.source_routing_mode(schedule)
          ) do
       :ok -> :ok
       {:error, reason} -> {:cancel, reason}
@@ -328,6 +337,9 @@ defmodule Ankole.Schedule.Cron do
   end
 
   # Manual requests and fire validation use the same stored delivery route.
+  defp primary_delivery_target(%CronSchedule{owner_job_id: id}) when is_integer(id),
+    do: {:ok, %{}}
+
   defp primary_delivery_target(%CronSchedule{} = schedule),
     do: Delivery.primary_target(schedule.delivery || %{}, schedule.binding_name)
 
@@ -400,6 +412,9 @@ defmodule Ankole.Schedule.Cron do
   # unaffected: turn completion resolves its conversation by id, not by
   # active lookup. A terminal schedule also ends its conversation so its
   # model history closes cleanly with the schedule.
+  defp end_execution_conversation_in_tx(%CronSchedule{owner_job_id: id}, _now)
+       when is_integer(id), do: :ok
+
   defp end_execution_conversation_in_tx(%CronSchedule{} = schedule, now) do
     with {:ok, _conversation} <-
            AIGateway.end_active_conversation_in_tx(
@@ -444,7 +459,10 @@ defmodule Ankole.Schedule.Cron do
     attrs = Map.put(attrs, :id, Ash.UUIDv7.generate())
 
     with {:ok, _attempted} <-
-           Ankole.Ash.create(CronSchedule, :create, Map.delete(attrs, :automation_job_id),
+           Ankole.Ash.create(
+             CronSchedule,
+             if(attrs[:owner_job_id], do: :create_job, else: :create),
+             Map.delete(attrs, :automation_job_id),
              touch_update_defaults?: false
            ),
          {:ok, persisted} <- Store.lock_cron_by_idempotency(attrs),
@@ -537,7 +555,7 @@ defmodule Ankole.Schedule.Cron do
       human_access_version: schedule.human_access_version,
       kind: "cron_fire",
       agent_uid: schedule.agent_uid,
-      session_id: execution_session_id(schedule.id),
+      session_id: if(schedule.owner_job_id, do: nil, else: execution_session_id(schedule.id)),
       binding_name: schedule.binding_name,
       conversation_id: primary_target["conversation_id"],
       provider_thread_id: primary_target["provider_thread_id"],
@@ -625,5 +643,99 @@ defmodule Ankole.Schedule.Cron do
       |> Ankole.Ash.update_where(:stop_human_work, %{})
 
     {length(schedules), nil}
+  end
+
+  def job_source_operation_in_tx(job, :list, _attrs) do
+    CronSchedule
+    |> Ash.Query.filter(owner_job_id == ^job.id and status != :deleted)
+    |> Ash.Query.sort(name: :asc)
+    |> Ankole.Ash.read()
+  end
+
+  def job_source_operation_in_tx(job, :put, attrs) do
+    current =
+      if attrs["id"] do
+        Store.get_cron_schedule(attrs["id"])
+      else
+        CronSchedule
+        |> Ash.Query.filter(
+          owner_job_id == ^job.id and name == ^attrs["name"] and status != :deleted
+        )
+        |> Ankole.Ash.read_one!()
+      end
+
+    case current do
+      nil when is_map_key(attrs, "id") ->
+        {:error, :not_found}
+
+      nil ->
+        attrs = Map.put_new(attrs, "idempotency_key", Ash.UUIDv7.generate())
+
+        with {:ok, %{cron_schedule: schedule}} <-
+               create_job_schedule_in_tx(attrs, job, created_by: attrs["created_by"]),
+             do: {:ok, schedule}
+
+      %CronSchedule{owner_job_id: id} when id == job.id ->
+        update_cron_schedule_in_tx(
+          current.id,
+          Map.take(attrs, ~w(name schedule timezone payload)),
+          []
+        )
+
+      _ ->
+        {:error, :not_found}
+    end
+  end
+
+  def job_source_operation_in_tx(job, operation, %{"id" => id} = attrs) do
+    with %CronSchedule{owner_job_id: owner} <- Store.get_cron_schedule(id),
+         true <- owner == job.id do
+      case operation do
+        :pause -> pause_cron_schedule_in_tx(id, [])
+        :resume -> resume_cron_schedule_in_tx(id, [])
+        :delete -> remove_cron_schedule_in_tx(id, [])
+        :run -> run_cron_schedule_in_tx(id, idempotency_key: attrs["idempotency_key"])
+        :runs -> schedule_runs(id)
+      end
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def job_source_operation_in_tx(_, _, _), do: {:error, :invalid_request}
+
+  defp schedule_runs(id) do
+    events =
+      ScheduledEvent
+      |> Ash.Query.filter(cron_schedule_id == ^id)
+      |> Ash.Query.sort(due_at: :desc, id: :desc)
+      |> Ash.Query.limit(100)
+      |> Ankole.Ash.read!()
+
+    receipts = Ankole.Signals.source_deliveries("schedule://#{id}")
+    {:ok, %{events: events, deliveries: receipts}}
+  end
+
+  def job_source_ids(job_ids) do
+    CronSchedule
+    |> Ash.Query.filter(owner_job_id in ^job_ids)
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.id)
+  end
+
+  def purge_job_sources_in_tx(ids) do
+    CronSchedule
+    |> Ash.Query.filter(id in ^ids)
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!(lock_identity: {:rows, "cron_schedules", :id})
+
+    with {:ok, _} <-
+           ScheduledEvent
+           |> Ash.Query.filter(cron_schedule_id in ^ids)
+           |> Ankole.Ash.destroy_where(:remove),
+         {:ok, _} <-
+           CronSchedule |> Ash.Query.filter(id in ^ids) |> Ankole.Ash.destroy_where(:remove),
+         do: :ok
   end
 end

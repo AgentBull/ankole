@@ -62,6 +62,8 @@ export function podRouteTitle(
   let label: string | undefined
   if (pathname === '/me' || pathname.startsWith('/me/')) {
     label = t('pod.account.title')
+  } else if (pathname === '/connectors') {
+    label = t('pod.connectors.title')
   } else if (pathname === '/settings' || pathname.startsWith('/settings/')) {
     label = t('pod.settings.title')
   } else if (pathname.startsWith('/dm/')) {
@@ -159,6 +161,12 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
         getParentRoute: () => rootRoute,
         path: 'me',
         component: lazyRouteComponent(() => import('./account-settings'), 'AccountSettings'),
+        ...routeFeedback
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: 'connectors',
+        component: lazyRouteComponent(() => import('./connectors'), 'Connectors'),
         ...routeFeedback
       }),
       createRoute({

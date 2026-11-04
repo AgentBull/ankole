@@ -85,7 +85,12 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
       "teams"
       |> Ankole.Signals.Bindings.list_enabled_bindings()
       |> Enum.flat_map(fn binding ->
-        case Bindings.binding_config(binding, Config) do
+        config =
+          Ankole.Repo.with_tenant(binding.tenant_id, fn ->
+            Bindings.binding_config(binding, Config)
+          end)
+
+        case config do
           {:ok, %{"appID" => ^app_id} = config} ->
             context =
               AdapterContext.new(

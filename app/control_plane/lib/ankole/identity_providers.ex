@@ -78,11 +78,10 @@ defmodule Ankole.IdentityProviders do
   def list_adapters do
     enabled_ids = enabled_plugin_ids()
 
-    # The plugin registry applies the enabled list only when the process boots.
-    # Configuration writes also honor the persisted next-start selection so
-    # they cannot create a provider for a plugin that the next restart removes.
-    # Built-in adapters are part of the control plane and skip that filter.
-    Enum.filter(active_plugin_adapters(), &MapSet.member?(enabled_ids, &1.plugin_id))
+    Plugins.list_active()
+    |> Enum.filter(&(&1.activation == :always or MapSet.member?(enabled_ids, &1.id)))
+    |> Enum.flat_map(&adapters_for_plugin/1)
+    |> Enum.sort_by(& &1.adapter_id)
   end
 
   @doc """
@@ -389,7 +388,7 @@ defmodule Ankole.IdentityProviders do
 
   defp provider_projection(provider) do
     with {:ok, adapter} <- fetch_adapter(provider["adapter_id"]),
-         {:ok, config} <- provider_config(provider) do
+         {:ok, config} <- AppConfigure.read_configuration(provider["config_key"]) do
       {config, stored_secret_paths} = ConfigSecrets.redact(adapter.fields, config)
 
       {:ok,
@@ -406,8 +405,10 @@ defmodule Ankole.IdentityProviders do
   end
 
   defp provider_config_for_write(adapter, config_key, config) do
-    case AppConfigure.get_by_key(config_key) do
+    case AppConfigure.read_configuration(config_key) do
       {:ok, existing} when is_map(existing) ->
+        existing = Ankole.Connectors.LegacyConfig.current_for_configuration(existing, config)
+
         {:ok,
          ConfigSecrets.preserve(adapter.fields, config, existing,
            placeholders: [nil, "", "********"]

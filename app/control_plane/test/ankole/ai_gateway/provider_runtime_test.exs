@@ -32,7 +32,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   import Ankole.ExternalConversationsFixtures
   alias Ankole.Sessions.AgentConfig
   alias Ankole.Sessions.Context
-  alias Ankole.AgentWorkers.WorkerAuthKey
   alias Ankole.Repo
 
   test "provider kind projection uses provider_kind vocabulary" do
@@ -1452,20 +1451,5 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert envelope_body_type(envelope) == :rpc_error
     assert envelope_body!(envelope, :rpc_error).code == "background_agent_job_attempt_changed"
-  end
-
-  test "worker auth key is global AppConfigure state" do
-    agent_fixture()
-    definition = WorkerAuthKey.definition()
-
-    assert :ok = AppConfigure.delete_global(definition)
-
-    assert {:ok, first} = WorkerAuthKey.ensure()
-    assert {:ok, same} = WorkerAuthKey.ensure()
-    assert first == same
-    assert first =~ ~r/\A[0-9a-f]{64}\z/
-
-    assert {:error, {:global_scope_only, _key}} =
-             AppConfigure.put_tenant_by_key(definition.key, "agent-specific")
   end
 end

@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Read a workflow state.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "type": ["string", "null"]
+      },
+      "name": {
+        "type": ["string", "null"]
+      },
+      "team": {
+        "type": ["string", "null"]
+      }
+    },
+    "required": ["id"],
+    "type": "object"
+  },
+  "name": "get_issue_status",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "properties": {
+          "color": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": ["string", "null"]
+          },
+          "name": {
+            "type": ["string", "null"]
+          },
+          "type": {
+            "type": ["string", "null"]
+          }
+        },
+        "type": "object"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

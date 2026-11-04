@@ -42,6 +42,7 @@ defmodule Ankole.AgentWorkers do
     resource Ankole.AgentWorkers.AgentWorker do
       define(:get_agent_worker, action: :read, get_by: [:agent_uid], not_found_error?: false)
       define(:list_agent_workers, action: :read)
+      define(:assign_worker_provider, action: :assign_provider)
     end
 
     resource(Ankole.AgentWorkers.WorkerEnv.EnvVar)
@@ -206,6 +207,16 @@ defmodule Ankole.AgentWorkers do
     |> Ash.Query.filter(agent_uid == ^agent_uid)
     |> Ash.Query.lock(:for_update)
     |> Ankole.Ash.read_one!(lock_identity: {"agent_workers", agent_uid})
+  end
+
+  @doc "Locks unassigned, non-deleting Workers across tenants for provider assignment."
+  def lock_unassigned_workers_in_tx do
+    AgentWorker
+    |> Ash.Query.filter(is_nil(provider_id) and state != :deleting)
+    |> Ash.Query.sort(agent_uid: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.Query.for_read(:across_tenants)
+    |> Ankole.Ash.read!(lock_identity: {:rows, "agent_workers", :agent_uid})
   end
 
   @doc "Returns the Agent's Worker when it is ready."

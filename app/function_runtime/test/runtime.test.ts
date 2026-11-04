@@ -4,7 +4,10 @@ import { availableParallelism } from 'node:os'
 const base = process.env.ANKOLE_FUNCTION_RUNTIME_URL || 'http://127.0.0.1:5435'
 const headers = {
   authorization: `Bearer ${process.env.ANKOLE_FUNCTION_RUNTIME_TOKEN || 'dev-function-runtime-token'}`,
-  'content-type': 'application/json'
+  'content-type': 'application/json',
+  'x-ankole-mcp-origin': 'http://host.docker.internal:5546',
+  'x-ankole-caller-mcp-token': 'caller-test-token',
+  'x-ankole-admin-mcp-token': 'admin-test-token'
 }
 const post = async (path: string, body: unknown) =>
   await fetch(base + path, { method: 'POST', headers, body: JSON.stringify(body) })
@@ -34,7 +37,7 @@ async function publish(source: string, env: Record<string, string> = {}) {
 
 async function invoke(
   sha: string,
-  context = { method: 'POST', path: '/' },
+  context: Record<string, unknown> = { method: 'POST', path: '/' },
   options: {
     page?: string
     lane?: 'route' | 'action'
@@ -79,6 +82,300 @@ async function invoke(
 }
 
 describe('real edge-runtime protocol', () => {
+  test('host MCPorter keeps caller and admin credentials out of the Applet and consumes MCP capability frames', async () => {
+    const calls: { token: string | null; path: string; name: string }[] = []
+    let failure: Record<string, unknown> | undefined
+    const gateway = Bun.serve({
+      hostname: '0.0.0.0',
+      port: 5546,
+      async fetch(request) {
+        if (request.method === 'DELETE') return new Response(null, { status: 204 })
+        const body = (await request.json()) as { id?: string; method: string; params?: { name?: string } }
+        if (body.method.startsWith('notifications/')) return new Response(null, { status: 202 })
+        let result: unknown
+        if (body.method === 'server/discover') {
+          result = { supportedVersions: ['2026-07-28'], capabilities: { tools: {} }, ttlMs: 0, cacheScope: 'private' }
+        } else if (body.method === 'initialize') {
+          result = {
+            protocolVersion: '2026-07-28',
+            capabilities: { tools: {} },
+            serverInfo: { name: 'test', version: '1' }
+          }
+        } else if (body.method === 'tools/list') {
+          result = { tools: [{ name: 'inspect', inputSchema: { type: 'object' } }] }
+        } else {
+          calls.push({
+            token: request.headers.get('authorization'),
+            path: new URL(request.url).pathname + new URL(request.url).search,
+            name: body.params!.name!
+          })
+          result = failure
+            ? {
+                isError: true,
+                structuredContent: { error: failure },
+                content: [{ type: 'text', text: JSON.stringify(failure) }]
+              }
+            : { structuredContent: { identity: calls.length }, content: [{ type: 'text', text: 'ok' }] }
+        }
+        return Response.json({ jsonrpc: '2.0', id: body.id, result: { ...(result as object), resultType: 'complete' } })
+      }
+    })
+    try {
+      const sha = await publish(`export default {'POST /': async () => ({
+        caller: await AnkoleRuntime.mcp.call('inspect', {}, {server:'github',connection:'work',account:'installation'}),
+        admin: await AnkoleRuntime.admin.mcp.call('inspect', {}, {skill:'research',server:'context'}),
+        leaked: Boolean(process.env.ANKOLE_MCP_TOKEN || Deno.env.get('ANKOLE_MCP_TOKEN') || process.env.ANKOLE_FUNCTION_RUNTIME_TOKEN)
+      })}`)
+      const result = await invoke(
+        sha,
+        { method: 'POST', path: '/' },
+        {
+          timeout: 15000,
+          call: async () => {
+            throw new Error('MCP escaped the trusted host')
+          }
+        }
+      )
+      expect(result).toMatchObject({ status: 200 })
+      expect(result.body).toEqual({ caller: { identity: 1 }, admin: { identity: 2 }, leaked: false })
+      expect(calls).toEqual([
+        {
+          token: 'Bearer caller-test-token',
+          path: '/api/internal/mcp/toolkits/github?connection=work&account=installation',
+          name: 'inspect'
+        },
+        { token: 'Bearer admin-test-token', path: '/api/internal/mcp/skills/research/context', name: 'inspect' }
+      ])
+      const catching = await publish(`export default {'POST /': async () => {
+        try { await AnkoleRuntime.mcp.call('inspect', {}, {server:'github'}); }
+        catch (error) { return {code:error.code, details:error.details, retryable:error.retryable, request_sent:error.request_sent}; }
+      }}`)
+      const action = await publish(`export default {actions:{inspect:{handler:async () =>
+        await AnkoleRuntime.admin.mcp.call('inspect', {}, {server:'github'})
+      }}}`)
+      for (const error of [
+        {
+          code: 'oauth_consent_required',
+          authorization_url: '/connectors?connection=work&scopes=repo',
+          retryable: false
+        },
+        { code: 'rate_limited', retryAfterSeconds: 12, retryable: true, request_sent: false },
+        { code: 'invalid_upstream_response', status: 200, retryable: false },
+        {
+          code: 'partial_success',
+          resource_id: 'approval-42',
+          completed_step: 'approve',
+          failed_step: 'card_update',
+          retryable: false
+        }
+      ]) {
+        failure = error
+        const handled = await invoke(catching, { method: 'POST', path: '/' }, { timeout: 15000 })
+        expect(handled).toMatchObject({
+          status: 200,
+          body: { code: error.code, details: error, retryable: error.retryable }
+        })
+        const unhandled = await invoke(sha, { method: 'POST', path: '/' }, { timeout: 15000 })
+        expect(unhandled).toMatchObject({ status: 502, body: { error: { code: error.code, details: error } } })
+        const failedAction = await invoke(action, { actionKey: 'inspect' }, { lane: 'action', timeout: 15000 })
+        expect(failedAction).toMatchObject({
+          status: 502,
+          body: { error: { code: error.code, details: error } }
+        })
+      }
+    } finally {
+      gateway.stop(true)
+    }
+  }, 20000)
+
+  test('host MCP protocol rejection promptly preserves the authorization error', async () => {
+    const gateway = Bun.serve({
+      hostname: '0.0.0.0',
+      port: 5546,
+      async fetch(request) {
+        const body = (await request.json()) as { id?: string; method: string }
+        if (body.method.startsWith('notifications/')) return new Response(null, { status: 202 })
+        if (body.method === 'server/discover') {
+          return Response.json({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: {
+              resultType: 'complete',
+              supportedVersions: ['2026-07-28'],
+              capabilities: { tools: {} },
+              ttlMs: 0,
+              cacheScope: 'private'
+            }
+          })
+        }
+        return Response.json({
+          jsonrpc: '2.0',
+          id: body.id,
+          error: {
+            code: -32603,
+            message: 'user_authority_unavailable',
+            data: { code: 'user_authority_unavailable', message: 'No human caller', request_sent: false }
+          }
+        })
+      }
+    })
+    try {
+      const sha = await publish(`export default {actions:{inspect:{handler:async () => {
+        try { await AnkoleRuntime.mcp.call('inspect', {}, {server:'github'}); }
+        catch (error) { return {code:error.code, details:error.details, request_sent:error.request_sent}; }
+      }}}}`)
+      const result = await invoke(sha, { actionKey: 'inspect' }, { lane: 'action', timeout: 5000 })
+      expect(result).toMatchObject({
+        status: 200,
+        body: {
+          code: 'user_authority_unavailable',
+          details: { code: 'user_authority_unavailable', message: 'No human caller' },
+          request_sent: false
+        }
+      })
+    } finally {
+      gateway.stop(true)
+    }
+  }, 8000)
+
+  test('published quant monitor Action reads its Pod configuration and emits a weekly event through host MCP', async () => {
+    const build = await Bun.build({
+      entrypoints: [
+        new URL('../../../internals/agent-plugins/quant-factor-monitor/runtime/automation-main.ts', import.meta.url)
+          .pathname
+      ],
+      target: 'browser',
+      format: 'esm'
+    })
+    expect(build.success).toBe(true)
+    const source = await build.outputs[0]!.text()
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date())
+    const config = {
+      version: 3,
+      plugin: 'quant-factor-monitor',
+      portfolio_id: 'proof',
+      drive_root: 'chats/proof/quant-factor-monitor/proof',
+      input_drive_path: 'positions.csv',
+      state_drive_path: 'state.json',
+      data_trade_date: '2020-01-01',
+      stocks: []
+    }
+    const upstream: string[] = []
+    const gateway = Bun.serve({
+      hostname: '0.0.0.0',
+      port: 5546,
+      async fetch(request) {
+        const body = (await request.json()) as any
+        let result: any
+        if (body.method === 'server/discover') {
+          result = { supportedVersions: ['2026-07-28'], capabilities: { tools: {} }, ttlMs: 0, cacheScope: 'private' }
+        } else if (body.method === 'tools/list') {
+          result = {
+            tools: [{ name: 'bullx_semantic_query', inputSchema: { type: 'object' } }],
+            ttlMs: 0,
+            cacheScope: 'private'
+          }
+        } else {
+          expect(request.headers.get('authorization')).toBe('Bearer admin-test-token')
+          expect(new URL(request.url).pathname).toBe(
+            '/api/internal/mcp/skills/bullx-financial-data/bullx-financial-data'
+          )
+          const args = body.params.arguments
+          upstream.push(args.operation)
+          const data =
+            args.operation === 'describe'
+              ? { catalog_revision: 'proof' }
+              : {
+                  rows: ['000001.SZ', '600519.SH', '300750.SZ'].map(symbol => ({ symbol, trade_date: today }))
+                }
+          result = { content: [], structuredContent: { success: true, data } }
+        }
+        return Response.json({ jsonrpc: '2.0', id: body.id, result: { resultType: 'complete', ...result } })
+      }
+    })
+    try {
+      const inspected = await post('/v1/applet/inspect', { source })
+      expect(inspected.status).toBe(200)
+      expect(((await inspected.json()) as any).actions.monitor).toMatchObject({
+        idempotent: false,
+        concurrency: 'serial_fifo'
+      })
+      const sha = await publish(source)
+      const events: any[] = []
+      const result = await invoke(
+        sha,
+        {
+          kind: 'action',
+          actionKey: 'monitor',
+          applet: { pageId: 'quant-page', revision: 1 },
+          job: { id: 41, config: {} },
+          run: { id: 42, attemptId: 'attempt', sliceCount: 0, progress: {} },
+          signal: { id: 'weekly-proof', type: 'schedule.fired', data: { mode: 'weekly' } }
+        },
+        {
+          lane: 'action',
+          timeout: 15000,
+          async call(frame) {
+            if (frame.operation === 'admin.file.read') {
+              expect(frame.args).toEqual(['pages/quant-page/src/server/config.json'])
+              return { bytes: { __ankole_bytes: Buffer.from(JSON.stringify(config)).toString('base64') } }
+            }
+            expect(frame.operation).toBe('admin.signals.emit')
+            events.push((frame.args as any[])[0])
+            return { accepted: true, signalId: 'accepted' }
+          }
+        }
+      )
+      expect(result.status).toBe(200)
+      expect(upstream).toEqual(['describe', 'execute'])
+      expect(events).toEqual([
+        {
+          id: 'weekly-proof:quant-factor-monitor.weekly',
+          type: 'quant-factor-monitor.weekly',
+          data: {
+            kind: 'quant-factor-monitor.weekly',
+            portfolio_id: 'proof',
+            drive_root: config.drive_root,
+            input_drive_path: 'positions.csv',
+            previous_state_drive_path: 'state.json',
+            previous_data_trade_date: '2020-01-01',
+            data_trade_date: today,
+            touches: {
+              price_below_stop: [],
+              touched_stop: [],
+              touched_sell_zone: [],
+              touched_buy_zone: [],
+              no_bars: []
+            },
+            instruction:
+              'Use the quant-factor-monitor Skill to start the weekly tracking Background Agent Job for this portfolio with these drive paths and data trade date.'
+          }
+        }
+      ])
+    } finally {
+      await gateway.stop(true)
+    }
+  }, 20000)
+
+  test('Action remainingMs uses the invocation budget supplied by its control-plane owner', async () => {
+    const sha = await publish(`export default {actions:{inspect:{handler:ctx => ({remaining:ctx.remainingMs()})}}}`)
+    const result = await invoke(sha, { actionKey: 'inspect' }, { lane: 'action', timeout: 240000 })
+    expect(result.status).toBe(200)
+    expect(result.body.remaining).toBeGreaterThan(230000)
+    expect(result.body.remaining).toBeLessThanOrEqual(240000)
+  })
+
+  test('Action can complete an awaited operation after sixty seconds within its invocation budget', async () => {
+    const sha = await publish(`export default {actions:{inspect:{handler:async ctx => {
+      await new Promise(resolve => setTimeout(resolve, 61000));
+      return {completed:true, remaining:ctx.remainingMs()};
+    }}}}`)
+    const result = await invoke(sha, { actionKey: 'inspect' }, { lane: 'action', timeout: 75000 })
+    expect(result.status).toBe(200)
+    expect(result.body.completed).toBe(true)
+    expect(result.body.remaining).toBeGreaterThan(0)
+  }, 80000)
+
   test('capacity saturation rejects new work without failing liveness', async () => {
     const sha = await publish('export default {"GET /":()=>1}')
     const runs: string[] = []

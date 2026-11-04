@@ -406,11 +406,6 @@ roots read-only. Names inside ChatDrive are ordinary conversation files,
 including `AGENTS.md`, `DESIGN.md`, `Skills` and `Brain`. People edit the Meta roots through Meta Ankole; Agent knowledge writes
 use the Brain tools and their revision, attribution and approval contracts.
 
-Automation registration writes its source to a fresh `automation/<name>/`
-private directory. Every run materializes that directory and selected Skills
-into an isolated execution directory in Agent Home. Human employment and
-`access_version` validate the instruction; Drive access uses the Agent executor.
-See [Automation Jobs](AutomationJobs.md).
 
 ## Site Console
 

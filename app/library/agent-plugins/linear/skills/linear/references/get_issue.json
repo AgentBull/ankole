@@ -1,0 +1,70 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Read an issue by UUID or identifier.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "type": ["string", "null"]
+      },
+      "includeRelations": {
+        "type": "boolean"
+      }
+    },
+    "required": ["id"],
+    "type": "object"
+  },
+  "name": "get_issue",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "properties": {
+          "assignee": {
+            "type": ["object", "string", "null"]
+          },
+          "createdAt": {
+            "type": ["string", "null"]
+          },
+          "description": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": ["string", "null"]
+          },
+          "identifier": {
+            "type": ["string", "null"]
+          },
+          "priority": {
+            "type": ["number", "null"]
+          },
+          "project": {
+            "type": ["object", "string", "null"]
+          },
+          "status": {
+            "type": ["object", "string", "null"]
+          },
+          "team": {
+            "type": ["object", "string", "null"]
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": ["string", "null"]
+          },
+          "url": {
+            "type": ["string", "null"]
+          }
+        },
+        "type": "object"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

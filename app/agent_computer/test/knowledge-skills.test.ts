@@ -42,23 +42,4 @@ describe('conversation-visible Skill packages', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
-
-  it('keeps simultaneous Automation attempt snapshots independent', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'ankole-skill-attempt-'))
-    let body = 'first version'
-    const rpc = (async (_method: string, payload: unknown) => {
-      expect(payload).toMatchObject({ automationAttempt: { jobId: '1', runId: '2', attemptId: 'attempt' } })
-      return { bodyJson: jsonBytes({ files: [{ path: 'SKILL.md', content: Buffer.from(body).toString('base64') }] }) }
-    }) as unknown as RPCRequester
-    const input = { skills: [skill], rpc, automationAttempt: { jobId: '1', runId: '2', attemptId: 'attempt' } }
-    try {
-      await materializeKnowledgeSkills({ ...input, root: join(root, 'one') })
-      body = 'second version'
-      await materializeKnowledgeSkills({ ...input, root: join(root, 'two') })
-      expect(await readFile(join(root, 'one/demo/SKILL.md'), 'utf8')).toBe('first version')
-      expect(await readFile(join(root, 'two/demo/SKILL.md'), 'utf8')).toBe('second version')
-    } finally {
-      await rm(root, { recursive: true, force: true })
-    }
-  })
 })

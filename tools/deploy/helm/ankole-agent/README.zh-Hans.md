@@ -208,8 +208,9 @@ postgresql:
 
 此外，`functionRuntime.image` 用于指定与控制面同版本的函数运行时镜像，其 Headless
 Service 仅向控制面暴露已就绪的副本。函数运行时 Pod 不挂载数据库凭据或 ServiceAccount
-令牌。所在集群必须启用 NetworkPolicy 强制执行：网络策略仅放行来自控制面的入站流量与
-公网出站流量，因此必须在 `functionRuntime.deniedCIDRs` 中填入站点内网网段以及控制面、
+令牌。所在集群必须强制执行 NetworkPolicy。网络策略允许来自控制面的入站流量，
+并允许 DNS、访问控制面 Service 的 `4000` 端口，以及公网出站流量。访问控制面的路径用于
+经过认证的 Applet 与 MCP 能力调用。必须在 `functionRuntime.deniedCIDRs` 中填入站点内网网段以及控制面、
 数据库的公网地址。Chart 会自动生成并保留内部函数令牌；若配置了
 `secrets.existingSecret`，则必须在 Secret 中提供 `ANKOLE_FUNCTION_RUNTIME_TOKEN`。
 

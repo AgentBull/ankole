@@ -97,7 +97,7 @@ defmodule Ankole.Sessions.Tools.Pod do
     }
 
     with {:ok, actor} <-
-           Ankole.Pod.RPCBroker.actor_for_request(ref, nil, %{worker_id: run.agent_uid}),
+           Ankole.Pod.RPCBroker.actor_for_request(ref, %{worker_id: run.agent_uid}),
          {:ok, context} <- Ankole.Pod.RPCBroker.page_context(actor),
          do: {:ok, actor, context}
   end

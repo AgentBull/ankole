@@ -281,8 +281,10 @@ Similarly, `functionRuntime.image` selects the Function Runtime image from the
 same release, and its headless Service exposes Ready replicas to the
 control-plane client. Function Pods mount neither database credentials nor a
 service account token. The chart's NetworkPolicy permits ingress from the
-control plane and egress to the public network, so `functionRuntime.deniedCIDRs`
-must include your site's internal ranges as well as public control-plane and
+control plane. Egress permits DNS, calls to the control-plane Service on port
+`4000`, and the public network. The control-plane path carries authenticated
+Applet and MCP capability requests. `functionRuntime.deniedCIDRs` must include
+your site's internal ranges as well as public control-plane and
 database addresses, and your cluster must enforce NetworkPolicy. For
 authentication, the chart either reads `ANKOLE_FUNCTION_RUNTIME_TOKEN` from
 `secrets.existingSecret` or generates and preserves an internal function token.

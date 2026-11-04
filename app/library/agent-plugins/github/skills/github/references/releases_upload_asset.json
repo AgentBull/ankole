@@ -1,0 +1,190 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Upload a release asset",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "content_type": {
+        "type": "string"
+      },
+      "file_ref": {
+        "type": "string"
+      },
+      "label": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "owner": {
+        "type": "string"
+      },
+      "release_id": {
+        "type": "integer"
+      },
+      "repo": {
+        "type": "string"
+      }
+    },
+    "required": ["owner", "repo", "release_id", "name", "file_ref", "content_type"],
+    "type": "object"
+  },
+  "name": "releases_upload_asset",
+  "outputSchema": {
+    "properties": {
+      "browser_download_url": {
+        "type": "string"
+      },
+      "content_type": {
+        "type": "string"
+      },
+      "created_at": {
+        "type": "string"
+      },
+      "digest": {
+        "type": ["string", "null"]
+      },
+      "download_count": {
+        "type": "integer"
+      },
+      "id": {
+        "type": "integer"
+      },
+      "label": {
+        "type": ["string", "null"]
+      },
+      "name": {
+        "type": "string"
+      },
+      "node_id": {
+        "type": "string"
+      },
+      "size": {
+        "type": "integer"
+      },
+      "state": {
+        "enum": ["uploaded", "open"],
+        "type": "string"
+      },
+      "updated_at": {
+        "type": "string"
+      },
+      "uploader": {
+        "properties": {
+          "avatar_url": {
+            "type": "string"
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "events_url": {
+            "type": "string"
+          },
+          "followers_url": {
+            "type": "string"
+          },
+          "following_url": {
+            "type": "string"
+          },
+          "gists_url": {
+            "type": "string"
+          },
+          "gravatar_id": {
+            "type": ["string", "null"]
+          },
+          "html_url": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "login": {
+            "type": "string"
+          },
+          "name": {
+            "type": ["string", "null"]
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "organizations_url": {
+            "type": "string"
+          },
+          "received_events_url": {
+            "type": "string"
+          },
+          "repos_url": {
+            "type": "string"
+          },
+          "site_admin": {
+            "type": "boolean"
+          },
+          "starred_at": {
+            "type": "string"
+          },
+          "starred_url": {
+            "type": "string"
+          },
+          "subscriptions_url": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "user_view_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "avatar_url",
+          "events_url",
+          "followers_url",
+          "following_url",
+          "gists_url",
+          "gravatar_id",
+          "html_url",
+          "id",
+          "node_id",
+          "login",
+          "organizations_url",
+          "received_events_url",
+          "repos_url",
+          "site_admin",
+          "starred_url",
+          "subscriptions_url",
+          "type",
+          "url"
+        ],
+        "type": ["object", "null"]
+      },
+      "url": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "content_type",
+      "size",
+      "digest",
+      "state",
+      "url",
+      "node_id",
+      "download_count",
+      "label",
+      "uploader",
+      "browser_download_url",
+      "created_at",
+      "updated_at"
+    ],
+    "type": "object"
+  }
+}

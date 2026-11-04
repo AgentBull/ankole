@@ -1,0 +1,42 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Approvals add sign.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "add_sign_type": {
+        "type": "integer"
+      },
+      "add_sign_user_ids": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "approval_method": {
+        "type": "integer"
+      },
+      "comment": {
+        "type": "string"
+      },
+      "instance_code": {
+        "type": "string"
+      },
+      "task_id": {
+        "type": "string"
+      }
+    },
+    "required": ["instance_code", "task_id", "add_sign_user_ids", "add_sign_type"],
+    "type": "object"
+  },
+  "name": "approvals_add_sign",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

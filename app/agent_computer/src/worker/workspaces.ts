@@ -286,6 +286,7 @@ export class Workspaces {
     space.closeBridge = cliBridges.close
     space.updateContextId = cliBridges.updateContextId
     space.materials = await prepareExecutionMaterials({
+      frame: { run },
       agentHome: paths.home,
       rpc,
       bindingName: input.bindingName,

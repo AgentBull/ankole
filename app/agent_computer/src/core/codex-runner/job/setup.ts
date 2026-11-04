@@ -173,6 +173,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     opts.abortSignal?.throwIfAborted()
     const bindingName = turnStart.signal.binding_name
     const materials = await prepareExecutionMaterials({
+      frame: { jobTurn: turnStart.turn },
       agentHome: opts.agentHome,
       rpc: opts.rpc,
       bindingName,

@@ -543,9 +543,11 @@ defmodule Ankole.WorkflowTest do
     run = run_fixture(agent.uid)
     {:ok, call} = insert_call(run, 0, %{"type" => "string"})
     event = %{agent_uid: agent.uid, session_id: Workflow.task_session_id(call.id)}
-    reason = %{"code" => "provider_failed", "message" => "Provider failed."}
+    exception = Ash.Error.to_error_class(%Postgrex.Error{message: "deadlock detected"})
+    {:workflow_failure, database_error} = Ankole.Sessions.WorkflowTask.failure(exception)
+    reasons = [database_error, %{"code" => "provider_failed", "message" => "Provider failed."}]
 
-    for expected_attempt <- 1..2 do
+    for {reason, expected_attempt} <- Enum.with_index(reasons, 1) do
       assert {:ok, %{call: claimed}} =
                Repo.transact(fn ->
                  Workflow.TaskLifecycle.claim_task_in_tx(call.id, agent.uid, 8)
@@ -563,6 +565,8 @@ defmodule Ankole.WorkflowTest do
                end)
 
       assert requeued.status == :queued
+      assert requeued.error["code"] == reason["code"]
+      assert requeued.error["summary"] == reason["message"]
     end
 
     assert {:ok, %{call: claimed}} =

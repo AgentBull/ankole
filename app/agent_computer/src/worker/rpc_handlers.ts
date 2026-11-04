@@ -1,9 +1,7 @@
-import { runAutomationJob } from '../automation-jobs/run'
 import { pullFile, pushBundle, pushFile } from '../lanes/file/relay'
 import { type RuntimeRPCClient } from '../lanes/rpc_lane'
 import { type WorkerRPCContext, type WorkerRPCHandlers } from '../lanes/rpc_contract'
 import type { WorkerConfig } from './config'
-import { throwingRPCRequester } from './rpc_requests'
 import { driveMounts } from '../drive/mounts'
 
 /** The Worker's config without its credential: no handler needs it. */
@@ -12,7 +10,7 @@ type HandlerConfig = Pick<WorkerConfig, 'agentHomeRoot' | 'builtinSkillsRoot' | 
 /** Binds control-plane-initiated RPCs to operations executed by this Worker. */
 export function createWorkerRPCHandlers(
   config: HandlerConfig,
-  rpcClient: RuntimeRPCClient
+  _rpcClient: RuntimeRPCClient
 ): WorkerRPCHandlers & { close(): Promise<void> } {
   const shutdown = new AbortController()
   const active = new Set<Promise<unknown>>()
@@ -45,15 +43,6 @@ export function createWorkerRPCHandlers(
             ? await pushBundle(config, request, signal)
             : await pushFile(config, request, signal)
         return { size: BigInt(result.size) }
-      }),
-    runAutomationJob: (request, context) =>
-      own(context, signal => {
-        return runAutomationJob(request, {
-          config,
-          rpc: throwingRPCRequester(rpcClient),
-          signal,
-          deadlineUnixMs: context.deadlineUnixMs
-        })
       })
   }
 }

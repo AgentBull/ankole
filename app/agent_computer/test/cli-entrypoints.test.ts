@@ -6,15 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startDriveCLIBridge } from '../src/cli/drive/drive-cli-bridge'
 import { startWebhookCLIBridge, webhookRPCRequester } from '../src/cli/webhooks/webhook-cli-bridge'
-import {
-  startAutomationJobCLIBridge,
-  automationJobRPCRequester
-} from '../src/cli/automation-jobs/automation-job-cli-bridge'
-import {
-  AUTOMATION_JOB_CLI_SOCKET_ENV,
-  DRIVE_CLI_SOCKET_ENV,
-  WEBHOOK_CLI_SOCKET_ENV
-} from '../src/core/execution/turn_runtime_env'
+import { DRIVE_CLI_SOCKET_ENV, WEBHOOK_CLI_SOCKET_ENV } from '../src/core/execution/turn_runtime_env'
 import { jsonBytes } from '../src/fabric/envelope_proto'
 import type { RPCRequester } from '../src/lanes/rpc_lane'
 import { FakeDrive } from './support/fake-drive'
@@ -29,9 +21,6 @@ describe('CLI shell entrypoints', () => {
       if (method === 'webhook.endpoint.list') {
         return create(JSONPassthroughResponseSchema, { bodyJson: jsonBytes({ method }) })
       }
-      if (method === 'automation_job.list') {
-        return create(JSONPassthroughResponseSchema, { bodyJson: jsonBytes({ method }) })
-      }
       throw new Error(`Unexpected RPC: ${method}`)
     }) as RPCRequester
     const bridges = [
@@ -44,15 +33,6 @@ describe('CLI shell entrypoints', () => {
         name: 'webhooks/webhook-cli.ts',
         env: WEBHOOK_CLI_SOCKET_ENV,
         bridge: startWebhookCLIBridge({ requestWebhookRPC: webhookRPCRequester(rpc, run), socketRoot: root })
-      },
-      {
-        name: 'automation-jobs/automation-job-cli.ts',
-        env: AUTOMATION_JOB_CLI_SOCKET_ENV,
-        bridge: startAutomationJobCLIBridge({
-          drive: new FakeDrive(root).drive(),
-          requestAutomationJobRPC: automationJobRPCRequester(rpc, run),
-          socketRoot: root
-        })
       }
     ]
     try {
@@ -85,10 +65,7 @@ describe('CLI shell entrypoints', () => {
         expect(invalidOut).toBe('')
         expect(invalidError).toContain('Usage:')
       }
-      expect(calls).toEqual([
-        { method: 'webhook.endpoint.list', frame: { run }, retry: true },
-        { method: 'automation_job.list', frame: { run }, retry: true }
-      ])
+      expect(calls).toEqual([{ method: 'webhook.endpoint.list', frame: { run }, retry: true }])
     } finally {
       for (const { bridge } of bridges) bridge.close()
       rmSync(root, { recursive: true, force: true })

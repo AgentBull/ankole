@@ -67,12 +67,10 @@ A complete delegation
     second short-lived standing endpoint instead;
   - teardown removes the external object first, then cancels the endpoint.
 
-Handling deliveries with a script
-  If you judge that a script could handle this endpoint's deliveries
-  equally well and at lower cost than waking you for each one, run
-  create-automation-job-cli --help before wiring up the endpoint to
-  confirm the fit. The script can still wake you when a delivery
-  warrants it.
+Handling deliveries with an Action
+  Use an Applet Action Job for deterministic processing. Create its native
+  endpoint with ankole-pod jobs webhooks create. The Action can emit a
+  Signal when a delivery warrants an Agent's judgment.
 
 Commands
   create-webhook-cli --label <text> --mode <one_shot|standing> --expires-at <ISO-8601> [--automation-job-id <id>]

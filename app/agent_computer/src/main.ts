@@ -1,6 +1,5 @@
 import { driveMounts } from './drive/mounts'
 import { match, ms } from '@agentbull/active-support'
-import { removeAbandonedRunDirectories } from './automation-jobs/run'
 import { toError } from './common/errors'
 import { createChannelTransport } from './fabric/channel_transport'
 import { controlShutdownEnvelope } from './fabric/envelopes'
@@ -79,7 +78,6 @@ async function runWorker(): Promise<void> {
     if (!(await awaitFirstAdmission(fabric, drain))) return
     // A late instance can have a revoked credential. It must not remove the
     // admitted Worker's run files before the control plane accepts its join.
-    removeAbandonedRunDirectories(config)
 
     // The first heartbeat reports the load of this process at once.
     let nextHeartbeatAt = Date.now()

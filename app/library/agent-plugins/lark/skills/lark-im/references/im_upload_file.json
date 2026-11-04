@@ -1,0 +1,40 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Im upload file.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "duration": {
+        "type": "integer"
+      },
+      "file_name": {
+        "type": "string"
+      },
+      "file_ref": {
+        "type": "string"
+      },
+      "file_type": {
+        "type": "string"
+      }
+    },
+    "required": ["file_ref", "file_type", "file_name"],
+    "type": "object"
+  },
+  "name": "im_upload_file",
+  "outputSchema": {
+    "properties": {
+      "file_key": {
+        "type": "string"
+      },
+      "image_key": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  }
+}

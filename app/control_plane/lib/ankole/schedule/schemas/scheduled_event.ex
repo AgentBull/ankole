@@ -28,6 +28,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
 
   use Ankole.Work.Provenance,
     owner_session?: false,
+    agent_required?: false,
     source_signal?: true,
     reply_route?: false,
     kind: "scheduled_event",
@@ -71,7 +72,16 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     table("scheduled_events")
     repo(Ankole.Repo)
     migrate?(false)
-    identity_index_names(idempotency: "scheduled_events_idempotency_index")
+
+    identity_wheres_to_sql(
+      idempotency: "agent_uid IS NOT NULL",
+      cron_idempotency: "kind = 'cron_fire'"
+    )
+
+    identity_index_names(
+      idempotency: "scheduled_events_idempotency_index",
+      cron_idempotency: "scheduled_events_cron_manual_idempotency_index"
+    )
 
     unique_index_names([
       {[:cron_schedule_id, :cron_fire_slot_at], "scheduled_events_cron_slot_index"}
@@ -86,6 +96,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     ])
 
     check_constraints do
+      check_constraint(:cron_schedule_id, "scheduled_events_scope_check")
       check_constraint(:authorization_kind, "scheduled_events_work_authorization_check")
       check_constraint(:kind, "scheduled_events_kind_check")
       check_constraint(:status, "scheduled_events_status_check")
@@ -107,7 +118,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
 
     ash_attributes()
     attribute(:kind, :string, allow_nil?: false, public?: true)
-    attribute(:session_id, :string, allow_nil?: false, public?: true)
+    attribute(:session_id, :string, public?: true)
     attribute(:binding_name, :string, public?: true)
     attribute(:due_at, :utc_datetime_usec, allow_nil?: false, public?: true)
     attribute(:timezone, :string, allow_nil?: false, public?: true)
@@ -147,7 +158,13 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
   end
 
   identities do
-    identity(:idempotency, [:kind, :agent_uid, :session_id, :idempotency_key])
+    identity(:idempotency, [:kind, :agent_uid, :session_id, :idempotency_key],
+      where: expr(not is_nil(agent_uid))
+    )
+
+    identity(:cron_idempotency, [:cron_schedule_id, :idempotency_key],
+      where: expr(kind == "cron_fire")
+    )
   end
 
   json_api do
@@ -264,6 +281,17 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       upsert?(true)
       upsert_identity(:idempotency)
       upsert_fields([:idempotency_key])
+    end
+
+    create :schedule_cron_event do
+      accept(@create_fields)
+      upsert?(true)
+      upsert_identity(:cron_idempotency)
+      upsert_fields([:idempotency_key])
+    end
+
+    destroy :remove do
+      primary?(true)
     end
 
     update :fire do

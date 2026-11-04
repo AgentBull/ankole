@@ -14,7 +14,7 @@ order: 313
 | 旧 1.x の構成 | 2.0 の構成 | 必要な運用作業 |
 | --- | --- | --- |
 | プール型 Worker と共有 `/agents` | Agent ごとの専用 Worker と専用 `/workspace` | Home を移行または引き継ぎ、WorkerProvider を割り当てる |
-| Home 内の Skill と Automation スクリプト | コントロールプレーンドライブ上の `skills/` と `automation/` | 1 回かぎりのファイルインポートを実行する |
+| Home 内のインストール済み Skill と Worker スクリプト自動化 | Skill は制御プレーンの Drive、処理は公開済み Applet Action | Skill を取り込み、スクリプト Job をエクスポートして Applet Job として再作成 |
 | Worker 上の一時的な Codex 状態 | スレッドは `/workspace/.codex`、再構築可能なキャッシュは `/var/cache/ankole/codex` | Home を保持しつつ、別途キャッシュ用ディスクを用意する |
 | インプロセス実行と 2 イメージ構成 | 外部のステートレス `ankole-function-runtime`（同一バージョンの 3 イメージ：`control-plane`、`worker`、`function-runtime`） | `ANKOLE_FUNCTION_RUNTIME_TOKEN` を追加し、対応する 3 イメージすべてを同時に更新する |
 | テナント所有権のないデータと設定 | 既存データは `default` テナントへ集約、Pod / Base ストレージは **PostgreSQL 18+** 必須（任意の `BASE_DB_URLS` 専用シャード対応） | PostgreSQL 18+ へ更新したうえで、元の暗号鍵を使ってスキーマと暗号化設定を移行する |
@@ -22,6 +22,8 @@ order: 313
 | `/console` の管理 Console | `/site-admin-console`（または `ANKOLE_SITE_ADMIN_CONSOLE_PATH`）のサイト管理 Console | ブックマークと Ingress ルールを更新する |
 
 すでに専用 Worker やドライブ構成を導入済みの後期 1.x サイトでは、未適用の手順だけを実施してください。既存の Home やドライブを誤って空のストレージで上書きしないよう注意してください。
+
+アップグレード前に、すべての `agent_script` Job の定義、コード、設定、必要な Run 履歴をエクスポートしてください。Applet-only 移行はこれらの Job と Run 履歴、関連付け、配信記録を完全に削除します。コンテナイメージを戻しても復元できません。アップグレード後に代わりの Applet Action と Job を作成し、スケジュールや Webhook を接続し直してから自動化を再開してください。旧 automation-job CLI と `automation_jobs.max_running_per_agent` は削除されます。削除したデータの復元には、アップグレード前のデータベースバックアップが必要です。
 
 ## 事前準備
 
@@ -75,7 +77,7 @@ docker compose run --rm --no-deps -v ankole_agents_data:/agents:ro control-plane
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
-このインポート処理では、Skill、Automation スクリプト、および未送信の旧 Outbox 添付ファイルがドライブへコピーされ、既存のドライブパスが上書きされることはありません。それ以外の一般ユーザーファイルや Session・Job の作業ディレクトリはそのまま Home 内に残ります。出力された実行レポートを保存し、`Skipped` になった項目や `main.ts` が欠けている Job があれば修正して再実行してください。ファイルの確認とリストア検証がすべて終わるまでは、旧ボリュームを削除せずに残しておきます。
+インポートは Skill と未送信の旧 Outbox 添付ファイルをドライブへコピーし、既存のパスを上書きしません。通常のファイルと Session・Background Job の作業領域は Home に残ります。レポートを保存し、スキップされたファイルを修正して再実行してください。Applet Action への移行用にスクリプトを別途保存し、ファイル確認と復元テストが終わるまで旧ボリュームを残してください。
 
 ## Kubernetes / Helm
 
@@ -119,7 +121,7 @@ Deployment は `Recreate` 戦略で更新され、新しい Pod の起動前に 
 ## 検証と復旧
 
 - Console で `default` テナントを開き、既存の Agent、Identity Provider、シグナルルーティングルール（signal binding）、Job が揃っていることを確認します。既存のすべての Agent に WorkerProvider が割り当てられている必要があります（既定 Provider 設定は新規作成時の初期選択にのみ使われます）。
-- まず 1 体の Agent だけを有効化し、実際のファイル操作と Job 実行を試します。旧 Home の引き継ぎ、Codex スレッドの復元、Skill、Automation スクリプト、ドライブのアップロード・ダウンロード、添付ファイルの送信がすべて正常に動くことを確認してから、残りの Agent とスケジュール処理を再開してください。
+- まず 1 体の Agent だけを有効化し、実際のファイル操作と Job 実行を試します。旧 Home の引き継ぎ、Codex スレッドの復元、Skill、公開済み Applet Action、ドライブのアップロード・ダウンロード、添付ファイルの送信がすべて正常に動くことを確認してから、残りの Agent とスケジュール処理を再開してください。
 - マイグレーションが失敗した場合は、旧コントロールプレーンを停止したまま、Compose の `migrate` または Kubernetes の `db-migrate` ログを確認します。暗号鍵、認証情報、予約グループ名の衝突、ストレージ権限などの原因を解消し、同じ移行先バージョンで再実行してください。
 - インポートレポートに表示された「削除済み Agent」の残存ディレクトリから勝手に新しい Agent が作られることはありません。不要であることを確認したうえで旧ディレクトリや旧ボリュームを整理してください。
 - 万が一ロールバックする場合は、新しいコントロールプレーン、`ankole-function-runtime`、および Worker をすべて停止し、アップグレード前に取得した PostgreSQL バックアップ（設定済みの `BASE_DB_URLS` シャードを含む）、ファイルストレージ、Home、設定、元の暗号鍵を一式まとめてリストアしてから、対応する旧バージョンのイメージを起動します。`helm rollback` やコンテナイメージの差し戻しだけでは、破壊的なパスワードレス資格情報変換や DB スキーマ変更を元に戻すことはできず、アップグレード後に発生した書き込みも別途退避しないかぎり保持されません。

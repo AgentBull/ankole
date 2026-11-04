@@ -320,16 +320,23 @@ migrations reuse those frozen values rather than drifting with later Agent
 configuration edits, while a manual respawn inherits `model_profile` and
 snapshots a fresh projection on its own first admission.
 
+WorkerEnv excludes Skill-declared MCP credential names and values when it
+captures a projection. The runtime broker applies the same filter before sending
+a stored projection to the Worker, including projections captured under earlier
+credential declarations. Ordinary non-secret values remain frozen.
+
 `native_mcp_servers` is reserved and currently empty: each run resolves MCP
-dependencies from current Skill files and fetches live credentials from their
-owners. For example, Agent Computer writes refreshed Lark tenant tokens to an
-execution-local file read by `lark-cli` rather than exporting tokens into the
-Codex process environment.
+dependencies from current Skill files. Agent Computer creates an execution-local
+MCPorter configuration that points to the control-plane gateway and renews its
+short-lived internal Turn credential while the run is active. Connectors resolves
+upstream credentials on each call; external platform secrets remain in the control
+plane.
 
 On every run, Agent Computer intersects the Job's projected Skill IDs with the
 Agent's currently enabled Skills, admitting Skills whose `ankole-runtime` is
 unset, `any`, or `background_job` while excluding `main` Skills (callers cannot
-pass per-Job capability overrides).
+pass per-Job capability overrides). The control-plane MCP gateway applies this
+same selection and runtime eligibility when resolving a Skill's upstream server.
 
 ### Turn Trajectories and Collaboration Items
 
@@ -741,6 +748,14 @@ through the Signals domain interface and composition helpers:
   before locking Signals so the new `job:<id>` Session lock sorts cleanly with
   the current and owner Session locks.
 
+Work admission and native Chat operations lock referenced Principals in UID
+order with `FOR NO KEY UPDATE`. This preserves the checked identity and access
+state while allowing PostgreSQL to take foreign-key `KEY SHARE` locks when
+other work creates Sessions, Signals, or successor Jobs. Principal rename and
+deletion use their own `FOR UPDATE` locks and remain mutually exclusive with
+admission. PostgreSQL's [row-lock conflict table](https://www.postgresql.org/docs/18/explicit-locking.html#LOCKING-ROWS)
+defines these compatibility rules.
+
 ### Concurrency, Worker Readiness, and Retry Budgets
 
 `background_agent_jobs.max_running_per_agent` caps concurrent
@@ -1046,10 +1061,9 @@ trajectories to the Job detail view).
 
 Background Job health (`GET /api/v2/background-agent-jobs/health`) covers this
 domain alone. Console Home renders sibling panels for
-[Workflow](Workflow.md#console-activity-inspection) and
-[Automation runs](AutomationJobs.md#live-activity-in-console-home) via
+[Workflow](Workflow.md#console-activity-inspection) via
 `/api/v2/agents/:agent_uid/background-activities` (`background-jobs`,
-`workflow`, and `automation-runs`), each enforcing its own permission,
+`workflow`), each enforcing its own permission,
 observation timestamp, and independent cursor. This area neither sums parent
 Workflows, child calls, and Jobs into a single slot counter nor tracks
 foreground conversation Turns, Worker OS processes, or host resource

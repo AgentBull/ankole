@@ -42,7 +42,6 @@ AppConfigure 将产品参数保存在 PostgreSQL，多数修改影响后续任�
 | `ai_agent.inactivity_timeout_ms` | 租户 | 模型或上游 Provider 持续无响应多少毫秒后终止当前回合 |
 | `ai_agent.library.agent_plugin_defaults` | 租户 | Agent Plugin 的默认启用状态映射 |
 | `background_agent_jobs.max_running_per_agent` | 租户 | 单个 Agent 允许并发运行的后台 Agent 任务上限；默认 `3`，有效范围为 `1`–`64` |
-| `automation_jobs.max_running_per_agent` | 租户 | 单个 Agent 允许并发运行的自动化脚本上限；默认 `10`，有效范围为 `1`–`64` |
 
 ### Pod、Base 与 Applet
 
@@ -51,7 +50,7 @@ AppConfigure 将产品参数保存在 PostgreSQL，多数修改影响后续任�
 | `pod.allow_external_guests` | 租户 | 是否允许受邀外部访客访问共享的 Pod 页面；默认 `true` |
 | `pod.applet.limits` | 租户 | Applet（小应用）运行限制（默认 `timeout_ms: 60000`、`heap_mb: 128`） |
 | `pod.base.limits` | 租户 | Base 查询与记录限制（默认 `query_rows: 1000`、`record_bytes: 1000000`、`group_count: 1000`、`statement_timeout_ms: 5000`） |
-| `drive.trash_retention_days` | 租户  Ankole 在自动彻底删除前保留已删除 Drive 节点的天数；默认 `30`，设为 `0` 时无限期保留 |
+| `drive.trash_retention_days` | 租户 | Ankole 在自动彻底删除前保留已删除 Drive 节点的天数；默认 `30`，设为 `0` 时无限期保留 |
 | `pod.ot_replay_window` | 租户 | 为协同文档 OT 重放保留的最近变更批次数；默认 `1000` |
 
 ### Workflow
@@ -122,7 +121,6 @@ Brain 使用租户的 `ankole_brain` 系统主体调用模型。在 Console 的�
 
 | 配置键 | 作用范围 | 用途 |
 |---|---|---|
-| `runtime_fabric.worker_auth_key` | 站点，只读 | 控制面首次启动时生成的实例标识密钥；用于派生飞书（Lark）配置名称，并非 Worker 鉴权凭据 |
 | `agent_workers.ready_timeout_seconds` | 站点 | Worker 实例处于未就绪状态的最长容忍秒数，超时后将挂载新缓存盘重建实例；默认 `600`（10 分钟） |
 | `agent_workers.rendered_fetch_idle_ttl_ms` | 租户 | `web_fetch` 内置浏览器渲染回退实例的空闲保留毫秒数 |
 | `security.ssrf_filter` | 站点 | 是否拦截由模型发起的对私网、环回地址、链路本地地址及 CGNAT 地址段的网络访问 |

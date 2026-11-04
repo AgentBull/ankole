@@ -66,7 +66,7 @@ export const provider = defineApplet(App);
     path.join(directory, 'src/server/main.ts'),
     `export default {
     routes: {'POST /sync': ({body}) => AnkoleRuntime.signals.emit({targetJobId:body.jobId, type:'import.requested', responseMode:'wait_accepted'})},
-    actions: ${version === 'missing' ? '{}' : `{sync:{idempotent:true, concurrency:'serial_coalesce', maxSlices:100, handler:${handler}}}`}
+    actions: {capture:{idempotent:true, handler:ctx => ({data:ctx.signal.data, config:ctx.job.config})}, ${version === 'missing' ? '' : `sync:{idempotent:true, concurrency:'serial_coalesce', maxSlices:100, handler:${handler}}`}}
   }`
   )
   const built = await buildApplet(directory)

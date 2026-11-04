@@ -62,6 +62,12 @@ defmodule Ankole.Errors do
       "agents_personal_assistant_owner_index" ->
         Conflict.exception(reason: :personal_assistant_exists)
 
+      "connector_auth_configs_active_platform_app_uidx" ->
+        Conflict.exception(reason: :platform_app_bound_to_another_tenant)
+
+      "connector_auth_configs_active_platform_client_uidx" ->
+        Conflict.exception(reason: :platform_app_bound_to_another_tenant)
+
       _ ->
         error
     end

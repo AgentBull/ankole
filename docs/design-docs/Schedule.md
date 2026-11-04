@@ -1,15 +1,15 @@
 # Schedule
 
-The Schedule subsystem wakes a single consumer—an Agent Session by default, or
-an Automation Job when bound—at a requested time. PostgreSQL is the durable
-authority for what must run and when, while Oban acts strictly as the timer
-that wakes the control plane when a deadline arrives.
+The Schedule subsystem emits events at requested times. Signals routes each
+event to the subscribed Agent Sessions and Automation Jobs. PostgreSQL is the
+durable authority for what must run and when, while Oban acts strictly as the
+timer that wakes the control plane when a deadline arrives.
 
 Users and Agents can create two kinds of schedules:
 
 - **`check_back_later`**: Wakes the originating Agent Session once.
-- **`cron`**: Runs a recurring task inside a dedicated execution Session derived
-  from the rule.
+- **`cron`**: Triggers recurring work. A Job-owned rule targets its Applet Action;
+  a direct-Agent rule runs in a dedicated execution Session derived from the rule.
 
 Checkbacks and manual cron triggers persist a `scheduled_events` row *before*
 wake-up, whereas automatic cron triggers insert a `scheduled_events` history row
@@ -137,12 +137,25 @@ State transitions are strictly one-way toward terminal states:
   and last fire error—never the owner, authorization, source, idempotency key,
   or creation timestamp (reauthorization uses its own dedicated action).
 
+Job-owned cron rules store `owner_job_id` and inherit the Job's work authority.
+Their Agent, owner Session and delivery fields are null. Their default Action
+Binding targets that Job, and their business payload becomes `ctx.signal.data`
+with `cron_fire_slot_at` and `fired_at`. Sources do not create a Session Signal
+unless an additional Binding explicitly selects an Agent. Job management APIs,
+SDK and CLI are defined in [Automation Jobs](AutomationJobs.md#native-job-sources).
+A trashed Page or ancestor suppresses fires and advances the next slot without
+spending the occurrence budget; restoring it permits future fires. Job deletion
+and Page purge remove owned sources and receipts with the Job.
+
 Schedule and raw Webhook sources route through `Signals.Dispatch`. Their default
 Binding selects an Agent Session or Action. Dispatch locks Jobs, Bindings and
 receipts before Schedule rows and Session queues; all delivery results commit
 with the source transition. `automation_job_id` in source APIs is a projection
 of the default Binding. Historical fired events retain their root Signal ID and
 receipt references even after the ordinary seven-day receipt retention window.
+Deleting a consumer Job removes its Bindings, while an independently owned
+source continues to deliver to its remaining subscribers. A source without
+subscribers records its due slot without admitting work or waking an Agent.
 If a prepared Job or Binding changes before dispatch acquires its locks, the
 fire returns a retryable error without consuming the slot. Oban prepares a fresh
 snapshot on its next attempt. On the final attempt, failures during admission
@@ -208,8 +221,10 @@ Separating the two Sessions provides three guarantees:
   Agent Messages, and external channel output writes Delivery intents for the
   configured routes.
 
-Because a cron fire never sees the `owner_session_id` transcript, a direct-Agent
-rule must store a self-contained standing instruction in `payload.task`. When a
+Because a cron fire never sees the `owner_session_id` transcript, a rule whose
+default Binding routes to an Agent must store a self-contained standing
+instruction in `payload.task`. Action destinations carry their own code, and
+removing a default Action Binding does not create an Agent destination. When a
 human replies to a delivered cron message in chat, that reply routes to
 `owner_session_id`, which sees the committed cron Message as shared Conversation
 context rather than the cron Session's internal tool history.
@@ -324,8 +339,9 @@ Creating an `active` cron rule computes its initial `next_fire_at` and enqueues
 its `FireCron` Oban job; each successful automatic fire inserts history and
 advances `next_fire_at` in the same transaction.
 
-All rule mutations and fires lock the `cron_schedules` row first, and automatic
-fires read live `payload` and `delivery` at fire time:
+Rule mutations and fires acquire their Job and Binding locks before locking
+the `cron_schedules` row, following the order below. Automatic fires read live
+`payload` and `delivery` at fire time:
 
 - **Updates**: Payload-only edits keep `next_fire_at` unchanged, while
   time-rule edits compute a fresh `next_fire_at`; both reschedule or restore the
@@ -379,8 +395,8 @@ Operators can configure multiple targets via the Console or REST API (omitting
 `quiet_success` on a route edit keeps the stored boolean), whereas Agent tool
 calls can create or replace only the current turn's route—though an Agent may
 toggle `quiet_success` on an operator-configured multi-target rule without
-overwriting its `targets`. Direct-Agent rules require a non-empty `payload.task`
-at creation and across updates unless bound to an `automation_job_id`.
+overwriting its `targets`. A rule with a default Agent destination requires a
+non-empty `payload.task` at creation, on update, and when it fires.
 
 ## What Happens When the Time Arrives
 
@@ -389,15 +405,15 @@ When `next_fire_at` arrives, automatic cron execution follows a single pipeline:
 ```text
 cron rule.next_fire_at
   -> FireCron job
-  -> lock and authorize rule
+  -> prepare subscriptions, then lock and authorize destinations and rule
   -> insert fired history for the slot
-  -> Signals.accept_in_tx or automation job run insert
-  -> record consumer id and advance next_fire_at
-  -> Sessions driver or automation job execution
+  -> Signals.Dispatch admits Runs and Session Signals
+  -> record delivery receipts and advance next_fire_at
+  -> Sessions driver and Applet Action execution
 ```
 
 Checkbacks and manual runs execute via `FireScheduledEvent`, which locks a due
-row with `status = scheduled`, dispatches its consumer, and transitions the row
+row with `status = scheduled`, dispatches its subscriptions, and transitions the row
 to `fired` (returning a no-op if already terminal or still in the future, and
 never advancing a cron rule's cursor on manual runs).
 
@@ -410,14 +426,15 @@ Both Oban workers retry up to `10` attempts:
   still `active` on that slot. Both `fired` and `failed` automatic slots count
   against any occurrence limit (manual runs do not); hitting the limit marks the
   rule `completed` and closes its AIGateway conversation. If a rule is invalid
-  at fire time, Schedule writes a `cancelled` history row without advancing.
+  at fire time, Schedule writes a `cancelled` history row and advances the next
+  fire without consuming the occurrence budget.
 
 Wake-ups emit CloudEvents 1.0 envelopes—`check_back_later.wakeup` for checkbacks
 and `cron.fire` for cron fires—carrying the event/history ID, due time, fire
-time, time zone, primary reply route, and frozen delivery targets, persisted on
-either the `Signal` (`signal_id`) or `AutomationJob` run
-(`automation_job_run_id`) alongside `fired_at` (while stripping the internal
-event ID and delivery routes from the model-visible prompt). Model tool queries
+time, time zone, primary reply route, and frozen delivery targets. Delivery
+receipts link the event to each admitted Session Signal or Automation Run,
+and its history records the root `signal_id` and `fired_at`. Ankole strips the
+internal event ID and delivery routes from the model-visible prompt. Model tool queries
 map known cancellations and domain errors to stable reason codes and collapse
 all other diagnostics to `schedule_fire_failed` without leaking request, Signal,
 Oban, or provider IDs; operators see full diagnostics in the Console.
@@ -426,16 +443,16 @@ Across admission, updates, manual runs, final failed-history inserts, and Human
 revocation, Schedule enforces one strict lock order:
 
 1. Associated `Human` rows in ascending UID order
-2. Consumer `AutomationJob` (locked before `CronSchedule`—including on manual
-   runs, failed-history inserts whose foreign key locks the job, Binding edits
-   locking the new job, and cron updates that lock the requested job first and
-   then re-normalize against the locked rule so concurrent recurrence progress
-   is preserved; live-Binding lookups reject concurrent Binding changes before
-   inserting history against an unlocked consumer, while retained events lock
-   their stored consumer)
-3. `CronSchedule`
-4. `ScheduledEvent`
-5. `Session`, `Workspace`, and `Signal`
+2. `AutomationJob` rows in ascending ID order: dispatch locks its destination
+   Jobs, while a Job-owned source edit locks only its owner. Agent-owned source
+   edits lock current and requested destinations before checking target access
+   and changing a Binding. Cron creation locks its requested destination; an
+   idempotent creation request preserves the rule and its subscriptions without
+   locking their other consumers.
+3. Source `Binding` rows when dispatching or changing a destination
+4. `CronSchedule`
+5. `ScheduledEvent` and delivery receipts
+6. `Session`, `Workspace`, and `Signal`
 
 Because `FireCron` re-checks the locked rule's status and `next_fire_at`, stale
 Oban jobs harmlessly skip paused, deleted, completed, or rescheduled rules;
@@ -471,7 +488,7 @@ Control-plane Drivers execute `check_back_later` (`create`, `list`, `get`,
 - Queries and mutations are scoped to the current `(agent, session)` or the
   rule's `owner_session_id`; reply routes come from the active input, cron
   provenance records `driver_epoch` and the frozen route, and an optional
-  `automation_job_id` must belong to an active job on the same Agent (clearable
+  `automation_job_id` must name an active Applet Job whose Page and personal authority the caller may use (clearable
   or replaceable on update).
 - Inside a derived `cron:<schedule_id>` execution Session, the turn may call
   only `list`, `get`, `runs`, and `pause`—and strictly on its own rule. Calling

@@ -12,6 +12,58 @@ import type { RPCRequester } from '../src/lanes/rpc_lane'
 import { FakeDrive } from './support/fake-drive'
 
 describe('Pod Agent CLI', () => {
+  it('manages Job sources through the active turn and the Pod read/write contract', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pod-cli-job-sources-'))
+    const frame = { run: { session: { session_id: 'conversation:pod' }, signal_id: 'signal' } }
+    const calls: { method: string; operation: string; params: unknown; frame: unknown }[] = []
+    const rpc = (async (method, payload, suppliedFrame) => {
+      const request = payload as { operation: string; paramsJson: Uint8Array }
+      calls.push({
+        method,
+        operation: request.operation,
+        params: jsonObjectFromBytes(request.paramsJson, 'params'),
+        frame: suppliedFrame
+      })
+      return create(JSONPassthroughResponseSchema, { bodyJson: jsonBytes({ result: { status: 'ok' } }) })
+    }) as RPCRequester
+    const bridge = startPodCLIBridge({ rpc, frame, drive: new FakeDrive(root).drive(), socketRoot: root })
+    try {
+      for (const [kind, action] of [
+        ['schedules', 'put'],
+        ['schedules', 'runs'],
+        ['webhooks', 'create'],
+        ['webhooks', 'pause'],
+        ['webhooks', 'list']
+      ]) {
+        const command = await commandFromArgs([
+          'jobs',
+          kind!,
+          action!,
+          JSON.stringify({ page_id: 'page', job_id: 42, id: 'source' })
+        ])
+        await requestSocketLineBridge(bridge.socketPath, JSON.stringify(command), 'bad response')
+      }
+      for (const operation of ['jobs.actions', 'jobs.runs']) {
+        const command = await commandFromArgs([operation, JSON.stringify({ page_id: 'page', job_id: 42 })])
+        await requestSocketLineBridge(bridge.socketPath, JSON.stringify(command), 'bad response')
+      }
+      expect(calls.map(({ method, operation }) => [method, operation])).toEqual([
+        ['pod.write', 'jobs.schedules.put'],
+        ['pod.read', 'jobs.schedules.runs'],
+        ['pod.write', 'jobs.webhooks.create'],
+        ['pod.write', 'jobs.webhooks.pause'],
+        ['pod.read', 'jobs.webhooks.list'],
+        ['pod.read', 'jobs.actions'],
+        ['pod.read', 'jobs.runs']
+      ])
+      expect(calls.every(call => call.frame === frame)).toBe(true)
+      expect(calls[0]!.params).toEqual({ page_id: 'page', job_id: 42, id: 'source' })
+    } finally {
+      bridge.close()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('addresses frozen chat attachments by conversation, message, and position', async () => {
     expect(
       await commandFromArgs([
@@ -74,7 +126,12 @@ describe('Pod Agent CLI', () => {
         bodyJson: jsonBytes({ result: { threads: [], revision: 1 } })
       })
     }) as RPCRequester
-    const bridge = startPodCLIBridge({ rpc, drive: new FakeDrive(root).drive(), socketRoot: root })
+    const bridge = startPodCLIBridge({
+      rpc,
+      frame: { run: { session: { session_id: 'conversation:pod' }, signal_id: 'signal' } },
+      drive: new FakeDrive(root).drive(),
+      socketRoot: root
+    })
     try {
       await requestSocketLineBridge(
         bridge.socketPath,
@@ -401,7 +458,12 @@ export const provider = defineApplet(App)`
       })
       return create(JSONPassthroughResponseSchema, { bodyJson: jsonBytes({ result: { id: 'page' } }) })
     }) as RPCRequester
-    const bridge = startPodCLIBridge({ rpc, drive: new FakeDrive(root).drive(), socketRoot: root })
+    const bridge = startPodCLIBridge({
+      rpc,
+      frame: { run: { session: { session_id: 'conversation:pod' }, signal_id: 'signal' } },
+      drive: new FakeDrive(root).drive(),
+      socketRoot: root
+    })
     try {
       const json = await commandFromArgs(['page', 'set-sharing', 'page', JSON.stringify(params)], root)
       const flags = await commandFromArgs(

@@ -14,9 +14,18 @@ defmodule Ankole.Sessions.MixedScheduleDeliveryTest do
     Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     binding_fixture(agent.uid, "secondary", :ignore, adapter: "mock-provider")
 
+    conversation_id = Ecto.UUID.generate()
+
+    # This domain test owns admission and completion below. Cron publication
+    # must not start a competing Driver for the same Session.
+    stub_driver(%{
+      agent_uid: agent.uid,
+      session_id: Ankole.Sessions.Key.conversation(conversation_id)
+    })
+
     assert {:ok, native} =
              Ankole.ConversationsFixtures.create(human.uid, %{
-               conversation_id: Ecto.UUID.generate(),
+               conversation_id: conversation_id,
                message_id: Ecto.UUID.generate(),
                agent_uid: agent.uid,
                text: "Set up a report"
@@ -81,7 +90,7 @@ defmodule Ankole.Sessions.MixedScheduleDeliveryTest do
     assert secondary.binding_name == "secondary"
     assert Ankole.Conversations.Target.reply_eligible?(secondary, event)
 
-    refute Ankole.Conversations.Target.reply_eligible?(secondary, %{
+    assert Ankole.Conversations.Target.reply_eligible?(secondary, %{
              event
              | type: "unknown.external"
            })

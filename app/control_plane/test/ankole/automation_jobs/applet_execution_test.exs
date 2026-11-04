@@ -38,6 +38,49 @@ defmodule Ankole.AutomationJobs.AppletExecutionTest do
     %{actor: actor, page: page}
   end
 
+  test "Attempt authority prechecks let a lower-ranked Job write reach its final fence", ctx do
+    publish_applet_fixture(
+      ctx,
+      "export default {actions:{work:{idempotent:true,handler:()=>true}}}"
+    )
+
+    source = job(ctx)
+
+    {:ok, target} =
+      AutomationJobs.create_applet_job(ctx.actor, ctx.page.id, "work", %{
+        authorization_kind: "service",
+        label: "before"
+      })
+
+    run = enqueue(ctx, "authority-precheck")
+    {:ok, attempt} = AutomationJobs.start_applet_attempt(run.id, 0)
+
+    authority =
+      Ankole.AutomationJobs.Applet.authority(
+        %{
+          "job" => %{"id" => source.id},
+          "run" => %{"id" => run.id, "attemptId" => attempt.run.attempt_id}
+        },
+        ctx.actor.principal.uid
+      )
+
+    actor = %{ctx.actor | turn_authority: authority}
+
+    assert {:ok, %{label: "during"}} =
+             AutomationJobs.configure_applet_job(actor, ctx.page.id, target.id, %{label: "during"})
+
+    assert {:ok, _} =
+             AutomationJobs.finish_attempt(run.id, attempt.run.attempt_id, %{
+               status: "succeeded",
+               result: true
+             })
+
+    assert {:error, :automation_job_attempt_not_active} =
+             AutomationJobs.configure_applet_job(actor, ctx.page.id, target.id, %{label: "stale"})
+
+    assert {:ok, %{label: "during"}} = AutomationJobs.get_automation_job(target.id)
+  end
+
   test "a nested call's 503 after a committed write is terminal, including replay of its wake",
        ctx do
     publish_applet_fixture(ctx, """
@@ -352,6 +395,76 @@ defmodule Ankole.AutomationJobs.AppletExecutionTest do
 
     assert %{status: :cancelled, error: "automation job is cancelled", attempts: 0} =
              AutomationJobs.get_run_record(run.id)
+  end
+
+  test "Action authority survives its wire encoding and fences real Page writes", ctx do
+    publish_applet_fixture(ctx, """
+    export default {actions:{work:{idempotent:true,handler:()=>true}}}
+    """)
+
+    job = job(ctx)
+    first = enqueue(ctx, "first-authority")
+    second = enqueue(ctx, "second-authority")
+    assert {:ok, %{run: first}} = AutomationJobs.start_applet_attempt(first.id, 0)
+    assert {:ok, %{run: second}} = AutomationJobs.start_applet_attempt(second.id, 0)
+    assert {:ok, target} = Pages.create(ctx.actor, %{type: "doc", title: "original"})
+    uid = ctx.actor.principal.uid
+
+    {ref, ^uid} =
+      AutomationJobs.applet_attempt_authority(
+        %{
+          "job" => %{"id" => job.id},
+          "run" => %{"id" => first.id, "attemptId" => first.attempt_id}
+        },
+        uid
+      )
+
+    assert {:ok, _} = fenced_title(ctx.actor, target, {ref, uid}, "current")
+    assert {:ok, target} = Pages.fetch(target.id)
+
+    for invalid <- [
+          {%{ref | job_id: job.id + 1_000_000}, uid},
+          {%{ref | run_id: second.id}, uid},
+          {%{ref | attempt_id: Ash.UUIDv7.generate()}, uid},
+          {ref, "another-principal"}
+        ] do
+      assert {:error, _} = fenced_title(ctx.actor, target, invalid, "must not commit")
+      assert {:ok, %{title: "current"}} = Pages.fetch(target.id)
+    end
+
+    assert {:ok, _} =
+             AutomationJobs.infrastructure_failure(
+               first.id,
+               first.attempt_id,
+               :disconnected,
+               :retry
+             )
+
+    assert {:ok, %{run: replacement}} = AutomationJobs.start_applet_attempt(first.id, 0)
+    refute replacement.attempt_id == ref.attempt_id
+    assert {:error, _} = fenced_title(ctx.actor, target, {ref, uid}, "stale")
+    current = %{ref | attempt_id: replacement.attempt_id}
+    assert {:ok, _} = fenced_title(ctx.actor, target, {current, uid}, "replacement")
+
+    assert {:ok, _} =
+             AutomationJobs.finish_attempt(first.id, replacement.attempt_id, %{
+               "status" => "succeeded"
+             })
+
+    assert {:ok, target} = Pages.fetch(target.id)
+    assert {:error, _} = fenced_title(ctx.actor, target, {current, uid}, "finished")
+    assert {:ok, %{title: "replacement"}} = Pages.fetch(target.id)
+  end
+
+  defp fenced_title(actor, page, authority, title) do
+    authority =
+      authority
+      |> Ankole.Connectors.Tokens.encode_authority()
+      |> Torque.encode!()
+      |> Torque.decode!()
+      |> Ankole.Connectors.Tokens.decode_authority()
+
+    Pages.update(actor, page.id, %{title: title, expected_title: page.title}, authority)
   end
 
   defp job(ctx) do

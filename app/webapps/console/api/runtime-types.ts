@@ -7,8 +7,7 @@ import type {
   GetBackgroundAgentJobHealthResponse,
   GetBackgroundAgentJobTurnsResponse,
   BackgroundActivityJobsResponse,
-  BackgroundActivityWorkflowResponse,
-  BackgroundActivityAutomationRunsResponse
+  BackgroundActivityWorkflowResponse
 } from './v2/generated/types.gen'
 
 export type SignalAdapterItem = Omit<
@@ -34,5 +33,4 @@ export type BackgroundAgentJobTurnUsageBreakdown = NonNullable<BackgroundAgentJo
 export type BackgroundActivityJob = BackgroundActivityJobsResponse['jobs'][number]
 export type BackgroundActivityWorkflowCall = BackgroundActivityWorkflowResponse['live_calls'][number]
 export type BackgroundActivityWorkflowRun = BackgroundActivityWorkflowResponse['runs'][number]
-export type BackgroundActivityAutomationRun = BackgroundActivityAutomationRunsResponse['runs'][number]
 export type WorkflowActivityCounts = BackgroundActivityWorkflowRun['counts']

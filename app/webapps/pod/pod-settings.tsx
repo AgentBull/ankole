@@ -1,3 +1,4 @@
+import { ConnectorConfigFields } from '../common/connector-config-fields'
 import {
   Badge,
   Button,
@@ -33,7 +34,7 @@ import { useTranslation } from 'react-i18next'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
 import { unusedProviderID } from '../common/identity-provider'
-import { ConfigFields, defaultConfig, localizedText, setPath } from '../common/config-fields'
+import { defaultConfig, localizedText, setPath } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
 import { authenticationRef, podID, principalUID, replacePrincipalUID } from '../common/browser-context'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
@@ -48,6 +49,7 @@ import {
   type InvitationExpiryPreset
 } from './state/pod-settings'
 import { SlotBoundary, SlotGate } from '../common/slots'
+import { Link } from '@tanstack/react-router'
 import { usePodSlots, podSettingsSections, type PodSettingsTabSlot } from './slots'
 
 type Model = InstanceType<typeof PodSettingsModel>
@@ -69,6 +71,9 @@ export function PodSettings() {
     <div className="h-full overflow-y-auto">
       <div className="mx-auto grid w-full max-w-5xl content-start gap-6 px-6 pt-2 pb-10">
         <h1 className="text-2xl">{t('pod.settings.title')}</h1>
+        <Button variant="outline" nativeButton={false} render={<Link to="/connectors" />}>
+          {t('pod.connectors.title')}
+        </Button>
         <Tabs
           value={model.section.value}
           onValueChange={value => {
@@ -928,6 +933,14 @@ function Providers({ model }: { model: Model }) {
     []
   )
   const providers = useQuery({ queryKey: keys.providers, queryFn: () => api.podAdminIdentityProviders() })
+  const connectorCatalog = useQuery({
+    queryKey: ['connectors', authenticationRef() ?? '', podID() ?? '', 'catalog'],
+    queryFn: () => api.podConnectorsCatalog()
+  })
+  const connections = useQuery({
+    queryKey: ['connectors', authenticationRef() ?? '', podID() ?? '', 'connections'],
+    queryFn: () => api.podConnectorAuthConfigsList()
+  })
   const adapters = providers.data?.adapters ?? []
   const adapter = adapters.find(item => item.adapter_id === model.adapterID.value)
   const save = useMutation({
@@ -992,7 +1005,7 @@ function Providers({ model }: { model: Model }) {
   }
   return (
     <section className="grid gap-5">
-      <ErrorBlock error={providers.error ?? save.error ?? sync.error} />
+      <ErrorBlock error={providers.error ?? connectorCatalog.error ?? connections.error ?? save.error ?? sync.error} />
       {providers.data?.providers.map(provider => {
         const providerAdapter = adapters.find(item => item.adapter_id === provider.adapter_id)
         const displayName =
@@ -1122,7 +1135,14 @@ function Providers({ model }: { model: Model }) {
                   <p className="text-xs text-muted-foreground">{t('setup.provider_id_hint')}</p>
                 </CollapsibleContent>
               </Collapsible>
-              <ConfigFields
+              <ConnectorConfigFields
+                pluginId={adapter.plugin_id ?? adapter.adapter_id}
+                catalog={connectorCatalog.data?.connectors}
+                connections={connections.data?.connections ?? []}
+                onConnectionChange={config => {
+                  save.reset()
+                  model.config.value = config
+                }}
                 fields={adapter.fields}
                 config={model.config.value}
                 locale={i18n.language}

@@ -1,0 +1,62 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a reference",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "owner": {
+        "type": "string"
+      },
+      "ref": {
+        "pattern": "^refs/heads/.+",
+        "type": "string"
+      },
+      "repo": {
+        "type": "string"
+      },
+      "sha": {
+        "type": "string"
+      }
+    },
+    "required": ["owner", "repo", "ref", "sha"],
+    "type": "object"
+  },
+  "name": "repos_create_branch",
+  "outputSchema": {
+    "properties": {
+      "node_id": {
+        "type": "string"
+      },
+      "object": {
+        "properties": {
+          "sha": {
+            "maxLength": 40,
+            "minLength": 40,
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": ["type", "sha", "url"],
+        "type": "object"
+      },
+      "ref": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      }
+    },
+    "required": ["ref", "node_id", "url", "object"],
+    "type": "object"
+  }
+}

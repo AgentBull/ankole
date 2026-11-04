@@ -7,6 +7,30 @@ defmodule Ankole.Principals.PodAdministrationTest do
   alias Ankole.IdentityProviders.DirectoryAccess
   alias Ankole.Principals.{HumanAccess, PodAdministration}
 
+  test "Pod identity adapter choices identify their shared credential plugin" do
+    admin = human_fixture().principal
+
+    {:ok, _} =
+      Repo.transact(fn ->
+        {:ok, group} = Ankole.AuthZ.Root.ensure_pod_admin_group()
+        {:ok, _} = Ankole.AuthZ.Grants.upsert_pod_admin_grants(group)
+        AuthZ.add_pod_admin_in_tx(admin.uid)
+      end)
+
+    input =
+      Ash.ActionInput.for_action(Ankole.Principals.PodAdminOperations, :providers, %{},
+        tenant: Repo.tenant_id!()
+      )
+
+    assert {:ok, %{adapters: adapters}} =
+             Ankole.Ash.run_action_authorized(input, Actor.new(admin))
+
+    assert Enum.find(adapters, &(&1["adapter_id"] == "entra-id"))["plugin_id"] ==
+             "microsoft365-adapter"
+
+    assert Enum.find(adapters, &(&1["adapter_id"] == "lark"))["plugin_id"] == "lark-adapter"
+  end
+
   test "recent authentication uses its expiry even when the issuing node clock is ahead" do
     principal = human_fixture().principal
     now = System.system_time(:second)

@@ -1,0 +1,96 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Task sections create.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "insert_after": {
+        "type": "string"
+      },
+      "insert_before": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "resource_id": {
+        "type": "string"
+      },
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "resource_type": {
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": ["name", "resource_type", "resource_id"],
+    "type": "object"
+  },
+  "name": "task_sections_create",
+  "outputSchema": {
+    "properties": {
+      "section": {
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "creator": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "guid": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "resource_type": {
+            "type": "string"
+          },
+          "tasklist": {
+            "properties": {
+              "guid": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object"
+  }
+}

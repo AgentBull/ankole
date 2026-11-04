@@ -70,7 +70,7 @@ describe('commandEnv worker env layering', () => {
 })
 
 describe('resolveAgentWorkerEnvParts', () => {
-  it('resolves the maps of the connected Agent', async () => {
+  it('carries the live Turn frame when resolving the connected Agent environment', async () => {
     const frames: unknown[] = []
     const payloads: unknown[] = []
     const rpc = (async (method: unknown, payload: unknown, frame: unknown) => {
@@ -82,14 +82,13 @@ describe('resolveAgentWorkerEnvParts', () => {
       })
     }) as RPCRequester
 
-    expect(await resolveAgentWorkerEnvParts(rpc, 'lark-secondary')).toEqual({
+    const turn = { run: { session: { session_id: 'main:agent' }, signal_id: 'signal' } }
+    expect(await resolveAgentWorkerEnvParts(rpc, turn, 'lark-secondary')).toEqual({
       vars: { NPM_TOKEN: 'token' },
       operatorVars: {},
       bindingVars: {}
     })
     expect(payloads).toEqual([{ bindingName: 'lark-secondary' }])
-    // The control plane takes the Agent from the Worker connection, so the
-    // request has no turn frame.
-    expect(frames).toEqual([undefined])
+    expect(frames).toEqual([turn])
   })
 })

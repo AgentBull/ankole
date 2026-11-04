@@ -9,11 +9,16 @@ defmodule Ankole.Signals.SourceBindings do
   def reference(%{event_format: _, id: id}), do: "webhook-endpoint://#{id}"
 
   def job_id(source) do
-    reference = if is_binary(source), do: source, else: reference(source)
-
-    case default(reference) do
+    case default(source) do
       nil -> nil
       binding -> binding.automation_job_id
+    end
+  end
+
+  def routing_mode(source) do
+    case default(source) do
+      nil -> nil
+      binding -> binding.routing_mode
     end
   end
 
@@ -39,7 +44,7 @@ defmodule Ankole.Signals.SourceBindings do
       |> Ankole.Ash.read!()
 
     ids =
-      [additional_job_id | Enum.map(bindings, & &1.automation_job_id)]
+      (List.wrap(additional_job_id) ++ Enum.map(bindings, & &1.automation_job_id))
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
       |> Enum.sort()
@@ -73,9 +78,111 @@ defmodule Ankole.Signals.SourceBindings do
     with {:ok, _} <- Ankole.Ash.create(Binding, :put, attrs), do: :ok
   end
 
-  defp default(reference),
-    do:
+  def remove_disabled_source_bindings_in_tx(reference) do
+    if Binding
+       |> Ash.Query.filter(config_ref == ^reference and enabled)
+       |> Ankole.Ash.exists?() do
+      {:error, :signal_source_in_use}
+    else
+      with {:ok, _} <-
+             Binding
+             |> Ash.Query.filter(config_ref == ^reference)
+             |> Ankole.Ash.destroy_where(:remove, %{}),
+           do: :ok
+    end
+  end
+
+  defp default(source) do
+    reference = if is_binary(source), do: source, else: reference(source)
+
+    Binding
+    |> Ash.Query.filter(config_ref == ^reference and name == ^("source:" <> reference))
+    |> Ankole.Ash.read_one!()
+  end
+
+  def deliveries(reference) when is_binary(reference),
+    do: Map.fetch!(deliveries([reference]), reference)
+
+  def deliveries([]), do: %{}
+
+  def deliveries(references) when is_list(references) do
+    recent =
+      Ankole.Signals.BindingReceipt
+      |> Ash.Query.sort(received_at: :desc)
+      |> Ash.Query.limit(100)
+
+    receipts =
       Binding
-      |> Ash.Query.filter(config_ref == ^reference and name == ^("source:" <> reference))
-      |> Ankole.Ash.read_one!()
+      |> Ash.Query.filter(config_ref in ^references)
+      |> Ash.Query.select([:config_ref])
+      |> Ash.Query.load(receipts: recent)
+      |> Ankole.Ash.read!()
+      |> Enum.group_by(& &1.config_ref, & &1.receipts)
+      |> Map.new(fn {reference, groups} ->
+        # A source's newest 100 receipts are contained in its bindings' newest 100.
+        recent = groups |> List.flatten() |> Enum.sort_by(& &1.received_at, {:desc, DateTime})
+        {reference, Enum.take(recent, 100)}
+      end)
+
+    run_ids =
+      receipts
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.map(& &1.automation_job_run_id)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    runs =
+      case run_ids do
+        [] ->
+          %{}
+
+        ids ->
+          {:ok, runs} =
+            Ankole.AutomationJobs.list_automation_job_runs(
+              query: [filter: [id: [in: ids]], select: [:id, :status, :event]]
+            )
+
+          Map.new(runs, &{&1.id, &1})
+      end
+
+    Map.new(references, fn reference ->
+      {reference, Enum.map(Map.get(receipts, reference, []), &delivery(&1, runs))}
+    end)
+  end
+
+  defp delivery(receipt, runs) do
+    run = runs[receipt.automation_job_run_id]
+
+    %{
+      source_event_id: receipt.source_event_id,
+      received_at: receipt.received_at,
+      automation_job_run_id: receipt.automation_job_run_id,
+      run_status: run && run.status,
+      coalesced:
+        not is_nil(run) and
+          {run.event["source"], run.event["id"]} != {receipt.source, receipt.source_event_id}
+    }
+  end
+
+  def for_jobs(job_ids, references) do
+    Binding
+    |> Ash.Query.filter(automation_job_id in ^job_ids or config_ref in ^references)
+    |> Ankole.Ash.read!()
+  end
+
+  def purge_in_tx(ids) do
+    Binding
+    |> Ash.Query.filter(id in ^ids)
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!(lock_identity: {:rows, "signal_bindings", :id})
+
+    with {:ok, _} <-
+           Ankole.Signals.BindingReceipt
+           |> Ash.Query.filter(binding_id in ^ids)
+           |> Ankole.Ash.destroy_where(:expire),
+         {:ok, _} <- Binding |> Ash.Query.filter(id in ^ids) |> Ankole.Ash.destroy_where(:remove),
+         do: :ok
+  end
 end

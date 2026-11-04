@@ -54,9 +54,9 @@ Read `result.json`, or reduce it first with `jq` or `python3` when it is large. 
 
 mcporter loses most of its own output when stdout is a pipe, and the command tool captures stdout through a pipe. Page Markdown, crawl results, sitemaps, and batch pages are large enough to be cut in the middle of a token with exit code 0 and no error on stderr. Write to a file, and treat a JSON parse failure on mcporter output as this truncation until you prove otherwise.
 
-In an Automation Job, use `Bun.spawn` with the same argv and JSON on stdin, and write stdout to a file. Check the process exit code and read stderr as a failure diagnostic.
+In an Applet Automation Job, call `AnkoleRuntime.mcp.call(tool, arguments, {server: "context-dev", skill: "context-dev"})`. The Function Runtime host runs MCPorter and returns the structured result. A personal Job uses its authorizing human; a service Job uses `AnkoleRuntime.admin.mcp.call` to act for the Page owner.
 
-Ankole generates `MCPORTER_CONFIG` for each Main turn, Background Agent Job execution, or Automation attempt from this enabled Skill. The declaration fixes the endpoint and names `CONTEXT_DEV_API_KEY`; the value stays in the execution WorkerEnv. A `401` means that variable is empty or wrong, not that the request was malformed.
+Ankole generates `MCPORTER_CONFIG` for each Main turn or Background Agent Job execution from this enabled Skill. The configuration points to the control-plane gateway. The control plane resolves `CONTEXT_DEV_API_KEY` from the Agent's configured credentials and injects it only into the upstream request. If authentication fails, check the configured credential; the Worker and Applet do not receive the external key.
 
 ## Tool Selection
 

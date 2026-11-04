@@ -11,6 +11,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   alias Ankole.IdentityProviders.Phone
   alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.Config
+  alias Ankole.Plugins.LarkAdapter.Connector
   alias Ankole.Plugins.LarkAdapter.SubjectIdentity
   alias Ankole.Plugins.MapHelpers
   alias FeishuOpenAPI.Auth
@@ -40,17 +41,56 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   def authorization_url(config, opts) when is_map(config) and is_list(opts) do
     with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
          {:ok, state} <- MapHelpers.required_opt(opts, :state) do
-      query =
-        [
-          app_id: Map.fetch!(config, "appID"),
-          redirect_uri: redirect_uri,
-          state: state,
-          scope: Enum.join(get_in(config, ["oidc", "scopes"]) || [], " ")
-        ]
-        |> URI.encode_query()
+      params = %{
+        "redirect_uri" => redirect_uri,
+        "state" => state,
+        "scope" => Enum.join(login_scopes(config), " ")
+      }
 
-      {:ok,
-       "#{Config.domain_base_url(Map.fetch!(config, "domain"))}/open-apis/authen/v1/authorize?#{query}"}
+      if get_in(config, ["oidc", "requestPersonalConnectorScopes"]) == true do
+        Connector.oauth_authorize_url(connector_config(config), config, params)
+      else
+        query = params |> Map.put("app_id", Map.fetch!(config, "appID")) |> URI.encode_query()
+
+        {:ok,
+         "#{Config.domain_base_url(Map.fetch!(config, "domain"))}/open-apis/authen/v1/authorize?#{query}"}
+      end
+    end
+  end
+
+  defp login_scopes(config) do
+    scopes = get_in(config, ["oidc", "scopes"]) || []
+
+    if get_in(config, ["oidc", "requestPersonalConnectorScopes"]) == true,
+      do:
+        Enum.uniq(
+          scopes ++ ["offline_access" | get_in(config, ["oidc", "personalConnectorScopes"]) || []]
+        ),
+      else: scopes
+  end
+
+  def complete_connector_login_in_tx(config, login, principal) do
+    if get_in(config, ["oidc", "requestPersonalConnectorScopes"]) == true do
+      tokens =
+        Map.new(login.token, fn {key, value} -> {to_string(key), value} end) |> Map.delete("raw")
+
+      with {:ok, _} <-
+             Ankole.Connectors.Accounts.put_human_tokens_in_tx(
+               config["authConfigId"],
+               principal.uid,
+               tokens,
+               %{
+                 external_subject_id: login.user["user_id"] || login.user["open_id"],
+                 public_metadata: Ankole.Plugins.LarkAdapter.Connector.user_metadata(login.user),
+                 granted_scopes:
+                   String.split(tokens["scope"] || Enum.join(login_scopes(config), " "), " ",
+                     trim: true
+                   )
+               }
+             ),
+           do: :ok
+    else
+      :ok
     end
   end
 
@@ -71,12 +111,38 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     client = Config.client(config)
 
     with {:ok, token} <-
-           Auth.user_access_token(client, code, redirect_uri: Keyword.get(opts, :redirect_uri)),
+           exchange_token(config, client, code, opts),
          {:ok, user_info} <- user_info(client, token.access_token),
          {:ok, hydrated} <- hydrate_contact_user(client, user_info) do
       {:ok, %{token: token, user: hydrated}}
     end
   end
+
+  defp exchange_token(config, client, code, opts) do
+    if get_in(config, ["oidc", "requestPersonalConnectorScopes"]) == true do
+      with {:ok, token} <-
+             Connector.oauth_tokens(connector_config(config), config, %{
+               "grant_type" => "authorization_code",
+               "code" => code,
+               "redirect_uri" => Keyword.get(opts, :redirect_uri)
+             }) do
+        {:ok,
+         %{
+           access_token: token["access_token"],
+           refresh_token: token["refresh_token"],
+           token_type: token["token_type"],
+           expires_in: token["expires_in"],
+           refresh_expires_in: token["refresh_expires_in"],
+           scope: token["scope"],
+           raw: token
+         }}
+      end
+    else
+      Auth.user_access_token(client, code, redirect_uri: Keyword.get(opts, :redirect_uri))
+    end
+  end
+
+  defp connector_config(config), do: %{public_metadata: %{"domain" => config["domain"]}}
 
   @doc """
   Merges one Lark contact user into the Principal platform-subject model.

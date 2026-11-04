@@ -1,4 +1,7 @@
 defmodule Ankole.Plugins.WhatsAppAdapter do
+  @impl true
+  def activation, do: :always
+
   @moduledoc "First-party WhatsApp consumer IM adapter on the Cloud API."
 
   @behaviour Ankole.Plugins.Plugin

@@ -9,7 +9,7 @@ Each Agent has its own isolated computer, called an Agent Computer Worker. When 
 
 ## Execution and ownership
 
-Inside the Worker, the Bun runtime executes shell commands, file and browser tools, Skills, MCP calls, automation scripts, and Codex Jobs. Durable orchestration stays in the Elixir control plane: `Ankole.Sessions` drives the main Agent loop, commits consumed inputs and tool results, and owns final replies, while AIGateway manages the stored Response chain and hosted tools.
+Inside the Worker, the Bun runtime executes shell commands, file and browser tools, Skills, MCP calls, and Codex Jobs. Durable orchestration stays in the Elixir control plane: `Ankole.Sessions` drives the main Agent loop, commits consumed inputs and tool results, and owns final replies, while AIGateway manages the stored Response chain and hosted tools.
 
 When booting a Worker, the control plane injects `WORKER_ID`, the RuntimeFabric endpoint, generation credentials, and storage settings. Each Worker serves only its assigned Agent, strips control-plane credentials from child process environments, and never opens a database connection. The container itself forms the Agent's isolation boundary, where commands run as `uid` `1000` without `sudo`.
 

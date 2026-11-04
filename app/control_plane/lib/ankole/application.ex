@@ -67,6 +67,8 @@ defmodule Ankole.Application do
         {Task.Supervisor, name: Ankole.AIGateway.ProgramTaskSupervisor, max_children: 4},
         {Task.Supervisor, name: Ankole.AIGateway.BrainTaskSupervisor, max_children: 64},
         {Task.Supervisor, name: Ankole.Pod.AppletTaskSupervisor},
+        Ankole.Connectors.AppTokenCache,
+        Ankole.Connectors.RemoteMCP,
         {Task.Supervisor,
          name: Ankole.AIGateway.ResponseRecoveryTaskSupervisor, max_children: 16},
         Ankole.AIGateway.ResponseStream.Supervisor,

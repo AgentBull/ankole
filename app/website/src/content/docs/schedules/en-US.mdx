@@ -85,13 +85,13 @@ Tell me if it failed, became blocked, or changed state. Stay silent if nothing c
 
 Open the **Checkbacks** tab in the Console to view pending reminders for a conversation, inspect their due times, reasons, and routing rules, or cancel any reminder that you do not need.
 
-## Use an automation job for a mechanical check
+## Applet Job schedules
 
-Normally, a Cron fire or Checkback appends an event that wakes the target Agent conversation. When the check is purely deterministic—such as fetching an endpoint, parsing JSON, comparing a threshold, or running a fixed action—ask the Agent to create an Automation Job and bind the schedule or Checkback to its `automation_job_id`. Ankole records the same trigger event, but runs the deterministic script instead of starting a model turn; the script can exit silently when everything looks normal or call `emitEvent` to wake the owning conversation when judgment is needed.
+For deterministic work, publish an Applet Action and create a Job in the Applet's Automation panel. Add a schedule directly to that Job; no Agent session, task prompt, or chat destination is required. Configure Cron, a fixed interval, or a one-time date, choose the timezone, and supply the JSON payload the Action needs.
 
-For instance, a five-minute price monitor can run as an Automation Job script, staying silent while the price remains above your threshold and emitting the observed price and source metadata only once it drops below. Reserve direct Agent wake-ups for runs that genuinely require reasoning, memory, or prose generation on every fire.
+The panel supports editing, pausing, resuming, running once and deleting schedules. Inspect fire history and linked Runs, including failures and coalesced inputs. The Action reads event data through `ctx.signal.data` and stores durable progress in `ctx.state`. Personal schedules follow the Job owner's authority; team schedules follow Page edit access.
 
-See [Automation Jobs](../automation-jobs/) for lifecycle, run history, and teardown rules, and [Worker CLI capabilities](../cli-capabilities/) for the TypeScript SDK and CLI contract.
+Agent-created Cron and Checkback sources can also route to an Applet Job through their consumer binding. Keep a direct Agent consumer when every delivery needs judgment or conversation. See [Automation Jobs](../automation-jobs/) and [Worker CLI capabilities](../cli-capabilities/).
 
 ## Common problems
 

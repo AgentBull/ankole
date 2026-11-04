@@ -1,6 +1,6 @@
 ---
 name: pptx
-description: "Create, read, edit, replicate, combine, or split PowerPoint (.pptx) decks. Use whenever .pptx is input or output, or supplied Markdown, documents, outlines, PDFs, or reference images must become an editable slide presentation. Lark cloud slides and tokens belong to lark-office-suite."
+description: "Create, read, edit, replicate, combine, or split PowerPoint (.pptx) decks. Use whenever .pptx is input or output, or supplied Markdown, documents, outlines, PDFs, or reference images must become an editable slide presentation."
 default_enabled: true
 category: productivity
 ankole-runtime: background_job

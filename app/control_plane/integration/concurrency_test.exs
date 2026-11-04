@@ -47,6 +47,62 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     assert {:error, :tenant_suspended} = finish(admission)
   end
 
+  test "a Human's background Job and Chat can start concurrently for the same Agent" do
+    %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+    %{principal: agent} = RuntimeCase.agent_fixture(%{owner_principal_uid: human.uid})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
+
+    assert {:ok, _} =
+             RuntimeCase.admit_worker(RuntimeCase.unique_route(), %{worker_id: agent.uid})
+
+    message_id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Ankole.ConversationsFixtures.create(human, %{
+               conversation_id: Ecto.UUID.generate(),
+               message_id: message_id,
+               agent_uid: agent.uid,
+               room_mode: :group,
+               text: "Prepare a report while we continue this conversation."
+             })
+
+    source = Repo.get_by!(Signal, message_id: message_id)
+
+    # Keep the committed inputs queued so each real admission has one caller.
+    assert {:ok, %{job: job, dispatch_event: dispatch}} =
+             Repo.transact(fn ->
+               Ankole.BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(%{
+                 "agent_uid" => agent.uid,
+                 "owner_session_id" => source.session_id,
+                 "source_signal_id" => source.id,
+                 "source_tool_call_id" => Ecto.UUID.generate(),
+                 "title" => "Concurrent report",
+                 "task" => "Prepare the report.",
+                 "reply_route" => %{"conversation_id" => source.conversation_id}
+               })
+             end)
+
+    background =
+      pause_after_query(
+        fn -> Admission.admit(dispatch, dispatch) end,
+        fn metadata ->
+          metadata.source == "principals" and
+            Regex.match?(~r/FOR (?:NO KEY )?UPDATE/, metadata.query)
+        end
+      )
+
+    chat = start_unboxed(fn -> Admission.admit(source, source) end)
+    assert_blocked_by(chat, background)
+    send(background.task.pid, :continue_query)
+
+    assert {:ok, %CodexJob.Attempt{job_ref: job_ref}} = finish(background)
+    assert job_ref.job_id == job.id
+    assert {:ok, %Ankole.Sessions.Run{signal_id: signal_id}} = finish(chat)
+    assert signal_id == source.id
+    assert Repo.get!(Signal, dispatch.id).status == :running
+    assert BackgroundAgentJobs.get_job(job.id).status == :running
+  end
+
   test "an ordinary OIDC edit preserves a secret rotated while the edit waits" do
     alias Ankole.OIDC
     alias Ankole.OIDC.Client
@@ -263,55 +319,6 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       assert {:ok, _worker} = finish(first)
       assert {:ok, worker} = finish(second)
       assert AgentWorker.available_slots(worker) == 0
-    end
-
-    test "starting a run waits for cancellation without holding its Run lock", %{agent: agent} do
-      alias Ankole.AutomationJobs
-
-      {job, run} =
-        Sandbox.unboxed_run(Repo, fn ->
-          Ankole.FilesFixtures.drive_file_fixture(agent.uid, "automation/test/main.ts")
-
-          assert {:ok, job} =
-                   AutomationJobs.create_job(%{
-                     agent_uid: agent.uid,
-                     owner_session_id: "cancel-race",
-                     source_signal_id: Ankole.WorkFixtures.service_source(agent.uid).id,
-                     drive_prefix: "automation/test",
-                     label: "Cancellation race"
-                   })
-
-          event = %{
-            "specversion" => "1.0",
-            "id" => "cancel-race",
-            "source" => "test://automation",
-            "type" => "test.triggered",
-            "data" => %{}
-          }
-
-          assert {:ok, %{automation_job_run: run}} =
-                   Repo.transact(fn ->
-                     AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, event)
-                   end)
-
-          {job, run}
-        end)
-
-      cancel =
-        pause_after_query(
-          fn -> AutomationJobs.cancel_job(agent.uid, job.owner_session_id, job.id) end,
-          fn metadata ->
-            metadata.source == "automation_jobs" and
-              String.contains?(metadata.query, "FOR UPDATE")
-          end
-        )
-
-      start = start_unboxed(fn -> AutomationJobs.start_attempt(run.id) end)
-      assert_blocked_by(start, cancel)
-      send(cancel.task.pid, :continue_query)
-      assert {:ok, %{status: :cancelled}} = finish(cancel)
-      assert {:ok, :noop} = finish(start)
-      assert Repo.get!(Ankole.AutomationJobs.Schemas.Run, run.id).status == :cancelled
     end
   end
 
@@ -732,10 +739,13 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     test "duplicate terminal RPCs commit once and seed one successor for unapplied input", ctx do
       # The RPC owns its transaction, so the test pauses it while it holds the Job lock.
       first = pause_after_query(fn -> terminal_job_rpc(ctx) end, &second_job_lock?/1)
+      second = start_unboxed(fn -> terminal_job_rpc(ctx) end)
+      assert_blocked_by(second, first)
       repeated = start_unboxed(fn -> terminal_job_rpc(ctx) end)
       assert_blocked_by(repeated, first)
       send(first.task.pid, :continue_query)
       assert_terminal_rpc(finish(first))
+      assert_terminal_rpc(finish(second))
       assert_terminal_rpc(finish(repeated))
       assert Repo.get!(Job, ctx.job.id).status == :succeeded
       assert Repo.get!(Signal, ctx.steer.id).completed_at
@@ -812,13 +822,64 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       assert Enum.sort(Enum.map(providers, & &1["provider_id"])) == Enum.sort(ctx.provider_ids)
       assert Enum.all?(providers, &(&1["enabled"] == false))
 
-      for {provider_id, app_id} <- [{first_id, first_app_id}, {second_id, second_app_id}] do
-        key = "principals.identity_providers.lark.#{provider_id}"
-        assert {:ok, %{"appID" => ^app_id}} = AppConfigure.get_by_key(key)
+      connection_ids =
+        for {provider_id, app_id} <- [{first_id, first_app_id}, {second_id, second_app_id}] do
+          key = "principals.identity_providers.lark.#{provider_id}"
 
-        assert %AppConfig{value: %{"type" => "cipher"}} =
-                 Repo.get_by!(AppConfig, scope: ctx.scope, key: key)
-      end
+          assert {:ok, %{"appID" => ^app_id, "authConfigId" => connection_id}} =
+                   AppConfigure.get_by_key(key)
+
+          assert %AppConfig{value: %{"type" => "cipher"}} =
+                   Repo.get_by!(AppConfig, scope: ctx.scope, key: key)
+
+          connection_id
+        end
+
+      [first_connection, second_connection] = connection_ids
+      refute first_connection == second_connection
+
+      assert {:ok, %{id: ^first_connection}} =
+               Ankole.Connectors.Store.get_auth_config(nil, "lark")
+
+      assert {:ok, %{is_default: false}} =
+               Ankole.Connectors.Store.get_auth_config(second_connection)
+    end
+
+    test "concurrent identity and IM setup for the same application share one credential root",
+         ctx do
+      [provider_id | _] = ctx.provider_ids
+      [app_id | _] = ctx.app_ids
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      credentials = %{"appID" => app_id, "appSecret" => "shared-secret"}
+
+      identity = paused_provider_save(provider_id, "lark", credentials, false)
+
+      messaging =
+        start_unboxed(fn ->
+          Ankole.Signals.Bindings.put_binding(agent.uid, "lark", "shared-application", %{
+            "config" => Map.put(credentials, "userName", "Shared application bot")
+          })
+        end)
+
+      assert_blocked_by(messaging, identity)
+      send(identity.task.pid, :continue_query)
+      assert {:ok, %{"provider_id" => ^provider_id}} = finish(identity)
+      assert {:ok, %{binding: binding}} = finish(messaging)
+
+      assert {:ok, %{"appID" => ^app_id, "authConfigId" => root_id}} =
+               AppConfigure.get_by_key("principals.identity_providers.lark.#{provider_id}")
+
+      assert binding.auth_config_id == root_id
+
+      assert {:ok,
+              %{
+                "appID" => ^app_id,
+                "authConfigId" => ^root_id,
+                "userName" => "Shared application bot"
+              }} =
+               Ankole.Signals.Bindings.stored_binding_config(binding)
+
+      assert [%{id: ^root_id, is_default: true}] = Repo.all(Ankole.Connectors.AuthConfig)
     end
 
     test "concurrent local password provider requests are rejected without configuration writes",
@@ -961,16 +1022,45 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   end
 
   defp assert_blocked_by(waiter, holder) do
-    assert {:ok, true} =
-             wait_until(deadline(5_000), fn ->
-               %{rows: [[blocked]]} =
-                 Repo.query!("SELECT $1 = ANY(pg_blocking_pids($2))", [
-                   holder.backend_pid,
-                   waiter.backend_pid
-                 ])
+    # A queued row locker can stand between the waiter and the original holder.
+    result =
+      wait_until(deadline(5_000), fn ->
+        %{rows: [[blocked]]} =
+          Repo.query!(
+            """
+            WITH RECURSIVE blockers(pid) AS (
+              SELECT unnest(pg_blocking_pids($2))
+              UNION
+              SELECT unnest(pg_blocking_pids(pid)) FROM blockers
+            )
+            SELECT EXISTS(SELECT 1 FROM blockers WHERE pid = $1)
+            """,
+            [holder.backend_pid, waiter.backend_pid]
+          )
 
-               blocked
-             end)
+        blocked
+      end)
+
+    if result != {:ok, true} do
+      activity =
+        Repo.query!(
+          """
+          SELECT pid, state, wait_event_type, wait_event, pg_blocking_pids(pid), query
+          FROM pg_stat_activity
+          WHERE datname = current_database()
+            AND (pid IN ($1, $2) OR cardinality(pg_blocking_pids(pid)) > 0)
+          ORDER BY pid
+          """,
+          [waiter.backend_pid, holder.backend_pid]
+        )
+
+      flunk("""
+      expected backend #{waiter.backend_pid} to wait for backend #{holder.backend_pid}
+      wait result: #{inspect(result)}
+      waiter result: #{inspect(Task.yield(waiter.task, 0))}
+      database activity: #{inspect(activity.rows, pretty: true, limit: :infinity)}
+      """)
+    end
   end
 
   defp release(operation), do: send(operation.task.pid, :commit_transaction)

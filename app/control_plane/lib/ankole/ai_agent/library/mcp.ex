@@ -2,9 +2,11 @@ defmodule Ankole.AIAgent.Library.MCP do
   @moduledoc "Resolves MCP declarations and credentials from an executing Principal's enabled Skills."
   alias Ankole.AIAgent.Library
 
-  def resolve(principal, skill, name) when is_binary(skill) and is_binary(name) do
+  def resolve(principal, skill, name, opts \\ [])
+
+  def resolve(principal, skill, name, opts) when is_binary(skill) and is_binary(name) do
     with {:ok, uid} <- agent_uid(principal),
-         {:ok, %{"content" => yaml}} <- Library.skill_view(uid, skill, "agents/openai.yaml"),
+         {:ok, %{"content" => yaml}} <- Library.skill_view(uid, skill, "agents/openai.yaml", opts),
          {:ok, metadata} when is_map(metadata) <- YamlElixir.read_from_string(yaml),
          %{"type" => "mcp", "value" => ^name} = declaration <-
            Enum.find(declarations(metadata), &match?(%{"type" => "mcp", "value" => ^name}, &1)),
@@ -17,7 +19,31 @@ defmodule Ankole.AIAgent.Library.MCP do
     end
   end
 
-  def resolve(_, _, _), do: {:error, :mcp_skill_and_server_required}
+  def resolve(_, _, _, _), do: {:error, :mcp_skill_and_server_required}
+
+  def credential_env_keys do
+    with {:ok, files} <- Ankole.AIAgent.Library.Skills.mcp_metadata_files() do
+      Enum.reduce_while(files, {:ok, []}, fn file, {:ok, keys} ->
+        with {:ok, yaml} <- Ankole.Files.read_object(file.object_id) do
+          {:cont, {:ok, credential_env_keys_from_yaml(yaml) ++ keys}}
+        else
+          error -> {:halt, error}
+        end
+      end)
+    end
+  end
+
+  defp credential_env_keys_from_yaml(yaml) do
+    case YamlElixir.read_from_string(yaml) do
+      {:ok, metadata} ->
+        for %{"type" => "mcp", "bearer_token_env_var" => key} <- declarations(metadata),
+            is_binary(key),
+            do: key
+
+      {:error, _} ->
+        []
+    end
+  end
 
   defp declarations(%{"dependencies" => %{"tools" => tools}}) when is_list(tools), do: tools
   defp declarations(_), do: []

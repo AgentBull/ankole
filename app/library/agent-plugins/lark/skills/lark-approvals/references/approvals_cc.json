@@ -1,0 +1,36 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Approvals cc.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "approval_code": {
+        "type": "string"
+      },
+      "cc_user_ids": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "comment": {
+        "type": "string"
+      },
+      "instance_code": {
+        "type": "string"
+      }
+    },
+    "required": ["instance_code", "cc_user_ids"],
+    "type": "object"
+  },
+  "name": "approvals_cc",
+  "outputSchema": {
+    "properties": {},
+    "type": "object"
+  }
+}

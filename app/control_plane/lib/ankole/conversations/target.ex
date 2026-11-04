@@ -97,10 +97,8 @@ defmodule Ankole.Conversations.Target do
 
   def reply_eligible?(%__MODULE__{kind: :native}, _event), do: true
 
-  def reply_eligible?(%__MODULE__{kind: :external} = target, event) do
-    is_binary(target.conversation_id) and valid_route?(target) and
-      event.type in Ankole.Conversations.Delivery.Preview.channel_reply_event_types()
-  end
+  def reply_eligible?(%__MODULE__{kind: :external} = target, _event),
+    do: is_binary(target.conversation_id) and valid_route?(target)
 
   defp valid_route?(%__MODULE__{
          kind: :native,

@@ -1,0 +1,64 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Im download resource.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "destination": {
+        "additionalProperties": false,
+        "properties": {
+          "base_object_id": {
+            "type": ["string", "null"]
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "page_id": {
+            "type": "string"
+          },
+          "role": {
+            "enum": ["file", "asset", "attachment"],
+            "type": "string"
+          }
+        },
+        "required": ["page_id", "role", "name"],
+        "type": "object"
+      },
+      "file_key": {
+        "type": "string"
+      },
+      "message_id": {
+        "type": "string"
+      },
+      "type": {
+        "type": "string"
+      }
+    },
+    "required": ["message_id", "file_key", "type", "destination"],
+    "type": "object"
+  },
+  "name": "im_download_resource",
+  "outputSchema": {
+    "properties": {
+      "content_type": {
+        "type": "string"
+      },
+      "file_ref": {
+        "type": "string"
+      },
+      "size": {
+        "type": "integer"
+      }
+    },
+    "required": ["file_ref"],
+    "type": "object"
+  }
+}

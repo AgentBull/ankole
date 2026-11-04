@@ -1,4 +1,7 @@
 defmodule Ankole.Plugins.TelegramAdapter do
+  @impl true
+  def activation, do: :always
+
   @moduledoc "First-party Telegram consumer IM adapter."
 
   @behaviour Ankole.Plugins.Plugin

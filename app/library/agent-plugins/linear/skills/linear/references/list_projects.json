@@ -1,0 +1,91 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List projects with cursor pagination.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "cursor": {
+        "type": ["string", "null"]
+      },
+      "includeArchived": {
+        "type": "boolean"
+      },
+      "lead": {
+        "type": ["string", "null"]
+      },
+      "limit": {
+        "type": "integer"
+      },
+      "query": {
+        "type": ["string", "null"]
+      },
+      "state": {
+        "type": ["string", "null"]
+      },
+      "team": {
+        "type": ["string", "null"]
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "name": "list_projects",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "properties": {
+          "cursor": {
+            "type": ["string", "null"]
+          },
+          "has_next_page": {
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "properties": {
+                "content": {
+                  "type": ["string", "null"]
+                },
+                "description": {
+                  "type": ["string", "null"]
+                },
+                "id": {
+                  "type": ["string", "null"]
+                },
+                "lead": {
+                  "type": ["object", "string", "null"]
+                },
+                "name": {
+                  "type": ["string", "null"]
+                },
+                "startDate": {
+                  "type": ["string", "null"]
+                },
+                "status": {
+                  "type": ["object", "string", "null"]
+                },
+                "targetDate": {
+                  "type": ["string", "null"]
+                },
+                "url": {
+                  "type": ["string", "null"]
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["items", "has_next_page", "cursor"],
+        "type": "object"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

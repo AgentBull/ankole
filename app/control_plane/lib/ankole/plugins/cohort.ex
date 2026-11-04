@@ -31,6 +31,7 @@ defmodule Ankole.Plugins.Cohort do
             id: Registry,
             start: {Registry, :start_link, [[name: registry_name, snapshot: snapshot]]}
           },
+          Ankole.Connectors.LegacyUpgrade,
           {Ankole.Plugins.Supervisor, registry: registry_name, name: runtime_supervisor_name}
         ]
 

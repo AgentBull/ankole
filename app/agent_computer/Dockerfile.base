@@ -44,7 +44,6 @@ RUN sed -i \
     file \
     fontconfig \
     ghostscript \
-    gh \
     git \
     gnupg \
     grep \

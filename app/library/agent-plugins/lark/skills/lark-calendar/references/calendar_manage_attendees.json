@@ -1,0 +1,262 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Calendar manage attendees.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "anyOf": [
+      {
+        "properties": {
+          "operation": {
+            "const": "add"
+          }
+        },
+        "required": ["attendees"]
+      },
+      {
+        "properties": {
+          "operation": {
+            "const": "remove"
+          }
+        },
+        "required": ["attendee_ids"]
+      }
+    ],
+    "properties": {
+      "add_operator_to_attendee": {
+        "type": "boolean"
+      },
+      "attendee_ids": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "attendees": {
+        "items": {
+          "properties": {
+            "approval_reason": {
+              "type": "string"
+            },
+            "attendee_id": {
+              "type": "string"
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "chat_members": {
+              "items": {
+                "properties": {
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "is_external": {
+                    "type": "boolean"
+                  },
+                  "is_optional": {
+                    "type": "boolean"
+                  },
+                  "is_organizer": {
+                    "type": "boolean"
+                  },
+                  "rsvp_status": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "display_name": {
+              "type": "string"
+            },
+            "is_external": {
+              "type": "boolean"
+            },
+            "is_optional": {
+              "type": "boolean"
+            },
+            "is_organizer": {
+              "type": "boolean"
+            },
+            "operate_id": {
+              "type": "string"
+            },
+            "principal_uid": {
+              "description": "Ankole human UID; resolves the verified Lark employee identity and sets type=user.",
+              "type": "string"
+            },
+            "resource_customization": {
+              "items": {
+                "properties": {
+                  "index_key": {
+                    "type": "string"
+                  },
+                  "input_content": {
+                    "type": "string"
+                  },
+                  "options": {
+                    "items": {
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "room_id": {
+              "type": "string"
+            },
+            "rsvp_status": {
+              "type": "string"
+            },
+            "third_party_email": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "calendar_id": {
+        "type": "string"
+      },
+      "event_id": {
+        "type": "string"
+      },
+      "instance_start_time_admin": {
+        "type": "string"
+      },
+      "is_enable_admin": {
+        "type": "boolean"
+      },
+      "need_notification": {
+        "type": "boolean"
+      },
+      "operation": {
+        "enum": ["add", "remove"],
+        "type": "string"
+      },
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "user_id_type": {
+        "enum": ["user_id"],
+        "type": "string"
+      }
+    },
+    "required": ["event_id", "operation"],
+    "type": "object"
+  },
+  "name": "calendar_manage_attendees",
+  "outputSchema": {
+    "properties": {
+      "attendees": {
+        "items": {
+          "properties": {
+            "approval_reason": {
+              "type": "string"
+            },
+            "attendee_id": {
+              "type": "string"
+            },
+            "chat_id": {
+              "type": "string"
+            },
+            "chat_members": {
+              "items": {
+                "properties": {
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "is_external": {
+                    "type": "boolean"
+                  },
+                  "is_optional": {
+                    "type": "boolean"
+                  },
+                  "is_organizer": {
+                    "type": "boolean"
+                  },
+                  "rsvp_status": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "display_name": {
+              "type": "string"
+            },
+            "is_external": {
+              "type": "boolean"
+            },
+            "is_optional": {
+              "type": "boolean"
+            },
+            "is_organizer": {
+              "type": "boolean"
+            },
+            "operate_id": {
+              "type": "string"
+            },
+            "resource_customization": {
+              "items": {
+                "properties": {
+                  "index_key": {
+                    "type": "string"
+                  },
+                  "input_content": {
+                    "type": "string"
+                  },
+                  "options": {
+                    "items": {
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "room_id": {
+              "type": "string"
+            },
+            "rsvp_status": {
+              "type": "string"
+            },
+            "third_party_email": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  }
+}

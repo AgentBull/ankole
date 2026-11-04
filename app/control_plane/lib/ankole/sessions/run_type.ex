@@ -32,7 +32,7 @@ defmodule Ankole.Sessions.RunType do
       def failure(reason) do
         error =
           cond do
-            is_map(reason) ->
+            is_map(reason) and not is_struct(reason) ->
               reason
 
             reason == :turn_completion_has_no_user_visible_projection ->

@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Read a workspace member by ID, name, email, or me.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "query": {
+        "type": ["string", "null"]
+      }
+    },
+    "required": ["query"],
+    "type": "object"
+  },
+  "name": "get_user",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "properties": {
+          "displayName": {
+            "type": ["string", "null"]
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "id": {
+            "type": ["string", "null"]
+          },
+          "name": {
+            "type": ["string", "null"]
+          }
+        },
+        "type": "object"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

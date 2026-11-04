@@ -21,9 +21,6 @@ import type {
   AssignAgentWorkerProviderData,
   AssignAgentWorkerProviderErrors,
   AssignAgentWorkerProviderResponses,
-  BackgroundActivityAutomationRunsData,
-  BackgroundActivityAutomationRunsErrors,
-  BackgroundActivityAutomationRunsResponses,
   BackgroundActivityJobsData,
   BackgroundActivityJobsErrors,
   BackgroundActivityJobsResponses,
@@ -288,6 +285,12 @@ import type {
   ListCheckbacksData,
   ListCheckbacksErrors,
   ListCheckbacksResponses,
+  ListConnectorAuthConfigsData,
+  ListConnectorAuthConfigsErrors,
+  ListConnectorAuthConfigsResponses,
+  ListConnectorCatalogData,
+  ListConnectorCatalogErrors,
+  ListConnectorCatalogResponses,
   ListCronScheduleRunsData,
   ListCronScheduleRunsErrors,
   ListCronScheduleRunsResponses,
@@ -1258,14 +1261,14 @@ export const listSignalBindings = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * get_automation_job operation on automation_job resource
+ * list_connector_auth_configs operation on app_configuration_operation resource
  */
-export const getAutomationJob = <ThrowOnError extends boolean = false>(
-  options: Options<GetAutomationJobData, ThrowOnError>
-): RequestResult<GetAutomationJobResponses, GetAutomationJobErrors, ThrowOnError> =>
-  (options.client ?? client).get<GetAutomationJobResponses, GetAutomationJobErrors, ThrowOnError>({
+export const listConnectorAuthConfigs = <ThrowOnError extends boolean = false>(
+  options?: Options<ListConnectorAuthConfigsData, ThrowOnError>
+): RequestResult<ListConnectorAuthConfigsResponses, ListConnectorAuthConfigsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListConnectorAuthConfigsResponses, ListConnectorAuthConfigsErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{agent_uid}/automation-jobs/{id}',
+    url: '/api/v2/connector-auth-configs',
     ...options
   })
 
@@ -1536,22 +1539,6 @@ export const changeHumanMembership = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * background_activity_automation_runs operation on background_activities_operation resource
- */
-export const backgroundActivityAutomationRuns = <ThrowOnError extends boolean = false>(
-  options: Options<BackgroundActivityAutomationRunsData, ThrowOnError>
-): RequestResult<BackgroundActivityAutomationRunsResponses, BackgroundActivityAutomationRunsErrors, ThrowOnError> =>
-  (options.client ?? client).get<
-    BackgroundActivityAutomationRunsResponses,
-    BackgroundActivityAutomationRunsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{agent_uid}/background-activities/automation-runs',
-    ...options
-  })
-
-/**
  * review_identity_directory_event operation on identity_provider_operation resource
  */
 export const reviewIdentityDirectoryEvent = <ThrowOnError extends boolean = false>(
@@ -1624,14 +1611,14 @@ export const resetAgentTokenQuota = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * list_automation_job_runs operation on automation_job_run resource
+ * list_connector_catalog operation on app_configuration_operation resource
  */
-export const listAutomationJobRuns = <ThrowOnError extends boolean = false>(
-  options: Options<ListAutomationJobRunsData, ThrowOnError>
-): RequestResult<ListAutomationJobRunsResponses, ListAutomationJobRunsErrors, ThrowOnError> =>
-  (options.client ?? client).get<ListAutomationJobRunsResponses, ListAutomationJobRunsErrors, ThrowOnError>({
+export const listConnectorCatalog = <ThrowOnError extends boolean = false>(
+  options?: Options<ListConnectorCatalogData, ThrowOnError>
+): RequestResult<ListConnectorCatalogResponses, ListConnectorCatalogErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListConnectorCatalogResponses, ListConnectorCatalogErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{agent_uid}/automation-jobs/{automation_job_id}/runs',
+    url: '/api/v2/connector-catalog',
     ...options
   })
 
@@ -2026,6 +2013,18 @@ export const setAgentLibraryPlugin = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * get_automation_job operation on automation_job resource
+ */
+export const getAutomationJob = <ThrowOnError extends boolean = false>(
+  options: Options<GetAutomationJobData, ThrowOnError>
+): RequestResult<GetAutomationJobResponses, GetAutomationJobErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetAutomationJobResponses, GetAutomationJobErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/automation-jobs/{id}',
+    ...options
+  })
+
+/**
  * archive_brain_source operation on brain_source resource
  */
 export const archiveBrainSource = <ThrowOnError extends boolean = false>(
@@ -2086,6 +2085,18 @@ export const listAgentWorkerEnvs = <ThrowOnError extends boolean = false>(
   (options.client ?? client).get<ListAgentWorkerEnvsResponses, ListAgentWorkerEnvsErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/agents/{agent_uid}/worker-envs',
+    ...options
+  })
+
+/**
+ * list_automation_job_runs operation on automation_job_run resource
+ */
+export const listAutomationJobRuns = <ThrowOnError extends boolean = false>(
+  options: Options<ListAutomationJobRunsData, ThrowOnError>
+): RequestResult<ListAutomationJobRunsResponses, ListAutomationJobRunsErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListAutomationJobRunsResponses, ListAutomationJobRunsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/automation-jobs/{automation_job_id}/runs',
     ...options
   })
 

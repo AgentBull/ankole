@@ -2509,7 +2509,7 @@ export const signalAdvanced = {
 
 <DocsKnowledgeNote
   label="💡 知っていましたか？"
-  text="Worker のコンテナ（または Pod）そのものが唯一の分離境界です。Agent が実行するコマンド、Automation スクリプト、ブラウザ操作は内側の追加サンドボックスなしでそのコンテナ内で直接動作し、特権的なカーネル権限も必要としません。Agent が自分の Worker 内にソフトウェアを入れたり環境を壊したりすることはあっても、別の Agent になりすますことはできません。また、規定時間内に準備完了にならない Worker は control plane が自動的に再構築します。"
+  text="Worker のコンテナ（または Pod）そのものが唯一の分離境界です。Agent が実行するコマンド、ブラウザ操作は内側の追加サンドボックスなしでそのコンテナ内で直接動作し、特権的なカーネル権限も必要としません。Agent が自分の Worker 内にソフトウェアを入れたり環境を壊したりすることはあっても、別の Agent になりすますことはできません。また、規定時間内に準備完了にならない Worker は control plane が自動的に再構築します。"
 />
 
 すべてのデプロイメントには、PostgreSQL、ドライブ用のファイルストア、および Agent ごとの永続 Home ストレージが必要です。Kubernetes の既定 Helm chart では、共有の ReadWriteMany Home PVC と、それとは別の ReadWriteOnce キャッシュ PVC を使用します（Home はバックアップ必須ですが、キャッシュは再構築可能なためバックアップ不要です）。

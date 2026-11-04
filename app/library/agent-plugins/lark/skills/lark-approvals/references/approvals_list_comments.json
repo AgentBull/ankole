@@ -1,0 +1,113 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Approvals list comments.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "instance_id": {
+        "type": "string"
+      },
+      "page_size": {
+        "type": "integer"
+      },
+      "page_token": {
+        "type": "string"
+      }
+    },
+    "required": ["instance_id"],
+    "type": "object"
+  },
+  "name": "approvals_list_comments",
+  "outputSchema": {
+    "properties": {
+      "comments": {
+        "items": {
+          "properties": {
+            "at_info_list": {
+              "items": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "offset": {
+                    "type": "string"
+                  },
+                  "user_id": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "commentator": {
+              "type": "string"
+            },
+            "content": {
+              "type": "string"
+            },
+            "create_time": {
+              "type": "string"
+            },
+            "extra": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "is_delete": {
+              "type": "integer"
+            },
+            "replies": {
+              "items": {
+                "properties": {
+                  "at_info_list": {
+                    "items": {
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "commentator": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "create_time": {
+                    "type": "string"
+                  },
+                  "extra": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "is_delete": {
+                    "type": "integer"
+                  },
+                  "update_time": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "update_time": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  }
+}

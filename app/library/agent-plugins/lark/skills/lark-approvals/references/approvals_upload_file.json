@@ -1,0 +1,36 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Upload an approval attachment from a Pod file.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "file_ref": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "type": {
+        "enum": ["image", "attachment"],
+        "type": "string"
+      }
+    },
+    "required": ["file_ref", "name", "type"],
+    "type": "object"
+  },
+  "name": "approvals_upload_file",
+  "outputSchema": {
+    "properties": {
+      "file_code": {
+        "type": "string"
+      }
+    },
+    "required": ["file_code"],
+    "type": "object"
+  }
+}

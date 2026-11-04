@@ -57,6 +57,7 @@ defmodule Ankole.Pod do
   defdelegate ensure_public_root_in_tx(), to: Nodes
   defdelegate ensure_conversation_root_in_tx(id), to: Nodes
   defdelegate visible_node_ids(reachable, ids \\ nil, bit \\ 1), to: Nodes, as: :visible_ids
+  defdelegate page_live?(id), to: Nodes
   defdelegate ancestor_node_ids(ids), to: Nodes, as: :ancestor_ids
   defdelegate descendant_node_ids(id), to: Nodes, as: :descendants
   defdelegate shared_root_node_ids(ids, reachable), to: Nodes, as: :shared_root_ids
@@ -142,6 +143,86 @@ defmodule Ankole.Pod do
 
     routes do
       base_route "/pages/:page_id", Ankole.AutomationJobs.Browser do
+        route(:get, "/job-actions", :actions,
+          name: "podAppletJobActions",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/jobs/:job_id/runs", :runs,
+          name: "podAppletJobRuns",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/jobs/:job_id/schedules", :schedules_list,
+          name: "podJobSchedulesList",
+          wrap_in_result?: false
+        )
+
+        route(:put, "/jobs/:job_id/schedules", :schedules_put,
+          name: "podJobSchedulesPut",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/jobs/:job_id/schedules/:id/pause", :schedules_pause,
+          name: "podJobSchedulesPause",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/jobs/:job_id/schedules/:id/resume", :schedules_resume,
+          name: "podJobSchedulesResume",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/jobs/:job_id/schedules/:id/run", :schedules_run,
+          name: "podJobSchedulesRun",
+          wrap_in_result?: false
+        )
+
+        route(:delete, "/jobs/:job_id/schedules/:id", :schedules_delete,
+          name: "podJobSchedulesDelete",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/jobs/:job_id/schedules/:id/runs", :schedules_runs,
+          name: "podJobSchedulesRuns",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/jobs/:job_id/webhooks", :webhooks_list,
+          name: "podJobWebhooksList",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/jobs/:job_id/webhooks", :webhooks_create,
+          name: "podJobWebhooksCreate",
+          wrap_in_result?: false
+        )
+
+        route(:patch, "/jobs/:job_id/webhooks/:id", :webhooks_update,
+          name: "podJobWebhooksUpdate",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/jobs/:job_id/webhooks/:id/pause", :webhooks_pause,
+          name: "podJobWebhooksPause",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/jobs/:job_id/webhooks/:id/resume", :webhooks_resume,
+          name: "podJobWebhooksResume",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/jobs/:job_id/webhooks/:id/cancel", :webhooks_cancel,
+          name: "podJobWebhooksCancel",
+          wrap_in_result?: false
+        )
+
+        route(:delete, "/jobs/:job_id/webhooks/:id", :webhooks_delete,
+          name: "podJobWebhooksDelete",
+          wrap_in_result?: false
+        )
+
         route(:get, "/jobs", :list, name: "podAppletJobs", wrap_in_result?: false)
         route(:post, "/jobs", :create, name: "podAppletJobCreate", wrap_in_result?: false)
 

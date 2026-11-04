@@ -12,6 +12,7 @@ defmodule Ankole.Work.Owner do
   defp parent_schemas do
     [
       Ankole.AutomationJobs.Schemas.Job,
+      Ankole.Signals.WebhookEndpoint,
       Ankole.Schedule.Schemas.CronSchedule,
       Ankole.BackgroundAgentJobs.Schemas.Job,
       Ankole.Workflow.Schemas.Run

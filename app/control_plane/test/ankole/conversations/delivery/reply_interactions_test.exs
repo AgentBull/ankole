@@ -107,8 +107,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
     )
 
     assert %{
-             "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => principal_uid,
-             "ANKOLE_RUNTIME_LARK_PROFILE" => "ankole-u-" <> _digest
+             "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => principal_uid
            } = TurnRuntimeEnv.resolve(action_event)
 
     assert principal_uid == human.uid

@@ -64,6 +64,9 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   @doc "Builds the desired connection of one active identity provider."
   @callback identity_spec(provider :: map()) :: {:ok, spec()} | :skip | {:error, term()}
 
+  @doc "Builds desired event connections owned by active connector credentials."
+  @callback connector_specs() :: {:ok, [spec()]} | {:error, term()}
+
   @doc "Returns the registry key of the owner that serves this config and consumer list."
   @callback connection_key(config :: map(), consumers :: [map()]) :: term()
 
@@ -71,7 +74,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   @callback owner_child_spec(key :: term(), config :: map(), consumers :: [map()]) ::
               Supervisor.child_spec() | {module(), term()}
 
-  @optional_callbacks identity_spec: 1
+  @optional_callbacks identity_spec: 1, connector_specs: 0
 
   defmacro __using__(opts) do
     quote bind_quoted: [opts: opts] do
@@ -190,6 +193,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
             |> Ankole.Signals.Bindings.list_enabled_bindings()
             |> Enum.reduce(acc, &add_binding(module, config, &1, &2, opts))
             |> add_identity_providers(module, config)
+            |> add_connector_specs(module, config)
           rescue
             error ->
               Logging.warning(
@@ -273,6 +277,8 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
 
   @impl true
   def init(state) do
+    Phoenix.PubSub.subscribe(Ankole.PubSub, "connector_credentials")
+
     if handler = Application.get_env(:ankole, :connection_lifecycle_error_handler) do
       Process.flag(:error_handler, handler)
     end
@@ -302,6 +308,14 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   def handle_info(:reconcile, state) do
     {_result, state} = run_reconcile(state)
     {:noreply, schedule_next(state)}
+  end
+
+  def handle_info({:connector_credentials_changed, _tenant_id}, %{interval_ms: nil} = state),
+    do: {:noreply, state}
+
+  def handle_info({:connector_credentials_changed, _tenant_id}, state) do
+    {_result, state} = run_reconcile(state)
+    {:noreply, state}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
@@ -536,7 +550,9 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
         {specs, [error |> put_reason(reason) |> Map.put(:blocked_connection_key, key) | errors]}
 
       {:error, reason} ->
-        {specs, [put_reason(error, reason) | errors]}
+        if disabled_configuration?(reason),
+          do: {specs, errors},
+          else: {specs, [put_reason(error, reason) | errors]}
     end
   end
 
@@ -553,6 +569,25 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
 
         {:error, reason} ->
           {specs, [%{tenant_id: Repo.tenant_id!(), provider_id: nil, reason: reason} | errors]}
+      end
+    else
+      acc
+    end
+  end
+
+  defp add_connector_specs({specs, errors} = acc, module, config) do
+    if function_exported?(module, :connector_specs, 0) do
+      case module.connector_specs() do
+        {:ok, connections} ->
+          Enum.reduce(connections, acc, fn spec, {specs, errors} ->
+            merge_spec(module, specs, errors, tenant_spec(spec), %{
+              tenant_id: Repo.tenant_id!(),
+              reason: config.conflict_reason
+            })
+          end)
+
+        {:error, reason} ->
+          {specs, [%{tenant_id: Repo.tenant_id!(), reason: reason} | errors]}
       end
     else
       acc
@@ -576,9 +611,15 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
         {specs, errors}
 
       {:error, reason} ->
-        {specs, [Map.put(error, :reason, reason) | errors]}
+        if disabled_configuration?(reason),
+          do: {specs, errors},
+          else: {specs, [Map.put(error, :reason, reason) | errors]}
     end
   end
+
+  defp disabled_configuration?(:connection_disabled), do: true
+  defp disabled_configuration?({:storage_error, _scope, _key, :connection_disabled}), do: true
+  defp disabled_configuration?(_reason), do: false
 
   # Bindings and identity providers of one app share a single connection with
   # all their consumers. Two configs that disagree about the app secret are
@@ -666,21 +707,39 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
     |> Enum.uniq()
     |> Enum.reject(&Map.has_key?(specs, &1))
     |> Enum.reject(fn key ->
-      case Registry.lookup(registry, key) do
-        [{_pid, {tenant_id, _fingerprint}}] ->
-          MapSet.member?(failed_tenants, tenant_id)
+      retain? =
+        case Registry.lookup(registry, key) do
+          [{_pid, {tenant_id, _fingerprint}}] ->
+            MapSet.member?(failed_tenants, tenant_id)
 
-        [] ->
-          case Map.fetch(connection_specs(module), key) do
-            {:ok, {_config, consumers}} ->
-              MapSet.member?(failed_tenants, tenant_id!(consumers))
+          [] ->
+            case Map.fetch(connection_specs(module), key) do
+              {:ok, {_config, consumers}} ->
+                MapSet.member?(failed_tenants, tenant_id!(consumers))
 
-            :error ->
-              false
-          end
-      end
+              :error ->
+                false
+            end
+        end
+
+      retain? and not disabled_connection?(module, key)
     end)
     |> Enum.count(&(stop(module, &1) == :ok))
+  end
+
+  defp disabled_connection?(module, key) do
+    case Map.get(connection_specs(module), key) do
+      {%{"authConfigId" => id}, consumers} when is_binary(id) ->
+        Repo.with_tenant(tenant_id!(consumers), fn ->
+          match?(
+            {:ok, %{status: "disabled"}},
+            Ankole.Connectors.get_auth_config_for_configuration(id)
+          )
+        end)
+
+      _ ->
+        false
+    end
   end
 
   defp ensure_owner_started(module, key, config, consumers) do

@@ -1,0 +1,72 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Im list chat members.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "chat_id": {
+        "type": "string"
+      },
+      "check_security_conf": {
+        "type": "boolean"
+      },
+      "member_id_type": {
+        "type": "string"
+      },
+      "page_size": {
+        "type": "integer"
+      },
+      "page_token": {
+        "type": "string"
+      }
+    },
+    "required": ["chat_id"],
+    "type": "object"
+  },
+  "name": "im_list_chat_members",
+  "outputSchema": {
+    "properties": {
+      "has_more": {
+        "type": "boolean"
+      },
+      "items": {
+        "items": {
+          "properties": {
+            "member_id": {
+              "type": "string"
+            },
+            "member_id_type": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "tenant_key": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "member_total": {
+        "type": "integer"
+      },
+      "page_token": {
+        "type": "string"
+      },
+      "security_conf_limit": {
+        "type": "integer"
+      },
+      "trigger_security_conf_limit": {
+        "type": "boolean"
+      }
+    },
+    "type": "object"
+  }
+}

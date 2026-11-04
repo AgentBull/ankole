@@ -1987,6 +1987,7 @@ defmodule Ankole.ScheduleTest do
       dispatch_final_reply_intent!(ack.id)
       assert wait_for_final_mirror(ack.id).message.conversation_id == source.conversation_id
       due = DateTime.add(DateTime.utc_now(:microsecond), -1)
+      stub_schedule_driver(schedule)
 
       assert {:ok, _schedule} =
                Repo.transact(fn _ ->
@@ -2039,6 +2040,9 @@ defmodule Ankole.ScheduleTest do
             ),
             now: @base_time
           )
+
+        key = %{agent_uid: agent.uid, session_id: event.session_id}
+        if Ankole.Sessions.driver_pid(key) == :undefined, do: Ankole.SessionsCase.stub_driver(key)
 
         {:ok, %{signal: input}} =
           Schedule.fire_due_event(event.id, now: due)
@@ -2730,17 +2734,32 @@ defmodule Ankole.ScheduleTest do
                end)
     end
 
-    Schedule.create_cron_schedule(
-      attrs,
-      Keyword.put_new(opts, :created_by, %{
-        "kind" => "operator_api",
-        "principal_uid" =>
-          to_string(%Ankole.ActorRef{
-            tenant_id: Repo.tenant_id!(),
-            uid: attrs["agent_uid"] || attrs[:agent_uid]
-          })
-      })
-    )
+    result =
+      Schedule.create_cron_schedule(
+        attrs,
+        Keyword.put_new(opts, :created_by, %{
+          "kind" => "operator_api",
+          "principal_uid" =>
+            to_string(%Ankole.ActorRef{
+              tenant_id: Repo.tenant_id!(),
+              uid: attrs["agent_uid"] || attrs[:agent_uid]
+            })
+        })
+      )
+
+    if match?({:ok, %{cron_schedule: _}}, result),
+      do: stub_schedule_driver(elem(result, 1).cron_schedule)
+
+    result
+  end
+
+  defp stub_schedule_driver(schedule) do
+    key = %{
+      agent_uid: schedule.agent_uid,
+      session_id: Schedule.cron_execution_session_id(schedule.id)
+    }
+
+    if Ankole.Sessions.driver_pid(key) == :undefined, do: Ankole.SessionsCase.stub_driver(key)
   end
 
   defp public_conversation_id(provider_id, agent_uid \\ nil, binding_name \\ "bot") do

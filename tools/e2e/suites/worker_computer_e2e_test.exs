@@ -30,6 +30,10 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
   alias Ankole.E2E.FakeOpenAIState
   alias Ankole.Repo
 
+  setup_all do
+    start_committed_repo!()
+  end
+
   setup do
     cleanup_committed_fixtures_on_exit!()
     :ok
@@ -55,9 +59,31 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
 
   @tag timeout: 180_000
   @tag :personal_assistant_worker
-  test "a personal assistant runs a real automation and edits its owner's private document" do
+  test "a personal assistant edits its owner's private document through a real Agent Turn" do
+    assert {:ok, _} = FakeOpenAIState.start_link(self())
+    fake_llm_port = start_fake_llm_server!()
+
     %{principal: agent, agent: profile} =
       create_e2e_agent!(Map.put(worker_agent_attrs(), :type, :personal_assistant))
+
+    provider_id = "assistant-cli-" <> Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Ankole.AIGateway.ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openai_compatible",
+               base_url: "http://127.0.0.1:#{fake_llm_port}",
+               credential_pool: %{entries: [%{label: "Assistant CLI", api_key: "fake-assistant"}]}
+             })
+
+    for name <- ["primary", "light"] do
+      assert {:ok, _} =
+               Ankole.AIGateway.ModelProfiles.put_model_profile(agent.uid, name, %{
+                 provider_id: provider_id,
+                 model: "fake-assistant",
+                 provider_options: %{}
+               })
+    end
 
     owner = Ankole.Principals.get_principal_record!(profile.owner_principal_uid)
     owner_actor = Ankole.PrincipalsFixtures.actor_fixture(owner)
@@ -72,8 +98,8 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     %{container: container} = start_worker!([agent.uid])
     assert :ok = assert_launch_contract!(agent.uid)
 
-    script = ~S"""
-    const page = context().event.data.page;
+    script = """
+    const page = #{Ankole.JSON.encode!(page.id)};
     async function cli(operation, params) {
       const child = Bun.spawn(['ankole-pod', operation, JSON.stringify(params)], {stdout: 'pipe', stderr: 'pipe'});
       const [code, out, err] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
@@ -82,73 +108,51 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     }
     const before = await cli('pages.read', {id: page});
     const result = await cli('pages.append', {id: page, base_revision: before.page.revision, markdown: 'Assistant completed the task'});
-    console.log(JSON.stringify({revision: result.page.revision, worker: process.env.WORKER_ID}));
+    console.log('ASSISTANT_CLI_RESULT=' + JSON.stringify({revision: result.page.revision}));
     """
 
-    assert {:ok, stored} = Ankole.Files.store(script)
+    exec!(container, [
+      "sh",
+      "-ec",
+      "printf %s '#{Base.encode64(script)}' | base64 -d > /workspace/e2e-assistant-cli.ts"
+    ])
+
+    assert {:ok, %{conversation: conversation}} =
+             Ankole.Conversations.create(owner_actor, %{
+               conversation_id: Ecto.UUID.generate(),
+               agent_uid: agent.uid,
+               message_id: Ecto.UUID.generate(),
+               text: "CHAOS_ASSISTANT_POD_CLI"
+             })
+
+    input =
+      Repo.get_by!(Ankole.Signals.Signal, conversation_id: conversation.id, agent_uid: agent.uid)
+
+    assert input.human_uid == owner.uid
+    assert {:ok, %{status: :driving}} = ensure_input_driver!(input, input.available_at)
 
     assert {:ok, _} =
-             Ankole.Files.commit(agent.uid, [
-               Map.merge(stored, %{
-                 path: "automation/assistant-proof/main.ts",
-                 source: "agent"
-               })
-             ])
+             Ankole.E2E.WaitHelpers.wait_for_completed_signal_message(
+               %{agent_uid: agent.uid},
+               input.id,
+               deadline(90_000)
+             )
 
-    now = DateTime.utc_now(:microsecond)
+    assert {:ok, detail} = Ankole.Conversations.get(owner_actor, conversation.id)
 
-    assert {:ok, source} =
-             Repo.transact(fn ->
-               with {:ok, source} <-
-                      Ankole.Signals.accept_in_tx(%{
-                        source: "test://personal-assistant",
-                        id: Ecto.UUID.generate(),
-                        type: "test.work",
-                        time: now,
-                        target: %{agent_uid: agent.uid, session_id: "assistant-work"},
-                        sender: owner.uid,
-                        authorization: Ankole.Principals.WorkAccess.from_sender(owner.uid),
-                        data: %{}
-                      }),
-                    do: Ankole.Sessions.Queue.mark_event_completed_in_tx(source, now)
-             end)
+    assert Enum.any?(detail.messages, fn message ->
+             message.author_type == :agent and message.signal_id == input.id and
+               message.text =~ "ASSISTANT_POD_CLI_DONE"
+           end)
 
-    assert {:ok, job} =
-             Ankole.AutomationJobs.create_job(%{
-               agent_uid: agent.uid,
-               owner_session_id: source.session_id,
-               source_signal_id: source.id,
-               drive_prefix: "automation/assistant-proof",
-               label: "Assistant proof",
-               reply_route: %{},
-               source_provenance: %{}
-             })
-
-    assert job.human_uid == owner.uid
-
-    assert {:ok, %{automation_job_run: run}} =
-             Repo.transact(fn ->
-               Ankole.AutomationJobs.enqueue_run_in_tx(job.id, agent.uid, %{
-                 "specversion" => "1.0",
-                 "id" => Ecto.UUID.generate(),
-                 "source" => "test://assistant",
-                 "type" => "document.work",
-                 "data" => %{"page" => page.id}
-               })
-             end)
-
-    assert :ok =
-             Ankole.AutomationJobs.Jobs.ExecuteRun.perform(%Oban.Job{
-               args: %{"automation_job_run_id" => run.id, "tenant_id" => Repo.tenant_id!()}
-             })
-
-    finished = Repo.reload!(run)
-    assert finished.status == :succeeded, inspect(Map.take(finished, [:error, :stdout, :stderr]))
-    assert finished.exit_code == 0
+    messages = Ankole.E2E.WaitHelpers.ai_messages_for_signal(input.id)
+    assert [%{"raw" => output}] = successful_tool_results(messages, "command")
+    assert output =~ "ASSISTANT_CLI_RESULT="
     assert {:ok, %{content: content}} = Ankole.Pod.Pages.get(owner_actor, page.id)
     assert content.content =~ "Assistant completed the task"
     assert content.updated_by.uid == agent.uid
     assert exec!(container, ["test", "-L", "/agents/#{agent.uid}"]) == ""
+    assert_signal_completed!(input.id)
   end
 
   @tag timeout: 180_000
@@ -222,12 +226,12 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
              )
 
     home = storage_volumes(agent.uid).home
-    marker = "/workspace/.ankole/automation-runs/active/keep"
+    marker = "/workspace/.ankole/worker-admission/keep"
 
     exec!(container(agent.uid), [
       "sh",
       "-ec",
-      "mkdir -p /workspace/.ankole/automation-runs/active; printf kept > #{marker}"
+      "mkdir -p /workspace/.ankole/worker-admission; printf kept > #{marker}"
     ])
 
     {:ok, provider} = Providers.load(admitted.provider_id)

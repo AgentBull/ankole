@@ -55,6 +55,7 @@ defmodule AnkoleWeb.Endpoint do
   plug RequestID
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
   plug :worker_file_relay
+  plug :connector_runtime
   plug :request_host
 
   plug Plug.Static,
@@ -108,6 +109,27 @@ defmodule AnkoleWeb.Endpoint do
 
   defp worker_file_relay(conn, opts),
     do: AnkoleWeb.WorkerFileRelay.call(conn, AnkoleWeb.WorkerFileRelay.init(opts))
+
+  # Runtime credentials bind the tenant. These requests reach the issuing node's
+  # internal origin independently of browser host admission, like file relays.
+  defp connector_runtime(
+         %Plug.Conn{path_info: ["api", "internal", namespace | _]} = conn,
+         _opts
+       )
+       when namespace in ["mcp", "connectors"] do
+    parsers =
+      Plug.Parsers.init(
+        parsers: [{:json, length: 128 * 1024 * 1024}],
+        json_decoder: Phoenix.json_library()
+      )
+
+    conn
+    |> Plug.Parsers.call(parsers)
+    |> AnkoleWeb.Router.call(AnkoleWeb.Router.init([]))
+    |> Plug.Conn.halt()
+  end
+
+  defp connector_runtime(conn, _opts), do: conn
 
   defp drive_vfs(conn, opts),
     do: AnkoleWeb.Plugs.VfsWebdav.call(conn, AnkoleWeb.Plugs.VfsWebdav.init(opts))

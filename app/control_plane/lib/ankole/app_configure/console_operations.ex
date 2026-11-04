@@ -10,6 +10,13 @@ defmodule Ankole.AppConfigure.ConsoleOperations do
     scope(:site_console)
     resolve_param(:key, :string)
     allow(:console_list, resource: "site_console:app_configurations", action: "read")
+    allow(:console_connector_catalog, resource: "site_console:app_configurations", action: "read")
+
+    allow(:console_connector_auth_configs,
+      resource: "site_console:app_configurations",
+      action: "read"
+    )
+
     allow(:console_show, resource: "site_console:app_configuration:{key}", action: "read")
     allow(:console_update, resource: "site_console:app_configuration:{key}", action: "update")
     allow(:console_delete, resource: "site_console:app_configuration:{key}", action: "reset")
@@ -38,6 +45,38 @@ defmodule Ankole.AppConfigure.ConsoleOperations do
   end
 
   actions do
+    action :console_connector_catalog, :map do
+      transaction?(false)
+
+      constraints(
+        fields: [
+          connectors: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: Ankole.Connectors.PublicSchema.catalog_fields()]]
+          ]
+        ]
+      )
+
+      run({Ankole.AppConfigure.ConsoleActions, scope: :tenant})
+    end
+
+    action :console_connector_auth_configs, :map do
+      transaction?(false)
+
+      constraints(
+        fields: [
+          connections: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [items: [fields: Ankole.Connectors.PublicSchema.connection_fields()]]
+          ]
+        ]
+      )
+
+      run({Ankole.AppConfigure.ConsoleActions, scope: :tenant})
+    end
+
     action :console_update_group, :map do
       transaction?(false)
 

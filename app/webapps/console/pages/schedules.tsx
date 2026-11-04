@@ -125,7 +125,7 @@ export function SchedulesListPage() {
 
   const agentByUID = new Map(scope.agents.map(agent => [agent.uid, agent]))
   const rows = (crons.data ?? []).filter(row => {
-    const agent = agentByUID.get(row.agent_uid)
+    const agent = agentByUID.get(row.agent_uid ?? '')
     return matchesResourceSearch(
       query,
       row.name,
@@ -216,8 +216,10 @@ export function SchedulesListPage() {
         />
       }>
       {rows.map(row => {
-        const editTo = `/schedules/${encodeURIComponent(row.agent_uid)}/${encodeURIComponent(row.id)}`
-        const toggleable = isMutableCronStatus(row.status)
+        const editTo = row.owner_job_id
+          ? `/automation-jobs?job=${row.owner_job_id}`
+          : `/schedules/${encodeURIComponent(row.agent_uid ?? '')}/${encodeURIComponent(row.id)}`
+        const toggleable = !row.owner_job_id && isMutableCronStatus(row.status)
         return (
           <TableRow key={`${row.agent_uid}:${row.id}`}>
             <TableCell className="font-mono text-xs">
@@ -226,9 +228,15 @@ export function SchedulesListPage() {
               </Link>
               <div className="text-muted-foreground">{row.binding_name}</div>
             </TableCell>
-            <AgentCell uid={row.agent_uid} />
+            {row.agent_uid ? (
+              <AgentCell uid={row.agent_uid ?? ''} />
+            ) : (
+              <TableCell>
+                {t('pod.automation.job')} #{row.owner_job_id}
+              </TableCell>
+            )}
             <TableCell>
-              <span className="block max-w-56 truncate font-mono text-xs" title={row.owner_session_id}>
+              <span className="block max-w-56 truncate font-mono text-xs" title={row.owner_session_id ?? undefined}>
                 {row.owner_session_id}
               </span>
             </TableCell>
@@ -254,7 +262,7 @@ export function SchedulesListPage() {
                         onAction: () =>
                           runCron.mutate({
                             body: { data: { idempotency_key: uuidV4() } },
-                            path: { agent_uid: row.agent_uid, id: row.id }
+                            path: { agent_uid: row.agent_uid!, id: row.id }
                           })
                       }
                     ]
@@ -266,7 +274,7 @@ export function SchedulesListPage() {
                         label: row.status === 'paused' ? t('console.schedules.resume') : t('console.schedules.pause'),
                         pending: pauseCron.isPending || resumeCron.isPending,
                         onAction: () => {
-                          const path = { agent_uid: row.agent_uid, id: row.id }
+                          const path = { agent_uid: row.agent_uid!, id: row.id }
                           if (row.status === 'paused') resumeCron.mutate({ path })
                           else pauseCron.mutate({ path })
                         }
@@ -280,7 +288,11 @@ export function SchedulesListPage() {
                 description: t('console.schedules.delete_description', { name: row.name || row.binding_name }),
                 confirmLabel: t('common.delete')
               }}
-              onDelete={() => removeCron.mutate({ path: { agent_uid: row.agent_uid, id: row.id } })}
+              onDelete={
+                row.owner_job_id
+                  ? undefined
+                  : () => removeCron.mutate({ path: { agent_uid: row.agent_uid!, id: row.id } })
+              }
             />
           </TableRow>
         )
@@ -370,9 +382,9 @@ export function ScheduleCheckbacksPage() {
       {rows.map(row => (
         <TableRow key={`${row.agent_uid}:${row.id}`}>
           <TableCell className="text-xs">{formatConsoleDate(row.due_at)}</TableCell>
-          <AgentCell uid={row.agent_uid} />
+          <AgentCell uid={row.agent_uid ?? ''} />
           <TableCell>
-            <span className="block max-w-56 truncate font-mono text-xs" title={row.session_id}>
+            <span className="block max-w-56 truncate font-mono text-xs" title={row.session_id ?? undefined}>
               {row.session_id}
             </span>
           </TableCell>
@@ -394,7 +406,7 @@ export function ScheduleCheckbacksPage() {
                 }}
                 icon={<RiCloseCircleLine />}
                 pending={cancelCheckback.isPending}
-                onConfirm={() => cancelCheckback.mutate({ path: { agent_uid: row.agent_uid, id: Number(row.id) } })}
+                onConfirm={() => cancelCheckback.mutate({ path: { agent_uid: row.agent_uid!, id: Number(row.id) } })}
               />
             ) : (
               <span className="text-xs text-muted-foreground">—</span>
@@ -1219,7 +1231,7 @@ function eventTone(status: string): StatusTone {
 function draftFromCron(row: CronScheduleItem): ScheduleEditorDraft {
   const { schedule, payload } = row
   return {
-    ownerSessionId: row.owner_session_id,
+    ownerSessionId: row.owner_session_id ?? '',
     bindingName: row.binding_name ?? '',
     name: row.name,
     status: isMutableCronStatus(row.status) ? row.status : '',

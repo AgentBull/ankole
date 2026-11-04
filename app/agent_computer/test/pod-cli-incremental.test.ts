@@ -19,13 +19,12 @@ const respond = (result: unknown) => create(JSONPassthroughResponseSchema, { bod
 describe('Pod incremental and source commands', () => {
   it('compiles append fragments and applies exact Markdown patches with the original revision', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pod-edit-'))
-    const attempt = { jobId: 'job', runId: 'run', attemptId: 'attempt' }
+    const frame = { run: { session: { session_id: 'conversation:pod' }, signal_id: 'signal' } }
     const writes: { operation: string; revision: unknown; xml: string }[] = []
     let xml = '<page><p>Old name 🧑‍💻</p><p>Repeated Repeated</p></page>'
-    const rpc = (async (_method, raw, frame) => {
+    const rpc = (async (_method, raw, actualFrame) => {
       const payload = raw as RPCRequestInit<'pod.read'>
-      expect(frame).toBeUndefined()
-      expect(payload.automationAttempt).toEqual(attempt)
+      expect(actualFrame as unknown).toEqual(frame)
       const params = jsonObjectFromBytes(payload.paramsJson as Uint8Array, 'params')!
       const local = join(root, params.xml_home_relative_path as string)
       if (payload.operation === 'pages.read') await writeFile(local, xml)
@@ -40,7 +39,7 @@ describe('Pod incremental and source commands', () => {
     }) as RPCRequester
     const bridge = startPodCLIBridge({
       rpc,
-      automationAttempt: attempt,
+      frame,
       drive: new FakeDrive(root).drive(),
       socketRoot: root
     })
@@ -232,7 +231,12 @@ worker.onmessage=event=>{console.log(event.data);worker.terminate()};`
         }))
       })
     }) as RPCRequester
-    const bridge = startPodCLIBridge({ rpc, drive: files.drive(), socketRoot: root })
+    const bridge = startPodCLIBridge({
+      rpc,
+      frame: { run: { session: { session_id: 'conversation:pod' }, signal_id: 'signal' } },
+      drive: files.drive(),
+      socketRoot: root
+    })
     const pull = async (directory: string) =>
       requestSocketLineBridge(
         bridge.socketPath,

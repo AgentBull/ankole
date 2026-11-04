@@ -61,7 +61,37 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   end
 
   @impl true
+  def connection_key(%{"authConfigId" => id}, consumers) when is_binary(id),
+    do: {Ankole.Plugins.ConnectionLifecycle.tenant_id!(consumers), id}
+
   def connection_key(config, _consumers), do: Config.connection_key(config)
+
+  @impl true
+  def connector_specs do
+    with {:ok, configs} <- Ankole.Connectors.active_auth_configs("lark") do
+      configs
+      |> Enum.filter(&Ankole.Connectors.event_connection_needed?(&1.id))
+      |> Enum.reduce_while({:ok, []}, fn credential, {:ok, acc} ->
+        with {:ok, secret} <- Ankole.Connectors.Credentials.secret(credential) do
+          config =
+            credential.public_metadata
+            |> Map.merge(secret)
+            |> Map.put("authConfigId", credential.id)
+
+          config =
+            config
+            |> Map.put_new("domain", "feishu")
+            |> Map.put_new("appID", config["app_id"])
+            |> Map.put_new("appSecret", config["app_secret"])
+
+          consumer = %{kind: :connector, auth_config_id: credential.id, config: config}
+          {:cont, {:ok, [connection_spec(config, consumer) | acc]}}
+        else
+          error -> {:halt, error}
+        end
+      end)
+    end
+  end
 
   @impl true
   def owner_child_spec(key, config, consumers) do

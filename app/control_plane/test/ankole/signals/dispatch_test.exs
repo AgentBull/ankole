@@ -7,6 +7,114 @@ defmodule Ankole.Signals.DispatchTest do
   alias Ankole.AutomationJobs.Schemas.Run
   alias Ankole.Signals.{BindingReceipt, Dispatch}
 
+  test "an event bound to an external conversation posts its result after a month without input" do
+    %{actor: actor, agent: agent, source: source, reference: reference} =
+      external_event_binding_fixture()
+
+    # Ordinary cleanup expires receipt/tombstone state, not the durable route
+    # through which this Agent joined the conversation.
+    Ankole.Signals.StateCleanup.cleanup_expired_state()
+
+    assert {:ok, %{signals: [event]}} =
+             Signals.emit(reference, %{"type" => "example.action.completed", "data" => %{}})
+
+    assert event.conversation_id == source.conversation_id
+    assert event.session_id == source.session_id
+    assert event.reply_binding_id == source.reply_binding_id
+    assert event.reply_binding_name == source.reply_binding_name
+    assert is_nil(event.provider_thread_id)
+    assert is_nil(event.provider_message_id)
+
+    assert {:ok, %{intents: [intent]}} = post_final_reply(event)
+    assert intent.binding_id == source.reply_binding_id
+    assert intent.conversation_id == source.conversation_id
+    assert intent.operation == :post
+    assert intent.payload["text"] == "The automation completed."
+    refute Ankole.Conversations.Delivery.Preview.channel_reply_eligible?(event)
+
+    assert {:ok, :verified} =
+             Repo.transact(fn ->
+               conversation = Ankole.Conversations.get_conversation!(source.conversation_id)
+               {:ok, _} = Ankole.Ash.update(conversation, :observe, %{reply_mode: :none})
+
+               assert {:error, :intent_reply_not_supported} =
+                        Ankole.Conversations.Delivery.operation_for_signal(event)
+
+               {:ok, :verified}
+             end)
+
+    # The execution actor still uses the same source authorization owner.
+    assert {:ok, [binding]} = Signals.list_event_bindings(actor, reference)
+    assert binding.agent_uid == agent.uid
+  end
+
+  test "an explicit reply route keeps its thread when an event targets that conversation" do
+    %{source: source, reference: reference} = external_event_binding_fixture()
+
+    route = %{
+      binding_id: source.reply_binding_id,
+      binding_name: source.reply_binding_name,
+      conversation_id: source.conversation_id,
+      provider_thread_id: "requested-thread",
+      provider_message_id: "requested-message"
+    }
+
+    assert {:ok, %{signals: [event]}} =
+             Signals.emit(reference, %{"type" => "example.action.completed", "data" => %{}},
+               reply_route: route
+             )
+
+    assert event.provider_thread_id == "requested-thread"
+    assert event.provider_message_id == "requested-message"
+    assert {:ok, %{intents: [intent]}} = post_final_reply(event)
+    assert intent.operation == :reply
+    assert intent.provider_thread_id == "requested-thread"
+    assert intent.reply_to_provider_message_id == "requested-message"
+  end
+
+  defp external_event_binding_fixture do
+    human = human_fixture().principal
+    actor = actor_fixture(human.uid)
+    %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
+
+    source =
+      Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid,
+        now: DateTime.add(DateTime.utc_now(:microsecond), -30 * 86_400, :second)
+      )
+
+    source =
+      source
+      |> change(inserted_at: source.occurred_at, updated_at: source.occurred_at)
+      |> Repo.update!()
+
+    {:ok, page} = Pages.create(actor, %{type: "applet"})
+    reference = "applet://#{page.id}"
+
+    {:ok, _} =
+      Signals.put_event_binding(actor, %{
+        config_ref: reference,
+        agent_uid: agent.uid,
+        target: %{conversation_id: source.conversation_id}
+      })
+
+    %{actor: actor, agent: agent, source: source, reference: reference}
+  end
+
+  defp post_final_reply(event) do
+    statement = %Ankole.Conversations.Statement{
+      signal: event,
+      outcome: :loop_finished,
+      completion: %{
+        final_response: %Ankole.AIGateway.Schemas.Message{id: Ash.UUIDv7.generate()},
+        final_text: "The automation completed.",
+        attachments: []
+      }
+    }
+
+    Repo.transact(fn -> Ankole.Sessions.Presentation.post_in_tx(event, statement) end)
+  end
+
   test "fanout prepares distinct Jobs in one read and rechecks their snapshots before delivery" do
     actor = actor_fixture(human_fixture().principal.uid)
     {:ok, page} = Pages.create(actor, %{type: "applet"})

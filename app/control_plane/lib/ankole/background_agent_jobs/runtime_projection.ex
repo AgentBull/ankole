@@ -112,10 +112,18 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
   def allows_skill?(nil, _skill), do: true
 
   def allows_skill?(projection, skill) do
-    Enum.any?(
-      projection["skills"],
-      &(&1["name"] == skill.slug and &1["agent_plugin_id"] == skill.agent_plugin_id)
-    )
+    skill.metadata["ankole-runtime"] in [nil, "any", "background_job"] and
+      Enum.any?(
+        projection["skills"],
+        &(&1["name"] == skill.slug and &1["agent_plugin_id"] == skill.agent_plugin_id)
+      )
+  end
+
+  def for_worker(nil), do: {:ok, nil}
+
+  def for_worker(projection) do
+    with {:ok, env} <- WorkerEnv.filter_runtime_projection(projection["worker_env"]),
+         do: {:ok, Map.put(projection, "worker_env", env)}
   end
 
   @spec turn_start_overrides(map()) :: {:ok, map()} | {:error, term()}

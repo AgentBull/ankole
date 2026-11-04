@@ -171,7 +171,12 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Webhook do
   end
 
   defp binding_consumer(binding, app_id) do
-    case Bindings.binding_config(binding, Config) do
+    config =
+      Ankole.Repo.with_tenant(binding.tenant_id, fn ->
+        Bindings.binding_config(binding, Config)
+      end)
+
+    case config do
       {:ok, %{"appId" => ^app_id} = config} ->
         config = Config.runtime_config(config)
 

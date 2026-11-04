@@ -153,13 +153,14 @@ export function ConfigField({
   if (field.type === 'boolean') {
     return (
       <Field>
-        <FieldLabel>{labelContent}</FieldLabel>
+        <FieldLabel id={`${controlID}-label`}>{labelContent}</FieldLabel>
         <FieldLabel
           htmlFor={controlID}
           className="h-8 w-full cursor-pointer items-center justify-between rounded-control border border-field-edge border-b-input bg-field px-3 text-sm font-normal transition-[background-color,border-color] hover:bg-field-hover has-data-checked:border-field-edge has-data-checked:border-b-input has-focus-visible:border-b-ring has-focus-visible:shadow-[inset_0_-1px_0_var(--color-ring)]">
           <span>{i18n.t('common.enable')}</span>
           <Switch
             id={controlID}
+            aria-labelledby={`${controlID}-label`}
             aria-describedby={description ? descriptionID : undefined}
             aria-required={required || undefined}
             checked={Boolean(value)}
@@ -197,6 +198,31 @@ export function ConfigField({
           </SelectContent>
         </Select>
         {description ? <FieldDescription id={descriptionID}>{description}</FieldDescription> : null}
+      </Field>
+    )
+  }
+
+  if (field.type === 'multiline') {
+    return (
+      <Field>
+        <FieldLabel htmlFor={controlID}>{labelContent}</FieldLabel>
+        <Textarea
+          id={controlID}
+          ref={textareaRef}
+          name={field.path}
+          required={required}
+          autoComplete={secret ? 'new-password' : undefined}
+          spellCheck={secret ? false : undefined}
+          placeholder={placeholder}
+          value={value == null ? '' : String(value)}
+          aria-describedby={describedBy || undefined}
+          aria-invalid={showValidationError && validationError ? true : undefined}
+          onChange={event => onChange(event.target.value)}
+          onBlur={() => setShowValidationError(Boolean(validationError))}
+          onInvalid={() => setShowValidationError(Boolean(validationError))}
+        />
+        {description ? <FieldDescription id={descriptionID}>{description}</FieldDescription> : null}
+        {showValidationError && validationError ? <FieldError id={errorID}>{validationError}</FieldError> : null}
       </Field>
     )
   }

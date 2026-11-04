@@ -81,6 +81,8 @@ defmodule Ankole.Signals.Dispatch do
     end
   end
 
+  defp source("connector://" <> _ = source), do: source
+  defp source("connector-trigger://" <> _ = source), do: source
   defp source("schedule://" <> id), do: "ankole:schedule:#{id}"
   defp source("scheduled-event://" <> id), do: "ankole:schedule:#{id}"
   defp source("webhook-endpoint://" <> id), do: "ankole:webhook:#{id}"
@@ -160,7 +162,7 @@ defmodule Ankole.Signals.Dispatch do
     |> reverse_ok()
   end
 
-  defp concurrency_key(%{executor_kind: :applet_function, status: :active} = job, signal),
+  defp concurrency_key(%{status: :active} = job, signal),
     do: AutomationJobs.prepare_applet_job(job, signal)
 
   defp concurrency_key(_, _), do: {:ok, "default"}
@@ -329,7 +331,7 @@ defmodule Ankole.Signals.Dispatch do
         do: signal["id"] <> ":binding:#{binding.id}",
         else: signal["id"]
 
-    with {:ok, target, route} <- agent_target(binding) do
+    with {:ok, target, route} <- agent_target(binding, plan.opts) do
       {:ok,
        %{
          producer: Keyword.get(plan.opts, :producer, :kernel),
@@ -352,10 +354,18 @@ defmodule Ankole.Signals.Dispatch do
     end
   end
 
-  defp agent_target(binding) do
+  defp agent_target(binding, opts) do
     case Target.parse(binding.target) do
       {:conversation, id} ->
-        {:ok, %{agent_uid: binding.agent_uid, conversation_id: id}, nil}
+        route = Keyword.get(opts, :reply_route)
+
+        resolved =
+          if route in [nil, %{}],
+            do: Ankole.Conversations.Route.conversation_reply_route(binding.agent_uid, id),
+            else: {:ok, route}
+
+        with {:ok, route} <- resolved,
+             do: {:ok, %{agent_uid: binding.agent_uid, conversation_id: id}, route}
 
       {:session, id} ->
         with {:ok, owner} <- Ankole.Conversations.Route.long_lived_owner(binding.agent_uid, id),

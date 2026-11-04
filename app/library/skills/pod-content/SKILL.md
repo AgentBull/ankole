@@ -14,8 +14,16 @@ contracts through `ankole-pod`; do not make a local file stand in for a saved
 page or use browser storage as the authoritative base.
 
 Run `ankole-pod --help` before the first operation. It lists the current
-operations and parameter shapes. The CLI is available inside an active Agent turn or an authorized
-Automation Job attempt. Main routes this Skill to a Background Agent Job.
+operations and parameter shapes. The CLI is available inside an active Agent turn.
+Main routes this Skill to a Background Agent Job.
+
+For deterministic recurring data tasks or polling more often than every 30 minutes,
+create an Applet Action Job with `ankole-pod jobs.create` and manage its native
+schedule with `ankole-pod jobs.schedules.put`. Pass business fields in `payload`; the Action
+receives them in `ctx.signal.data` alongside planned and actual trigger times.
+Use `ankole-pod jobs.webhooks.create` for Job-owned callbacks. These sources need no
+Agent wakeup, `payload.task`, or chat delivery target. Emit a Signal only when
+the result needs the Agent's judgment.
 
 ## Identity and access
 
@@ -24,8 +32,8 @@ assistant acts with its human owner's business permissions. An AI colleague
 uses its own business permissions, including when another Agent delegates work.
 Human WorkAccess controls admission and ends the work when access is revoked;
 it does not intersect the colleague's resource permissions with the human's.
-A service Automation Job uses its Agent's own permissions. An
-Automation Job must hold its current execution attempt; review-required and
+An Applet Action uses its enabling Human for ordinary capabilities and its Page
+owner for admin capabilities. It must hold its current execution attempt; review-required and
 expired attempts cannot access Pod. If access is denied, ask for the required
 sharing grant. Never use another identity or a hidden storage path.
 
@@ -228,7 +236,10 @@ export default {
 
 `ankole-pod applet build` bundles this entry into `server/main.js` as one
 ES module. NPM dependencies are bundled; Node built-ins use `node:` imports. Publish
-validates the default route table and returns its registered `routes`. No server
+validates the default export and returns its registered `routes` and `actions`.
+The export can be a route table or `{ routes, actions }`; each named Action
+declares `idempotent`, optional `concurrency` (`parallel`, `serial_fifo`, or
+`serial_coalesce`), `concurrencyKey(ctx)`, `maxSlices`, and `handler(ctx)`. No server
 source means no backend: rebuilding and publishing removes the old server.
 
 Routes support GET, POST, PUT, PATCH, and DELETE. A handler receives `method`,
@@ -242,7 +253,7 @@ bounded diagnostic logs and handler exception details.
 The function worker supplies Node built-ins, public `fetch`, an in-memory
 `/tmp`, published environment values, and `AnkoleRuntime` capabilities:
 `base.schema`, `base.query`, `base.aggregate`, `base.write`; `file.list`, `file.read`,
-`file.write`; and `ai.generateText`. Read their exact types in
+`file.write`; `ai.generateText`; `mcp.call`; and `signals.call/emit/run`. Read their exact types in
 `/repo/libs/applet-sdk/src/server.ts`. Put publication environment values in
 `applet.env.json`, a flat string map of at most 64 KiB. Read each backend value
 through `process.env.<KEY>`. Only editors can read
@@ -250,8 +261,10 @@ source, backend files, and environment values; viewers and contributors can
 read published frontend assets.
 Module top-level code must not call AnkoleRuntime; inspection rejects such calls.
 
-Each capability uses the current caller's permissions, not the author's.
-Viewing the applet does not grant access to its tables or files. GET handlers
+Ordinary capabilities use the route caller or the personal Job's Human
+authority. `AnkoleRuntime.admin` uses the Applet's current owner; service Jobs
+have no ordinary caller and use that explicit owner surface. Viewing the Applet
+does not grant access to its tables or files. GET handlers
 cannot write. The runtime cannot create pages or change Base structure.
 Function workers are reused by tenant, page, and publication revision. Keep
 request-specific state inside the handler. Calls have no cross-call transaction; a later failure does not undo committed writes. Put an atomic batch
@@ -262,6 +275,35 @@ That Agent must be active; its model profiles, quota, and usage apply. Use a
 model profile such as `light`, not a raw provider/model ID. The
 runtime returns `{text, finishReason, usage}`; handle an empty or truncated result
 when `finishReason` is `length`. Runtime errors preserve their status and code.
+
+For an external operation, use
+`await AnkoleRuntime.mcp.call(tool, args, {server, connection?, account?, skill?})`.
+`server` identifies a Toolkit; provide `skill` to select an enabled Skill's
+remote HTTP server. Use `admin.mcp.call` for the current Page owner. Follow the
+Toolkit's generated input/output schema and present `HttpError.details.authorization_url`
+when personal consent is required. Credentials remain outside Applet code.
+
+Action handlers receive business configuration in `ctx.job.config` and the
+trigger envelope in `ctx.signal`. Keep progress in `ctx.state.get/set/delete`
+or `ctx.state.scope(name)`. Each JSON value is limited to 64 KiB. Use
+`ctx.remainingMs()` to budget work and return
+`await ctx.continueSlice({delaySeconds, progress})` to continue the same Run;
+the next slice uses the latest publication. Module variables and `/tmp` are not
+durable state. A failure preserves its input, timestamps, logs and structured
+error in the Run, so reconcile uncertain external writes before retrying.
+
+`signals.emit({targetJobId,type,data})` queues a same-Page Job; omit `targetJobId`
+to publish to configured Bindings. A route emits on `applet://<page-id>`; an
+Action emits on `job://<job-id>`. An Agent wakeup
+requires a Binding to its conversation. `signals.call({actionKey,data})` invokes
+a same-Page Action synchronously in the remaining budget; it cannot continue a
+slice. GET routes and nested calls remain read-only.
+
+Frontend components can call `useAppletJobs()` for published Actions, Job
+creation/configuration and Run history. `useJobSources(jobId)` manages that
+Job's schedules and Webhooks; both hooks use the current Applet Page.
+`useActionRun(runId)` follows accepted Run progress, results and errors.
+Use the built-in Automation panel when a custom control is unnecessary.
 
 For frontend reads, use the original declaration as the route:
 

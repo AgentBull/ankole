@@ -1,5 +1,27 @@
 defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
-  def platform_application(_config), do: {:ok, nil}
+  def platform_application(config) do
+    service =
+      case config["serviceAccountKey"] do
+        json when is_binary(json) ->
+          case Torque.decode(json) do
+            {:ok, map} when is_map(map) -> map
+            _ -> %{}
+          end
+
+        map when is_map(map) ->
+          map
+
+        _ ->
+          %{}
+      end
+
+    id = config["clientID"] || service["client_id"] || service["client_email"]
+
+    if is_binary(id) and id != "",
+      do: {:ok, "google-workspace:" <> id},
+      else: {:error, :platform_application_identity_unavailable}
+  end
+
   @moduledoc "Validation and runtime helpers for the first-party Google Workspace adapter."
 
   alias Ankole.AppConfigure

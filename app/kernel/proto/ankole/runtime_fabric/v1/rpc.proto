@@ -99,18 +99,12 @@ message DriveFile {
   string object_id = 11;
 }
 
-// A live Automation Job attempt; the Worker identity comes from the connection.
-message AutomationAttemptRef {
-  string job_id = 1;
-  string run_id = 2;
-  string attempt_id = 3;
-}
-
 message FilesListRequest {
   string prefix = 1;
   uint32 limit = 2;
   string after = 3;
-  AutomationAttemptRef automation_attempt = 4;
+  reserved 4;
+  reserved "automation_attempt";
 }
 
 message FilesListResponse {
@@ -127,19 +121,21 @@ message FilesGetRequest {
   string home_relative_path = 2;
   // A node ID reads the current object from any authorized Drive space.
   string node_id = 5;
-  AutomationAttemptRef automation_attempt = 4;
+  reserved 4;
+  reserved "automation_attempt";
 }
 
 message FilesGetResponse {
   DriveFile file = 1;
 }
 
-// Pod operations use the authenticated turn or a live Automation Job attempt.
+// Pod operations use the authenticated turn.
 // The broker accepts a closed operation vocabulary and validates each payload.
 message PodRequest {
   string operation = 1;
   bytes params_json = 2;
-  AutomationAttemptRef automation_attempt = 3;
+  reserved 3;
+  reserved "automation_attempt";
 }
 
 // One local file to name at `path`. Every write creates an immutable object.
@@ -158,7 +154,8 @@ message FilesCommitRequest {
   repeated FilesCommitUpsert upserts = 1;
   // Each delete removes the path and every path under it.
   repeated string deletes = 2;
-  AutomationAttemptRef automation_attempt = 3;
+  reserved 3;
+  reserved "automation_attempt";
 }
 
 message FilesCommitResponse {
@@ -311,67 +308,6 @@ message WebhookEndpointListRequest {
 
 message WebhookEndpointTargetRequest {
   string webhook_endpoint_id = 1;
-}
-
-// signal channel (requests typed, responses model-facing passthrough)
-
-// automation job
-
-// `drive_prefix` names the drive folder that holds the script and its
-// `main.ts`; the Worker copies the directory there before it calls create.
-message AutomationJobCreateRequest {
-  reserved 1;
-  reserved "directory_path";
-  string label = 2;
-  bool wake_on_failure = 3;
-  string drive_prefix = 4;
-}
-
-message AutomationJobListRequest {
-  optional uint32 limit = 1;
-}
-
-message AutomationJobShowRequest {
-  string automation_job_id = 1;
-  optional uint32 runs = 2;
-}
-
-message AutomationJobTargetRequest {
-  string automation_job_id = 1;
-}
-
-message AutomationJobEmitRequest {
-  string automation_job_run_id = 1;
-  string attempt_id = 2;
-  bytes payload_json = 3;
-}
-
-message AutomationJobEmitResponse {}
-
-// Control-plane-originated request handled by the Agent Computer worker.
-message AutomationJobRunRequest {
-  reserved 4;
-  reserved "directory_path";
-  string automation_job_run_id = 1;
-  string attempt_id = 2;
-  string label = 5;
-  bytes event_json = 6;
-  uint32 timeout_ms = 7;
-  string automation_job_id = 8;
-  repeated RuntimeSkillSummary skills = 9;
-  string binding_name = 10;
-  // Drive folder of the script; the Worker copies it to a run directory.
-  string drive_prefix = 11;
-}
-
-message AutomationJobRunResponse {
-  string status = 1; // succeeded | failed
-  optional int32 exit_code = 2;
-  string error = 3;
-  string stdout = 4;
-  string stderr = 5;
-  bool stdout_truncated = 6;
-  bool stderr_truncated = 7;
 }
 
 // Control-plane read tools shared by Conversations and Codex Jobs. Browser

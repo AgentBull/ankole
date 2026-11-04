@@ -935,9 +935,21 @@ defmodule Ankole.Sessions.PresentationTest do
 
     {:ok, proof} =
       Repo.transact(fn ->
-        with {:ok, proof} <-
+        with {:ok, schedule} <-
+               Ankole.Ash.create(Ankole.Schedule.Schemas.CronSchedule, :create, %{
+                 agent_uid: event.agent_uid,
+                 owner_session_id: event.session_id,
+                 name: "presentation:#{event.id}",
+                 status: :paused,
+                 schedule: %{"kind" => "every", "every_ms" => 60_000},
+                 timezone: "UTC",
+                 delivery: event.data["wake_payload"]["delivery"],
+                 idempotency_key: "presentation:#{event.id}"
+               }),
+             {:ok, proof} <-
                Ankole.Ash.create(Ankole.Schedule.Schemas.ScheduledEvent, :create_event, %{
                  kind: "cron_fire",
+                 cron_schedule_id: schedule.id,
                  agent_uid: event.agent_uid,
                  session_id: event.session_id,
                  due_at: now,

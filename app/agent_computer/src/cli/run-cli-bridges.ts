@@ -3,7 +3,6 @@ import { join } from 'node:path'
 import { mkdirAgentSync } from '../common/agent-user'
 import { WORKER_SHARE_ROOT } from '../core/agent-home-paths'
 import {
-  AUTOMATION_JOB_CLI_SOCKET_ENV,
   CLI_CONTEXT_FILE_ENV,
   CLI_LEDGER_DIR_ENV,
   DRIVE_CLI_SOCKET_ENV,
@@ -14,14 +13,13 @@ import type { SocketLineBridge } from '../core/socket-line-bridge'
 import type { Drive } from '../drive/drive'
 import { type RPCRequester } from '../lanes/rpc_lane'
 import type { JobTurnRef, RunRef } from '../lanes/session_lane'
-import { automationJobRPCRequester, startAutomationJobCLIBridge } from './automation-jobs/automation-job-cli-bridge'
 import { writeContextGenerationFile } from './cli-guidance'
 import { startDriveCLIBridge } from './drive/drive-cli-bridge'
 import { startPodCLIBridge } from './pod/pod-cli-bridge'
 import { startWebhookCLIBridge, webhookRPCRequester } from './webhooks/webhook-cli-bridge'
 
 /**
- * Starts the drive, Pod, webhook, and Automation Job CLI bridges of one run. `env`
+ * Starts the drive, Pod, and webhook CLI bridges of one run. `env`
  * holds the socket variable of each bridge plus the Worker-managed context pointer
  * and SQLite ledger path for first-use CLI guidance. If a bridge cannot start, this
  * function closes the bridges that started, so that no listener stays open in
@@ -104,12 +102,6 @@ export function startRunCLIBridges({
         ),
         [WEBHOOK_CLI_SOCKET_ENV]: socketOf(
           startWebhookCLIBridge({ requestWebhookRPC: webhookRPCRequester(rpc, turn) })
-        ),
-        [AUTOMATION_JOB_CLI_SOCKET_ENV]: socketOf(
-          startAutomationJobCLIBridge({
-            drive,
-            requestAutomationJobRPC: automationJobRPCRequester(rpc, turn)
-          })
         ),
         [CLI_CONTEXT_FILE_ENV]: contextFilePath,
         [CLI_LEDGER_DIR_ENV]: ledgerDir

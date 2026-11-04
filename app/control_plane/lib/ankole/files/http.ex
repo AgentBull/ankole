@@ -26,13 +26,25 @@ defmodule Ankole.Files.HTTP do
 
   def request(method, url, headers, body, opts \\ []) do
     Ankole.Repo.assert_outside_transaction!()
+    opts = with_deadline(opts)
     state = open(method, url, headers, body, opts)
 
-    try do
-      limit = Keyword.get(opts, :max_bytes, @json_bytes)
-      with {:ok, response} <- collect(state, [], 0, limit), do: decode_body(response, limit)
-    after
-      Mint.HTTP.close(state.conn)
+    result =
+      try do
+        limit = Keyword.get(opts, :max_bytes, @json_bytes)
+        with {:ok, response} <- collect(state, [], 0, limit), do: decode_body(response, limit)
+      after
+        Mint.HTTP.close(state.conn)
+      end
+
+    case result do
+      {:ok, %{status: status, headers: response_headers}}
+      when status in [301, 302, 303, 307, 308] and method in ["GET", "HEAD"] ->
+        {next_url, next_headers, next_opts} = redirect(url, headers, response_headers, opts)
+        request(method, next_url, next_headers, body, next_opts)
+
+      result ->
+        result
     end
   rescue
     error in Error -> failure(error, opts)
@@ -40,17 +52,80 @@ defmodule Ankole.Files.HTTP do
 
   def stream(method, url, headers, body, opts \\ []) do
     Stream.resource(
-      fn -> open(method, url, headers, body, opts) end,
-      fn state ->
-        {data, state} = receive_data(state)
+      fn -> open_stream(method, url, headers, body, opts) end,
+      fn
+        {state, [_ | _] = buffered} ->
+          {buffered, {state, []}}
 
-        if state.status && state.status >= 400,
-          do: raise(Error, reason: {:http_status, state.status}, sent?: true)
+        {state, []} ->
+          {data, state} = receive_data(state)
 
-        if state.done and data == [], do: {:halt, state}, else: {data, state}
+          if state.status && state.status >= 400,
+            do: raise(Error, reason: {:http_status, state.status}, sent?: true)
+
+          if state.done and data == [], do: {:halt, {state, []}}, else: {data, {state, []}}
       end,
-      fn state -> Mint.HTTP.close(state.conn) end
+      fn {state, _} -> Mint.HTTP.close(state.conn) end
     )
+  end
+
+  defp open_stream(method, url, headers, body, opts) do
+    opts = with_deadline(opts)
+    state = open(method, url, headers, body, opts)
+
+    {data, state} =
+      try do
+        stream_head(state, [])
+      rescue
+        error ->
+          Mint.HTTP.close(state.conn)
+          reraise(error, __STACKTRACE__)
+      end
+
+    cond do
+      state.status in [301, 302, 303, 307, 308] and method == "GET" ->
+        Mint.HTTP.close(state.conn)
+        {next_url, next_headers, next_opts} = redirect(url, headers, state.headers, opts)
+        open_stream(method, next_url, next_headers, body, next_opts)
+
+      state.status >= 400 ->
+        Mint.HTTP.close(state.conn)
+        raise Error, reason: {:http_status, state.status}, sent?: true
+
+      true ->
+        {state, data}
+    end
+  end
+
+  defp stream_head(%{status: nil} = state, parts) do
+    {data, state} = receive_data(state)
+    stream_head(state, parts ++ data)
+  end
+
+  defp stream_head(state, parts), do: {parts, state}
+
+  defp with_deadline(opts) do
+    Keyword.put_new_lazy(opts, :deadline, fn ->
+      System.monotonic_time(:millisecond) + Keyword.get(opts, :timeout, 60_000)
+    end)
+  end
+
+  defp redirect(url, headers, response_headers, opts) do
+    count = Keyword.get(opts, :redirects, 0)
+    location = List.keyfind(response_headers, "location", 0)
+    if count >= 5 or is_nil(location), do: raise(Error, reason: :invalid_redirect, sent?: true)
+    next = URI.merge(url, elem(location, 1))
+    previous = URI.parse(url)
+
+    headers =
+      if {previous.scheme, previous.host, previous.port} == {next.scheme, next.host, next.port},
+        do: headers,
+        else:
+          Enum.reject(headers, fn {key, _} ->
+            String.downcase(key) in ["authorization", "cookie"]
+          end)
+
+    {URI.to_string(next), headers, Keyword.put(opts, :redirects, count + 1)}
   end
 
   def upload(actor, file_ref, method, url, headers, opts \\ []) do
@@ -101,19 +176,54 @@ defmodule Ankole.Files.HTTP do
         _ -> raise Error, reason: :invalid_url
       end
 
-    timeout = Keyword.get(opts, :timeout, 60_000)
-    deadline = System.monotonic_time(:millisecond) + timeout
+    deadline = Keyword.fetch!(opts, :deadline)
+    remaining!(deadline)
 
-    case Mint.HTTP.connect(scheme, uri.host, uri.port,
-           mode: :passive,
-           protocols: [:http1],
-           transport_opts: [timeout: timeout]
-         ) do
+    {:ok, ssrf_filter} = Ankole.Security.SSRFFilter.enabled?()
+
+    with :ok <- Ankole.Kernel.validate_web_url(url, ["http", "https"], ssrf_filter),
+         addresses =
+           Enum.flat_map([:inet, :inet6], fn family ->
+             case :inet.getaddrs(String.to_charlist(uri.host), family) do
+               {:ok, addresses} -> addresses
+               _ -> []
+             end
+           end),
+         true <- addresses != [],
+         :ok <-
+           Ankole.Kernel.validate_ip_addresses(
+             Enum.map(addresses, &to_string(:inet.ntoa(&1))),
+             ssrf_filter
+           ) do
+      proxy = Keyword.get(Ankole.EgressProxy.req_options(url), :connect_options, [])
+      target = if proxy == [], do: hd(addresses), else: uri.host
+
+      connect_options =
+        Keyword.merge(
+          [
+            mode: :passive,
+            protocols: [:http1],
+            hostname: uri.host,
+            transport_opts: [timeout: remaining!(deadline)]
+          ],
+          proxy
+        )
+
+      connect(scheme, target, uri, method, headers, body, deadline, connect_options)
+    else
+      false -> raise Error, reason: :nxdomain
+      {:error, reason} -> raise Error, reason: reason
+    end
+  end
+
+  defp connect(scheme, target, uri, method, headers, body, deadline, options) do
+    case Mint.HTTP.connect(scheme, target, uri.port, options) do
       {:ok, conn} ->
         path = (uri.path || "/") <> if(uri.query, do: "?" <> uri.query, else: "")
 
         try do
-          {conn, ref} = send_request(conn, method, path, headers, body)
+          remaining!(deadline)
+          {conn, ref} = send_request(conn, method, path, headers, body, deadline)
           %{conn: conn, ref: ref, status: nil, headers: [], done: false, deadline: deadline}
         rescue
           error ->
@@ -126,13 +236,17 @@ defmodule Ankole.Files.HTTP do
     end
   end
 
-  defp send_request(conn, method, path, headers, body) do
+  defp send_request(conn, method, path, headers, body, deadline) do
     streaming? = not is_binary(body) and not is_nil(body)
 
     case Mint.HTTP.request(conn, method, path, headers, if(streaming?, do: :stream, else: body)) do
       {:ok, conn, ref} ->
-        conn = if streaming?, do: Enum.reduce(body, conn, &send_chunk(&2, ref, &1)), else: conn
-        conn = if streaming?, do: send_chunk(conn, ref, :eof), else: conn
+        conn =
+          if streaming?,
+            do: Enum.reduce(body, conn, &send_chunk(&2, ref, &1, deadline)),
+            else: conn
+
+        conn = if streaming?, do: send_chunk(conn, ref, :eof, deadline), else: conn
         {conn, ref}
 
       {:error, _conn, reason} ->
@@ -142,11 +256,19 @@ defmodule Ankole.Files.HTTP do
     error in Error -> reraise %{error | sent?: true}, __STACKTRACE__
   end
 
-  defp send_chunk(conn, ref, bytes) do
+  defp send_chunk(conn, ref, bytes, deadline) do
+    remaining!(deadline)
+
     case Mint.HTTP.stream_request_body(conn, ref, bytes) do
       {:ok, conn} -> conn
       {:error, _conn, reason} -> raise Error, reason: reason, sent?: true
     end
+  end
+
+  defp remaining!(deadline) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+    if remaining <= 0, do: raise(Error, reason: :timeout)
+    remaining
   end
 
   defp receive_data(%{done: true} = state), do: {[], state}

@@ -7,7 +7,7 @@ order: 31
 
 **대부분의 일상 업무에서는 이 페이지에서 다루는 Console 파일 브라우저를 직접 열 필요가 없습니다. 채팅방에서 Agent에게 바로 파일을 첨부해 보내거나, Pod 워크스페이스의 공유 `file` 페이지와 문서·Base·Chat 첨부 기능을 활용하세요. Console 파일 브라우저는 채팅으로 전달되지 못한 산출물을 회수하거나 저장된 결과물을 직접 확인하고 개별 Agent의 전용 드라이브 폴더를 수동 정리할 때만 사용하면 됩니다.**
 
-각 Agent는 수신 첨부 파일, 생성한 이미지, 게시한 파일, Automation 스크립트를 담는 전용 컨트롤 플레인 드라이브를 가집니다. 반면 팀원들과 함께 쓰는 Pod `file` 페이지와 Pod 첨부 파일은 개별 Agent 드라이브가 아니라 Pod 워크스페이스의 페이지 권한 아래에서 관리됩니다. Agent 드라이브는 해당 Worker가 중지되어 있는 상태에서도 Console에서 언제든 열람하고 관리할 수 있습니다. 참고로 개별 Session 및 Background Job의 작업 디렉터리는 드라이브가 아니라 영속 Home 볼륨에 위치합니다.
+각 Agent는 수신 첨부 파일, 생성한 이미지, 게시한 파일을 담는 전용 컨트롤 플레인 드라이브를 가집니다. 반면 팀원들과 함께 쓰는 Pod `file` 페이지와 Pod 첨부 파일은 개별 Agent 드라이브가 아니라 Pod 워크스페이스의 페이지 권한 아래에서 관리됩니다. Agent 드라이브는 해당 Worker가 중지되어 있는 상태에서도 Console에서 언제든 열람하고 관리할 수 있습니다. 참고로 개별 Session 및 Background Job의 작업 디렉터리는 드라이브가 아니라 영속 Home 볼륨에 위치합니다.
 
 로컬 디렉터리, S3, Cloudflare R2 등 스토리지 백엔드 구성은 [제어면 드라이브 저장소](../drive-storage/)를, 구버전 Home 데이터 이전은 [1.0에서 2.0으로 업그레이드](../upgrade-to-2/)를 참조하세요.
 
@@ -21,7 +21,6 @@ order: 31
 | `chats/<channel>/inbox/` | 해당 대화에서 사용자가 Agent에게 보낸 첨부 파일 |
 | `chats/<channel>/generated/`, `generated/` | Agent가 생성한 이미지(대화 중 생성한 이미지는 `chats/<channel>/generated/`, 채널이 없는 작업은 `generated/`) |
 | `sent/` | Agent가 응답 메시지에 첨부해 보낸 파일 |
-| `automation/` | Automation Job 실행 스크립트 |
 | 그 밖의 폴더 | Agent 또는 사용자가 직접 정리해 저장한 파일 |
 
 ## 참고 자료 업로드

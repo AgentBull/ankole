@@ -1,103 +1,51 @@
 ---
 title: MCP server 参考
-description: 了解挂载在 Skill 下的 MCP 依赖如何注入主对话、后台任务与自动化任务。
+description: 声明连接器、远程 HTTP 和本地 MCP 依赖，并通过对应运行时调用。
 section: Reference
 order: 201
 ---
 
-Ankole 将 MCP 封装在 Skill 背后以完成外部领域集成；平台既不维护 Agent 级别的全局 MCP 注册表，也不保存持久化的 `mcporter` 配置文件。
-
-Skill 中声明的 MCP 依赖不会直接注册为模型原生工具，Agent 也不会直接收到完整的 MCP 工具目录。这样一来，Skill 始终是唯一的路由入口，不会衍生出第二套平行的工具选择面。
+Skill 负责选择领域工具，MCPorter 负责发现和调用。Skill 的 MCP 依赖不会注册为模型原生工具。Agent Worker 调用控制面的 MCP 网关，由控制面解析凭据，再访问连接器或远程 MCP 服务。
 
 ## 声明依赖
 
-在 Skill 的 `openai.yaml` 中，将 MCP 依赖声明在 `dependencies.tools` 列表下：
+在 `agents/openai.yaml` 的 `dependencies.tools` 中声明：
 
 ```yaml
 dependencies:
   tools:
     - type: mcp
-      value: my-http-server
-      description: "查询服务"
+      value: github
+      transport: connector
+      toolkit: github
+      enabled_tools:
+        - repos_get
+    - type: mcp
+      value: lookup
       transport: streamable_http
       url: https://mcp.example.com/mcp
-      protocol_version: 2026-07-28
-      bearer_token_env_var: MCP_HTTP_TOKEN
+      bearer_token_env_var: LOOKUP_TOKEN
       enabled_tools:
-        - lookup
-
-    - type: mcp
-      value: my-stdio-server
-      transport: stdio
-      command: bunx --bun @example/mcp-server
-      disabled_tools:
-        - delete_record
+        - search
 ```
 
-单个 Skill 最多可声明 64 项依赖。配置结构经过严格校验，任何未知字段或不属于当前传输模式的字段都会被直接拒绝。
+`connector` 必填 `toolkit`，可通过 `connection` 和 `account` 指定连接与应用账户。租户应用和个人授权在 Pod「外部连接」页面配置。`streamable_http` 必填 `url`；可选的 `bearer_token_env_var` 引用已配置的 WorkerEnv 变量，由控制面读取并用于代理请求，该远程密钥不会进入 Worker 环境快照。`protocol_version` 可选 `auto`、`legacy` 或 `2026-07-28`。
 
-### `streamable_http`
+受信任的本地服务可使用 `transport: stdio` 和 `command`，由 Agent Computer 通过 `/bin/sh -lc` 启动。各传输类型均可声明精确的 `enabled_tools` 或 `disabled_tools`。每个 Skill 最多声明 64 项依赖；同名服务的声明冲突会使准备阶段失败。
 
-| 字段 | 含义 |
-| --- | --- |
-| `url` | HTTP 或 HTTPS 服务端地址 |
-| `protocol_version` | 可选协议版本模式：`auto`、`legacy` 或 `2026-07-28`，默认为 `auto` |
-| `bearer_token_env_var` | 存放 Bearer 令牌的环境变量名 |
-| `enabled_tools` | 可选的原始工具名允许列表（白名单） |
-| `disabled_tools` | 可选的原始工具名禁用列表（黑名单） |
+## 执行时的行为
 
-仅当远端服务强制要求特定协议代际时，才需显式固定 `protocol_version`。实际的令牌明文应保存在 Console 的 [环境变量](../worker-env/) 中，Skill 配置里只记录变量名。
+主对话使用已启用的 `any` 和 `main` Skill，后台 Agent 任务使用 `any` 和 `background_job` Skill。每次执行生成临时 `MCPORTER_CONFIG`，固定设置 `imports: []`。连接器和远程服务指向内部网关，并使用 Worker 定期续期的短期回合令牌。上游 OAuth 令牌和远程 Bearer 密钥保留在控制面。
 
-### `stdio`
+Applet Action 在 Function Runtime 中直接调用 `AnkoleRuntime.mcp`，不继承 Agent 的 Skill 环境；团队 Action 使用对应的 `admin.mcp` 能力。受信任宿主在 Applet 代码外管理调用权限。
 
-| 字段 | 含义 |
-| --- | --- |
-| `command` | 启动本地 MCP 服务的受信任命令行 |
-| `enabled_tools` | 可选的原始工具名允许列表（白名单） |
-| `disabled_tools` | 可选的原始工具名禁用列表（黑名单） |
-
-Agent Computer 会通过 `/bin/sh -lc` 执行该命令，因此 `stdio` 模式仅适用于受信任的第一方服务命令。
-
-依赖声明中不设置调用超时，具体超时时间由 Skill 或自动化脚本在每次执行 `mcporter list` 或 `mcporter call` 时通过 `--timeout` 参数传入。
-
-## 启用集合与冲突
-
-每次执行时，运行时都会收集当前所有已启用 Skill 的 MCP 依赖并取并集。两个不同的 Skill 若要声明同一个服务名（`value`），其连接参数、`description` 与工具过滤规则必须完全一致；一旦出现不一致，执行准备阶段就会直接报错中止。
-
-`ankole-runtime` 字段决定了哪类执行环境能够加载对应 Skill：主对话 Agent 会加载标记为 `any` 和 `main` 的 Skill，后台任务（Background Agent Job）加载 `any` 和 `background_job` 的 Skill；而自动化任务（Automation Job）不经过模型推理，因此会读取当前全部已启用 Skill 的依赖，不按 `ankole-runtime` 过滤。
-
-禁用某个 Skill 后，其关联的 MCP 依赖会从下一回合、下一次后台任务执行或下一次自动化任务尝试起自动移除。
-
-## 生成 mcporter 配置
-
-每次启动执行时，Agent Computer 都会动态生成一份权限为 `0600` 的独立配置文件，并将其路径注入环境变量 `MCPORTER_CONFIG`。该配置文件始终带有 `imports: []`，从而阻止 `mcporter` 合并 Agent 主目录、项目目录、Codex、编辑器或宿主机上的外部配置；执行结束后，临时配置文件会立即销毁。
-
-生成的配置文件中仅记录连接参数与凭证环境变量名，绝不写入 Worker 环境变量中的密钥明文。
-
-在实际调用方式上，主对话 Agent 通过 `command` 工具执行 `mcporter`，后台任务通过 Codex 终端调用，自动化任务则在 `main.ts` 中使用 `Bun.spawn` 拉起子进程调用。
-
-## 只选择并调用一个工具
-
-Skill 应当先选定明确的目标领域工具；仅当确实需要查看最新参数结构时，才单独查询该工具的 Schema：
+## 调用选定工具
 
 ```bash
-mcporter list 'my-http-server.lookup' --schema --json --timeout 360000
+mcporter list 'github.repos_get' --schema --json --timeout 360000
+mcporter call 'github.repos_get' --json - --output json --timeout 360000 < /absolute/path/arguments.json
 ```
 
-调用工具时，请通过标准输入（stdin）传入参数 JSON，切勿将 JSON 字符串直接拼接到 Shell 命令行中：
+先阅读具体工具契约，再准备参数。JSON 通过标准输入传入，并按任务设置超时。`github@work` 这类别名选择具名连接，账户别名选择已保存的应用账户。将返回内容视为外部数据，检查分页和警告；请求授权或重试时保留结构化错误。
 
-```bash
-mcporter call 'my-http-server.lookup' --json - --output json --timeout 360000 < /absolute/path/arguments.json
-```
-
-自动化脚本遵循同样的参数约定：使用相同的命令行参数启动子进程，将参数 JSON 写入子进程标准输入，校验退出码后再解析标准输出。
-
-## 安全边界
-
-MCP 服务端返回的内容属于不可信外部输入。经由 Skill 与 `mcporter` 调用时，平台不会自动校验返回结果的 Schema、不会按 MCP 注解（annotation）拦截调度、不会弹出工具级人工审批确认，也不会自动从返回结果中脱敏 Worker 环境变量密钥。因此，该机制仅面向受信任的第一方 MCP Skill，远端服务凭证自身的权限范围（Scope）才是真正的读写安全边界。
-
-## 下一步
-
-- 了解如何编写 Skill，请参阅 [编写 Skill](../writing-a-skill/)。
-- 了解如何配置 Bearer 令牌，请参阅 [环境变量](../worker-env/)。
-- 了解如何在对话中使用已启用的 MCP 能力，请参阅 [使用 MCP](../using-mcp/)。
+参阅[使用 MCP](../using-mcp/)、[编写 Skill](../writing-a-skill/)和[自动化任务](../automation-jobs/)。

@@ -10,7 +10,6 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
   alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers.ReconcileJob
   alias Ankole.AgentWorkers.AgentWorker
-  alias Ankole.AgentWorkers.WorkerAuthKey
   alias Ankole.SessionsCase
 
   setup do
@@ -72,24 +71,6 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
                AgentWorkers.authenticate("missing-agent", ctx.token)
 
       assert {:error, :invalid_worker_credential} = AgentWorkers.authenticate(ctx.agent_uid, "")
-    end
-
-    test "rotating the installation key does not touch Worker credentials", ctx do
-      definition = WorkerAuthKey.definition()
-      assert {:ok, original_key} = AppConfigure.get(definition)
-
-      on_exit(fn ->
-        assert {:ok, _key} = AppConfigure.put_global(definition, original_key)
-      end)
-
-      {:ok, _key} = AppConfigure.put_global(definition, "rotated-installation-key")
-
-      generation = Repo.get_by!(AgentWorker, agent_uid: ctx.agent_uid).generation
-
-      assert {:ok, %{generation: ^generation, tenant_id: tenant_id}} =
-               AgentWorkers.authenticate(ctx.agent_uid, ctx.token)
-
-      assert tenant_id == ctx.tenant.id
     end
   end
 

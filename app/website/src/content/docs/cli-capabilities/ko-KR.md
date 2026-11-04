@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-Ankole의 일부 기능은 모델에 상시 노출되는 도구(tool) 스키마 대신 Agent Computer 내부의 셸 명령어로 제공됩니다. Agent는 `gh`나 `kubectl`을 다루듯 셸에서 이 명령어들을 실행하며, `ankole-pod`(`pages.*`, `base.*`, `applet build|publish|pull`), `ankole-files`, `ankole-browser`, 웹훅 엔드포인트 관리 명령, automation job 관리 명령이 모두 이 방식을 따릅니다.
+Ankole의 일부 기능은 모델에 상시 노출되는 도구(tool) 스키마 대신 Agent Computer 내부의 셸 명령어로 제공됩니다. Agent는 `kubectl`을 다루듯 셸에서 이 명령어들을 실행하며, `ankole-pod`(`pages.*`, `base.*`, `applet build|publish|pull`), `ankole-files`, `ankole-browser`, 웹훅 엔드포인트 관리 명령, automation job 관리 명령이 모두 이 방식을 따릅니다.
 
 이 문서에서는 어떤 기능을 CLI 형태로 설계해야 하는지, 그리고 별도의 도구 등록이나 Skill 인덱스 항목, 시스템 프롬프트 상주 설명 없이도 Agent가 적시에 기능을 발견하고 정확히 사용할 수 있게 만드는 단계적 노출(disclosure) 구조를 설명합니다.
 
@@ -27,30 +27,15 @@ Ankole의 일부 기능은 모델에 상시 노출되는 도구(tool) 스키마 
 
 **관련 의사결정 지점에 한 문장짜리 포인터를 배치합니다.** Agent는 인접한 결정을 내리는 표면(유관 도구의 설명문, 특정 외부 시스템을 연동하는 Skill 본문, 또는 다른 관련 CLI의 `--help` 출력)에 놓인 짧은 안내 문장 하나를 보고 이 CLI의 존재를 발견합니다. 각 포인터는 특정 선택을 강요하지 않고 “어떤 조건일 때 이 기능이 관련되며 어디서 상세 사용법(`--help`)을 확인할 수 있는지”만 담백하게 안내합니다. CLI 형태로 제공하는 모든 기능은 관련 업무 경로에서 Agent가 반드시 거치게 되는 표면에 최소 하나 이상의 포인터를 두어야 합니다.
 
-**공통 규약은 `--help`에 두고, 외부 시스템별 차이만 플러그인 Skill에 남깁니다.** 어느 연동에나 공통으로 적용되는 플랫폼 계약은 CLI의 `--help`가 전담하고, 개별 외부 서비스를 연동하는 Skill에는 해당 서비스 고유의 규칙만 작성합니다. 예컨대 GitHub 웹훅 Skill은 첫머리에서 일반 웹훅 계약 확인을 위해 `create-webhook-cli --help`를 실행하도록 안내한 뒤, 본문에서는 GitHub 훅 등록 API, 핑(ping) 이벤트 확인, 전달 이력 대조, 저장소당 훅 개수 한도만 다룹니다. 덕분에 두 번째 외부 서비스 연동을 추가할 때는 공통 계층을 중복 설명 없이 그대로 재사용할 수 있습니다.
+**공통 규약은 `--help`에, 외부 서비스별 지식은 플러그인 Skill에 둡니다.** CLI 전체에 적용되는 규칙은 `--help`에서 설명합니다. Skill은 외부 서비스의 작업 규약과 필요한 플랫폼 기능을 안내합니다. 예를 들어 Toolkit 업로드 작업은 Pod 파일 참조를 받으므로, Skill은 먼저 `pod-content`로 Worker 파일을 업로드하도록 안내합니다.
 
-## Automation jobs
+## Automation Jobs
 
-automation job은 매번 Agent 대화 세션을 깨우는 대신 트리거 이벤트를 직접 받아 처리하는 결정적(deterministic) 스크립트입니다. checkback, cron 스케줄, 웹훅 엔드포인트에서 `automation_job_id`를 지정하면 해당 스크립트가 실행되며, 이 필드를 생략하면 기본값대로 Agent 세션을 직접 깨웁니다.
+Automation Job은 Function Runtime에서 게시된 Applet Action을 실행합니다. Agent는 `ankole-pod applet`으로 Applet을 빌드·게시하고, `ankole-pod jobs`로 Action 조회, Job 생성·설정, 일정과 Webhook 관리, Run 확인을 수행합니다. 사용 전에 `ankole-pod --help`를 읽으세요.
 
-Agent는 로컬 작업 공간에 디렉터리를 만들고 `main.ts`를 작성해 설정과 일반 로직 분기를 직접 실행해 검증한 뒤 `create-automation-job-cli`로 등록합니다. 등록 시 해당 디렉터리는 Agent 드라이브의 새 경로인 `automation/<디렉터리 이름>-<무작위 접미사>`로 복사되며 이 경로가 `drive_prefix`로 반환됩니다. 이후 매 실행 시점에는 해당 드라이브 폴더의 파일들을 새로운 임시 실행 디렉터리로 복사해 Bun으로 `main.ts`를 실행하므로, 스크립트가 실행 중 작업 디렉터리에 생성한 임시 파일은 다음 실행으로 이어지지 않습니다. 코드를 수정할 때는 재등록할 필요 없이 `ankole-files put <dir> <drive_prefix>`로 드라이브 폴더를 덮어쓰면 다음 실행부터 반영됩니다.
+서버는 `{routes, actions}`를 내보냅니다. Action은 처리 함수, 멱등성, 동시 실행 정책을 선언하고 `ctx.signal`과 `ctx.job.config`를 읽으며 `ctx.state`에 상태를 저장합니다. `continueSlice()`로 같은 Run을 나누어 실행할 수 있습니다. 외부 호출은 `AnkoleRuntime.mcp`, 팀 권한은 `AnkoleRuntime.admin.mcp`를 사용합니다.
 
-각 실행 시도(attempt)에는 해당 Agent의 최신 `WorkerEnv`와 현재 활성화된 Skill 구성을 바탕으로 생성된 호출 범위 전용 `MCPORTER_CONFIG`가 주입됩니다. Worker는 스크립트가 어떤 MCP 서버를 호출할지 미리 추측해 걸러내지 않으며, 스크립트는 `mcporter`와 표준 입력(`stdin`) JSON을 통해 필요한 MCP 도구를 직접 호출할 수 있습니다. 이때 Automation 실행 환경은 Skill 마크다운 지침을 읽지 않으며 Agent Home의 영구 `mcporter` 설정 파일도 참조하지 않습니다.
-
-런타임 SDK는 `context()`와 `emitEvent(payload)` 두 함수를 제공합니다. `context().event`에는 직접 깨우기 경로였을 때 Signal에 실렸을 것과 동일한 CloudEvents 봉투 객체가 들어 있습니다. 스크립트는 별도 이벤트 없이 조용히 정상 종료할 수도 있고, `emitEvent`를 한 번 이상 호출해 소유자 세션 앞으로 영구 `automation_job.emitted` 이벤트를 적재할 수도 있습니다.
-
-`context()`와 `emitEvent`는 플랫폼이 구동하는 정식 실행 환경 안에서만 동작합니다. 따라서 로컬에서 `bun main.ts`를 직접 실행해 테스트할 때는 SDK 함수를 호출하지 않는 일반 로직 분기만 검증하고, 등록을 마친 뒤에는 실제 테스트 트리거를 발생시켜 SDK 호출 분기와 영구 실행 기록까지 확인하세요. `emitEvent`는 표준 출력(`stdout`)으로 대체 출력하는 폴백을 두지 않으며, 생성된 Signal이 PostgreSQL에 영구 커밋된 뒤에야 반환된 Promise가 이행(resolve)됩니다.
-
-모든 트리거 소비는 checkback 차감, cron 스케줄 전진, 또는 웹훅 수신 수락과 동일한 PostgreSQL 트랜잭션 안에서 영구 실행 레코드(run)를 생성합니다. 스크립트 내부의 예외 발생, `0`이 아닌 종료 코드, 타임아웃은 스크립트 자체의 최종 실행 결과로 확정되어 자동 재시도되지 않습니다. 반면 실행 도중 Worker 자체가 유실된 경우는 인프라 장애로 분류되어 기존 Oban 웨이크업 경로를 통해 펜싱된 새 실행 시도가 배정됩니다. 이처럼 인프라 복구 시 스크립트가 다시 실행될 수 있으므로 모든 스크립트는 중복 실행에 안전하도록(멱등하게) 작성해야 합니다.
-
-활성 Agent 실행 turn 안에서는 다음 관리 명령어들을 사용할 수 있습니다.
-
-- `create-automation-job-cli --dir <path> --label <text> [--wake-on-failure]`
-- `list-automation-jobs-cli [--limit <1-500>]`
-- `show-automation-job-cli --id <automation-job-id> [--runs <1-100>]`
-- `cancel-automation-job-cli --id <automation-job-id>`
-
-Console의 **Automation Jobs** 페이지에서도 등록된 각 작업과 최근 실행 상태, 시도 횟수, 오류 요약, 종료 코드, 길이 제한이 적용된 `stdout`/`stderr` 끝부분 로그를 조회할 수 있으며, 모델을 위한 정본 계약 문서는 언제나 `create-automation-job-cli --help`가 담당합니다.
+자동화 패널과 SDK의 `useAppletJobs()`·`useJobSources(jobID)`도 같은 작업을 제공합니다. 테스트 전달 후 Run의 입력·결과·오류·로그를 확인하세요. 권한과 복구 방법은 [Automation Jobs](../automation-jobs/)를 참고하세요.
 
 ## 새 CLI 기능의 요구 사항
 

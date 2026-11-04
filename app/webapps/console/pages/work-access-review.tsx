@@ -67,8 +67,12 @@ function WorkReviewRow({ work }: { work: HumanWorkItem }) {
     <div className="my-4 grid gap-3 border-t border-border pt-4">
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
         <span>{humanizeTechnicalLabel(work.kind)}</span>
-        <span aria-hidden>·</span>
-        <AgentLink uid={work.agent_uid} />
+        {work.agent_uid ? (
+          <>
+            <span aria-hidden>·</span>
+            <AgentLink uid={work.agent_uid} />
+          </>
+        ) : null}
         <span aria-hidden>·</span>
         <span>{t(`console.status.${work.status}`, { defaultValue: humanizeTechnicalLabel(work.status) })}</span>
       </p>

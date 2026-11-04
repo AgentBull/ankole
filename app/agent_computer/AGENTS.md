@@ -9,7 +9,7 @@ In production, each Worker runs inside its Linux container image. Run the `packa
 - **`test` and `test:docker`** run the unit test suite. Running unit tests on the host requires Bun, Bash, GNU `timeout`, and Python 3. Passing unit tests does not verify the packaged Worker image.
 - **`test:integration`** runs `test/integration/host/` directly on the host. It requires the Codex and MCPorter versions pinned by the Worker image, MCPorter on Bun, native `apply_patch`, GNU `stat` (`gstat` on macOS), and a Rust toolchain. Before running the tests, the script compiles the kernel `napi` addon used for token counting.
 - **`test:integration:linux`** runs `test/integration/linux/` on a Linux host without a container image. It requires `setsid` and util-linux `flock -F`, and verifies the process supervisor together with the managed Codex runtime.
-- **`test:integration:docker`** runs `test/integration/worker-image/` inside the Docker devkit. Use this suite to verify the Worker entrypoint, container configuration, `tini`, pinned Codex bindings, headless browser, OCR tools, and the preinstalled Lark CLI.
+- **`test:integration:docker`** runs `test/integration/worker-image/` inside the Docker devkit. Use this suite to verify the Worker entrypoint, container configuration, `tini`, pinned Codex bindings, headless browser, OCR tools, MCPorter, and the Git credential helper.
 
 Host integration tests operate against temporary directories and repository paths, and honor `ANKOLE_CODEX_BINARY` when pointing at a local Codex binary. Any test that depends on image-installed paths, container configuration, or bundled CLI tools belongs in `test/integration/worker-image/`; if a test file mixes host-only and image-only assumptions, split it across the two suites.
 

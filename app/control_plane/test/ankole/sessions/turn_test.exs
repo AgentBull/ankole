@@ -262,6 +262,18 @@ defmodule Ankole.Sessions.TurnTest do
     assert at == due.available_at
   end
 
+  test "a database exception follows the execution failure path without crashing the Turn" do
+    turn = turn(run("", []), :requesting_model)
+    reason = Ash.Error.to_error_class(%Postgrex.Error{message: "deadlock detected"})
+
+    assert {_, [{:log_failure, error}, {:retry_cleanup, error}, {:defer_retry, error}]} =
+             Turn.step(turn, {:completed, :inject_pending, {:error, reason}}, 0)
+
+    assert error["code"] == "conversation_execution_error"
+    assert error["retryable"] == true
+    assert error["message"] =~ "deadlock detected"
+  end
+
   test "a retryable failure waits for a committed deadline before backing off" do
     turn = turn(run("", []), :requesting_model)
     error = %{"code" => "upstream_unavailable", "retryable" => true}

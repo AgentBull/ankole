@@ -54,15 +54,16 @@ Ankole never interprets files inside a template as a Plugin activation contract.
 
 ### Built-in Packages
 
-Ankole ships five built-in Agent Plugins:
+Ankole ships six built-in Agent Plugins:
 
 | ID | Member Skills | Shipped default |
 | --- | --- | --- |
-| `lark` | `lark-im`, `lark-oa`, `lark-office-suite` | Disabled |
+| `lark` | `lark-im`, `lark-approvals`, `lark-tasks`, `lark-calendar` | Disabled |
 | `office` | `docx`, `xlsx`, `pptx` | Enabled |
 | `deep-research` | `create-deep-research` | Enabled |
 | `brain` | `brain-learning`, `resolve-before-asking`, `idea-lineage`, `applied-reading` | Enabled |
-| `github` | `github-auth`, `github-issues`, `github-pr-workflow`, `github-repo-management`, `github-webhooks` | Disabled |
+| `github` | `github` | Enabled |
+| `linear` | `linear` | Enabled |
 
 Member Skills live exclusively inside their parent Agent Plugin, while
 standalone Skills live under `app/library/skills`. Three packages have notable
@@ -243,6 +244,23 @@ the release. At boot, a GenServer validates that every declared module has a
 unique Plugin ID—halting startup on any duplicate—and publishes the active list
 as an immutable `:persistent_term` snapshot for lock-free reads without parsing
 source files.
+
+### Tenant platform credentials
+
+Built-in identity, messaging, and Connector plugins declare `activation: :always`.
+Their contracts are available on every node; tenant configuration decides which
+connections actually run. Administrators manage external application roots in
+`Ankole.Connectors`, and members connect their own OAuth accounts. Identity and
+Signal configuration references the shared credential through `authConfigId`,
+while login policy, directory synchronization, and message routing stay with
+their existing owners.
+
+The `connectors.connector` plugin contract contributes explicit `ToolSpec`
+declarations, upstream authentication callbacks, tool execution, and optional
+subscription reconciliation and event verification. The gateway resolves these
+callbacks through the Registry. The credential catalog reuses the plugin's
+configuration fields, while connector-only plugins declare their authentication
+forms directly. See [Connectors](Connectors.md) for storage and lifecycle rules.
 
 ### Fixed source builds
 

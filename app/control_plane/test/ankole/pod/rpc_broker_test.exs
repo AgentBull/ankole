@@ -1,21 +1,48 @@
 defmodule Ankole.Pod.RPCBrokerTest do
   use Ankole.DataCase, async: false
 
+  # Driver Tasks can be cancelled while querying; each needs its own transaction.
+  @moduletag sandbox: false
+
   import Ankole.PrincipalsFixtures
   import Ankole.FilesFixtures, only: [applet_manifest_fixture: 3]
 
   alias Ankole.Pod.{Documents, Files, Pages, RPCBroker}
+  alias Ankole.AgentWorkers.WorkerRoute
   alias Ankole.BackgroundAgentJobs
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Sessions.RunRef
   alias Ankole.Signals.Signal
   alias Ankole.WorkerFilesFake
 
-  setup do
+  setup tags do
     owner = human_fixture().principal
-    agent = Ankole.SessionsCase.agent_fixture(%{owner_principal_uid: owner.uid}).principal
-    Ankole.ConversationsFixtures.grant_chat(owner.uid, agent.uid)
+    attrs = %{owner_principal_uid: owner.uid}
+
+    attrs =
+      if tags[:personal_assistant], do: Map.put(attrs, :type, :personal_assistant), else: attrs
+
+    agent = Ankole.SessionsCase.agent_fixture(attrs).principal
+
+    base_url =
+      Ankole.AIGatewayCase.start_upstream_server(fn request ->
+        {:sse, 200, Ankole.AIGatewayCase.chat_completion_stream_events(request, "Fixture reply")}
+      end)
+
+    {:ok, %{"provider_id" => provider_id}} =
+      Ankole.AIGateway.ModelProfiles.get_model_profile(agent.uid, "primary")
+
+    {:ok, _} =
+      Ankole.AIGateway.ProviderConfigs.update_provider(provider_id, %{base_url: "#{base_url}/v1"})
+
+    :ok = Ankole.SessionsCase.cache_actor_runtime_models(provider_id)
+
+    unless tags[:personal_assistant],
+      do: Ankole.ConversationsFixtures.grant_chat(owner.uid, agent.uid)
+
     route = "pod-broker-#{System.unique_integer([:positive])}"
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     {:ok, _worker} = Ankole.SessionsCase.admit_worker(route, %{worker_id: agent.uid})
 
     room_id = Ecto.UUID.generate()
@@ -25,7 +52,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
         conversation_id: room_id,
         agent_uid: agent.uid,
         message_id: Ecto.UUID.generate(),
-        room_mode: :group,
+        room_mode: if(tags[:personal_assistant], do: :dm, else: :group),
         text: "Work with my Pod pages"
       })
 
@@ -46,6 +73,147 @@ defmodule Ankole.Pod.RPCBrokerTest do
       route: route,
       ctx: %{route: route, worker_id: agent.uid, request_id: "pod-test"}
     }
+  end
+
+  test "an Agent manages native Job sources and reads their delivery history through Pod RPC",
+       ctx do
+    job = Ankole.WorkFixtures.applet_job(ctx.owner)
+
+    assert {:ok, _} =
+             Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, job.page_id, %{
+               grants: [%{principal_uid: ctx.agent, role: "edit"}]
+             })
+
+    params = %{page_id: job.page_id, job_id: job.id}
+
+    assert {:ok, %{"result" => [%{"id" => id}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.list", params), ctx.ctx)
+
+    assert id == job.id
+
+    assert {:ok, %{"result" => action_keys}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.actions", params), ctx.ctx)
+
+    assert job.action_key in action_keys
+
+    assert {:ok, %{"result" => %{"id" => schedule_id}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request(
+                 "jobs.schedules.put",
+                 Map.merge(params, %{
+                   name: "refresh",
+                   payload: %{mode: "data"},
+                   timezone: "Etc/UTC",
+                   schedule: %{
+                     kind: "every",
+                     every_ms: 60_000,
+                     anchor_at: DateTime.to_iso8601(DateTime.utc_now())
+                   }
+                 })
+               ),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => [%{"id" => ^schedule_id}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.schedules.list", params), ctx.ctx)
+
+    assert {:ok, %{"result" => [_]}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("bindings.list", %{config_ref: "schedule://#{schedule_id}"}),
+               ctx.ctx
+             )
+
+    {:ok, schedule} = Ankole.Schedule.get_cron_schedule(schedule_id)
+
+    assert {:ok, %{automation_job_run: run}} =
+             Ankole.Schedule.fire_cron(schedule_id, now: schedule.next_fire_at)
+
+    assert {:ok, %{"result" => %{"id" => run_id}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("jobs.get_run", %{page_id: job.page_id, run_id: run.id}),
+               ctx.ctx
+             )
+
+    assert run_id == run.id
+
+    assert {:ok, %{"result" => [%{"id" => ^run_id}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.runs", params), ctx.ctx)
+
+    assert {:ok, %{"result" => %{"deliveries" => [%{"automation_job_run_id" => ^run_id}]}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("jobs.schedules.runs", Map.put(params, :id, schedule_id)),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => %{"webhook_endpoint" => endpoint, "token" => token}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request(
+                 "jobs.webhooks.create",
+                 Map.merge(params, %{
+                   label: "callback",
+                   expires_at: DateTime.add(DateTime.utc_now(), 3600) |> DateTime.to_iso8601()
+                 })
+               ),
+               ctx.ctx
+             )
+
+    assert is_binary(token)
+    refute Map.has_key?(endpoint, "token_digest")
+
+    assert {:ok, %{"result" => %{"status" => "paused"}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("jobs.webhooks.pause", Map.put(params, :id, endpoint["id"])),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => [%{"endpoint" => %{"status" => "paused"}}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.webhooks.list", params), ctx.ctx)
+  end
+
+  @tag personal_assistant: true
+  test "a personal assistant manages its Human's sources through an admitted Pod RPC turn", ctx do
+    job = Ankole.WorkFixtures.applet_job(ctx.owner, %{authorization_kind: "human"})
+    params = %{page_id: job.page_id, job_id: job.id}
+
+    assert {:ok, %{"result" => [%{"id" => id}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.list", params), ctx.ctx)
+
+    assert id == job.id
+
+    assert {:ok, %{"result" => %{"webhook_endpoint" => endpoint, "token" => token}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request(
+                 "jobs.webhooks.create",
+                 Map.merge(params, %{
+                   label: "Human callback",
+                   expires_at: DateTime.add(DateTime.utc_now(), 3600) |> DateTime.to_iso8601()
+                 })
+               ),
+               ctx.ctx
+             )
+
+    assert endpoint["authorization_kind"] == "human"
+    assert endpoint["human_uid"] == ctx.owner
+    assert endpoint["human_access_version"] == job.human_access_version
+    assert endpoint["owner_job_id"] == job.id
+    assert is_nil(endpoint["agent_uid"])
+
+    assert {:ok, %{automation_job_run: run, signals: []}} =
+             Ankole.Signals.Webhooks.receive(token, [], "personal work")
+
+    assert run.automation_job_id == job.id
+
+    assert {:ok, %{"result" => [%{"id" => run_id}]}} =
+             RPCBroker.handle_read(ctx.ref, request("jobs.runs", params), ctx.ctx)
+
+    assert run_id == run.id
   end
 
   test "a Job can read only its admitted Skills through bundles and DAV", ctx do

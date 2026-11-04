@@ -10,6 +10,7 @@ import { useContent } from './content-context'
 import { ContentError } from './content-primitives'
 import { isRealtimeAccessDenied } from './realtime'
 import { usePageRealtime } from './use-page-realtime'
+import { AppletAutomation } from './applet-automation'
 
 export function AppletPage({ detail }: { detail: PageDetail }) {
   const { t } = useTranslation()
@@ -110,6 +111,7 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
   }, [detail.page.id, detail.page.revision, instanceID, base, realtime, retry, revoked, client])
   return (
     <section className="min-h-32 text-base leading-normal font-normal">
+      {!revoked && <AppletAutomation detail={detail} />}
       <ContentError error={error} />
       {!!error && !revoked && (
         <Button size="sm" variant="outline" onClick={() => setRetry(value => value + 1)}>

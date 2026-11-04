@@ -1,0 +1,121 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Find issues with cursor pagination.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "assignee": {
+        "type": ["string", "null"]
+      },
+      "createdAt": {
+        "type": ["string", "null"]
+      },
+      "cursor": {
+        "type": ["string", "null"]
+      },
+      "cycle": {
+        "type": ["string", "null"]
+      },
+      "includeArchived": {
+        "type": "boolean"
+      },
+      "label": {
+        "type": ["string", "null"]
+      },
+      "limit": {
+        "type": "integer"
+      },
+      "parentId": {
+        "type": ["string", "null"]
+      },
+      "priority": {
+        "type": "integer"
+      },
+      "project": {
+        "type": ["string", "null"]
+      },
+      "query": {
+        "type": ["string", "null"]
+      },
+      "state": {
+        "type": ["string", "null"]
+      },
+      "team": {
+        "type": ["string", "null"]
+      },
+      "updatedAt": {
+        "type": ["string", "null"]
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "name": "list_issues",
+  "outputSchema": {
+    "properties": {
+      "result": {
+        "properties": {
+          "cursor": {
+            "type": ["string", "null"]
+          },
+          "has_next_page": {
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "properties": {
+                "assignee": {
+                  "type": ["object", "string", "null"]
+                },
+                "createdAt": {
+                  "type": ["string", "null"]
+                },
+                "description": {
+                  "type": ["string", "null"]
+                },
+                "id": {
+                  "type": ["string", "null"]
+                },
+                "identifier": {
+                  "type": ["string", "null"]
+                },
+                "priority": {
+                  "type": ["number", "null"]
+                },
+                "project": {
+                  "type": ["object", "string", "null"]
+                },
+                "status": {
+                  "type": ["object", "string", "null"]
+                },
+                "team": {
+                  "type": ["object", "string", "null"]
+                },
+                "title": {
+                  "type": ["string", "null"]
+                },
+                "updatedAt": {
+                  "type": ["string", "null"]
+                },
+                "url": {
+                  "type": ["string", "null"]
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["items", "has_next_page", "cursor"],
+        "type": "object"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Calendar create shared.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "calendar_id": {
+        "type": "string"
+      },
+      "color": {
+        "type": "integer"
+      },
+      "description": {
+        "type": "string"
+      },
+      "is_deleted": {
+        "type": "boolean"
+      },
+      "is_third_party": {
+        "type": "boolean"
+      },
+      "permissions": {
+        "type": "string"
+      },
+      "resource_scope": {
+        "enum": ["personal", "app"],
+        "type": "string"
+      },
+      "role": {
+        "type": "string"
+      },
+      "summary": {
+        "type": "string"
+      },
+      "summary_alias": {
+        "type": "string"
+      },
+      "type": {
+        "type": "string"
+      }
+    },
+    "required": ["summary"],
+    "type": "object"
+  },
+  "name": "calendar_create_shared",
+  "outputSchema": {
+    "properties": {
+      "calendar": {
+        "properties": {
+          "calendar_id": {
+            "type": "string"
+          },
+          "color": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "is_deleted": {
+            "type": "boolean"
+          },
+          "is_third_party": {
+            "type": "boolean"
+          },
+          "permissions": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "summary_alias": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object"
+  }
+}

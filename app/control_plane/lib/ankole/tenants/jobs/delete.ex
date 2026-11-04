@@ -17,11 +17,12 @@ defmodule Ankole.Tenants.Jobs.Delete do
     drive_vfs_exports
     page_user_states page_changes page_comments page_snapshots page_daily_activity page_contents permission_grants
     conversation_action_cards external_message_refs conversation_messages conversation_participants
-    cron_schedules session_ambient_judgments scheduled_events
+    session_ambient_judgments scheduled_events cron_schedules
     sessions agent_computer_worker_envs
     agent_plugin_overrides agent_skill_lessons agent_skills agent_contracts skill_files skills
     ai_gateway_artifacts ai_gateway_compaction_artifacts ai_gateway_usage_records
-    app_configurations base_change_outbox automation_job_states signal_binding_receipts automation_job_runs automation_jobs signal_webhook_endpoints
+    app_configurations base_change_outbox automation_job_states signal_binding_receipts
+    signal_bindings automation_job_runs signal_webhook_endpoints automation_jobs
     background_agent_job_turn_items brain_chunks brain_take_domain_assignments
     brain_contradictions brain_links brain_merge_suggestions brain_object_aliases
     brain_timelines brain_slug_aliases brain_tags brain_schema_suggestions
@@ -32,7 +33,8 @@ defmodule Ankole.Tenants.Jobs.Delete do
     oidc_authorization_codes oidc_client_groups oidc_refresh_tokens oidc_refresh_token_families oidc_logout_requests
     oidc_logout_deliveries principal_external_identities
     principal_group_external_bindings principal_group_memberships deliveries
-    conversation_inbound_batches conversation_input_tombstones signal_bindings
+    conversation_inbound_batches conversation_input_tombstones
+    connector_triggers connector_oauth_sessions connector_connected_accounts connector_auth_configs
     workflow_agent_calls delivery_previews signals ai_gateway_messages
     background_agent_job_turns brain_claims brain_schema_packs oidc_sessions conversations principal_groups
     workflow_runs ai_gateway_conversations background_agent_jobs
@@ -66,6 +68,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
       # Human cleanup must commit while its Principal still exists. Merely
       # enqueueing WorkCleanup would let deletion erase that job's input first.
       with :ok <- cleanup_human_work(),
+           :ok <- Ankole.Connectors.teardown_tenant(),
            {:ok, 0} <- Ankole.Pod.release_applet_owners_for_tenant_deletion() do
         agents = Principals.list_principals!(query: [filter: [type: :agent], limit: 50])
 

@@ -11,8 +11,6 @@ defmodule Ankole.AgentWorkers.Supervisor do
 
   use Supervisor
 
-  alias Ankole.AgentWorkers.WorkerAuthKey
-
   @test_children if Application.compile_env(:ankole, :test_worker_routes, false),
                    do: [Ankole.AgentWorkers.LocalWorkerRoutes],
                    else: []
@@ -28,8 +26,6 @@ defmodule Ankole.AgentWorkers.Supervisor do
   @impl true
   @spec init(keyword()) :: {:ok, tuple()} | :ignore
   def init(_opts) do
-    WorkerAuthKey.ensure!()
-
     children = [
       Ankole.AgentWorkers.WorkerTracker,
       {Task.Supervisor, name: Ankole.AgentWorkers.InboundTaskSupervisor}

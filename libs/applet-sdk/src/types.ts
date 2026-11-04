@@ -141,12 +141,19 @@ export type RoutesAPI = {
 export type ActionRun = {
   id: number
   automation_job_id: number
+  event: Record<string, unknown>
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
   slice_count: number
   attempts: number
   progress: Record<string, unknown>
   result?: unknown
   error?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+  stdout?: string | null
+  stdout_truncated: boolean
+  stderr?: string | null
+  stderr_truncated: boolean
 }
 export type RunsAPI = {
   get(runID: number, signal?: AbortSignal): Promise<ActionRun>

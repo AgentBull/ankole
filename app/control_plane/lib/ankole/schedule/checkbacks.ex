@@ -21,9 +21,9 @@ defmodule Ankole.Schedule.Checkbacks do
 
       with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(attrs),
            :ok <-
-             AutomationJobs.validate_bindable_in_tx(
-               attrs.automation_job_id,
-               attrs.agent_uid
+             AutomationJobs.authorize_bindable_in_tx(
+               attrs.agent_uid,
+               attrs.automation_job_id
              ) do
         Store.insert_idempotent_event_and_wake_in_tx(attrs, opts)
       end
@@ -42,15 +42,15 @@ defmodule Ankole.Schedule.Checkbacks do
          :ok <- require_pending(snapshot),
          {:ok, updated_attrs} <- Normalizer.checkback_update_attrs(snapshot, attrs, now, opts),
          :ok <-
+           Ankole.Signals.lock_source_bindings_in_tx(
+             "scheduled-event://#{scheduled_event_id}",
+             updated_attrs.automation_job_id
+           ),
+         :ok <-
            validate_updated_automation_job(
              attrs,
              updated_attrs.automation_job_id,
              snapshot.agent_uid
-           ),
-         :ok <-
-           Ankole.Signals.lock_source_bindings_in_tx(
-             "scheduled-event://#{scheduled_event_id}",
-             updated_attrs.automation_job_id
            ),
          :ok <-
            Ankole.Signals.put_source_binding_in_tx(
@@ -182,7 +182,7 @@ defmodule Ankole.Schedule.Checkbacks do
   defp validate_updated_automation_job(requested_attrs, job_id, agent_uid) do
     if Map.has_key?(requested_attrs, "automation_job_id") or
          Map.has_key?(requested_attrs, :automation_job_id),
-       do: AutomationJobs.validate_bindable_in_tx(job_id, agent_uid),
+       do: AutomationJobs.authorize_bindable_in_tx(agent_uid, job_id),
        else: :ok
   end
 

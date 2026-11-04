@@ -69,7 +69,6 @@ defmodule Ankole.SessionsCase do
       alias Ankole.Sessions.RPCLane, warn: false
       alias Ankole.AgentWorkers.AgentWorker, warn: false
       alias Ankole.AgentWorkers.WorkerRoute, warn: false
-      alias Ankole.AgentWorkers.WorkerAuthKey, warn: false
       alias Ankole.AgentWorkers.WorkerBootstrap, warn: false
       alias Ankole.Repo, warn: false
 

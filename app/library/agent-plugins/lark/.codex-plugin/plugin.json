@@ -1,6 +1,6 @@
 {
   "name": "lark",
-  "version": "1.0.0",
-  "description": "Lark communication, collaboration, office, work-management, and per-human approval capabilities.",
+  "version": "2.0.0",
+  "description": "Feishu and Lark messaging, approvals, tasks, and calendars through Ankole Connectors.",
   "skills": "./skills/"
 }

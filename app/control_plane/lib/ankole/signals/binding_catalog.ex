@@ -149,7 +149,7 @@ defmodule Ankole.Signals.BindingCatalog do
 
   def get_binding_configuration(id) do
     with %Binding{} = binding <- Ankole.Signals.get_binding!(id),
-         {:ok, config} <- Ankole.Signals.Bindings.stored_binding_config(binding) do
+         {:ok, config} <- Ankole.Signals.Bindings.configuration_for_edit(binding) do
       with {:ok, fields} <- binding_fields(binding) do
         {config, stored_secret_paths} = ConfigSecrets.redact(fields, config)
 

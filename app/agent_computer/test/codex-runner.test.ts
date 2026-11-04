@@ -526,7 +526,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(runtimeEnv.MCPORTER_CONFIG).toStartWith(`${join(jobProjectFor(fixture.root), 'temp')}/ankole-mcporter-`)
       expect(JSON.parse(runtimeEnv.MCPORTER_CONFIG_CONTENT)).toMatchObject({
         imports: [],
-        mcpServers: { 'job-data': { baseUrl: 'https://mcp.example.test/rpc' } }
+        mcpServers: { 'job-data': { baseUrl: 'https://control.test/api/internal/mcp/skills/job-any/job-data' } }
       })
       expect(existsSync(runtimeEnv.MCPORTER_CONFIG)).toBe(false)
     } finally {
@@ -1301,6 +1301,8 @@ function options(
           return create(WorkerEnvResolveResponseSchema, {
             vars: {
               SAFE_VALUE: 'kept',
+              ANKOLE_MCP_ORIGIN: 'https://control.test',
+              ANKOLE_MCP_TOKEN: 'test-turn-token',
               BROWSER_BACKEND_JSON: JSON.stringify({
                 kind: 'local_chromium',
                 executable: '/bin/true',

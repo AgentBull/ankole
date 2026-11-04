@@ -48,10 +48,13 @@ test('a committed progress event replaces an older read, and reconnection catche
   let run: ActionRun = {
     id: 1000,
     automation_job_id: 1000,
+    event: {},
     status: 'running',
     attempts: 1,
     slice_count: 0,
-    progress: {}
+    progress: {},
+    stdout_truncated: false,
+    stderr_truncated: false
   }
   let first = true
   let aborted = false
@@ -102,10 +105,13 @@ test('revoked Run access clears the cached result and closes its live subscripti
   const run: ActionRun = {
     id: 1000,
     automation_job_id: 1000,
+    event: {},
     status: 'succeeded',
     attempts: 1,
     slice_count: 0,
     progress: {},
+    stdout_truncated: false,
+    stderr_truncated: false,
     result: { private: true }
   }
   const http = spyOn(sdk, 'podAppletRun').mockResolvedValue({ run } as Awaited<ReturnType<typeof sdk.podAppletRun>>)
