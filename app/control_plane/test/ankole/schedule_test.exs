@@ -777,6 +777,7 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert Schedule.list_cron_runs(schedule.id, 10) == []
+      assert {:ok, prepared} = Ankole.Schedule.Fire.prepare_cron(schedule.id, first_slot)
 
       assert {:ok, updated} =
                Schedule.update_cron_schedule(
@@ -792,6 +793,13 @@ defmodule Ankole.ScheduleTest do
       assert updated.name == "snapshot-update-renamed"
       assert Schedule.list_cron_runs(schedule.id, 10) == []
       assert cron_job(schedule.id).scheduled_at == first_slot
+
+      assert {:error, {:cron_fire_failed, :cron_schedule_changed, ^first_slot}} =
+               Repo.transact_top_level(fn ->
+                 Ankole.Schedule.Fire.fire_cron_in_tx(schedule.id, first_slot, prepared)
+               end)
+
+      assert Schedule.list_cron_runs(schedule.id, 10) == []
       assert {:ok, %{scheduled_event: current}} = Schedule.fire_cron(schedule.id, now: first_slot)
       assert current.status == :fired
       assert current.wake_payload["cron_schedule_name"] == "snapshot-update-renamed"

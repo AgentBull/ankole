@@ -130,8 +130,6 @@ defmodule Ankole.Sessions.Admission do
     do: {:ok, event}
 
   def authorize_event_in_tx(event) do
-    :ok = Ankole.Pod.lock_tree_in_tx()
-
     case authorize_new_in_tx(event) do
       :ok ->
         {:ok, event}
@@ -157,8 +155,6 @@ defmodule Ankole.Sessions.Admission do
 
   @doc false
   def admit_in_tx(key, snapshot, plan, prepared, now) do
-    :ok = Ankole.Pod.lock_tree_in_tx()
-
     with :ok <- Ankole.Conversations.lock_native_participants_in_tx(key, [snapshot.human_uid]),
          :ok <- authorize_attempt_in_tx(snapshot),
          {:ok, :not_committed} <- finalize_workflow_input_in_tx(snapshot, plan),

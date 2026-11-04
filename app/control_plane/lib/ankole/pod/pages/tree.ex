@@ -260,8 +260,17 @@ defmodule Ankole.Pod.Pages.Tree do
     do: ensure_root(fn -> conversation_root(id) end, %{name: "Conversation", conversation_id: id})
 
   defp ensure_root(read, attrs) do
-    lock_tree()
+    case read.() do
+      {:error, :not_found} ->
+        lock_tree()
+        create_root_if_missing(read, attrs)
 
+      result ->
+        result
+    end
+  end
+
+  defp create_root_if_missing(read, attrs) do
     case read.() do
       {:ok, root} ->
         {:ok, root}
@@ -385,29 +394,31 @@ defmodule Ankole.Pod.Pages.Tree do
         |> Access.anchor_attributes()
 
       with {:ok, page} <- Ankole.Ash.create(Node, :create_in_tx, attrs),
-           do: initialize_content(page)
+           do: initialize_content(page, Keyword.get(opts, :initial_content))
     else
       false -> {:error, :not_a_directory}
       error -> error
     end
   end
 
-  defp initialize_content(%{type: type} = page) when type in [:doc, :knowledge] do
+  defp initialize_content(page, content \\ nil)
+
+  defp initialize_content(%{type: type} = page, content) when type in [:doc, :knowledge] do
     author =
       page.created_by || ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: "system"})
 
     with {:ok, _} <-
            Ankole.Ash.create(Ankole.Pod.PageContent, :create_in_tx, %{
              page_id: page.id,
-             content: "<page />",
-             plain_text: "",
+             content: (content && content.content) || "<page />",
+             plain_text: (content && content.plain_text) || "",
              updated_by: author,
              updated_at: page.updated_at
            }),
          do: {:ok, page}
   end
 
-  defp initialize_content(page), do: {:ok, page}
+  defp initialize_content(page, _content), do: {:ok, page}
 
   @doc "Updates an already-authorized node. Object-only writes do not acquire the tree lock."
   def update_in_tx(node, action, attrs) do

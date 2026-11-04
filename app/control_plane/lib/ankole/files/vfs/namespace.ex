@@ -85,7 +85,7 @@ defmodule Ankole.Files.Vfs.Namespace do
     do: Ankole.Files.Vfs.Applet.children(scope, entry)
 
   defp children_entry(scope, %{kind: kind, node: node}) when kind in [:folder, :children] do
-    policy = Ankole.AuthZ.Checks.PageAnchorFilter.policy(scope.access.reachable)
+    policy = Ankole.AuthZ.Checks.PageAnchorFilter.policy(page_access(scope, node).reachable)
 
     entries =
       Ankole.Pod.list_page_records!(
@@ -132,7 +132,8 @@ defmodule Ankole.Files.Vfs.Namespace do
 
   def authorize(scope, node, action) do
     if visible?(scope, node),
-      do: Access.authorize_reachable(node, action, scope.access.reachable, trash: false),
+      do:
+        Access.authorize_reachable(node, action, page_access(scope, node).reachable, trash: false),
       else: {:error, :not_found}
   end
 
@@ -214,10 +215,16 @@ defmodule Ankole.Files.Vfs.Namespace do
     end)
   end
 
+  defp page_access(scope, node) do
+    if Access.brain_page?(node), do: scope.brain_access, else: scope.access
+  end
+
   defp visible?(scope, node),
     do:
       match?(
         {:ok, _},
-        Access.authorize_reachable(node, "node_view", scope.access.reachable, trash: false)
+        Access.authorize_reachable(node, "node_view", page_access(scope, node).reachable,
+          trash: false
+        )
       )
 end

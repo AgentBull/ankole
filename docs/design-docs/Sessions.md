@@ -63,6 +63,12 @@ its domain write. A transaction-scoped advisory lock on the receipt identity
 serializes concurrent executions of the same tool call, so the second execution
 reads the committed receipt instead of repeating the domain write.
 
+Clarification and Action Card tools record their structured interaction payload
+in the same `session_round_states.results` entry as their tool outcome. Completion
+reads that payload and asks Conversations to commit the message, card, and
+interaction in the fenced completion transaction. Recovery of older in-flight
+rounds can read their persisted tool-output payload.
+
 Receipt results, round pages, and result journals use the shared strict JSON
 object type. If a tool or caller returns an unsupported runtime value, Ankole
 rejects the write and rolls back its domain effects; PostgreSQL also rejects
@@ -255,6 +261,13 @@ queries or RPCs, and missing or failed tracing never alters admission, retries,
 sends, or commits.
 
 ## Admission and Responsibility
+
+Text-only conversation input, Session admission, and completion use their
+Principal, Session, and Signal locks without acquiring the tenant Page tree
+lock. Topology writes, including generated-image placement and new attachment
+nodes, acquire the tree lock before higher-ranked work locks. Resolving an
+existing root is a read; creating a missing root takes the tree lock and checks
+again before insertion.
 
 Internal control, revision, ambient, and scheduled paths require the private
 `kernel` producer marker recorded at intake; an external event with the same

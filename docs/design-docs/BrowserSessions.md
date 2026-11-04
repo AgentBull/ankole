@@ -7,6 +7,10 @@ never alters an already open page's identity.
 
 ## Ownership and records
 
+Pod streaming revalidates the browser proof, current Principal, and room access
+before each delivery. Those checks share the freshly loaded Principal for that
+delivery only; subsequent deliveries load current authorization again.
+
 Three modules divide browser session responsibilities:
 
 - `Ankole.BrowserSessions` (the Ash domain) owns browser groups, outbound

@@ -202,16 +202,8 @@ defmodule Ankole.Pod.RPCBroker do
          {:ok, page} <- Pages.authorize(actor, params["id"], "node_edit"),
          :ok <- Ankole.Pod.AgentPages.editable(actor, context, page) do
       if page.type == :knowledge do
-        if operation == "pages.write" and is_binary(params["markdown"]) do
-          with {:ok, result} <-
-                 Ankole.Pod.AgentPages.save(
-                   actor,
-                   context,
-                   page.id,
-                   params["base_revision"],
-                   params["markdown"]
-                 ),
-               do: {:ok, Map.drop(result, [:content])}
+        if operation == "pages.write" do
+          write_knowledge(actor, context, page.id, params, ctx)
         else
           {:error, :invalid_request}
         end
@@ -245,11 +237,12 @@ defmodule Ankole.Pod.RPCBroker do
 
   defp dispatch("applets.publish", actor, params, ctx),
     do:
-      Files.publish(
+      Files.publish_from_worker(
         actor,
         params["id"],
         params["base_revision"],
         params["files"],
+        %{worker_id: ctx.worker_id, transport_route: ctx.route},
         ctx.write_authority
       )
 
@@ -535,19 +528,8 @@ defmodule Ankole.Pod.RPCBroker do
 
   defp page_options(actor, params) do
     with {:ok, context} <- page_context(actor),
-         {:ok, reachable} <- Ankole.Brain.Access.visibility(context) do
-      disclosure = context.disclosure
-
-      recipients =
-        List.wrap(disclosure.asker_uid) ++
-          if(disclosure.mode == :strict, do: disclosure.present_uids, else: [])
-
-      readers =
-        if disclosure.mode == :strict and recipients == [],
-          do: [],
-          else: Enum.uniq([context.querier_uid | recipients])
-
-      {:ok, params |> Map.put(:reachable, reachable) |> Map.put(:reader_uids, readers)}
+         {:ok, reachable} <- Ankole.Pod.AgentPages.visibility(context) do
+      {:ok, params |> Map.put(:reachable, reachable) |> Map.put(:page_context, context)}
     end
   end
 
@@ -595,8 +577,10 @@ defmodule Ankole.Pod.RPCBroker do
           local = Ankole.Files.temp_path()
 
           try do
-            with {:ok, target} <- Ankole.Files.normalize_path(params["xml_home_relative_path"]),
-                 :ok <- File.write(local, detail.content.content),
+            with {:ok, target} <-
+                   Ankole.Files.normalize_path(params["markdown_home_relative_path"]),
+                 {:ok, markdown} <- Ankole.Kernel.vfs_document_export(detail.content.content),
+                 :ok <- File.write(local, markdown),
                  {:ok, _} <-
                    WorkerFiles.put(target, {:file, local},
                      worker: %{worker_id: ctx.worker_id, transport_route: ctx.route}
@@ -606,7 +590,7 @@ defmodule Ankole.Pod.RPCBroker do
 
               {:ok,
                detail
-               |> Map.put(:content, %{xml_file: true})
+               |> Map.put(:content, %{markdown_file: true})
                |> Map.put(:references, references)}
             end
           after
@@ -720,19 +704,34 @@ defmodule Ankole.Pod.RPCBroker do
 
   defp initial_document(params), do: {:ok, params}
 
-  defp write_document(operation, actor, params, ctx) do
-    receive_document(params["xml_home_relative_path"], ctx, fn xml ->
+  defp write_knowledge(actor, context, id, params, ctx) do
+    receive_markdown(params, ctx, fn markdown ->
       with {:ok, result} <-
-             apply(Documents, if(operation == "pages.append", do: :append, else: :write), [
-               actor,
-               params["id"],
-               params["base_revision"],
-               xml,
-               ctx.write_authority
-             ]),
+             Ankole.Pod.AgentPages.save(actor, context, id, params["base_revision"], markdown),
            do: {:ok, Map.drop(result, [:content])}
     end)
   end
+
+  defp write_document(operation, actor, params, ctx) do
+    receive_markdown(params, ctx, fn markdown ->
+      with {:ok, result} <-
+             Documents.edit_markdown(
+               actor,
+               params["id"],
+               params["base_revision"],
+               markdown,
+               if(operation == "pages.append", do: :append, else: :write),
+               ctx.write_authority
+             ),
+           do: {:ok, Map.drop(result, [:content])}
+    end)
+  end
+
+  defp receive_markdown(%{"markdown" => markdown}, _ctx, fun) when is_binary(markdown),
+    do: fun.(markdown)
+
+  defp receive_markdown(params, ctx, fun),
+    do: receive_document(params["markdown_home_relative_path"], ctx, fun)
 
   defp receive_document(source, ctx, fun) do
     with {:ok, source} <- Ankole.Files.normalize_path(source) do
@@ -740,7 +739,7 @@ defmodule Ankole.Pod.RPCBroker do
         source,
         [worker: %{worker_id: ctx.worker_id, transport_route: ctx.route}],
         fn local ->
-          with {:ok, xml} <- File.read(local), do: fun.(xml)
+          with {:ok, markdown} <- File.read(local), do: fun.(markdown)
         end
       )
     end

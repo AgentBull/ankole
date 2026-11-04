@@ -26,17 +26,23 @@ export function MovePageDialog({
   returnFocus?: RefObject<HTMLElement | null>
 }) {
   const { t } = useTranslation()
-  const currentTarget = page.parent_id ?? (page.private_owner_uid ? `private:${page.private_owner_uid}` : 'space')
-  const [target, setTarget] = useState(currentTarget)
+  const [selectedTarget, setTarget] = useState<string>()
   const [selectedSnapshot, setSelectedPage] = useState<Page>()
   const selectedPage = usePageMetadata(selectedSnapshot)
   const client = useQueryClient()
   const domain = pageDomain(page, pageAncestors(page, new Map(cachedPages(client).map(page => [page.id, page]))))
   const destinations = useQuery(
-    pageSearchQuery('', { domain, exclude_subtree_of: page.id, required_action: 'node_view' })
+    pageSearchQuery('', { domain, exclude_subtree_of: page.id, required_action: 'node_edit' })
   )
   const currentParent = useQuery({ ...pageQuery(page.parent_id ?? ''), enabled: Boolean(page.parent_id) })
   const parent = usePageMetadata(currentParent.data?.page)
+  const currentTarget =
+    parent && parent.parent_id == null && domain === 'pages'
+      ? parent.private_owner_uid
+        ? `private:${parent.private_owner_uid}`
+        : 'space'
+      : (page.parent_id ?? (page.private_owner_uid ? `private:${page.private_owner_uid}` : 'space'))
+  const target = selectedTarget ?? currentTarget
   const canCreateSpace = domain === 'pages' && destinations.data?.can_create_space === true
   const canCreatePrivate = domain === 'pages' && destinations.data?.can_create_private === true
   const privateOwner = destinations.data?.principal_uid ?? principalUID()
@@ -85,7 +91,7 @@ export function MovePageDialog({
               <PagePicker
                 label={t('pod.content.destination')}
                 excludeSubtreeOf={page.id}
-                requiredAction="node_view"
+                requiredAction="node_edit"
                 domain={domain}
                 canSelect={canCreateChild}
                 roots={[

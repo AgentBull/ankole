@@ -23,14 +23,20 @@ defmodule Ankole.AIAgent.Library.MCP do
 
   def credential_env_keys do
     with {:ok, files} <- Ankole.AIAgent.Library.Skills.mcp_metadata_files() do
-      Enum.reduce_while(files, {:ok, []}, fn file, {:ok, keys} ->
-        with {:ok, yaml} <- Ankole.Files.read_object(file.object_id) do
-          {:cont, {:ok, credential_env_keys_from_yaml(yaml) ++ keys}}
-        else
-          error -> {:halt, error}
-        end
+      objects = files |> Enum.map(& &1.object_id) |> Enum.uniq() |> Enum.sort()
+
+      Library.SourceCache.fetch({__MODULE__, Ankole.Repo.tenant_id!()}, objects, 60_000, fn ->
+        credential_keys(objects)
       end)
     end
+  end
+
+  defp credential_keys(objects) do
+    Enum.reduce_while(objects, {:ok, []}, fn object_id, {:ok, keys} ->
+      with {:ok, yaml} <- Ankole.Files.read_object(object_id),
+           do: {:cont, {:ok, credential_env_keys_from_yaml(yaml) ++ keys}},
+           else: (error -> {:halt, error})
+    end)
   end
 
   defp credential_env_keys_from_yaml(yaml) do

@@ -512,10 +512,10 @@ defmodule AnkoleWeb.Session do
       end
   end
 
-  def pod_session(conn) do
+  def pod_session(conn, opts \\ []) do
     case Ankole.Repo.tenant_id() do
       tenant_id when is_binary(tenant_id) ->
-        reference_identity(conn, authentication_candidate(conn), tenant_id)
+        reference_identity(conn, authentication_candidate(conn), tenant_id, opts)
 
       nil ->
         nil
@@ -534,11 +534,11 @@ defmodule AnkoleWeb.Session do
     end
   end
 
-  defp reference_identity(conn, reference, tenant_id) do
+  defp reference_identity(conn, reference, tenant_id, opts \\ []) do
     with true <- authentication_cookie_proven?(conn, reference),
          %{"id" => browser_id} <- browser_reference(conn),
          %{"browser_id" => ^browser_id} = identity <-
-           BrowserSessions.identity(reference, tenant_id),
+           BrowserSessions.identity(reference, tenant_id, opts),
          do: identity,
          else: (_ -> nil)
   end

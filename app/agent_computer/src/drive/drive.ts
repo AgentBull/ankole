@@ -193,7 +193,7 @@ export async function sha256File(path: string): Promise<string> {
   return hasher.digest('hex')
 }
 
-async function collectLocalFiles(localPath: string): Promise<LocalFile[]> {
+export async function collectLocalFiles(localPath: string): Promise<LocalFile[]> {
   const root = resolve(localPath)
   const rootStat = await lstat(root)
   if (rootStat.isFile()) return [localFile(root, '', rootStat)]

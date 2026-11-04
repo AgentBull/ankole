@@ -3,13 +3,12 @@ import { randomUUID } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
-import { parseMarkdown, parseXml, printMarkdown, printXml } from '@ankole/block-editor/document'
 import { WORKER_SHARE_ROOT } from '../../core/agent-home-paths'
 import { chownAgentPath, mkdirAgent } from '../../common/agent-user'
 import { agentProcessArgv } from '../../core/execution/process-group'
 import { parseCLIRequest, startSocketLineBridge } from '../../core/socket-line-bridge'
 import { jsonBytes, jsonObjectFromBytes } from '../../fabric/envelope_proto'
-import { sha256File, type Drive } from '../../drive/drive'
+import { collectLocalFiles, sha256File, type Drive } from '../../drive/drive'
 import type { RPCRequester, TurnRPCFrame } from '../../lanes/rpc_lane'
 
 const readOperations = [
@@ -101,13 +100,12 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
       const params = { ...command.params }
       let operation: string = command.operation
       const documentPath = ['pages.read', 'pages.write', 'pages.append', 'pages.patch'].includes(command.operation)
-        ? join(opts.drive.agentHome, '.ankole', 'pod-content', `${randomUUID()}.xml`)
+        ? join(opts.drive.agentHome, '.ankole', 'pod-content', `${randomUUID()}.md`)
         : undefined
       if (documentPath) {
         await mkdir(join(opts.drive.agentHome, '.ankole', 'pod-content'), { recursive: true })
-        params.xml_home_relative_path = await opts.drive.homeRelativePath(documentPath, { create: true })
+        params.markdown_home_relative_path = await opts.drive.homeRelativePath(documentPath, { create: true })
       }
-      let staging: string | undefined
       try {
         const request = async (operation: string, params: Record<string, unknown>) => {
           const method = readOperationNames.has(operation) ? 'pod.read' : 'pod.write'
@@ -167,7 +165,7 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
         if (operation === 'pages.patch') {
           const current = await request('pages.read', {
             id: params.id,
-            xml_home_relative_path: params.xml_home_relative_path
+            markdown_home_relative_path: params.markdown_home_relative_path
           })
           if ((current.page as { revision?: number } | undefined)?.revision !== params.base_revision) {
             throw new Error('Page revision changed; read the document again')
@@ -175,7 +173,7 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
           let markdown =
             typeof (current.content as Record<string, unknown> | undefined)?.markdown === 'string'
               ? (current.content as { markdown: string }).markdown
-              : printMarkdown(parseXml(await readFile(documentPath!, 'utf8')))
+              : await readFile(documentPath!, 'utf8')
           if (!Array.isArray(params.edits) || params.edits.length === 0) throw new Error('pages.patch requires edits')
           for (const value of params.edits) {
             const edit = value as { old_text?: unknown; new_text?: unknown; replace_all?: unknown }
@@ -196,7 +194,8 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
         }
         if (operation === 'pages.write' || operation === 'pages.append') {
           if (typeof params.markdown !== 'string') throw new Error(`${operation} requires markdown and base_revision`)
-          await writeFile(documentPath!, printXml(parseMarkdown(params.markdown)))
+          await writeFile(documentPath!, params.markdown)
+          delete params.markdown
         }
         if (command.operation === 'chat.attachment.get' || command.operation === 'files.download') {
           if (typeof params.local_path !== 'string') throw new Error('File download requires a destination path')
@@ -223,45 +222,45 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
           ) {
             throw new Error('Applet backend has not been built. Run applet build before publishing.')
           }
-          // Stage immutable objects through the Agent Drive, then let the Pod
-          // owner authorize their paths and commit the Applet manifest.
-          staging = `_pod/applets/${params.id}/${randomUUID()}`
-          const files = [
-            ...(await opts.drive.put(join(directory, 'src'), `${staging}/src`)),
-            ...(await opts.drive.put(join(directory, 'dist'), `${staging}/dist`))
-          ]
-          try {
-            const serverDirectory = join(directory, 'server')
-            await readdir(serverDirectory)
-            files.push(...(await opts.drive.put(serverDirectory, `${staging}/server`)))
-          } catch (error) {
-            if (nodeErrorCode(error) !== 'ENOENT') throw error
-          }
-          for (const name of ['package.json', 'bun.lock', 'tsconfig.json', 'applet.env.json']) {
-            if (await Bun.file(join(directory, name)).exists()) {
-              files.push(...(await opts.drive.put(join(directory, name), `${staging}/${name}`)))
+          const files: { path: string; home_relative_path: string; content_type: string }[] = []
+          for (const name of [
+            'src',
+            'dist',
+            'server/main.js',
+            'package.json',
+            'bun.lock',
+            'tsconfig.json',
+            'applet.env.json'
+          ]) {
+            const local = join(directory, name)
+            let entries
+            try {
+              entries = await collectLocalFiles(local)
+            } catch (error) {
+              if (nodeErrorCode(error) === 'ENOENT' && name !== 'src' && name !== 'dist') continue
+              throw error
+            }
+            for (const file of entries) {
+              files.push({
+                path: file.relativePath ? `${name}/${file.relativePath}` : name,
+                home_relative_path: await opts.drive.homeRelativePath(file.absolutePath),
+                content_type: Bun.file(file.absolutePath).type
+              })
             }
           }
-          const prefixLength = staging.length + 1
-          params.files = files.map(file => ({
-            path: file.path.slice(prefixLength),
-            object_id: file.objectId,
-            source_path: file.path,
-            content_type: file.contentType
-          }))
+          params.files = files
         }
         const body = await request(operation, params)
         if (command.operation === 'pages.read') {
           const content = body.content as Record<string, unknown> | undefined
-          if (content && content.xml_file === true && typeof content.markdown !== 'string') {
-            content.markdown = printMarkdown(parseXml(await readFile(documentPath!, 'utf8')))
-            delete content.xml_file
+          if (content && content.markdown_file === true && typeof content.markdown !== 'string') {
+            content.markdown = await readFile(documentPath!, 'utf8')
+            delete content.markdown_file
           }
         }
         return { ok: true, result: body }
       } finally {
         if (documentPath) await rm(documentPath, { force: true })
-        if (staging) await opts.drive.remove(staging)
       }
     }
   })

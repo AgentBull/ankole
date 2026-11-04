@@ -41,6 +41,13 @@ order.
 
 ## The Control Plane Owns Time
 
+Dispatch preparation and commit use the same fire instant. Under the domain
+locks, the control plane compares the current schedule, event, and target Job
+with the snapshot used to compute dispatch and concurrency keys. A concurrent
+configuration change rolls back preparation and retries from current state
+outside the transaction, up to three times. History projections batch receipt
+and source-Job reads across the returned schedules and events.
+
 The Elixir control plane computes fire instants, persists schedules, and drives
 state transitions, and control-plane Session tools call `Ankole.Schedule`
 directly in-process.

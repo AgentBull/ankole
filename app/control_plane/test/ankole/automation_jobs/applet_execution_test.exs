@@ -456,6 +456,58 @@ defmodule Ankole.AutomationJobs.AppletExecutionTest do
     assert {:ok, %{title: "replacement"}} = Pages.fetch(target.id)
   end
 
+  test "Action logs remain visible across slices and a failed final handler", ctx do
+    publish_applet_fixture(ctx, """
+    export default {actions:{work:{idempotent:true,handler:async ctx=>{
+      console.log('slice ' + ctx.run.sliceCount);
+      if (!ctx.run.sliceCount) return ctx.continueSlice({progress:{page:2}});
+      console.warn('check input');
+      throw Error('failed final slice');
+    }}}}
+    """)
+
+    job(ctx)
+    run = enqueue(ctx, "logs")
+    assert :ok = execute(run.id)
+    first = AutomationJobs.get_run_record(run.id)
+    assert first.stdout == "slice 0\n"
+    assert first.status == :queued
+    assert :ok = execute(run.id, 1)
+    final = AutomationJobs.get_run_record(run.id)
+    assert final.status == :failed
+    assert final.stdout == "slice 0\nslice 1\n"
+    assert final.stderr =~ "check input"
+    assert :ok = execute(run.id, 1)
+    assert AutomationJobs.get_run_record(run.id).stdout == final.stdout
+  end
+
+  test "Run log tails preserve Unicode and reject a stale attempt", ctx do
+    publish_applet_fixture(ctx, "export default {actions:{work:{handler:()=>true}}}")
+    job(ctx)
+    run = enqueue(ctx, "log-tail")
+    {:ok, attempt} = AutomationJobs.start_applet_attempt(run.id, 0)
+    logs = [%{"level" => "info", "message" => String.duplicate("汉", 30_000)}]
+
+    assert {:ok, :stale} =
+             AutomationJobs.finish_attempt(run.id, Ash.UUIDv7.generate(), %{
+               status: "succeeded",
+               logs: logs
+             })
+
+    assert AutomationJobs.get_run_record(run.id).stdout == ""
+
+    assert {:ok, saved} =
+             AutomationJobs.finish_attempt(run.id, attempt.run.attempt_id, %{
+               status: "succeeded",
+               logs: logs
+             })
+
+    assert saved.stdout_truncated
+    assert String.valid?(saved.stdout)
+    assert byte_size(saved.stdout) <= 65_536
+    assert String.ends_with?(saved.stdout, "汉\n")
+  end
+
   defp fenced_title(actor, page, authority, title) do
     authority =
       authority

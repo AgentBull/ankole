@@ -95,7 +95,7 @@ defmodule Ankole.AutomationJobs do
 
   defdelegate applet_state(context, operation, args), to: Ankole.AutomationJobs.Applet, as: :state
 
-  defdelegate continue_applet_slice(context, options),
+  defdelegate continue_applet_slice(context, options, logs \\ []),
     to: Ankole.AutomationJobs.Applet,
     as: :continue_slice
 

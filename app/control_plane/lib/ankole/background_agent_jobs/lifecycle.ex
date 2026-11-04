@@ -207,7 +207,10 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   @doc "Wakes the Job driver after a committed `commit_status` action."
   def publish_status_commit(%{job: job} = result) do
     Ankole.Signals.publish_committed(
-      Enum.reject([result[:wakeup_event], result[:dispatch_event]], &is_nil/1)
+      Enum.reject(
+        [result[:wakeup_event], result[:dispatch_event], result[:command_event]],
+        &is_nil/1
+      )
     )
 
     Ankole.Sessions.job_turn(job)

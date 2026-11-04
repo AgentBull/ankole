@@ -391,6 +391,15 @@ defmodule Ankole.Signals.Dispatch do
   def receipts(signal_id),
     do: BindingReceipt |> Ash.Query.filter(signal_id == ^signal_id) |> Ankole.Ash.read!()
 
+  def receipts_by_signal(ids) do
+    ids = ids |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    BindingReceipt
+    |> Ash.Query.filter(signal_id in ^ids)
+    |> Ankole.Ash.read!()
+    |> Enum.group_by(& &1.signal_id)
+  end
+
   def expire_receipts(now) do
     cutoff = DateTime.add(now, -7 * 86400, :second)
     expire_batch(cutoff, nil)

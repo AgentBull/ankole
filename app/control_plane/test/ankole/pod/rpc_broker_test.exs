@@ -5,7 +5,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
   @moduletag sandbox: false
 
   import Ankole.PrincipalsFixtures
-  import Ankole.FilesFixtures, only: [applet_manifest_fixture: 3, publish_applet_fixture: 2]
+  import Ankole.FilesFixtures, only: [publish_applet_fixture: 2]
 
   alias Ankole.Pod.{Documents, Files, Pages, RPCBroker}
   alias Ankole.AgentWorkers.WorkerRoute
@@ -366,7 +366,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
                request("pages.write", %{
                  id: document.id,
                  base_revision: 0,
-                 xml_home_relative_path: "large.bin"
+                 markdown_home_relative_path: "large.bin"
                }),
                ctx.ctx
              )
@@ -740,7 +740,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
         id: page.id,
         base_revision: 0,
         base_object_id: expected_object,
-        xml_home_relative_path: "source.xml",
+        markdown_home_relative_path: "source.xml",
         home_relative_path: "source.xml"
       }
 
@@ -890,7 +890,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
              RPCBroker.handle_write(ref, request("pages.set_sharing", params), ctx.ctx)
   end
 
-  test "document RPC transfers canonical XML over the signed relay and keeps CAS at its owner",
+  test "document RPC transfers Markdown over the signed relay and keeps CAS at its owner",
        ctx do
     {:ok, page} =
       Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{title: "Agent report"})
@@ -900,8 +900,8 @@ defmodule Ankole.Pod.RPCBrokerTest do
         grants: [%{principal_uid: ctx.agent, role: "edit"}]
       })
 
-    xml = "<page><p>Agent report</p></page>"
-    fake = WorkerFilesFake.start!(ctx.route, files: %{"report.xml" => xml})
+    markdown = "Agent report"
+    fake = WorkerFilesFake.start!(ctx.route, files: %{"report.md" => markdown})
 
     assert {:ok, %{"result" => %{"page" => %{"revision" => 1}} = written}} =
              RPCBroker.handle_write(
@@ -909,7 +909,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
                request("pages.write", %{
                  id: page.id,
                  base_revision: 0,
-                 xml_home_relative_path: "report.xml"
+                 markdown_home_relative_path: "report.md"
                }),
                ctx.ctx
              )
@@ -924,22 +924,25 @@ defmodule Ankole.Pod.RPCBrokerTest do
                request("pages.write", %{
                  id: page.id,
                  base_revision: 0,
-                 xml_home_relative_path: "report.xml"
+                 markdown_home_relative_path: "report.md"
                }),
                ctx.ctx
              )
 
-    assert {:ok, %{"result" => %{"content" => %{"xml_file" => true}}}} =
+    assert {:ok, %{"result" => %{"content" => %{"markdown_file" => true}}}} =
              RPCBroker.handle_read(
                ctx.ref,
                request("pages.read", %{
                  id: page.id,
-                 xml_home_relative_path: "received.xml"
+                 markdown_home_relative_path: "received.md"
                }),
                ctx.ctx
              )
 
-    assert WorkerFilesFake.files(fake)["received.xml"] == detail.content.content
+    assert {:ok, exported} = Ankole.Kernel.vfs_document_export(detail.content.content)
+    assert WorkerFilesFake.files(fake)["received.md"] == exported
+    assert exported =~ "ankole:block"
+    assert exported =~ markdown
 
     assert {:ok, _} =
              Documents.write(
@@ -963,7 +966,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
                request("pages.write", %{
                  id: page.id,
                  base_revision: 2,
-                 xml_home_relative_path: "report.xml"
+                 markdown_home_relative_path: "report.md"
                }),
                ctx.ctx
              )
@@ -1002,6 +1005,76 @@ defmodule Ankole.Pod.RPCBrokerTest do
     assert content.plain_text =~ "187 CNY"
     assert content.plain_text =~ "PILOT-42"
     assert content.content =~ "<strong>187 CNY</strong>"
+  end
+
+  test "knowledge RPC accepts the CLI's streamed Markdown body", ctx do
+    page = knowledge_fixture(ctx.owner, "Shared instructions")
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
+        grants: [%{principal_uid: ctx.agent, role: "edit"}]
+      })
+
+    WorkerFilesFake.start!(ctx.route, files: %{"knowledge.md" => "Updated instructions"})
+
+    assert {:ok, _} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.write", %{
+                 id: page.id,
+                 base_revision: page.revision,
+                 markdown_home_relative_path: "knowledge.md"
+               }),
+               ctx.ctx
+             )
+
+    assert {:ok, %{content: %{plain_text: "Updated instructions"}}} =
+             Pages.get(actor_fixture(ctx.owner), page.id)
+  end
+
+  test "a colleague can immediately list and read its new private business document", ctx do
+    fake = WorkerFilesFake.start!(ctx.route)
+
+    assert {:ok, %{"result" => %{"id" => id}}} =
+             RPCBroker.handle_write(
+               ctx.ref,
+               request("pages.create", %{
+                 type: "doc",
+                 private_owner_uid: ctx.agent,
+                 title: "Private legal rule",
+                 markdown: "Internal rule"
+               }),
+               ctx.ctx
+             )
+
+    assert {:ok, %{"result" => pages}} =
+             RPCBroker.handle_read(ctx.ref, request("pages.list", %{scope: "private"}), ctx.ctx)
+
+    assert Enum.any?(pages, &(&1["id"] == id))
+
+    assert {:ok, %{"result" => %{"page" => %{"id" => ^id}}}} =
+             RPCBroker.handle_read(
+               ctx.ref,
+               request("pages.read", %{id: id, markdown_home_relative_path: "rule.md"}),
+               ctx.ctx
+             )
+
+    assert WorkerFilesFake.files(fake)["rule.md"] =~ "Internal rule"
+    assert {:error, _} = Pages.get(actor_fixture(ctx.owner), id)
+
+    assert {:ok, _} =
+             RPCBroker.handle_write(ctx.ref, request("pages.delete", %{id: id}), ctx.ctx)
+
+    assert {:ok, %{"result" => trashed}} =
+             RPCBroker.handle_read(ctx.ref, request("pages.list", %{scope: "trash"}), ctx.ctx)
+
+    assert Enum.any?(trashed, &(&1["id"] == id))
+
+    assert {:ok, _} =
+             RPCBroker.handle_write(ctx.ref, request("pages.restore", %{id: id}), ctx.ctx)
+
+    assert {:ok, _} = Pages.get(actor_fixture(ctx.agent), id)
+    assert {:error, _} = Pages.get(actor_fixture(ctx.owner), id)
   end
 
   test "Pod drive relay requires current access to the page", ctx do
@@ -1640,7 +1713,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
     assert debug =~ "agent-debug"
   end
 
-  test "Applet Job and Binding reads use their Page and source disclosure without a Base id",
+  test "Applet Job and Binding reads use the executing colleague permissions without a Base id",
        ctx do
     actor = actor_fixture(ctx.agent)
     {:ok, applet} = Pages.create(actor, %{type: "applet", private_owner_uid: ctx.agent})
@@ -1690,12 +1763,12 @@ defmodule Ankole.Pod.RPCBrokerTest do
       {"bindings.list", %{config_ref: "base://#{table.id}"}}
     ]
 
-    # Domain access for the Agent does not imply permission to disclose to its requester.
+    # The colleague can use its private business resources without sharing them with the requester.
     assert {:ok, [_]} = Ankole.AutomationJobs.list_applet_jobs(actor, applet.id)
     assert {:ok, [_]} = Ankole.Signals.list_event_bindings(actor, binding_params.config_ref)
 
     for {operation, params} <- reads do
-      assert {:error, %{"code" => "not_found"}} =
+      assert {:ok, %{"result" => _}} =
                RPCBroker.handle_read(ctx.ref, request(operation, params), ctx.ctx)
     end
 
@@ -1749,7 +1822,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
              )
   end
 
-  test "Job-scoped Binding reads preserve disclosure of the Job Page and each source", ctx do
+  test "Job-scoped Binding reads use the executing colleague permissions on each source", ctx do
     actor = actor_fixture(ctx.agent)
     {:ok, applet} = Pages.create(actor, %{type: "applet", private_owner_uid: ctx.agent})
 
@@ -1776,7 +1849,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
     assert {:ok, [%{id: ^binding_id}]} = Ankole.Signals.list_event_bindings(actor, nil, job.id)
     params = %{job_id: job.id}
 
-    assert {:error, %{"code" => "not_found"}} =
+    assert {:ok, %{"result" => [%{"id" => ^binding_id}]}} =
              RPCBroker.handle_read(ctx.ref, request("bindings.list", params), ctx.ctx)
 
     {:ok, _} =
@@ -1784,7 +1857,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
         grants: [%{principal_uid: ctx.owner, role: "view"}]
       })
 
-    assert {:ok, %{"result" => []}} =
+    assert {:ok, %{"result" => [%{"id" => ^binding_id}]}} =
              RPCBroker.handle_read(ctx.ref, request("bindings.list", params), ctx.ctx)
 
     {:ok, _} =
@@ -1960,7 +2033,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
            "background_agent_job_attempt_changed"}
         ] do
       {:ok, applet} = Pages.create(actor, %{type: "applet", private_owner_uid: ctx.agent})
-      manifest = applet_manifest_fixture(ctx.agent, applet.id, source)
+      manifest = worker_applet_manifest(ctx.route, applet.id, source)
       params = %{id: applet.id, base_revision: 0, files: manifest}
 
       assert {:ok, %{"result" => %{"revision" => 1}}} =
@@ -1972,14 +2045,14 @@ defmodule Ankole.Pod.RPCBrokerTest do
         })
 
       updated_source = String.replace(source, "false", "true")
-      updated_manifest = applet_manifest_fixture(ctx.agent, applet.id, updated_source)
+      updated_manifest = worker_applet_manifest(ctx.route, applet.id, updated_source)
       params = %{params | base_revision: 1, files: updated_manifest}
 
       assert {:ok, %{"result" => %{"revision" => 2}}} =
                RPCBroker.handle_write(ref, request("applets.publish", params), ctx.ctx)
 
       assert {:ok, %{idempotent: true}} = Ankole.AutomationJobs.get_automation_job(job.id)
-      manifest = applet_manifest_fixture(ctx.agent, applet.id, source)
+      manifest = worker_applet_manifest(ctx.route, applet.id, source)
 
       assert {:error, %{"code" => "revision_conflict"}} =
                RPCBroker.handle_write(
@@ -2002,6 +2075,22 @@ defmodule Ankole.Pod.RPCBrokerTest do
       assert {:ok, %{revision: 2}} = Files.manifest(actor, applet.id)
       assert {:ok, _, ^updated_source} = Files.read(actor, applet.id, "server/main.js")
     end
+  end
+
+  defp worker_applet_manifest(route, page_id, source) do
+    files = [
+      {"src/main.tsx", "source"},
+      {"dist/index.html", "frontend"},
+      {"server/main.js", source}
+    ]
+
+    prefix = "build/#{page_id}/#{System.unique_integer([:positive])}/"
+
+    WorkerFilesFake.start!(route,
+      files: Map.new(files, fn {path, bytes} -> {prefix <> path, bytes} end)
+    )
+
+    Enum.map(files, fn {path, _} -> %{path: path, home_relative_path: prefix <> path} end)
   end
 
   defp knowledge_fixture(uid, title, type \\ :knowledge) do

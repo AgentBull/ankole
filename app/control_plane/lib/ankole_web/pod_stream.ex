@@ -398,14 +398,15 @@ defmodule AnkoleWeb.PodStream do
   end
 
   defp authorized?(conn, scope) do
-    with %{"principal_uid" => uid} <- AnkoleWeb.Session.pod_session(conn),
+    with %{"principal_uid" => uid, :principal => principal} <-
+           AnkoleWeb.Session.pod_session(conn, include_principal: true),
          true <- uid == conn.assigns.current_principal_uid,
-         {:ok, principal} <- Ankole.Principals.get_principal(uid),
          do: visible?(%{scope.actor | principal: principal}, scope),
          else: (_ -> false)
   end
 
-  defp visible?(actor, %{peer_origin: nil, id: id}), do: Native.visible_conversation?(actor, id)
+  defp visible?(actor, %{peer_origin: nil, id: id}),
+    do: Native.visible_conversation?(actor, id, current_principal: actor.principal)
 
   defp visible?(actor, scope),
     do:

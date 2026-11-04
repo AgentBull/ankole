@@ -86,7 +86,7 @@ defmodule Ankole.AutomationJobs.Lifecycle do
   def finish_attempt_in_tx(run_id, attempt_id, result, now) do
     with {%Job{} = job, %Run{} = run} <- lock_job_run(run_id),
          true <- active_attempt?(run, attempt_id),
-         {:ok, attrs} <- completion_attrs(result, now),
+         {:ok, attrs} <- completion_attrs(run, result, now),
          {:ok, run} <- run |> Ankole.Ash.update(:settle, attrs),
          :ok <- Queue.wake_next(job, run) do
       {:ok, run}
@@ -179,7 +179,7 @@ defmodule Ankole.AutomationJobs.Lifecycle do
     end)
   end
 
-  defp completion_attrs(result, now) do
+  defp completion_attrs(run, result, now) do
     status =
       case Ankole.Attrs.get_truthy(result, "status") do
         "succeeded" -> :succeeded
@@ -196,14 +196,38 @@ defmodule Ankole.AutomationJobs.Lifecycle do
          result: Ankole.Attrs.get(result, :result),
          exit_code: Ankole.Attrs.get_truthy(result, "exit_code"),
          error: bounded_nullable_text(Ankole.Attrs.get_truthy(result, "error"), @log_max_bytes),
-         stdout: bounded_text(Ankole.Attrs.get_truthy(result, "stdout") || "", @log_max_bytes),
-         stderr: bounded_text(Ankole.Attrs.get_truthy(result, "stderr") || "", @log_max_bytes),
-         stdout_truncated: Ankole.Attrs.get_truthy(result, "stdout_truncated") == true,
-         stderr_truncated: Ankole.Attrs.get_truthy(result, "stderr_truncated") == true
-       }}
+         stdout:
+           bounded_text(Ankole.Attrs.get_truthy(result, "stdout") || run.stdout, @log_max_bytes),
+         stderr:
+           bounded_text(Ankole.Attrs.get_truthy(result, "stderr") || run.stderr, @log_max_bytes),
+         stdout_truncated:
+           run.stdout_truncated or Ankole.Attrs.get_truthy(result, "stdout_truncated") == true,
+         stderr_truncated:
+           run.stderr_truncated or Ankole.Attrs.get_truthy(result, "stderr_truncated") == true
+       }
+       |> then(fn attrs ->
+         Map.merge(attrs, append_logs(attrs, Ankole.Attrs.get(result, :logs, [])))
+       end)}
     else
       {:error, :invalid_automation_job_result}
     end
+  end
+
+  @doc "Appends one fenced Action slice to the Run's bounded log tails."
+  def append_logs(run, logs) do
+    {errors, output} = Enum.split_with(logs, &(&1["level"] in ["error", "warn"]))
+
+    log_tail(run.stdout, run.stdout_truncated, output, :stdout, :stdout_truncated)
+    |> Map.merge(log_tail(run.stderr, run.stderr_truncated, errors, :stderr, :stderr_truncated))
+  end
+
+  defp log_tail(previous, truncated, logs, field, flag) do
+    text = previous <> Enum.map_join(logs, "", &(&1["message"] <> "\n"))
+
+    %{
+      field => Text.utf8_suffix(text, @log_max_bytes),
+      flag => truncated or byte_size(text) > @log_max_bytes
+    }
   end
 
   defp infrastructure_failure_attrs(:retry, error, _now) do

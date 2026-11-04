@@ -682,7 +682,7 @@ defmodule Ankole.Pod.Pages.Queries do
     ids = Enum.map(candidates, fn [id, _] -> id end)
 
     with {:ok, reachable} <- Access.reachable_trashed(actor, ids, context: context),
-         {:ok, disclosed} <- disclosed_trash(ids, Map.get(opts, :reader_uids), actor.authn) do
+         {:ok, disclosed} <- disclosed_trash(ids, Map.get(opts, :page_context)) do
       allowed =
         Enum.flat_map(ids, fn id ->
           case Map.get(reachable, id) do
@@ -716,25 +716,21 @@ defmodule Ankole.Pod.Pages.Queries do
     end
   end
 
-  defp disclosed_trash(_ids, nil, _authn), do: {:ok, nil}
-  defp disclosed_trash(_ids, [], _authn), do: {:ok, MapSet.new()}
+  defp disclosed_trash(_ids, nil), do: {:ok, nil}
 
-  defp disclosed_trash(ids, readers, authn) do
-    Enum.reduce_while(readers, {:ok, MapSet.new(ids)}, fn uid, {:ok, visible} ->
-      with {:ok, principal} <- Ankole.Principals.get_principal(uid),
-           {:ok, reachable} <-
-             Access.reachable_trashed(Ankole.AuthZ.Actor.new(principal, authn: authn), ids) do
-        own =
-          for {id, bits} <- reachable,
-              Bitwise.band(bits.self_bits, 1) != 0,
-              into: MapSet.new(),
-              do: id
+  defp disclosed_trash(ids, context) do
+    brain = MapSet.intersection(MapSet.new(ids), MapSet.new(brain_ids()))
 
-        {:cont, {:ok, MapSet.intersection(visible, own)}}
-      else
-        error -> {:halt, error}
-      end
-    end)
+    with {:ok, reachable} <-
+           Ankole.Brain.Access.visibility(context, trash_page_ids: MapSet.to_list(brain)) do
+      {:ok,
+       for(
+         {id, bits} <- reachable,
+         MapSet.member?(brain, id) and Bitwise.band(bits.self_bits, 1) != 0,
+         into: MapSet.difference(MapSet.new(ids), brain),
+         do: id
+       )}
+    end
   end
 
   defp trash_candidates(term, {deleted_at, id}, domain) do

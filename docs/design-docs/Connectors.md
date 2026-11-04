@@ -4,6 +4,8 @@
 connections, external subscriptions, and the internal MCP gateway. Platform
 plugins implement their upstream protocols. Both Agent Workers and Function
 Runtime consume the same explicit Toolkit contracts through MCPorter.
+The plugin registry validates each `connectors.connector` declaration against
+its required `tools/0` and `call/3` callbacks at startup.
 
 ## Tenant connections and credential ownership
 
@@ -103,6 +105,9 @@ configuration in the same tenant is unreadable.
 
 ## Personal authorization and token lifetime
 
+Connectors owns personal-token storage and refresh. FeishuOpenAPI receives the
+resolved `user_access_token` explicitly from its caller.
+
 Members initiate OAuth for themselves; administrators can connect an
 application workspace. The Pod connection form displays the control plane's
 OAuth callback URL and platform-specific setup instructions for registration in
@@ -191,6 +196,9 @@ credentials. If an upstream service refuses the unsubscribe, the tenant deletion
 job preserves those credentials and retries through its job lifecycle.
 
 ## Tool contracts and execution authority
+
+Skill MCP credential metadata uses the Library source cache, keyed by tenant and
+immutable metadata object IDs; each lookup reads the current Skill file references.
 
 A plugin contributes the `connectors.connector` contract and explicit
 `ToolSpec` declarations. A ToolSpec owns its name, argument and result schemas,

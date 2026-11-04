@@ -27,7 +27,7 @@ defmodule Ankole.BrowserSessions do
   defdelegate get_authentication(ref), to: Identity
   defdelegate authentication_evidence(id), to: Identity
   defdelegate current_reference(ref), to: Identity
-  defdelegate identity(ref, tenant_id), to: Identity
+  defdelegate identity(ref, tenant_id, opts \\ []), to: Identity
   defdelegate identities(ref), to: Identity
   defdelegate claim_membership(ref, tenant_id), to: PodAccess
   defdelegate accept_invitation(ref, tenant_id, id), to: PodAccess

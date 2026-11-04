@@ -65,15 +65,17 @@ defmodule Ankole.BrowserSessions.Identity do
     end
   end
 
-  def identity(ref, tenant_id) when is_binary(tenant_id) do
+  def identity(ref, tenant_id, opts \\ [])
+
+  def identity(ref, tenant_id, opts) when is_binary(tenant_id) do
     with {:ok, authentication} <- get_authentication(ref) do
-      identity_for_authentication(authentication, tenant_id)
+      identity_for_authentication(authentication, tenant_id, opts)
     else
       _ -> nil
     end
   end
 
-  def identity(_, _), do: nil
+  def identity(_, _, _), do: nil
 
   def identities(ref) do
     with {:ok, authentication} <- get_authentication(ref) do
@@ -97,10 +99,10 @@ defmodule Ankole.BrowserSessions.Identity do
       when is_binary(tenant_id),
       do: identity_for_authentication(authentication, tenant_id)
 
-  defp identity_for_authentication(authentication, tenant_id),
-    do: Repo.with_tenant(tenant_id, fn -> identity_in_tenant(authentication) end)
+  defp identity_for_authentication(authentication, tenant_id, opts \\ []),
+    do: Repo.with_tenant(tenant_id, fn -> identity_in_tenant(authentication, opts) end)
 
-  defp identity_in_tenant(authentication) do
+  defp identity_in_tenant(authentication, opts) do
     with %PodAuthentication{} = proof <-
            PodAuthentication
            |> Ash.Query.filter(authentication_id == ^authentication.id)
@@ -133,6 +135,9 @@ defmodule Ankole.BrowserSessions.Identity do
         "verified_phone" => authentication.verified_phone,
         "expires_at" => DateTime.to_unix(authentication.expires_at)
       }
+      |> then(fn identity ->
+        if opts[:include_principal], do: Map.put(identity, :principal, principal), else: identity
+      end)
     else
       _ -> nil
     end

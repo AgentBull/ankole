@@ -398,7 +398,9 @@ defmodule Ankole.AutomationJobs.Applet do
 
   defp state_in_tx(_, _, _), do: {:error, :invalid_request}
 
-  def continue_slice(context, options) when is_map(options) do
+  def continue_slice(context, options, logs \\ [])
+
+  def continue_slice(context, options, logs) when is_map(options) do
     delay = Map.get(options, "delaySeconds", 0)
     progress = Map.get(options, "progress", %{})
 
@@ -408,7 +410,16 @@ defmodule Ankole.AutomationJobs.Applet do
         fn ->
           with {:ok, job, run} <- lock_attempt(job_id, run_id, attempt_id),
                true <- run.slice_count + 1 < job.max_slices,
-               {:ok, run} <- Ankole.Ash.update(run, :continue_slice, %{progress: progress}),
+               {:ok, run} <-
+                 Ankole.Ash.update(
+                   run,
+                   :continue_slice,
+                   Map.put(
+                     Ankole.AutomationJobs.Lifecycle.append_logs(run, logs),
+                     :progress,
+                     progress
+                   )
+                 ),
                :ok <- Queue.insert(run, delay_seconds: delay),
                do: {:ok, %{continued: true, runId: run.id}},
                else: (
@@ -424,7 +435,7 @@ defmodule Ankole.AutomationJobs.Applet do
     end
   end
 
-  def continue_slice(_context, _options), do: {:error, :invalid_request}
+  def continue_slice(_context, _options, _logs), do: {:error, :invalid_request}
 
   defp attempt(%{"job" => %{"id" => job}, "run" => %{"id" => run, "attemptId" => attempt}}),
     do: {:ok, job, run, attempt}

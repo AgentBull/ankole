@@ -10,8 +10,7 @@ defmodule FeishuOpenAPI.Supervisor do
       FeishuOpenAPI.TokenStore,
       {Registry, keys: :unique, name: FeishuOpenAPI.TokenRegistry},
       {DynamicSupervisor, name: FeishuOpenAPI.TokenManager.Supervisor, strategy: :one_for_one},
-      {Task.Supervisor, name: FeishuOpenAPI.EventTaskSupervisor},
-      FeishuOpenAPI.UserTokenManager
+      {Task.Supervisor, name: FeishuOpenAPI.EventTaskSupervisor}
     ]
 
     Supervisor.init(children, strategy: :rest_for_one)

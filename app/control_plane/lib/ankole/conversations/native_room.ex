@@ -315,7 +315,7 @@ defmodule Ankole.Conversations.NativeRoom do
   end
 
   def visible(actor, id, opts \\ []) do
-    if Native.active_human?(actor) do
+    if Native.active_human?(actor, opts[:current_principal]) do
       conversation =
         if opts[:lock],
           do: Queries.lock_conversation(id),

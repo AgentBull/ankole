@@ -262,7 +262,7 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
     end
 
     update :continue_slice do
-      accept([:progress])
+      accept([:progress, :stdout, :stderr, :stdout_truncated, :stderr_truncated])
       change(set_attribute(:attempt_id, nil))
       change(set_attribute(:attempts_in_slice, 0))
       change(set_attribute(:attempt_deadline_at, nil))

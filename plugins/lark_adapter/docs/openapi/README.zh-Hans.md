@@ -99,10 +99,9 @@ FeishuOpenAPI.new("cli_xxx", "secret_xxx",
 
 - `access_token_type: :tenant_access_token` - 默认行为
 - `access_token_type: :app_access_token` - 改用 `app_access_token`
-- `access_token_type: :user_access_token` - 配合 `user_access_token:` 或 `user_access_token_key:` 使用
+- `access_token_type: :user_access_token` - 配合 `user_access_token:` 使用
 - `access_token_type: nil` - 不附带 `Authorization` 请求头
 - `user_access_token: token` - 直接发送 `Authorization: Bearer <token>`（隐含 `:user_access_token`）
-- `user_access_token_key: key` - 从 `FeishuOpenAPI.UserTokenManager` 读取托管的 `user_access_token`（隐含 `:user_access_token`）
 
 示例：
 
@@ -116,11 +115,6 @@ FeishuOpenAPI.get(client, "some/app-token-only/api", access_token_type: :app_acc
 # 显式传入用户令牌
 FeishuOpenAPI.get(client, "contact/v3/users/me",
   user_access_token: "eyJhbGciOi..."
-)
-
-# 托管用户令牌（自动续期）
-FeishuOpenAPI.get(client, "contact/v3/users/me",
-  user_access_token_key: "current-user"
 )
 
 # 不带认证请求头
@@ -214,23 +208,7 @@ user_tokens.refresh_token
 - `:scope`
 - `:raw`
 
-若需在多次请求之间自动为用户令牌续期，可将其交由 `FeishuOpenAPI.UserTokenManager` 托管：
-
-```elixir
-{:ok, _tokens} =
-  FeishuOpenAPI.UserTokenManager.init_with_code(
-    client,
-    "current-user",
-    "authorization_code_from_login"
-  )
-
-{:ok, resp} =
-  FeishuOpenAPI.get(client, "contact/v3/users/me",
-    user_access_token_key: "current-user"
-  )
-```
-
-`FeishuOpenAPI.UserTokenManager` 会在上游过期前 3 分钟使用已保存的 `refresh_token` 自动刷新 `access_token`。若直接传入 `user_access_token: "..."`，客户端会将其作为显式 Bearer 令牌原样发送，不会自动续期。
+Connectors 负责持久保存用户凭证，并在调用客户端前刷新令牌。其他调用方通过上述 OAuth 接口管理令牌生命周期，并显式传入当前有效的 `user_access_token`。
 
 ## 请求、上传与下载
 

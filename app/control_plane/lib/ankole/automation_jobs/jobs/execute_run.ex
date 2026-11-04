@@ -67,15 +67,18 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
         {:rejected, outcome} ->
           handle_infrastructure_failure(attempt.run, outcome["body"]["error"]["code"], oban_job)
 
-        {:completed, %{"status" => 200, "continueSlice" => options}} ->
+        {:completed, %{"status" => 200, "continueSlice" => options} = outcome} ->
           context = %{
             "job" => %{"id" => attempt.automation_job.id},
             "run" => %{"id" => attempt.run.id, "attemptId" => attempt.run.attempt_id}
           }
 
-          case AutomationJobs.continue_applet_slice(context, options) do
-            {:ok, _} -> :ok
-            {:error, reason} -> finish_applet(attempt.run, "failed", nil, inspect(reason))
+          case AutomationJobs.continue_applet_slice(context, options, outcome["logs"] || []) do
+            {:ok, _} ->
+              :ok
+
+            {:error, reason} ->
+              finish_applet(attempt.run, "failed", nil, inspect(reason), outcome)
           end
 
         {:completed, %{"status" => status} = outcome} ->
@@ -89,7 +92,8 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
             attempt.run,
             if(status < 400, do: "succeeded", else: "failed"),
             outcome["body"],
-            error
+            error,
+            outcome
           )
 
         {:aborted, outcome} ->
@@ -112,11 +116,12 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
     end
   end
 
-  defp finish_applet(run, status, result, error) do
+  defp finish_applet(run, status, result, error, outcome) do
     case AutomationJobs.finish_attempt(run.id, run.attempt_id, %{
            status: status,
            result: result,
-           error: error
+           error: error,
+           logs: outcome["logs"] || []
          }) do
       {:ok, _} -> :ok
       error -> error

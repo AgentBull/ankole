@@ -153,20 +153,27 @@ defmodule Ankole.BackgroundAgentJobs.Control do
         ) :: {:ok, Job.t()} | {:error, term()}
   def console_complete_in_tx(job_id, result_summary, principal) do
     with {:ok, job} <- console_job(job_id),
-         {:ok, %{job: job, turn: turn}} <-
+         {:ok, %{job: job, turn: turn} = result} <-
            request_complete_in_tx(job_id, %{
              "agent_uid" => job.agent_uid,
              "completed_by" => operator(principal),
              "result_summary" => result_summary
            }) do
-      {:ok, Ash.Resource.put_metadata(job, :turn, turn)}
+      {:ok,
+       job
+       |> Ash.Resource.put_metadata(:turn, turn)
+       |> Ash.Resource.put_metadata(:commit_result, result)}
     end
   end
 
   @doc "Stops the Turn of a Job that a Console operator cancelled or completed."
   @spec stop_console_turn(Job.t()) :: :ok
-  def stop_console_turn(%Job{} = job),
-    do: Ankole.Sessions.stop_job_turn(job, job.__metadata__[:turn])
+  def stop_console_turn(%Job{} = job) do
+    if result = job.__metadata__[:commit_result],
+      do: Ankole.BackgroundAgentJobs.Lifecycle.publish_status_commit(result)
+
+    Ankole.Sessions.stop_job_turn(job, job.__metadata__[:turn])
+  end
 
   @doc """
   Gives the answer of a rejected Console operation for `Ankole.Errors.wrap/2`:

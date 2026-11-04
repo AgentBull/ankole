@@ -332,7 +332,12 @@ from caller-supplied request bodies:
 
 Across main turns, Workflow tasks, scheduled work and Background Agent Jobs,
 business resource checks use the personal assistant owner's permissions or the
-AI colleague's own permissions. Management resource checks use the executing
+AI colleague's own permissions. This rule applies consistently to business Page
+reads and writes, directory and search results, Base and Applet operations, and
+ordinary Drive files. Brain knowledge and its attachments additionally require
+the intersection of the Agent, requester, and strict conversation audience;
+Brain changes also require the requester's corresponding write permission.
+Management resource checks use the executing
 Agent's own permissions. The instruction's
 retained Human identity and access version still fence whether that work may
 continue.

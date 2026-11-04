@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.0.0-alpha.55 (2026-11-04)
+## Version 2.0.0-alpha.56 (2026-11-04)
 
 - Create and edit spreadsheets in Pod. The page create menus offer a new
   **Spreadsheet**, which starts as a blank `Untitled.xlsx`, and every `.xlsx` or
@@ -49,6 +49,22 @@
   kinds, view them full size, and download them, and they stay in the
   downloaded `.xlsx`. Rows without a height set by hand grow with larger fonts
   and wrapped text, and shrink back when they go.
+
+## Version 2.0.0-alpha.55 (2026-11-04)
+
+- Let AI colleagues read and manage their own business pages, files, Bases and
+  Applets across tools and Drive; Brain knowledge still follows the conversation
+  audience's shared permissions.
+- Keep Action logs across continuation slices and failures, publish background
+  job wakeups when their changes commit, and retry dispatch preparation when its
+  schedule or target changes concurrently.
+- Keep ordinary text conversations responsive during unrelated page-tree writes.
+  Restore clarification and Action Cards from their recorded interaction data.
+- Find writable move destinations beyond read-only search matches, and show
+  private and shared page locations correctly in destination pickers.
+- Publish Applet builds directly from Worker files, preserve document rich blocks
+  and comment anchors in CLI Markdown edits, and reuse mounted Skills for
+  background jobs.
 
 ## Version 2.0.0-alpha.54 (2026-11-04)
 

@@ -1,6 +1,16 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { state, request, requestWithSharingVersion } from './fixtures'
 import { listRoute, pageRoute } from './routes'
+
+async function expectPrivateDestination(page: Page, item: { parent_id: string | null }) {
+  expect(item.parent_id).not.toBeNull()
+  const { page: root } = await request<{ page: { private_owner_uid: string; parent_id: string | null } }>(
+    page,
+    `/pages/${item.parent_id}`
+  )
+  expect(root.private_owner_uid).toBe(state.member.uid)
+  expect(root.parent_id).toBeNull()
+}
 
 test('a manager can take a shared private root into their own Private space', async ({ browser }) => {
   const ownerContext = await browser.newContext(),
@@ -46,8 +56,7 @@ test('a manager can take a shared private root into their own Private space', as
       member,
       `/pages/${id}`
     )
-    expect(current.page.private_owner_uid).toBe(state.member.uid)
-    expect(current.page.parent_id).toBeNull()
+    await expectPrivateDestination(member, current.page)
     await expect(
       member.locator('.pod-nav-section[aria-label="私人页面"]').getByRole('link', {
         name: 'Shared private project takeover',
@@ -129,8 +138,7 @@ test('page creation, movement and copies offer destinations the current member c
         expect(response.status()).toBe(201)
         const created = (await response.json()).page
         privateCopies.push(created.id)
-        expect(created.private_owner_uid).toBe(state.member.uid)
-        expect(created.parent_id).toBeNull()
+        await expectPrivateDestination(member, created)
         await member.goto(state.base_url + listRoute('space'))
       }
 
@@ -175,9 +183,11 @@ test('page creation, movement and copies offer destinations the current member c
       await member.goto(state.base_url + pageRoute(base.page.id))
       await member.getByRole('button', { name: '复制当前结果', exact: true }).click()
       const copy = member.getByRole('dialog')
-      await expect(copy.getByRole('combobox', { name: '保存到', exact: true })).toBeFocused()
+      await expect(copy.getByRole('textbox', { name: '页面标题', exact: true })).toBeFocused()
       await expect(member.getByRole('listbox')).toBeVisible()
-      await expect(member.getByRole('option', { name: 'Shared working folder', exact: true })).toBeVisible()
+      await expect(
+        member.getByRole('option').filter({ has: member.getByText('Shared working folder', { exact: true }) })
+      ).toBeVisible()
       await expect(member.getByRole('option', { name: '空间', exact: true })).toHaveCount(allowed ? 1 : 0)
       await expect(member.getByRole('option', { name: '私人页面', exact: true })).toBeVisible()
       await expect(copy.locator('.pod-selected-destination')).toContainText('Shared working folder')
@@ -197,8 +207,7 @@ test('page creation, movement and copies offer destinations the current member c
         expect(response.request().postDataJSON().data).not.toHaveProperty('title')
         const created = (await response.json()).page
         privateCopies.push(created.id)
-        expect(created.private_owner_uid).toBe(state.member.uid)
-        expect(created.parent_id).toBeNull()
+        await expectPrivateDestination(member, created)
       } else await copy.getByRole('button', { name: '取消', exact: true }).click()
 
       await member.getByRole('button', { name: '更多操作', exact: true }).click()
@@ -386,7 +395,10 @@ test('structure edits and page management do not imply record submission', async
         await member.getByRole('button', { name: '更多操作', exact: true }).click()
         await member.getByRole('menuitem', { name: '移动', exact: true }).click()
         const dialog = member.getByRole('dialog')
-        await dialog.getByRole('option', { name: 'Shared working destination', exact: true }).click()
+        await dialog
+          .getByRole('option')
+          .filter({ has: member.getByText('Shared working destination', { exact: true }) })
+          .click()
         const moved = member.waitForResponse(
           response =>
             response.request().method() === 'POST' &&

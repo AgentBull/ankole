@@ -354,9 +354,17 @@ defmodule Ankole.Sessions.CodexJob do
   def abort(ref, worker_id, error) do
     now = DateTime.utc_now(:microsecond)
 
-    Ankole.Repo.transact_top_level(fn ->
-      BackgroundAgentJobs.abort_attempt_in_tx(ref, worker_id, error, now)
-    end)
+    Ankole.Repo.transact_top_level(
+      fn ->
+        BackgroundAgentJobs.abort_attempt_in_tx(ref, worker_id, error, now)
+      end,
+      after_commit: fn result ->
+        Ankole.Signals.publish_committed(
+          [result[:wakeup_event], result[:dispatch_event]]
+          |> Enum.reject(&is_nil/1)
+        )
+      end
+    )
     |> Ankole.Errors.reason()
   end
 
@@ -439,9 +447,17 @@ defmodule Ankole.Sessions.CodexJob do
     code = if is_atom(reason), do: Atom.to_string(reason), else: "job_admission_rejected"
     reason_text = inspect(reason)
 
-    Ankole.Repo.transact_top_level(fn ->
-      reject_admission_in_tx(job, event, code, reason_text, now)
-    end)
+    Ankole.Repo.transact_top_level(
+      fn ->
+        reject_admission_in_tx(job, event, code, reason_text, now)
+      end,
+      after_commit: fn result ->
+        Ankole.Signals.publish_committed(
+          [result[:wakeup_event], result[:dispatch_event]]
+          |> Enum.reject(&is_nil/1)
+        )
+      end
+    )
     |> Ankole.Errors.reason()
   end
 

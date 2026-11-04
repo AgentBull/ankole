@@ -30,6 +30,37 @@ defmodule Ankole.Pod.Documents do
          do: write_in_tx(actor, id, page.revision, {:ok, parsed})
   end
 
+  @doc "Edits Markdown through the canonical codec while preserving revision and rich-block semantics."
+  def edit_markdown(actor, id, base_revision, markdown, mode, authority)
+      when is_integer(base_revision) and is_binary(markdown) and mode in [:write, :append] do
+    (authority || actor.turn_authority)
+    |> Access.write(
+      fn ->
+        with {:ok, %{type: :doc} = page} <- Pages.lock(id),
+             :ok <- current_revision(page, base_revision),
+             content = content!(page),
+             {:ok, parsed} <-
+               Ankole.Kernel.vfs_document_reconcile(
+                 if(mode == :append, do: "<page />", else: content.content),
+                 markdown
+               ) do
+          case mode do
+            :write -> write_in_tx(actor, id, base_revision, {:ok, parsed})
+            :append -> append_in_tx(actor, id, base_revision, {:ok, parsed})
+          end
+        else
+          {:ok, _page} -> {:error, :invalid_page_type}
+          error -> error
+        end
+      end,
+      after_commit: &committed/1
+    )
+    |> result()
+  end
+
+  def edit_markdown(_actor, _id, _revision, _markdown, _mode, _authority),
+    do: {:error, :invalid_request}
+
   def write(uid, id, base_revision, xml, authority \\ nil)
 
   def write(%Ankole.AuthZ.Actor{} = actor, id, base_revision, xml, authority)

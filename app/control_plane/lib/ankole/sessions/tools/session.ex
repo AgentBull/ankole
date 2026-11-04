@@ -398,7 +398,7 @@ defmodule Ankole.Sessions.Tools.Session do
     end
   end
 
-  def execute(_run, %{"name" => "clarify"}, args) do
+  def execute(_run, %{"name" => "clarify"} = call, args) do
     choices =
       Enum.map(args["choices"] || [], fn
         text when is_binary(text) ->
@@ -408,18 +408,33 @@ defmodule Ankole.Sessions.Tools.Session do
           if item["description"] == item["label"], do: Map.delete(item, "description"), else: item
       end)
 
-    {:ok,
-     Tools.result(
-       %{"tool" => "clarify", "ok" => true, "question" => args["question"], "choices" => choices},
-       terminate: true
-     )}
+    output = %{
+      "tool" => "clarify",
+      "ok" => true,
+      "question" => args["question"],
+      "choices" => choices
+    }
+
+    with {:ok, prompt} <-
+           Ankole.Conversations.Delivery.ClarifyPrompt.from_output(output, Run.call_id(call)),
+         do:
+           {:ok,
+            Tools.result(output,
+              terminate: true,
+              interaction: %{"kind" => "clarify", "prompt" => prompt}
+            )}
   end
 
   def execute(run, %{"name" => "propose_action_card"} = call, args) do
-    case Ankole.Conversations.ActionCards.prepare_draft(run, call, args) do
-      {:ok, draft} -> {:ok, Tools.result(draft, terminate: true)}
-      {:error, reason} -> {:error, reason}
-    end
+    with {:ok, draft} <- Ankole.Conversations.ActionCards.prepare_draft(run, call, args),
+         {:ok, prompt} <-
+           Ankole.Conversations.Delivery.ActionCardPrompt.from_output(draft, Run.call_id(call)),
+         do:
+           {:ok,
+            Tools.result(draft,
+              terminate: true,
+              interaction: %{"kind" => "action_card", "prompt" => prompt}
+            )}
   end
 
   @impl true

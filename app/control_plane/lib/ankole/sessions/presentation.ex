@@ -299,89 +299,6 @@ defmodule Ankole.Sessions.Presentation do
     end
   end
 
-  defp post_target_in_tx(
-         %StatementTarget{kind: :native} = target,
-         %{completion: %{clarify_prompt: %{"interactive_output" => prompt}}} = statement
-       ) do
-    alias Ankole.Conversations.{Native, PostResult}
-    alias Ankole.Conversations.Delivery.{Interactions, ReplyPresentation}
-    event = statement.signal
-    interaction_id = event.id <> ":" <> prompt["interaction_id"]
-
-    clarify = %{
-      "tool_call_id" => String.replace_prefix(prompt["interaction_id"], "clarify:", ""),
-      "interaction_id" => interaction_id,
-      "question" => prompt["body"],
-      "choices" => prompt["choices"],
-      "allow_free_text" => prompt["free_input"] == true
-    }
-
-    presentation =
-      ReplyPresentation.new(state: "awaiting_input")
-      |> ReplyPresentation.interaction_request(event.id, prompt)
-
-    final = %{statement | completion: Map.put(statement.completion, :clarify_prompt, nil)}
-
-    with {:ok, posted} <- Ankole.Conversations.post_in_tx(target, final),
-         {:ok, message} <-
-           Native.post_native_in_tx(target.conversation_id, event, prompt["body"], :message, [],
-             delivery_key: prompt["interaction_id"],
-             rich_content:
-               if(posted.messages == [],
-                 do: %{"clarify" => clarify, "execution" => statement.completion[:execution]},
-                 else: %{"clarify" => clarify}
-               )
-           ),
-         {:ok, _event} <-
-           Interactions.open_in_tx(
-             event,
-             presentation,
-             statement.now || DateTime.utc_now(:microsecond)
-           ) do
-      {:ok, PostResult.merge(posted, %PostResult{messages: [message]})}
-    end
-  end
-
-  defp post_target_in_tx(
-         %StatementTarget{kind: :native} = target,
-         %{completion: %{action_card_prompt: %{"interactive_output" => output} = prompt}} =
-           statement
-       ) do
-    alias Ankole.Conversations.{ActionCards, Native, PostResult}
-    alias Ankole.Conversations.Delivery.{Interactions, ReplyPresentation}
-    event = statement.signal
-
-    presentation =
-      ReplyPresentation.new(state: "awaiting_input")
-      |> ReplyPresentation.interaction_request(event.id, output)
-
-    final = %{statement | completion: Map.put(statement.completion, :action_card_prompt, nil)}
-
-    with {:ok, card} <- ActionCards.commit_prepared_in_tx(event, target.conversation_id, prompt),
-         {:ok, posted} <- Ankole.Conversations.post_in_tx(target, final),
-         card_json = ActionCards.client_card_state(card),
-         {:ok, message} <-
-           Native.post_native_in_tx(target.conversation_id, event, prompt["body"], :message, [],
-             delivery_key: prompt["interaction_id"],
-             rich_content:
-               if(posted.messages == [],
-                 do: %{
-                   "action_card" => card_json,
-                   "execution" => statement.completion[:execution]
-                 },
-                 else: %{"action_card" => card_json}
-               )
-           ),
-         {:ok, _event} <-
-           Interactions.open_in_tx(
-             event,
-             presentation,
-             statement.now || DateTime.utc_now(:microsecond)
-           ) do
-      {:ok, PostResult.merge(posted, %PostResult{messages: [message]})}
-    end
-  end
-
   defp post_target_in_tx(target, statement),
     do: Ankole.Conversations.post_in_tx(target, statement)
 
@@ -421,18 +338,20 @@ defmodule Ankole.Sessions.Presentation do
   @doc "Projects the current journal anchor and commits only prepared image references."
   def load_completion_in_tx(run, final_response_id, images) do
     with {:ok, chain} <- ModelHistory.load_turn_chain(run, final_response_id),
+         states = Ankole.Sessions.RoundState.load(chain.response_chain),
          {:ok, projection} <-
            project_completion(
              run.agent_uid,
              chain.response_chain,
              chain.final_response,
              Ankole.Conversations.ExternalTarget.origin(chain.conversation),
-             images
+             images,
+             states
            ) do
       execution =
         Ankole.Sessions.Presentation.Execution.from_chain(
           chain.response_chain,
-          Ankole.Sessions.RoundState.load(chain.response_chain)
+          states
         )
 
       {:ok, Map.merge(chain, Map.put(projection, :execution, execution))}
@@ -468,7 +387,7 @@ defmodule Ankole.Sessions.Presentation do
     end
   end
 
-  defp project_completion(subject_uid, turn_chain, final_response, origin, images) do
+  defp project_completion(subject_uid, turn_chain, final_response, origin, images, states) do
     source_items =
       turn_chain
       |> Enum.reverse()
@@ -477,8 +396,14 @@ defmodule Ankole.Sessions.Presentation do
 
     final_text = Text.visible_text(final_response.content)
 
-    with {:ok, clarify_prompt} <- ClarifyPrompt.from_response_items(source_items),
-         {:ok, action_card_prompt} <- ActionCardPrompt.from_response_items(source_items),
+    with {:ok, clarify_prompt} <-
+           interaction_prompt(turn_chain, states, "clarify", fn ->
+             ClarifyPrompt.from_response_items(source_items)
+           end),
+         {:ok, action_card_prompt} <-
+           interaction_prompt(turn_chain, states, "action_card", fn ->
+             ActionCardPrompt.from_response_items(source_items)
+           end),
          {:ok, attachments} <- Attachment.attachments_from_response_items(source_items),
          {:ok, generated_image_attachments} <-
            materialize_generated_images(subject_uid, turn_chain, origin, images),
@@ -491,6 +416,21 @@ defmodule Ankole.Sessions.Presentation do
          attachments: attachments
        }}
     end
+  end
+
+  defp interaction_prompt(chain, states, kind, legacy) do
+    prompt =
+      Enum.find_value(chain, fn message ->
+        state = Ankole.Sessions.RoundState.for_message(states, message)
+
+        Enum.find_value(state.results, fn
+          {_id, %{"interaction" => %{"kind" => ^kind, "prompt" => prompt}}} -> prompt
+          _ -> nil
+        end)
+      end)
+
+    # In-flight turns recorded before structured results still use their durable tool output.
+    if prompt, do: {:ok, prompt}, else: legacy.()
   end
 
   defp message_items(%Message{content: content}) when is_list(content), do: content

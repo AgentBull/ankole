@@ -474,6 +474,35 @@ defmodule Ankole.Sessions.PresentationTest do
       refute Repo.get_by(Intent, source_signal_id: event.id)
     end
 
+    test "recovery presents a structured clarification even when its model output is plain text" do
+      %{agent: agent, event: event, run: run} = admit_event("structured-clarify")
+
+      call = %{
+        "type" => "function_call",
+        "call_id" => "structured",
+        "name" => "clarify",
+        "arguments" => "{}"
+      }
+
+      response = complete_response_items(agent.uid, event, [call])
+      run = %{run | model_response: response, calls: [call], round_calls: [call]}
+
+      assert {:ok, result} =
+               Ankole.Sessions.Tools.Session.execute(run, call, %{
+                 "question" => "Which report?",
+                 "choices" => ["Weekly", "Monthly"]
+               })
+
+      result = %{result | output: "Question recorded."}
+      assert {:ok, journal} = Run.record_round(%{run | results: %{"structured" => result}})
+      state = Ankole.Sessions.RoundState.get(journal.message)
+      assert state.results["structured"]["interaction"]["kind"] == "clarify"
+      assert {:ok, {_state, recovered}} = Run.restore(run)
+      assert {:ok, %{posted: %{intents: [intent]}}} = finalize_run(recovered, journal.message)
+      assert intent.payload["text"] =~ "Which report?"
+      assert length(intent.payload["interactive_output"]["choices"]) == 2
+    end
+
     test "commits a clarify-only projection without inventing final text" do
       %{agent: agent, event: event, run: run} = admit_event("clarify-only")
 
