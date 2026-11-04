@@ -204,7 +204,7 @@ defmodule Ankole.TenancyGuardTest do
       1,
     "sql_fragment:lib/ankole/conversations/inbound_batches.ex:observed_entry_batch" => 1,
     "sql_fragment:lib/ankole/oidc.ex:cleanup_expired_credentials" => 1,
-    "sql_fragment:lib/ankole/pod/pages/queries.ex:read_search_pages" => 2,
+    "sql_fragment:lib/ankole/pod/pages/queries.ex:read_search_pages" => 3,
     "sql_fragment:lib/ankole/sessions/console_queries/prepare.ex:filter_min_messages" => 1,
     "sql_fragment:lib/ankole/signals.ex:signals_for_entry_in_tx" => 1
   }
@@ -268,7 +268,7 @@ defmodule Ankole.TenancyGuardTest do
     "page_contents_pkey" => "A globally unique page id owns the document.",
     "page_comments_pkey" => "The application generates each comment's globally unique UUIDv7.",
     "page_snapshots_pkey" =>
-      "The application generates each document snapshot's globally unique UUIDv7.",
+      "The application generates each page snapshot's globally unique UUIDv7.",
     "base_tables_pkey" => "The application generates each table's globally unique UUIDv7.",
     "base_fields_pkey" => "The application generates each field's globally unique UUIDv7.",
     "base_fields_one_primary_index" => "A globally unique table id owns its primary field.",

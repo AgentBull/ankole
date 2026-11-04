@@ -26,6 +26,12 @@ defmodule Ankole.Pod.Files.Content do
     end
   end
 
+  @doc """
+  Names an object at a file node under the writer's authority, in the caller's transaction.
+
+  A spreadsheet page then reconciles its operation log with the new object
+  (`Ankole.Pod.Spreadsheets.object_committed_in_tx/3`).
+  """
   def commit_in_tx(actor, id, stored, attrs \\ %{}) do
     Repo.require_transaction!({__MODULE__, :commit_in_tx})
 
@@ -50,8 +56,32 @@ defmodule Ankole.Pod.Files.Content do
                  updated_at: DateTime.utc_now(:microsecond)
                }
              )
-           ) do
+           ),
+         :ok <- Ankole.Pod.Spreadsheets.object_committed_in_tx(actor, node, updated) do
       {:ok, Paths.project(updated, object, updated.name)}
+    end
+  end
+
+  @doc """
+  Names a spreadsheet compaction's rewrite of a file node's object, in the caller's transaction.
+
+  `Ankole.Pod.Spreadsheets` already authorized the edits that the new object
+  holds, so this call neither authorizes the write nor reconciles the log.
+  """
+  def rewrite_in_tx(id, stored) do
+    Repo.require_transaction!({__MODULE__, :rewrite_in_tx})
+
+    with {:ok, %{type: :file} = node} <- Nodes.lock(id),
+         {:ok, object} <- Objects.complete_in_tx(stored),
+         {:ok, updated} <-
+           Ankole.Ash.update(node, :update_in_tx, %{
+             object_id: object.id,
+             updated_at: DateTime.utc_now(:microsecond)
+           }) do
+      {:ok, Paths.project(updated, object, updated.name)}
+    else
+      {:ok, _node} -> {:error, :not_a_file}
+      error -> error
     end
   end
 

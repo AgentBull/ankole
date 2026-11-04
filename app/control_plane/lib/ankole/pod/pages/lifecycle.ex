@@ -3,12 +3,14 @@ defmodule Ankole.Pod.Pages.Lifecycle do
   require Ash.Query
 
   alias Ankole.Pod.{
+    FileCache,
     PageChange,
     PageDailyActivity,
     PageComment,
     PageContent,
     PageSnapshot,
-    PageUserState
+    PageUserState,
+    SpreadsheetOp
   }
 
   def move_node_in_tx(id, old_path), do: Ankole.Brain.Knowledge.page_moved_in_tx(id, old_path)
@@ -71,6 +73,8 @@ defmodule Ankole.Pod.Pages.Lifecycle do
         [
           {PageUserState, :purge},
           {PageChange, :prune},
+          {SpreadsheetOp, :prune},
+          {FileCache, :purge},
           {PageComment, :purge},
           {PageSnapshot, :purge},
           {PageDailyActivity, :purge},

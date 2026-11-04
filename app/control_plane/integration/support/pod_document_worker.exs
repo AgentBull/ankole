@@ -95,6 +95,22 @@ defmodule Ankole.PodDocumentWorker do
 
   def run(agent_uid, page_id, owner_uid) do
     {:ok, page_id} = Ecto.UUID.cast(page_id)
+
+    command(
+      agent_uid,
+      owner_uid,
+      "Collaborate with me on the shared document #{page_id}",
+      "ankole-files get fixtures/document-collaboration.ts --output document-collaboration.ts && " <>
+        "bun document-collaboration.ts " <> page_id,
+      ~s({"first_revision")
+    )
+  end
+
+  @doc """
+  Runs one shell `command` as `agent_uid` inside a Session turn that `owner_uid` opens with
+  `text`, and returns the decoded JSON line of its output that starts with `output_prefix`.
+  """
+  def command(agent_uid, owner_uid, text, command, output_prefix) do
     conversation_id = Ankole.Kernel.gen_uuid_v7()
     key = %{agent_uid: agent_uid, session_id: Ankole.Sessions.Key.conversation(conversation_id)}
     name = Ankole.Sessions.driver_name(key)
@@ -106,7 +122,7 @@ defmodule Ankole.PodDocumentWorker do
         conversation_id: conversation_id,
         message_id: Ankole.Kernel.gen_uuid_v7(),
         agent_uid: agent_uid,
-        text: "Collaborate with me on the shared document #{page_id}"
+        text: text
       })
 
     [source] = Ankole.Signals.list_signals!(query: [filter: [conversation_id: conversation_id]])
@@ -126,12 +142,7 @@ defmodule Ankole.PodDocumentWorker do
       {:ok, _} = Worker.send_open(row, envelope)
       :ready = await_workspace(run)
 
-      args = %{
-        "command" =>
-          "ankole-files get fixtures/document-collaboration.ts --output document-collaboration.ts && " <>
-            "bun document-collaboration.ts " <> page_id,
-        "timeout" => 90
-      }
+      args = %{"command" => command, "timeout" => 90}
 
       call_id = Ankole.Kernel.gen_uuid_v7()
 
@@ -169,7 +180,7 @@ defmodule Ankole.PodDocumentWorker do
       output =
         result.output
         |> String.split("\n", trim: true)
-        |> Enum.find(&String.starts_with?(&1, ~s({"first_revision")))
+        |> Enum.find(&String.starts_with?(&1, output_prefix))
 
       {:ok, decoded} = Torque.decode(output || "")
       {:ok, _} = Run.finalize(%{run | results: %{call_id => result}}, :silent)

@@ -11,12 +11,13 @@ import {
   DropdownMenuTrigger,
   toast
 } from '@ankole/uikit'
-import { RiAddLine, RiFileAddLine, RiLoader4Line } from '@remixicon/react'
+import { RiAddLine, RiFileAddLine, RiFileExcel2Line, RiLoader4Line } from '@remixicon/react'
 import { useRef } from 'react'
 import { useInfiniteQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { podPagePath } from '../common/pod-url'
 import { requestErrorMessage } from '../common/request-errors'
+import { podSpreadsheetCreate } from './api/generated/sdk.gen'
 import { directoryCapabilitiesQuery, pageAPI, type Page } from './content-api'
 import { contentError } from './content-errors'
 import { typeLabels } from './content-primitives'
@@ -31,11 +32,18 @@ export type CreatePageOptions = {
   onCreated?: (page: Page) => void
 }
 
-type PageType = 'doc' | 'knowledge' | 'base' | 'file'
+type PageType = 'doc' | 'knowledge' | 'base' | 'spreadsheet' | 'file'
+type Destination = { parent_id?: string; private_owner_uid?: string }
 
 export type PageCreation = {
   isPending: boolean
   submit: (type: PageType) => Promise<void>
+}
+
+/** Creates a Page of a type that needs no local file; a spreadsheet starts as a blank workbook. */
+function createPage(input: Exclude<PageType, 'file'>, destination: Destination) {
+  if (input === 'spreadsheet') return podSpreadsheetCreate({ body: { data: destination } })
+  return pageAPI.create({ type: input, title: '', ...destination })
 }
 
 export function usePageCreation({ parentID, scope, privateOwner, onCreated }: CreatePageOptions = {}): PageCreation {
@@ -50,7 +58,7 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
       targetScope,
       targetOwner
     }: {
-      input: 'doc' | 'knowledge' | 'base' | File
+      input: Exclude<PageType, 'file'> | File
       targetParentID?: string
       targetScope?: 'space' | 'private'
       targetOwner?: string
@@ -64,14 +72,10 @@ export function usePageCreation({ parentID, scope, privateOwner, onCreated }: Cr
           ? { private_owner_uid: targetOwner }
           : {}
       if (input instanceof File) return createFilePage(input, destination)
-      return pageAPI.create({
-        type: input,
-        title: '',
-        ...destination
-      })
+      return createPage(input, destination)
     }
   })
-  const run = async (type: 'doc' | 'knowledge' | 'base' | 'file', override?: CreatePageOptions) => {
+  const run = async (type: PageType, override?: CreatePageOptions) => {
     const input = type === 'file' ? await chooseLocalFile() : type
     if (!input) return
     const callback = override?.onCreated ?? latestOnCreated.current
@@ -114,9 +118,9 @@ export function useSubpageCreation() {
   const navigate = useNavigate()
   const client = useQueryClient()
   const mutation = useMutation({
-    mutationFn: ({ input, parentID }: { input: 'doc' | 'knowledge' | 'base' | File; parentID: string }) => {
+    mutationFn: ({ input, parentID }: { input: Exclude<PageType, 'file'> | File; parentID: string }) => {
       if (input instanceof File) return createFilePage(input, { parent_id: parentID })
-      return pageAPI.create({ type: input, title: '', parent_id: parentID })
+      return createPage(input, { parent_id: parentID })
     }
   })
   const forParent = (parentID: string, onCreated?: (page: Page) => void): PageCreation => ({
@@ -137,14 +141,18 @@ export function useSubpageCreation() {
   return forParent
 }
 
-const pageTypes = ['doc', 'base', 'file'] as const
+const pageTypes = ['doc', 'base', 'spreadsheet', 'file'] as const
 
 function PageTypeItems({ create, types = pageTypes }: { create: PageCreation; types?: readonly PageType[] }) {
   useTranslation()
   return types.map(type => (
     <DropdownMenuItem key={type} disabled={create.isPending} onClick={() => void create.submit(type)}>
-      <PageIcon page={{ type, icon: null }} />
-      {typeLabels[type]}
+      {type === 'spreadsheet' ? (
+        <RiFileExcel2Line aria-hidden className="pod-page-icon" />
+      ) : (
+        <PageIcon page={{ type, icon: null }} />
+      )}
+      {type === 'spreadsheet' ? t('pod.spreadsheet.spreadsheet') : typeLabels[type]}
     </DropdownMenuItem>
   ))
 }

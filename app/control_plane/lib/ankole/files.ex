@@ -65,7 +65,8 @@ defmodule Ankole.Files do
       {"message_attachments", "object_id"},
       {"delivery_attachments", "object_id"},
       {"pod_files", "object_id"},
-      {"drive_vfs_exports", "object_id"}
+      {"drive_vfs_exports", "object_id"},
+      {"page_snapshots", "object_id"}
     ]
 
   # Agent runtime files use paths relative to their existing private root.

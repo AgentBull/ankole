@@ -2,20 +2,27 @@
   "name": "@ankole/kernel",
   "version": "0.1.0",
   "private": true,
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    ".": "./node.ts"
+    ".": "./node.ts",
+    "./spreadsheet-wasm": {
+      "types": "./spreadsheet-wasm/ankole_spreadsheet_wasm.d.ts",
+      "default": "./dist/spreadsheet-wasm/ankole_spreadsheet_wasm.js"
+    },
+    "./spreadsheet-wasm/*": "./dist/spreadsheet-wasm/*"
   },
   "scripts": {
+    "build": "bun run build:wasm",
     "build:elixir": "mix deps.get && mix compile",
-    "fmt": "cargo fmt --manifest-path Cargo.toml && mix format",
-    "fmt:check": "cargo fmt --manifest-path Cargo.toml --check && mix format --check-formatted",
+    "fmt": "cargo fmt --all --manifest-path Cargo.toml && mix format",
+    "fmt:check": "cargo fmt --all --manifest-path Cargo.toml --check && mix format --check-formatted",
     "build:node": "bun scripts/build-node-addon.ts",
-    "lint": "cargo fmt --manifest-path Cargo.toml --check && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --features nif --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --features nif,test-ca --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --target-dir target/napi-build --no-default-features --features napi --all-targets -- -D warnings && mix format --check-formatted",
+    "build:wasm": "bun scripts/build-wasm.ts",
+    "lint": "cargo fmt --all --manifest-path Cargo.toml --check && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --features nif --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --no-default-features --features nif,test-ca --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml --target-dir target/napi-build --no-default-features --features napi --all-targets -- -D warnings && bun scripts/cargo.ts clippy --manifest-path Cargo.toml -p ankole_spreadsheet -p ankole_spreadsheet_wasm --all-targets -- -D warnings && bun scripts/cargo.ts check --manifest-path Cargo.toml -p ankole_spreadsheet_wasm --target wasm32-unknown-unknown && mix format --check-formatted",
     "test": "bun run test:rust && bun run test:elixir && bun run test:node",
     "test:elixir": "mix deps.get && mix test",
     "test:node": "bun scripts/cargo.ts test --manifest-path Cargo.toml --target-dir target/napi-build --no-default-features --features napi && bun run build:node && bun test ./test/node",
-    "test:rust": "bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features && bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features --features nif && bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features --features nif,test-ca"
+    "test:rust": "bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features && bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features --features nif && bun scripts/cargo.ts test --manifest-path Cargo.toml --no-default-features --features nif,test-ca && bun scripts/cargo.ts test --manifest-path Cargo.toml -p ankole_spreadsheet -p ankole_spreadsheet_wasm"
   }
 }

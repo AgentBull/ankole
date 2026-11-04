@@ -34,3 +34,13 @@ declare module '@ankole/locales/*.json' {
   const catalog: Record<string, unknown>
   export default catalog
 }
+
+declare module '*?url' {
+  const url: string
+  export default url
+}
+
+declare module '*?worker&url' {
+  const url: string
+  export default url
+}

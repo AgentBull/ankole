@@ -51,6 +51,29 @@ The current modules are:
   UTF-16 document diffs. The full round-trip chain from XML to the editor
   document and back shares its test corpus with the block editor.
 
+Two workspace crates sit beside the root crate, because the root crate's own
+dependencies do not build for WebAssembly:
+
+- `spreadsheet/` (`ankole_spreadsheet`) - host-neutral spreadsheet documents
+  over GridCraft, pinned to one Git revision for every GridCraft crate. It opens
+  `.xlsx` bytes with stable sheet ids, executes and rebases the canonical
+  operations, derives search text and sheet metadata, and serves the editor's
+  viewport views. The NIF and the browser load the same crate. Its tests include
+  the business-workbook corpus in `test/fixtures/spreadsheet/corpus`, which
+  every GridCraft upgrade must keep green.
+- `spreadsheet-wasm/` (`ankole_spreadsheet_wasm`) - the wasm-bindgen wrapper
+  that runs `ankole_spreadsheet` in the Pod spreadsheet editor's Web Worker,
+  which keeps a confirmed and a local document (`fork`) and rebases pending
+  operations onto the confirmed one (`apply_rebased`).
+  `bun run --filter @ankole/kernel build:wasm` (also the package `build`
+  script, so Turbo builds it before the webapps) writes the module to
+  `dist/spreadsheet-wasm/`. `@ankole/kernel/spreadsheet-wasm` exports that
+  module with the declarations in `spreadsheet-wasm/ankole_spreadsheet_wasm.d.ts`,
+  generated output that the script refreshes on every build and that stays in
+  git so that type checks need no Rust toolchain, and
+  `@ankole/kernel/spreadsheet-wasm/*` exposes the other build files, such as
+  the `.wasm` binary that the worker loads by URL.
+
 ## Identifier Generation
 
 For opaque PostgreSQL `uuid` row IDs, the Control Plane generates UUIDv7

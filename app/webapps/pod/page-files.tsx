@@ -28,10 +28,12 @@ import {
 } from './file-comment-anchors'
 import { usePageRealtime } from './use-page-realtime'
 import { isRealtimeAccessDenied } from './realtime'
+import { isSpreadsheetFileName } from './state/spreadsheet-grid'
 
 export type DriveFile = NonNullable<Awaited<ReturnType<typeof podFiles>>>['files'][number]
 export type UploadedFile = PodFileCopyResponse
-const SpreadsheetPreview = lazy(() => import('./file-spreadsheet'))
+const SpreadsheetPage = lazy(() => import('./spreadsheet/spreadsheet-page'))
+const LegacySpreadsheetPreview = lazy(() => import('./file-spreadsheet'))
 const PresentationPreview = lazy(() => import('./file-presentation'))
 const transport = createClientConfig({}).fetch!
 const MAX_CSV_PREVIEW_ROWS = 500
@@ -92,6 +94,7 @@ export function FilePage({
     file => !file.path.startsWith('assets/') && !file.path.startsWith('attachments/')
   )
   const name = file?.path.split('/').at(-1) ?? t('pod.content.file')
+  const spreadsheet = Boolean(file && isSpreadsheetFileName(name))
   const chooseLabel = file ? t('pod.content.choose_a_replacement_file') : t('pod.content.choose_a_file_to_upload')
   const canUpload = Boolean(manifest.data) && !manifest.isFetching && !upload.isPending
   const submit = (selected: File | undefined) => {
@@ -168,16 +171,24 @@ export function FilePage({
           </div>
         )}
         {file && (
+          // A spreadsheet download omits the digest, so the server first writes pending edits into the file.
           <a
             className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
-            href={fileURL(page.id, file.path, file.sha256)}
+            href={spreadsheet ? fileURL(page.id, file.path) : fileURL(page.id, file.path, file.sha256)}
             download={sanitizeFileName(name)}>
-            {t('pod.content.download_original')}
+            {spreadsheet ? t('pod.spreadsheet.download') : t('pod.content.download_original')}
           </a>
         )}
       </div>
       {manifest.isPending ? (
         <p role="status">{t('pod.content.loading_file')}</p>
+      ) : spreadsheet ? (
+        // Compaction replaces the object while the editor stays open, so only the page resets it.
+        <ErrorBoundary variant="panel" resetKeys={[page.id]}>
+          <Suspense fallback={<p role="status">{t('pod.spreadsheet.loading')}</p>}>
+            <SpreadsheetPage detail={detail} />
+          </Suspense>
+        </ErrorBoundary>
       ) : file ? (
         <ErrorBoundary variant="panel" resetKeys={[page.id, file.path, file.sha256]}>
           <FilePreview
@@ -261,9 +272,9 @@ function FilePreview({
           onRequestComment={requestComment}
           previewRef={innerPreview}
         />
-      ) : /\.(xlsx|xls|xlsb|ods)$/i.test(name) || mime?.includes('spreadsheet') ? (
+      ) : /\.(xls|xlsb|ods)$/i.test(name) || mime?.includes('spreadsheet') ? (
         <Suspense fallback={<p role="status">{t('pod.content.loading_spreadsheet_preview')}</p>}>
-          <SpreadsheetPreview key={url} url={url} />
+          <LegacySpreadsheetPreview key={url} url={url} />
         </Suspense>
       ) : /\.pptx$/i.test(name) || mime?.includes('presentationml') ? (
         <Suspense fallback={<p role="status">{t('pod.content.loading_slide_preview')}</p>}>

@@ -6,11 +6,13 @@ import type { PodFileCopyResponse, PodPageCreateResponse } from './api/generated
 export type AttachmentReceipt = { receipt: string; name: string; size: number; content_type?: string | null }
 const transport = createClientConfig({}).fetch!
 
-export function chooseLocalFile(): Promise<File | undefined> {
+/** Opens the browser's file chooser; `accept` limits it to the given types, such as `image/*`. */
+export function chooseLocalFile(accept?: string): Promise<File | undefined> {
   return new Promise(resolve => {
     const input = document.createElement('input')
     input.type = 'file'
     input.hidden = true
+    if (accept) input.accept = accept
     const finish = () => {
       const file = input.files?.[0]
       input.remove()

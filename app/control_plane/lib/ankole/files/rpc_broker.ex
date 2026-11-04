@@ -31,13 +31,21 @@ defmodule Ankole.Files.RPCBroker do
   def handle_get(agent_uid, %FabricProto.FilesGetRequest{} = request, ctx) do
     with {:ok, actor} <- actor(agent_uid, ctx),
          {:ok, target} <- home_relative_path(request.home_relative_path),
-         {:ok, file} <- requested_file(actor, request),
+         {:ok, file} <- current_file(actor, request),
          {:ok, opts} <- transfer_opts(ctx),
          :ok <- send_file(file.object_id, target, opts) do
       {:ok, %FabricProto.FilesGetResponse{file: drive_file(file)}}
     else
       {:error, reason} -> error(ctx, reason)
     end
+  end
+
+  # Pod first writes a spreadsheet's pending edits into the node, so the Agent
+  # receives the object that holds them.
+  defp current_file(actor, request) do
+    with {:ok, file} <- requested_file(actor, request),
+         :ok <- Ankole.Pod.flush_node(file.node_id),
+         do: requested_file(actor, request)
   end
 
   defp requested_file(actor, %{node_id: id}) when is_binary(id) and id != "" do

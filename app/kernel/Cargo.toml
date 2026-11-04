@@ -4,22 +4,32 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
 description = "Shared native kernel helpers for Ankole"
+license = "Apache-2.0"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 path = "src/lib.rs"
 
+[lints]
+workspace = true
+
+# The spreadsheet crate is host-neutral so that the NIF and the browser build
+# share it; the root package's own dependencies do not build for wasm32.
+[workspace]
+members = ["spreadsheet", "spreadsheet-wasm"]
+
 # `bun run lint` runs clippy with `-D warnings`, so each lint in these tables
-# fails the gate. The lints below hold on the current tree (clippy 1.99.1,
-# `--all-targets`, with and without `nif`). The remaining lints from the kernel
-# review wait until the code is clean; measured hits, most of them in test
-# targets: clippy::unwrap_used 717, clippy::expect_used 201,
-# clippy::indexing_slicing 822, clippy::cast_possible_truncation 23,
-# clippy::large_futures 3, missing_debug_implementations 3.
-[lints.rust]
+# fails the gate for every workspace member. The lints below hold on the
+# current tree (clippy 1.99.1, `--all-targets`, with and without `nif`). The
+# remaining lints from the kernel review wait until the code is clean; measured
+# hits, most of them in test targets: clippy::unwrap_used 717,
+# clippy::expect_used 201, clippy::indexing_slicing 822,
+# clippy::cast_possible_truncation 23, clippy::large_futures 3,
+# missing_debug_implementations 3.
+[workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
 
-[lints.clippy]
+[workspace.lints.clippy]
 allow_attributes_without_reason = "deny"
 large_stack_arrays = "deny"
 undocumented_unsafe_blocks = "deny"
@@ -30,7 +40,15 @@ print_stderr = "warn"
 
 [features]
 default = []
-nif = ["dep:rustler", "dep:stacker", "universal_ai_client", "markdown", "object_store", "model_image"]
+nif = [
+  "dep:ankole_spreadsheet",
+  "dep:rustler",
+  "dep:stacker",
+  "universal_ai_client",
+  "markdown",
+  "object_store",
+  "model_image",
+]
 # Node addon for browser URL policy, checked connections, and token estimates.
 # Do not combine with nif.
 napi = ["dep:napi", "dep:napi-derive", "dep:napi-build", "web_proxy"]
@@ -60,6 +78,7 @@ test-ca = []
 model_image = ["dep:image", "dep:webp"]
 
 [dependencies]
+ankole_spreadsheet = { path = "spreadsheet", optional = true }
 any_ascii = "0.3.3"
 base64-simd = "0.8.0"
 blake3 = "1.8.7"
@@ -126,3 +145,11 @@ lto = "thin"
 [profile.dev]
 debug = "line-tables-only"
 incremental = true
+
+# `bun run --filter @ankole/kernel build:wasm` builds the browser spreadsheet
+# module with this profile; the NIF keeps the release profile above.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1

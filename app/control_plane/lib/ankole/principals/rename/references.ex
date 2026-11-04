@@ -59,7 +59,8 @@ defmodule Ankole.Principals.Rename.References do
     {"page_comments", "resolved_by"},
     {"page_comments", "updated_by"},
     {"page_contents", "updated_by"},
-    {"page_snapshots", "author"}
+    {"page_snapshots", "author"},
+    {"pod_spreadsheet_ops", "author"}
   ]
   @actor_ref_arrays [{"page_contents", "contributors"}]
   @json_uids [

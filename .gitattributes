@@ -12,3 +12,6 @@ app/library/skills/** linguist-vendored
 
 # Unified diffs use a space prefix for unchanged empty lines.
 *.patch -whitespace
+
+# The spreadsheet golden corpus keeps its generator's bytes, CRLF line ends included.
+app/kernel/test/fixtures/spreadsheet/corpus/*.csv -whitespace

@@ -182,9 +182,9 @@ test('uploaded workbooks and presentations preview through the authorized Pod fi
     PPTX.addContentSlide(presentation, { title: 'Next quarter', body: 'Launch the research service' })
     const files = [
       {
-        name: 'Forecast.xlsx',
-        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        buffer: Buffer.from(XLSX.write(workbook, { type: 'array', bookType: 'xlsx' }))
+        name: 'Forecast.ods',
+        mimeType: 'application/vnd.oasis.opendocument.spreadsheet',
+        buffer: Buffer.from(XLSX.write(workbook, { type: 'array', bookType: 'ods' }))
       },
       {
         name: 'Results.pptx',
@@ -201,7 +201,7 @@ test('uploaded workbooks and presentations preview through the authorized Pod fi
       await owner.goto(state.base_url + route(page.id))
       await owner.getByLabel('选择上传文件', { exact: true }).setInputFiles(file)
       await expect(owner.getByRole('link', { name: '下载原文件', exact: true })).toBeVisible()
-      if (file.name.endsWith('.xlsx')) {
+      if (file.name.endsWith('.ods')) {
         await expect(
           owner
             .getByTitle(/工作表.*Revenue/)

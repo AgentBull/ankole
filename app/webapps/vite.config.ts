@@ -231,7 +231,7 @@ export default defineConfig(({ command }): UserConfig => ({
         if (error || !existsSync(outputPath)) return
         // Plug.Static serves these sidecars without changing Vite's hashed files or manifest.
         for (const file of readdirSync(outputPath, { recursive: true, encoding: 'utf8' })) {
-          if (!/\.(css|js|json|map|svg)$/.test(file)) continue
+          if (!/\.(css|js|json|map|svg|wasm)$/.test(file)) continue
           const sourcePath = path.join(outputPath, file)
           const source = readFileSync(sourcePath)
           const compressed = gzipSync(source)

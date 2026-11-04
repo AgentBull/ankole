@@ -171,6 +171,11 @@ defmodule Ankole.Pod.Page do
       source_attribute(:id)
       destination_attribute(:page_id)
     end
+
+    has_one :file_cache, Ankole.Pod.FileCache do
+      source_attribute(:id)
+      destination_attribute(:page_id)
+    end
   end
 
   actions do

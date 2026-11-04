@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 mod object_store;
 mod vfs;
 
+use ankole_spreadsheet::{ApplyError, Conflict, SpreadsheetDoc};
+
 use crate::authz;
 use crate::brain_chunker;
 use crate::common;
@@ -34,6 +36,11 @@ mod atoms {
         private,
         public,
         invalid,
+        conflict,
+        target_deleted,
+        overlapping_structural_edit,
+        sheet_deleted,
+        concurrent_sort_or_merge,
     }
 }
 
@@ -106,6 +113,13 @@ impl rustler::Resource for UniversalAIClientRequestResource {
         self.cancel();
     }
 }
+
+/// One immutable spreadsheet version. Applying an operation returns a new resource, so concurrent
+/// readers of the old one never need a lock.
+pub struct SpreadsheetResource(SpreadsheetDoc);
+
+#[rustler::resource_impl]
+impl rustler::Resource for SpreadsheetResource {}
 
 /// Holds the Elixir stream ref in an owned environment so Rust-owned async tasks
 /// can tag messages without keeping a BEAM scheduler thread occupied.
@@ -304,6 +318,115 @@ pub fn page_restore_comments_nif(
     })
     .map_err(error_message)?;
     Ok((page.xml, page.plain_text))
+}
+
+// Formula parsing, recalculation, and XML reading recurse. GridCraft budgets about 1 MiB of
+// stack per formula evaluation, more than BEAM's default dirty CPU stack.
+fn with_spreadsheet_stack<R>(call: impl FnOnce() -> R) -> R {
+    stacker::grow(8 * 1024 * 1024, call)
+}
+
+/// Returns `{doc, xlsx, plain_text, metadata_json}` for a new workbook with one empty sheet.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn spreadsheet_create_blank_nif<'a>(env: Env<'a>, title: Term<'a>) -> NIFResult<Term<'a>> {
+    let title = decode_string(title, "title")?;
+    let (doc, exported) = with_spreadsheet_stack(|| ankole_spreadsheet::create_blank(&title))
+        .map_err(spreadsheet_error)?;
+    let metadata = encode_serialized(&exported.metadata)?;
+    let xlsx = binary_term(env, exported.xlsx);
+    Ok((
+        ResourceArc::new(SpreadsheetResource(doc)),
+        xlsx,
+        exported.plain_text,
+        metadata,
+    )
+        .encode(env))
+}
+
+/// Reads `.xlsx` bytes, replays the JSON array of uncompacted operations, and returns
+/// `{doc, plain_text, metadata_json}`.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn spreadsheet_open_nif(
+    xlsx: Term<'_>,
+    tail_ops: Term<'_>,
+) -> NIFResult<(ResourceArc<SpreadsheetResource>, String, String)> {
+    let xlsx = decode_binary(xlsx, "xlsx")?;
+    let tail_ops = decode_string(tail_ops, "tail_ops")?;
+    let doc = with_spreadsheet_stack(|| ankole_spreadsheet::open(xlsx.as_slice(), &tail_ops))
+        .map_err(spreadsheet_error)?;
+    let (plain_text, metadata) = (
+        ankole_spreadsheet::plain_text(&doc),
+        ankole_spreadsheet::metadata(&doc),
+    );
+    Ok((
+        ResourceArc::new(SpreadsheetResource(doc)),
+        plain_text,
+        encode_serialized(&metadata)?,
+    ))
+}
+
+/// Returns `{:ok, {doc, committed_op, structural_edit | nil}}`, `{:conflict, reason}` when the
+/// rebase refuses, or `{:error, message}`.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn spreadsheet_apply_nif<'a>(
+    env: Env<'a>,
+    doc: ResourceArc<SpreadsheetResource>,
+    incoming_op: Term<'a>,
+    prior_ops: Term<'a>,
+) -> NIFResult<Term<'a>> {
+    let incoming_op = decode_string(incoming_op, "incoming_op")?;
+    let prior_ops = decode_string(prior_ops, "prior_ops")?;
+    match with_spreadsheet_stack(|| ankole_spreadsheet::apply(&doc.0, &incoming_op, &prior_ops)) {
+        Ok(applied) => {
+            let op = encode_serialized(&applied.op)?;
+            let edit = applied
+                .structural_edit
+                .as_ref()
+                .map(encode_serialized)
+                .transpose()?;
+            Ok((
+                atoms::ok(),
+                (ResourceArc::new(SpreadsheetResource(applied.doc)), op, edit),
+            )
+                .encode(env))
+        }
+        Err(ApplyError::Conflict(conflict)) => {
+            let reason = match conflict {
+                Conflict::TargetDeleted => atoms::target_deleted(),
+                Conflict::OverlappingStructuralEdit => atoms::overlapping_structural_edit(),
+                Conflict::SheetDeleted => atoms::sheet_deleted(),
+                Conflict::ConcurrentSortOrMerge => atoms::concurrent_sort_or_merge(),
+            };
+            Ok((atoms::conflict(), reason).encode(env))
+        }
+        Err(ApplyError::Error(reason)) => Err(spreadsheet_error(reason)),
+    }
+}
+
+/// Returns `{xlsx, plain_text, metadata_json}` for the document's current state.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn spreadsheet_export_xlsx_nif<'a>(
+    env: Env<'a>,
+    doc: ResourceArc<SpreadsheetResource>,
+) -> NIFResult<Term<'a>> {
+    let exported = with_spreadsheet_stack(|| ankole_spreadsheet::export_xlsx(&doc.0))
+        .map_err(spreadsheet_error)?;
+    let metadata = encode_serialized(&exported.metadata)?;
+    Ok((
+        binary_term(env, exported.xlsx),
+        exported.plain_text,
+        metadata,
+    )
+        .encode(env))
+}
+
+fn spreadsheet_error(reason: ankole_spreadsheet::Error) -> Error {
+    error_message(reason.to_string())
+}
+
+fn encode_serialized(value: &impl serde::Serialize) -> NIFResult<String> {
+    serde_json::to_string(value)
+        .map_err(|reason| error_message(format!("failed to encode JSON: {reason}")))
 }
 
 #[cfg(feature = "markdown")]

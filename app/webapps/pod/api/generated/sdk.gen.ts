@@ -432,6 +432,18 @@ import type {
   PodSpaceWriteData,
   PodSpaceWriteErrors,
   PodSpaceWriteResponses,
+  PodSpreadsheetCreateData,
+  PodSpreadsheetCreateErrors,
+  PodSpreadsheetCreateResponses,
+  PodSpreadsheetData,
+  PodSpreadsheetErrors,
+  PodSpreadsheetResponses,
+  PodSpreadsheetRestoreData,
+  PodSpreadsheetRestoreErrors,
+  PodSpreadsheetRestoreResponses,
+  PodSpreadsheetVersionsData,
+  PodSpreadsheetVersionsErrors,
+  PodSpreadsheetVersionsResponses,
   PodSubjectsData,
   PodSubjectsErrors,
   PodSubjectsResponses,
@@ -1558,6 +1570,19 @@ export const conversationExecution = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podSpreadsheetRestore operation on pod_spreadsheet_operation resource
+ */
+export const podSpreadsheetRestore = <ThrowOnError extends boolean = true>(
+  options: Options<PodSpreadsheetRestoreData, ThrowOnError>
+): RequestResult<PodSpreadsheetRestoreResponses, PodSpreadsheetRestoreErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodSpreadsheetRestoreResponses, PodSpreadsheetRestoreErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/spreadsheet/versions/{version_id}/restore',
+    ...options
+  })
+
+/**
  * podBaseAggregate operation on pod_base_operation resource
  */
 export const podBaseAggregate = <ThrowOnError extends boolean = true>(
@@ -1852,6 +1877,19 @@ export const postConversationMessage = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podSpreadsheet operation on pod_spreadsheet_operation resource
+ */
+export const podSpreadsheet = <ThrowOnError extends boolean = true>(
+  options: Options<PodSpreadsheetData, ThrowOnError>
+): RequestResult<PodSpreadsheetResponses, PodSpreadsheetErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodSpreadsheetResponses, PodSpreadsheetErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/spreadsheet',
+    ...options
   })
 
 /**
@@ -2596,6 +2634,19 @@ export const podPageHistory = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * podSpreadsheetVersions operation on pod_spreadsheet_operation resource
+ */
+export const podSpreadsheetVersions = <ThrowOnError extends boolean = true>(
+  options: Options<PodSpreadsheetVersionsData, ThrowOnError>
+): RequestResult<PodSpreadsheetVersionsResponses, PodSpreadsheetVersionsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodSpreadsheetVersionsResponses, PodSpreadsheetVersionsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/spreadsheet/versions',
+    ...options
+  })
+
+/**
  * podBaseViewDelete operation on pod_base_operation resource
  */
 export const podBaseViewDelete = <ThrowOnError extends boolean = true>(
@@ -2900,6 +2951,23 @@ export const renamePodMember = <ThrowOnError extends boolean = true>(
     headers: {
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
+    }
+  })
+
+/**
+ * podSpreadsheetCreate operation on pod_spreadsheet_operation resource
+ */
+export const podSpreadsheetCreate = <ThrowOnError extends boolean = true>(
+  options?: Options<PodSpreadsheetCreateData, ThrowOnError>
+): RequestResult<PodSpreadsheetCreateResponses, PodSpreadsheetCreateErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).post<PodSpreadsheetCreateResponses, PodSpreadsheetCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/spreadsheet-pages',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options?.headers
     }
   })
 

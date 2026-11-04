@@ -28,10 +28,12 @@ for integrity and Pod resource idempotency; it is not an object identity or a
 deduplication index. Multiple nodes or attachments can explicitly reference one
 existing object without copying it. Objects are never shared across tenants.
 
-There is no file version table or recovery API. Overwriting a file changes its
-node's `object_id`; the last successful commit wins. Already-sent attachments
-retain their original object reference. Document history remains Pod's
-`PageSnapshot` feature. An empty file has no object until its first write.
+Drive keeps no file version table or recovery API of its own. Overwriting a
+file changes its node's `object_id`; the last successful commit wins.
+Already-sent attachments retain their original object reference. Pod's page
+history (`PageSnapshot`) keeps document snapshots and, for spreadsheet pages,
+references to earlier file objects; see [Spreadsheet pages](#spreadsheet-pages).
+An empty file has no object until its first write.
 
 Pod publishes committed Page changes on `drive-node:<id>` after the top-level
 transaction succeeds. Pod's page channel consumes that event for both runtime
@@ -40,6 +42,14 @@ events. Pod file replacement accepts the manifest's `base_object_id` (null for
 an empty file) and rejects a stale value with `manifest_changed`; runtime writes
 use last-commit-wins semantics. Pod document and Applet revisions describe their
 own content, independently of file objects.
+
+Every write that names an object at a file Page goes through
+`Ankole.Pod.Files.Content.commit_in_tx/4`, which lets `Ankole.Pod.Spreadsheets`
+reconcile a spreadsheet's operation log with the new object in the same
+transaction. Before the `files.get` RPC hands a file Page's bytes to an Agent,
+Pod writes the spreadsheet's pending edits into its object. A Worker Drive
+mount reads the object of the last compaction, and Pod publishes each
+compaction like any other content commit, so mounts refresh after it.
 
 ## Tree and access
 
@@ -131,9 +141,11 @@ and tenant deletion use the same content-owner boundary.
    receipt, sets `completed_at`, and inserts the reference together. Failed
    attachment leaves an incomplete object for collection.
 
-The hourly collector considers objects older than 24 hours and checks all four
-reference owners centrally. In one PostgreSQL transaction it deletes the
-unreferenced row and inserts a site-scoped `DeleteObject` Oban job containing
+The hourly collector considers objects older than 24 hours and centrally
+checks every reference owner that `Ankole.Files.object_references/0` lists:
+Drive nodes, Message and Delivery attachments, Pod resources, and page
+snapshots. In one PostgreSQL transaction it deletes the unreferenced row and
+inserts a site-scoped `DeleteObject` Oban job containing
 the storage key. Composite foreign keys resolve reference/collection races.
 The job retries byte deletion independently; keys are never reused. Tenant
 cleanup enqueues the same deletion jobs before deleting its object rows.
@@ -385,6 +397,40 @@ node view for `dist/` and `assets/`, and node edit for source and server files.
 Applet publication binds all object references and its manifest atomically.
 Custom emoji have no node owner and survive individual page purge. These
 resources are accessible through `ankole-pod`, including `applet pull`.
+
+## Spreadsheet pages
+
+A spreadsheet page is a file node whose name ends in `.xlsx` or `.xlsm`; its
+current object holds the workbook, and Pod's operation log holds the edits
+that compaction has not written yet. [Pod Content Model](PodContentModel.md#spreadsheet-pages)
+owns the editing contract.
+
+Compaction (`Ankole.Pod.Spreadsheets.flush_if_dirty/1`) uses the two write
+steps above: it exports the workbook and calls `store/1` outside any
+transaction, and then, under the node lock, names the new object at the node
+with `Ankole.Pod.Files.Content.rewrite_in_tx/2` and marks the exported operations
+`compacted`. That call does not authorize or report the write again, because
+the edits it holds were authorized when they were committed. Pod manifests,
+Pod reads and downloads that do not pin a digest, and the `files.get` RPC
+compact first, so they return the latest edits. A Pod read that pins a digest
+returns exactly those bytes while the node still names them and fails with
+`manifest_changed` afterwards. Worker Drive mounts read the object of the last
+compaction and refresh when its commit is published.
+
+An upload, a restore, or any other write through `Ankole.Pod.Files.Content.commit_in_tx/4`
+replaces the workbook from outside the log: in the same transaction
+`Ankole.Pod.Spreadsheets` marks every pending operation `compacted` and appends a `reset`
+entry. Pod uploads and restores first write pending edits into the current
+object, so the version that the page history keeps for it holds them; other
+Drive writes replace the object as it stands.
+
+Spreadsheet versions are rows in `page_snapshots` whose `object_id` references
+`file_objects` instead of carrying document XML. The collector treats each such
+row as a live reference, so a version keeps its object after compaction, an
+upload, or a restore names another one. Page history retention expires
+snapshots, and purging the page deletes them together with its operation log
+and search cache; the 24-hour grace period then applies to every object they
+named.
 
 ## Skills, Contracts, and Brain Projections
 

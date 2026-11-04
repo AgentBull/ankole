@@ -41,6 +41,7 @@ jobs:
           elixir-version: '1.20.4'
       - run: rustup toolchain install 1.99.1 --profile minimal --component clippy --component rustfmt
       - run: rustup default 1.99.1
+      - run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/kernel

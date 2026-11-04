@@ -3,8 +3,9 @@ defmodule Ankole.Pod do
   The Pod domain: the page tree, page content, and Base schemas.
 
   The Ash resources own the pages, page content and changes, personal page
-  state, and Base tables, fields, and views. `Ankole.Pod.Pages`,
-  `Ankole.Pod.Documents`, `Ankole.Pod.Files`, `Ankole.Pod.Applets`, and
+  state, spreadsheet operations and file caches, and Base tables, fields, and
+  views. `Ankole.Pod.Pages`, `Ankole.Pod.Documents`,
+  `Ankole.Pod.Files`, `Ankole.Pod.Spreadsheets`, `Ankole.Pod.Applets`, and
   `Ankole.Pod.Bases` run their operations in top-level transactions.
   The Pod Base subsystem owns the `base_records` rows through the
   `Ankole.Pod.BaseRecord` Ecto schema, because users define their fields at
@@ -72,6 +73,12 @@ defmodule Ankole.Pod do
 
   defdelegate authorize_node_write(actor, node), to: NodeContents, as: :authorize_write
 
+  @doc """
+  Writes a spreadsheet page's pending edits into its file before a reader takes
+  the bytes. Runs outside a transaction; other nodes return `:ok` at once.
+  """
+  defdelegate flush_node(id), to: Ankole.Pod.Spreadsheets, as: :flush_if_dirty
+
   defdelegate commit_node_object_in_tx(actor, id, object, attrs \\ %{}),
     to: NodeContents,
     as: :commit_in_tx
@@ -114,6 +121,7 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.Pages.Browser)
     resource(Ankole.Pod.Bases.Browser)
     resource(Ankole.Pod.Files.Browser)
+    resource(Ankole.Pod.Spreadsheets.Browser)
     resource(Ankole.Pod.Chat.Browser)
 
     resource Ankole.Pod.Page do
@@ -129,6 +137,8 @@ defmodule Ankole.Pod do
     resource(Ankole.Pod.Comments.Browser)
     resource(Ankole.Pod.Documents.History.Browser)
     resource(Ankole.Pod.PageUserState)
+    resource(Ankole.Pod.SpreadsheetOp)
+    resource(Ankole.Pod.FileCache)
 
     resource(Ankole.Pod.BaseTable)
     resource(Ankole.Pod.Bases.ChangeOutbox)
@@ -473,6 +483,16 @@ defmodule Ankole.Pod do
       base_route "/", Ankole.Pod.Files.Browser do
         route(:get, "/pages/:id/files", :manifest, name: "podFiles")
         route(:post, "/pages/:id/copy-file", :copy, name: "podFileCopy")
+      end
+
+      base_route "/", Ankole.Pod.Spreadsheets.Browser do
+        route(:post, "/spreadsheet-pages", :create, name: "podSpreadsheetCreate")
+        route(:get, "/pages/:id/spreadsheet", :bootstrap, name: "podSpreadsheet")
+        route(:get, "/pages/:id/spreadsheet/versions", :versions, name: "podSpreadsheetVersions")
+
+        route(:post, "/pages/:id/spreadsheet/versions/:version_id/restore", :restore,
+          name: "podSpreadsheetRestore"
+        )
       end
 
       base_route "/", Ankole.Pod.Bases.Browser do

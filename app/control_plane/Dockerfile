@@ -14,16 +14,56 @@ FROM ${BUN_IMAGE} AS bun-deps
 WORKDIR /repo
 
 COPY package.json bun.lock ./
+COPY app/kernel/package.json ./app/kernel/package.json
 COPY app/webapps/package.json ./app/webapps/package.json
 COPY libs/ankole-editor/package.json ./libs/ankole-editor/package.json
 COPY libs/applet-sdk/package.json ./libs/applet-sdk/package.json
 COPY libs/uikit/package.json ./libs/uikit/package.json
 
 # Install only the frontend workspace packages needed for the Vite bundle.
-RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/webapps", "libs/ankole-editor", "libs/applet-sdk", "libs/uikit"]; await Bun.write("package.json", JSON.stringify(p));'
+RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/kernel", "app/webapps", "libs/ankole-editor", "libs/applet-sdk", "libs/uikit"]; await Bun.write("package.json", JSON.stringify(p));'
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   bun install --no-save
+
+# The Pod spreadsheet editor loads the kernel's WebAssembly build, which the
+# Bun-only bundle stage cannot compile.
+FROM bun-deps AS kernel-wasm
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_MIRROR=http://deb.debian.org/debian
+ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
+ARG RUST_TOOLCHAIN=1.99.1
+ARG TARGETARCH
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+ENV CARGO_INCREMENTAL=0
+
+RUN sed -i \
+    -e "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+    -e "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
+    /etc/apt/sources.list.d/debian.sources \
+  && apt-get -o Acquire::Retries=5 update \
+  && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+  | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
+    --target wasm32-unknown-unknown \
+  && rustc --version \
+  && cargo --version
+
+COPY app/kernel ./app/kernel
+
+WORKDIR /repo/app/kernel
+
+RUN --mount=type=cache,target=/root/.cargo/git \
+  --mount=type=cache,target=/root/.cargo/registry \
+  --mount=type=cache,id=ankole-cp-kernel-wasm-${TARGETARCH},target=/repo/app/kernel/target \
+  bun run build:wasm
 
 FROM bun-deps AS webapps-build
 
@@ -40,6 +80,7 @@ COPY --parents \
   ./
 COPY app/locales ./app/locales
 COPY app/webapps ./app/webapps
+COPY --from=kernel-wasm /repo/app/kernel/dist/spreadsheet-wasm ./app/kernel/dist/spreadsheet-wasm
 COPY libs/ankole-editor/src ./libs/ankole-editor/src
 COPY libs/ankole-editor/upstream ./libs/ankole-editor/upstream
 COPY libs/applet-sdk/src ./libs/applet-sdk/src

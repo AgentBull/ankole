@@ -1,5 +1,55 @@
 # Changelog
 
+## Version 2.0.0-alpha.56 (2026-11-04)
+
+- Create and edit spreadsheets in Pod. The page create menus offer a new
+  **Spreadsheet**, which starts as a blank `Untitled.xlsx`, and every `.xlsx` or
+  `.xlsm` file page opens in an online editor: type values and formulas,
+  format cells (fonts, colors, alignment, wrapping, number formats, borders,
+  merges, and notes), insert, delete, hide, and resize rows and columns, freeze
+  panes, sort, and add, rename, reorder, color, or delete sheets. Several
+  people can edit the same workbook at once and see each other's selections;
+  Ankole moves an edit that crosses another person's row or column change to
+  the right cells and formulas, and asks you to redo an edit it cannot place.
+  Undo and redo cover your own values, formats, and merges. Editors can restore earlier
+  versions from the page history, downloads always return the latest edits,
+  Agents see them in their Drive shortly after editing pauses, and search finds
+  text inside spreadsheet cells.
+  Workbooks larger than the editing limit (20 MiB by default) offer the
+  download only, and `.xls`, `.xlsb`, `.ods`, `.csv`, and `.tsv` files keep
+  their read-only previews. Operators can tune the editable file size and
+  compaction with `pod.spreadsheet.limits`.
+- Spreadsheets gain the data tools. The **Data** menu filters the selection or
+  the block of data around the active cell, and the header buttons list each
+  column's values to show or hide; data validation restricts what cells accept,
+  cells with a list rule offer a dropdown, and input that breaks a rule is
+  rejected or flagged with the rule's message; a range can be formatted as a
+  table and converted back; and find and replace (Ctrl+F, Ctrl+H) search the
+  sheet or the workbook. The grid now paints the charts of a sheet from the
+  values they refer to, table styles, conditional formatting (fills, fonts,
+  data bars, colour scales, and icon sets) from the file, and a mark on cells
+  with notes, and the note popover shows the current note.
+- Spreadsheets gain the everyday editing tools of desktop spreadsheet apps.
+  Typing `=` suggests functions and shows their arguments, the **Formulas**
+  menu inserts a sum, average, count, maximum, or minimum of the numbers above
+  or picks from a searchable list of every function, clicking or dragging over
+  cells while typing a formula inserts their reference (other sheets included),
+  F4 switches a reference between relative and absolute, and the status bar
+  sums, averages, and counts the selection. The freeze menu freezes the first
+  row or column, or everything up to the selected row, column, or cell. The fill
+  handle continues numbers, dates, numbered text, and weekday or month names,
+  double-clicking it fills down beside the neighbouring data, and Ctrl+D and
+  Ctrl+R copy down and right. Copied cells keep their formulas and formats
+  between Ankole spreadsheets, cut and paste moves them, and paste special
+  pastes values, formulas, or formats only. The context menu inserts and
+  deletes rows, columns, or cells in a chosen direction and clears contents,
+  formats, or both, and the toolbar adds the format painter, strikethrough, and
+  clear formats. Pictures float over the cells or sit inside one; you can
+  insert, paste, or drop them, move and resize them, switch them between the two
+  kinds, view them full size, and download them, and they stay in the
+  downloaded `.xlsx`. Rows without a height set by hand grow with larger fonts
+  and wrapped text, and shrink back when they go.
+
 ## Version 2.0.0-alpha.55 (2026-11-04)
 
 - Let AI colleagues read and manage their own business pages, files, Bases and

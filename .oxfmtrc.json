@@ -27,8 +27,10 @@
     "app/control_plane/test/fixtures/**/*.json",
     "app/control_plane/priv/worker_provider_schemas/*.json",
     "app/kernel/proto/**/*.json",
+    "app/kernel/test/fixtures/spreadsheet/**",
     "app/kernel/test/vectors/**",
     "app/kernel/src/applet_runtime/bootstrap.js",
+    "app/kernel/spreadsheet-wasm/ankole_spreadsheet_wasm.d.ts",
     "libs/ankole-editor/corpus/**",
     "libs/ankole-editor/upstream/fixtures/**"
   ]

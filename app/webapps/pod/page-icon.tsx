@@ -5,6 +5,7 @@ import {
   RiBookOpenLine,
   RiDatabase2Line,
   RiEmotionLine,
+  RiFileExcel2Line,
   RiFileTextLine
 } from '@remixicon/react'
 import {
@@ -27,6 +28,7 @@ import { isCustomEmojiIcon } from './page-icon-value'
 import { customEmojiLibrary, uploadCustomEmoji } from './native-transfers'
 import { InternalAPIError } from '../common/internal-api-client'
 import { updatePageMetadata } from './state/navigation-cache'
+import { isSpreadsheetFileName } from './state/spreadsheet-grid'
 
 const icons = {
   doc: RiFileTextLine,
@@ -36,12 +38,15 @@ const icons = {
   file: RiAttachment2
 }
 
-/** A Page keeps the same icon in navigation, references, and pickers. */
+/**
+ * A Page keeps the same icon in navigation, references, and pickers. A file Page whose title names
+ * a spreadsheet gets the spreadsheet mark.
+ */
 export function PageIcon({
   page,
   className
 }: {
-  page: Pick<Page, 'type' | 'icon' | 'system_key'>
+  page: Pick<Page, 'type' | 'icon' | 'system_key'> & { title?: string }
   className?: string
 }) {
   const classes = cn('pod-page-icon', className)
@@ -69,7 +74,8 @@ export function PageIcon({
       </span>
     )
   }
-  const Icon = icons[page.type]
+  const Icon =
+    page.type === 'file' && page.title && isSpreadsheetFileName(page.title) ? RiFileExcel2Line : icons[page.type]
   return <Icon aria-hidden className={classes} />
 }
 

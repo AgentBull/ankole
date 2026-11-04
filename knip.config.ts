@@ -73,7 +73,7 @@ const config: KnipConfig = {
       project: ['main/**/*.ts!', 'build.ts!']
     },
     'app/kernel': {
-      entry: ['scripts/build-node-addon.ts!']
+      entry: ['scripts/build-node-addon.ts!', 'scripts/build-wasm.ts!']
     },
     'libs/uikit': {
       entry: ['src/index.ts!'],
