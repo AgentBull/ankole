@@ -39,5 +39,9 @@ USER postgres
 EXPOSE 5432
 VOLUME /var/lib/pgsql/18/data
 
+# Fast shutdown disconnects pooled clients and writes a shutdown checkpoint. The
+# default SIGTERM waits for those clients until the runtime kills the server.
+STOPSIGNAL SIGINT
+
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["postgres", "-c", "shared_preload_libraries=pg_search"]

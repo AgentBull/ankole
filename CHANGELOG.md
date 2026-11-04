@@ -16,6 +16,9 @@
 - Count Applet Worker startup, including top-level await, toward call admission,
   so an Action whose deadline expires during startup is retried instead of
   failing with an unknown outcome.
+- Stop the bundled PostgreSQL image with a fast shutdown, so stopping or
+  recreating it no longer waits for connected clients until the server is
+  killed and must recover on its next start.
 
 ## Version 2.0.0-alpha.56 (2026-11-04)
 
