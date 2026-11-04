@@ -109,12 +109,19 @@ defmodule Ankole.Signals.BindingTenancyTest do
     second_binding = Repo.get_by!(Binding, agent_uid: second.uid, name: "main")
     refute first_binding.config_ref == second_binding.config_ref
 
+    refute first_binding.auth_config_id == second_binding.auth_config_id
+
+    # A Binding form cannot rotate its selected connection; the connection owns rotation.
+    %{principal: admin} = human_fixture()
+    {:ok, _} = Repo.transact(fn -> Ankole.AuthZ.add_pod_admin_in_tx(admin.uid) end)
+
     assert {:ok, _} =
-             Bindings.update_binding(Ankole.Signals.get_agent_binding!(first.uid, "main").id, %{
-               "agent_uid" => first.uid,
-               "config" => %{"botToken" => "xoxb-rotated"}
+             Ankole.Connectors.update_auth_config(admin, first_binding.auth_config_id, %{
+               "secret" => %{"botToken" => "xoxb-rotated"}
              })
 
+    assert {:ok, stored} = Bindings.stored_binding_config(first_binding)
+    assert stored["botToken"] == "xoxb-rotated"
     assert {:ok, stored} = Bindings.stored_binding_config(second_binding)
     assert stored["botToken"] == "xoxb-second"
   end

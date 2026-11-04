@@ -27,6 +27,8 @@ defmodule Ankole.TenancyGuardTest do
   # names. Inline uniqueness binds tenant_id and table_id; the schedule sequence only
   # allocates an opaque database ID and reads no tenant data.
   # Connector maintenance enumerates the site, then enters each row's tenant before work.
+  # A site Provider's reference check reads Agent, configuration, and enabled OIDC
+  # Client model profiles across tenants and returns only tenant-qualified labels.
   @reviewed_query_escapes %{
     "across_tenants:lib/ankole/connectors/jobs/reconcile_triggers.ex:run" => 1,
     "across_tenants:lib/ankole/connectors/jobs/refresh_accounts.ex:run" => 1,
@@ -176,7 +178,7 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/pod/query.ex:execute" => 2,
     "raw_sql:lib/ankole/advisory_lock.ex:lock" => 1,
     "raw_sql:lib/ankole/advisory_lock.ex:lock!" => 1,
-    "raw_sql:lib/ankole/ai_gateway/provider_configs.ex:provider_references" => 2,
+    "raw_sql:lib/ankole/ai_gateway/provider_configs.ex:provider_references" => 3,
     "raw_sql:lib/ankole/ai_gateway/response_chain.ex:chain_ids" => 1,
     "raw_sql:lib/ankole/ai_gateway/response_chain.ex:chain_metadata" => 1,
     "raw_sql:lib/ankole/ai_gateway/response_chain.ex:suffix_messages" => 1,

@@ -403,17 +403,9 @@ defmodule Ankole.Sessions.ReceiptsTest do
     human = human_fixture().principal
     actor = actor_fixture(human)
 
-    {:ok, folder} =
-      Pages.create(actor, %{
-        type: :doc,
-        title: "Pilot proposals",
-        private_owner_uid: human.uid
-      })
-
-    assert {:ok, _} =
-             Ankole.Pod.PagesFixtures.set_sharing(human.uid, folder.id, %{
-               grants: [%{principal_uid: run.agent_uid, role: "edit"}]
-             })
+    # The tool creates Brain knowledge objects, which live under an ontology category.
+    folder = Ankole.BrainFixtures.category_fixture(human.uid)
+    Ankole.BrainFixtures.category_fixture(run.agent_uid)
 
     run =
       struct!(
@@ -442,7 +434,7 @@ defmodule Ankole.Sessions.ReceiptsTest do
     refute created.is_error, created.output
     id = created.details["id"]
     assert {:ok, %{page: page, content: content}} = Pages.get(actor, id)
-    assert page.metadata == %{"summary" => "Pilot review"}
+    assert page.metadata == %{"entity_type" => "note", "summary" => "Pilot review"}
     assert content.plain_text =~ "187 CNY"
     assert Tools.execute(run, create, create_tool, create_args) == created
 

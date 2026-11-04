@@ -80,7 +80,7 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
     assert_tool(other_origin)
   end
 
-  test "RPC evaluates requester and Agent grants with the persisted ingress IP", ctx do
+  test "RPC evaluates the Agent page grant with the persisted ingress IP", ctx do
     grant(ctx.human, "agent:#{ctx.agent.uid}", "chat")
     owner = Ankole.PrincipalsFixtures.human_fixture().principal
 
@@ -109,8 +109,7 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
     refute page.id in rpc_page_ids(denied)
 
     assert {:ok, _} = AuthZ.delete_permission_grant(human_grant.id)
-    refute page.id in rpc_page_ids(rebuilt)
-    grant(ctx.human, pattern, "node_view", condition)
+    assert page.id in rpc_page_ids(rebuilt)
     assert {:ok, _} = AuthZ.delete_permission_grant(agent_grant.id)
     refute page.id in rpc_page_ids(rebuilt)
   end

@@ -133,7 +133,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
            }
   end
 
-  test "a human-owned background job intersects reads and retains Agent document writes and ingress IP",
+  test "a human-owned background job reads and writes Pages with Agent grants and ingress IP",
        ctx do
     source = native_source(ctx)
     attempt = job_attempt(source)
@@ -153,7 +153,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
     pattern = "drive:**:#{page.id}:node"
     condition = ~s(context.request.ip == "10.20.1.10" && context.request.surface == "agent_rpc")
     agent_grants = page_grants(ctx.agent.uid, pattern)
-    refute page.id in rpc_page_ids(attempt)
+    assert page.id in rpc_page_ids(attempt)
 
     assert {:ok, %{"result" => %{"title" => "Agent only"}}} =
              rpc_update(attempt, page.id, "Agent only", page.title)
@@ -174,7 +174,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
       assert {:ok, _} = AuthZ.delete_permission_grant(grant.id)
     end)
 
-    refute page.id in rpc_page_ids(attempt)
+    assert page.id in rpc_page_ids(attempt)
 
     assert {:ok, %{"result" => %{"title" => "Still allowed"}}} =
              rpc_update(attempt, page.id, "Still allowed", "Allowed")
@@ -241,10 +241,9 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
         ~s(context.request.ip == "10.20.1.10" && context.request.args.urls == ["https://example.com"])
       )
 
-    assert {:ok, %{"output" => output}} =
+    assert {:ok, %{"output" => "", "details" => %{"results" => [%{"text" => "Report content"}]}}} =
              ReadToolBroker.handle_read(attempt.job_ref, request, rpc)
 
-    assert output =~ "Report content"
     assert {:ok, _} = AuthZ.delete_permission_grant(permission.id)
 
     assert {:ok, _} =
@@ -265,10 +264,8 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
         })
     }
 
-    assert {:ok, %{"output" => output}} =
+    assert {:ok, %{"output" => "", "details" => %{"results" => [%{"text" => "Service content"}]}}} =
              ReadToolBroker.handle_read(attempt.job_ref, request, rpc_context(attempt))
-
-    assert output =~ "Service content"
 
     wrong_turn = %{attempt.job_ref | signal_id: source.id}
 
@@ -380,7 +377,7 @@ defmodule Ankole.Sessions.DerivedAuthorizationTest do
              )
 
     assert {:ok, %{dispatch_event: event}} =
-             BackgroundAgentJobs.create_with_dispatch(%{
+             Ankole.SessionsCase.create_job_with_stub_driver(%{
                agent_uid: source.agent_uid,
                owner_session_id: source.session_id,
                source_signal_id: source.id,

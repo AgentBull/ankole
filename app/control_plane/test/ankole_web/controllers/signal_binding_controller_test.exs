@@ -871,7 +871,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
         source_agent.uid,
         target_agent.uid,
         "lark-main",
-        lark_config("move-conflict")
+        Map.put(lark_config("move-conflict"), "authConfigId", nil)
       )
 
     assert %{"errors" => [%{"code" => "binding_target_conflict"}]} = json_response(conn, 409)

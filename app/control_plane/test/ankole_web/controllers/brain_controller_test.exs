@@ -192,6 +192,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
   test "health keeps internal embedding failures in server logs", %{conn: conn} do
     {conn, _principal_uid} = console_conn_with_principal(conn)
+    {:ok, _} = Ankole.Brain.SchemaPacks.install_packs([])
 
     internal_reason =
       "{:provider_unavailable, credential_id: cred-secret-123, env: OPEN_ROUTER_API_KEY}"

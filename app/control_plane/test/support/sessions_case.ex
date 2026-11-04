@@ -115,6 +115,29 @@ defmodule Ankole.SessionsCase do
     pid
   end
 
+  @doc """
+  Creates a Background Agent Job for a test that drives Admission itself.
+
+  The passive Driver fake is registered before the dispatch commits, so the
+  committed dispatch reaches the fake instead of starting a real Driver.
+  """
+  def create_job_with_stub_driver(attrs) do
+    Repo.transact_top_level(
+      fn ->
+        with {:ok, %{job: job}} = created <-
+               Ankole.BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(attrs) do
+          stub_driver(%{
+            agent_uid: job.agent_uid,
+            session_id: Ankole.BackgroundAgentJobs.job_session_id(job.id)
+          })
+
+          created
+        end
+      end,
+      after_commit: fn created -> Ankole.Signals.publish_committed(created.dispatch_event) end
+    )
+  end
+
   defp stub_driver_loop(owner, monitor) do
     receive do
       {:DOWN, ^monitor, :process, ^owner, _reason} ->

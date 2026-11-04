@@ -44,13 +44,13 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
             else: Queue.mark_event_dead_letter_in_tx(event, now, error)
 
         with {:ok, event} <- event_result,
-             {:ok, _compensation} <- compensate_in_tx(event, error, now),
+             {:ok, compensation} <- compensate_in_tx(event, error, now),
              :ok <-
                Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
                  %{agent_uid: event.agent_uid, session_id: event.session_id},
                  delay
                ),
-             do: {:ok, event}
+             do: {:ok, Ash.Resource.put_metadata(event, :compensation, compensation)}
       end
     end
   end

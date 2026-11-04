@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 2.0.0-alpha.57 (2026-11-04)
+
+- Finish aborted and stalled background job attempts without an error after
+  they commit, and wake the owning conversation with the resulting failure.
+- Keep the AI reply to an edited, supplemented, or retried external chat
+  message attached to the original request.
+- Reread the Pod pages and files a resumed conversation worked with when Ankole
+  builds its wake briefing.
+- Remove the retired RuntimeFabric worker key from site configuration during
+  upgrade, so configuration reads and E2E cleanup no longer fail on it.
+- Stop Lark, Slack, and DingTalk long connections together with their
+  connection registry, so a plugin restart cannot leave duplicate connections.
+
 ## Version 2.0.0-alpha.56 (2026-11-04)
 
 - Create and edit spreadsheets in Pod. The page create menus offer a new

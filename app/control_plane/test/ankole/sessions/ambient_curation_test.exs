@@ -492,11 +492,6 @@ defmodule Ankole.Sessions.AmbientCurationTest do
 
     job = create_job!(agent.uid, event, "handoff")
 
-    Ankole.SessionsCase.stub_driver(%{
-      agent_uid: agent.uid,
-      session_id: BackgroundAgentJobs.job_session_id(job.id)
-    })
-
     handler_id = {__MODULE__, make_ref()}
     test_pid = self()
 
@@ -564,6 +559,17 @@ defmodule Ankole.Sessions.AmbientCurationTest do
     refute handoff_text =~ "updates the active deploy investigation"
 
     other_job = create_job!(agent.uid, event, "other-handoff")
+
+    # Each committed Job dispatch hints its passive Driver fake once.
+    for created <- [job, other_job] do
+      dispatch_id =
+        Repo.get_by!(Signal,
+          session_id: BackgroundAgentJobs.job_session_id(created.id),
+          type: "background_agent_job.dispatch"
+        ).id
+
+      assert_receive {:inbox, ^dispatch_id}
+    end
 
     assert {:ok, %{action: "HANDOFF", handoff_job_id: ^handoff_job_id}} =
              record_judgment(agent.uid, event.id, %{
@@ -633,7 +639,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
 
   defp create_job!(agent_uid, event, suffix) do
     assert {:ok, %{job: job}} =
-             BackgroundAgentJobs.create_with_dispatch(%{
+             create_job_with_stub_driver(%{
                "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                "agent_uid" => agent_uid,
                "owner_session_id" => event.session_id,
