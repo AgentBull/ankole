@@ -396,6 +396,53 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       end
     end
 
+    test "a crashed poll task is retried by the same owner" do
+      parent = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        case Path.basename(conn.request_path) do
+          "getMe" ->
+            Req.Test.json(conn, %{"ok" => true, "result" => %{"id" => 78, "is_bot" => true}})
+
+          "getWebhookInfo" ->
+            Req.Test.json(conn, %{"ok" => true, "result" => %{"url" => ""}})
+
+          "getUpdates" ->
+            send(parent, {:poll, self()})
+
+            receive do
+              :crash -> exit(:poll_crashed)
+              :release -> Req.Test.json(conn, %{"ok" => true, "result" => []})
+            end
+        end
+      end)
+
+      config = %{"botToken" => "78:crash"}
+
+      opts = [
+        key: {"crash-agent", "main"},
+        config: config,
+        consumer:
+          Map.put(
+            consumer("crash-agent", "main", config, Ecto.UUID.generate()),
+            :tenant_id,
+            Repo.tenant_id!()
+          )
+      ]
+
+      assert {:ok, owner} = ConnectionOwner.start_link(opts)
+      Process.unlink(owner)
+      owner_monitor = Process.monitor(owner)
+      on_exit(fn -> if Process.alive?(owner), do: GenServer.stop(owner) end)
+
+      assert_receive {:poll, poll}, 2_000
+      send(poll, :crash)
+      assert_receive {:poll, retry}, 5_000
+      refute retry == poll
+      refute_received {:DOWN, ^owner_monitor, :process, ^owner, _}
+      send(retry, :release)
+    end
+
     test "keeps authentication failures in an operator-visible blocked state" do
       Req.Test.stub(__MODULE__, fn conn ->
         conn

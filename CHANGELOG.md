@@ -10,8 +10,12 @@
   builds its wake briefing.
 - Remove the retired RuntimeFabric worker key from site configuration during
   upgrade, so configuration reads and E2E cleanup no longer fail on it.
-- Stop Lark, Slack, and DingTalk long connections together with their
-  connection registry, so a plugin restart cannot leave duplicate connections.
+- Stop Lark, Slack, DingTalk, Discord, Email, and Telegram long connections
+  together with their connection registry, so a plugin restart cannot leave
+  duplicate connections.
+- Count Applet Worker startup, including top-level await, toward call admission,
+  so an Action whose deadline expires during startup is retried instead of
+  failing with an unknown outcome.
 
 ## Version 2.0.0-alpha.56 (2026-11-04)
 

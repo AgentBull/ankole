@@ -109,6 +109,10 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
     {:noreply, handle_session_end({:error, :session_crashed}, %{state | task: nil, ready: false})}
   end
 
+  # Trapping exits lets `terminate/2` stop the active task; a linked Registry
+  # partition's exit still stops this owner.
+  def handle_info({:EXIT, _pid, reason}, state), do: {:stop, reason, state}
+
   def handle_info(_message, state), do: {:noreply, state}
 
   @impl true

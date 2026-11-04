@@ -172,6 +172,19 @@ defmodule Ankole.FunctionRuntime.AppletClientTest do
     refute_receive {:applet_runtime, ^run_id, :call, _, "base.write", _}, 200
   end
 
+  test "an invocation whose deadline expires during worker startup reports that it never ran" do
+    {package, context} =
+      package("""
+      await new Promise(resolve => setTimeout(resolve, 200));
+      export default {'POST /':()=>true}
+      """)
+
+    {:ok, task} = Ankole.Pod.Applets.Invocation.start(package, context, [timeout_ms: 80], nil)
+
+    assert {:rejected, %{"status" => 504, "body" => %{"error" => %{"code" => "handler_timeout"}}}} =
+             Ankole.Pod.Applets.Invocation.await_execution(task)
+  end
+
   test "preflight, code upload and WebSocket upgrade share the call deadline", ctx do
     for stage <- [:preflight, :code, :upgrade] do
       server = slow_admission(ctx.real, stage)

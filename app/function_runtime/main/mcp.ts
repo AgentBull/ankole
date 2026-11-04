@@ -69,13 +69,11 @@ export class InvocationMCP {
   }
 }
 
-/** Relays the existing capability WebSocket and consumes MCP calls in the host. */
+/** Relays the opened Worker capability WebSocket and consumes MCP calls in the host. */
 export function bridgeAppletSockets(outer: WebSocket, inner: WebSocket, mcp: InvocationMCP) {
-  const queued: string[] = []
-  const sendInner = (data: string) => (inner.readyState === WebSocket.OPEN ? inner.send(data) : queued.push(data))
-  inner.addEventListener('open', () => {
-    for (const data of queued.splice(0)) inner.send(data)
-  })
+  const sendInner = (data: string) => {
+    if (inner.readyState === WebSocket.OPEN) inner.send(data)
+  }
   outer.addEventListener('message', event => sendInner(String(event.data)))
   inner.addEventListener('message', event => {
     const frame = JSON.parse(String(event.data))
@@ -113,4 +111,6 @@ export function bridgeAppletSockets(outer: WebSocket, inner: WebSocket, mcp: Inv
     socket.addEventListener('close', close, { once: true })
     socket.addEventListener('error', close, { once: true })
   }
+  // The Worker side can close while the control plane completes its upgrade.
+  if (inner.readyState !== WebSocket.OPEN) close()
 }

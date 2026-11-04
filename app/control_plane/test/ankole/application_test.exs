@@ -118,6 +118,9 @@ defmodule Ankole.ApplicationTest do
 
   test "long-connection owners terminate when their linked Registry partition exits" do
     for owner <- [
+          Ankole.Plugins.DiscordAdapter.ConnectionOwner,
+          Ankole.Plugins.EmailAdapter.ConnectionOwner,
+          Ankole.Plugins.TelegramAdapter.ConnectionOwner,
           Ankole.Plugins.WeComAdapter.ConnectionOwner
         ] do
       state = struct!(owner)
