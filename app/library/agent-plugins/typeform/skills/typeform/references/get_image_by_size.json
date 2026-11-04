@@ -1,0 +1,89 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve an image in a specific size from Typeform. Use when you need to get a Typeform image optimized for different display contexts (default for desktop, mobile for mobile devices, or thumbnail for previews).",
+  "inputSchema": {
+    "properties": {
+      "image_id": {
+        "description": "Unique identifier for the image to retrieve",
+        "examples": ["YY93X8ZdXCC3"],
+        "title": "Image Id",
+        "type": "string"
+      },
+      "size": {
+        "description": "The desired image dimension. Options: 'default' (800px width), 'mobile' (460px width), or 'thumbnail' (80px×50px cropped)",
+        "enum": ["default", "mobile", "thumbnail"],
+        "examples": ["default"],
+        "title": "Size",
+        "type": "string"
+      }
+    },
+    "required": ["image_id", "size"],
+    "title": "GetImageBySizeRequest",
+    "type": "object"
+  },
+  "name": "get_image_by_size",
+  "outputSchema": {
+    "$defs": {
+      "GetImageBySizeResponse": {
+        "properties": {
+          "avg_color": {
+            "description": "Average color of the image in hexadecimal format",
+            "title": "Avg Color",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "Name of the image file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "has_alpha": {
+            "description": "Whether the image has an alpha channel (transparency)",
+            "title": "Has Alpha",
+            "type": "boolean"
+          },
+          "height": {
+            "description": "Height of the image in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the image",
+            "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "description": "MIME type of the image (image/gif, image/jpeg, or image/png)",
+            "title": "Media Type",
+            "type": "string"
+          },
+          "src": {
+            "description": "URL of the image at the requested size",
+            "title": "Src",
+            "type": "string"
+          },
+          "width": {
+            "description": "Width of the image in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "GetImageBySizeResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetImageBySizeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

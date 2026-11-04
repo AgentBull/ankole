@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Removes a member's vote from a Trello card. The operation requires the member to have already voted on the card; attempting to delete a non-existent vote returns a 400 error. Voting must be enabled on the board.",
+  "inputSchema": {
+    "description": "Request schema for removing a member's vote from a card.",
+    "properties": {
+      "idCard": {
+        "description": "The ID or shortLink of the Trello card from which the member's vote will be removed.",
+        "examples": ["60d5f1f8f0b3f3009e1b2c3d", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The unique ID of the Trello member whose vote will be removed from the card.",
+        "examples": ["5f9f7b5f5e4f3b007b8b4a3c"],
+        "title": "Id Member",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "idMember"],
+    "title": "DeleteCardsMembersVotedByIdCardByIdMemberRequest",
+    "type": "object"
+  },
+  "name": "delete_cards_members_voted_by_id_card_by_id_member",
+  "outputSchema": {
+    "$defs": {
+      "DeleteCardsMembersVotedByIdCardByIdMemberResponse": {
+        "description": "Response schema for removing a member's vote from a card. The DELETE endpoint returns a 200 OK status code on success with an empty response body, which is typical for DELETE operations that successfully remove a resource.",
+        "properties": {},
+        "title": "DeleteCardsMembersVotedByIdCardByIdMemberResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteCardsMembersVotedByIdCardByIdMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

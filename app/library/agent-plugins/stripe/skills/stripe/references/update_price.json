@@ -1,0 +1,547 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates a Stripe price by setting passed parameter values; unspecified parameters remain unchanged. Use when you need to modify price metadata, active status, lookup key, or nickname. Note: Price amounts cannot be modified via API.",
+  "inputSchema": {
+    "description": "Request model for updating an existing Stripe price. Only include fields to modify; unspecified fields remain unchanged.",
+    "properties": {
+      "active": {
+        "description": "Whether the price can be used for new purchases. Defaults to true.",
+        "title": "Active",
+        "type": "boolean"
+      },
+      "currency_options": {
+        "additionalProperties": {
+          "description": "Per-currency pricing configuration.",
+          "properties": {
+            "custom_unit_amount": {
+              "anyOf": [
+                {
+                  "description": "Configuration for customer-adjustable amounts during checkout.",
+                  "properties": {
+                    "enabled": {
+                      "description": "Set true to enable custom amounts, allowing customers to specify their own unit price.",
+                      "title": "Enabled",
+                      "type": "boolean"
+                    },
+                    "maximum": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": "null",
+                      "description": "Upper limit for customer-specified unit amount in smallest currency unit.",
+                      "title": "Maximum"
+                    },
+                    "minimum": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": "null",
+                      "description": "Lower limit for customer-specified unit amount in smallest currency unit.",
+                      "title": "Minimum"
+                    },
+                    "preset": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": "null",
+                      "description": "Default unit amount customers can modify during checkout.",
+                      "title": "Preset"
+                    }
+                  },
+                  "required": ["enabled"],
+                  "title": "CustomUnitAmount",
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "null",
+              "description": "Enables customer-adjustable amounts during checkout for this currency."
+            },
+            "tax_behavior": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "null",
+              "description": "Tax treatment: 'inclusive', 'exclusive', or 'unspecified'. Cannot change once set.",
+              "examples": ["inclusive", "exclusive", "unspecified"],
+              "title": "Tax Behavior"
+            },
+            "tiers": {
+              "anyOf": [
+                {
+                  "items": {
+                    "description": "Represents a pricing tier for tiered billing.",
+                    "properties": {
+                      "flat_amount": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": "null",
+                        "description": "Fixed tier cost regardless of unit count in smallest currency unit.",
+                        "title": "Flat Amount"
+                      },
+                      "flat_amount_decimal": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": "null",
+                        "description": "Decimal version of flat_amount in minor currency units (up to 12 decimal places).",
+                        "title": "Flat Amount Decimal"
+                      },
+                      "unit_amount": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": "null",
+                        "description": "Per-unit cost for tier in smallest currency unit.",
+                        "title": "Unit Amount"
+                      },
+                      "unit_amount_decimal": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "default": "null",
+                        "description": "Decimal per-unit cost (up to 12 decimal places).",
+                        "title": "Unit Amount Decimal"
+                      },
+                      "up_to": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ],
+                        "description": "Tier upper bound; use 'inf' for fallback tier.",
+                        "examples": [100, "inf"],
+                        "title": "Up To"
+                      }
+                    },
+                    "required": ["up_to"],
+                    "title": "PriceTier",
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "null",
+              "description": "Tiered pricing structure (requires billing_scheme=tiered).",
+              "title": "Tiers"
+            },
+            "unit_amount": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "null",
+              "description": "Price in smallest currency unit (0 for free).",
+              "title": "Unit Amount"
+            },
+            "unit_amount_decimal": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "null",
+              "description": "Decimal price in smallest currency unit (max 12 decimals).",
+              "title": "Unit Amount Decimal"
+            }
+          },
+          "title": "CurrencyOption",
+          "type": "object"
+        },
+        "description": "Per-currency pricing configuration. Keys must be ISO 4217 three-letter currency codes.",
+        "title": "Currency Options",
+        "type": "object"
+      },
+      "lookup_key": {
+        "description": "Retrieval identifier (max 200 characters).",
+        "examples": ["standard_monthly", "premium_annual"],
+        "title": "Lookup Key",
+        "type": "string"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Key-value pairs for storing additional information. Individual keys can be unset by posting an empty value. All keys can be unset by posting an empty value to metadata.",
+        "title": "Metadata",
+        "type": "object"
+      },
+      "nickname": {
+        "description": "Internal price description (hidden from customers).",
+        "examples": ["Monthly Standard Plan", "Annual Premium Plan"],
+        "title": "Nickname",
+        "type": "string"
+      },
+      "price": {
+        "description": "The ID of the price to update.",
+        "examples": ["price_1ShVqBQvM72TjFrbzsC327Co"],
+        "title": "Price",
+        "type": "string"
+      },
+      "tax_behavior": {
+        "description": "Tax classification: 'inclusive', 'exclusive', or 'unspecified'. Once specified, it cannot be changed.",
+        "examples": ["inclusive", "exclusive", "unspecified"],
+        "title": "Tax Behavior",
+        "type": "string"
+      },
+      "transfer_lookup_key": {
+        "description": "When true, atomically moves lookup key from another price to this one.",
+        "title": "Transfer Lookup Key",
+        "type": "boolean"
+      }
+    },
+    "required": ["price"],
+    "title": "UpdatePriceRequest",
+    "type": "object"
+  },
+  "name": "update_price",
+  "outputSchema": {
+    "$defs": {
+      "CurrencyOptionResponse": {
+        "description": "Currency-specific pricing configuration.",
+        "properties": {
+          "custom_unit_amount": {
+            "$ref": "#/$defs/CustomUnitAmountResponse",
+            "description": "Configuration for customer-adjustable amounts in this currency.",
+            "title": "Custom Unit Amount"
+          },
+          "tax_behavior": {
+            "description": "Specifies whether the price is considered inclusive of taxes or exclusive of taxes for this currency.",
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "tiers": {
+            "description": "Each element represents a pricing tier for this currency.",
+            "items": {
+              "$ref": "#/$defs/PriceTierResponse"
+            },
+            "title": "Tiers",
+            "type": "array"
+          },
+          "unit_amount": {
+            "description": "The unit amount in smallest currency unit to be charged.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "The unit amount as a decimal string with at most 12 decimal places.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "title": "CurrencyOptionResponse",
+        "type": "object"
+      },
+      "CustomUnitAmountResponse": {
+        "description": "Configuration for customer-adjustable amounts.",
+        "properties": {
+          "maximum": {
+            "description": "The maximum unit amount the customer can specify for this price.",
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "description": "The minimum unit amount the customer can specify for this price.",
+            "title": "Minimum",
+            "type": "integer"
+          },
+          "preset": {
+            "description": "The starting unit amount which can be updated by the customer.",
+            "title": "Preset",
+            "type": "integer"
+          }
+        },
+        "title": "CustomUnitAmountResponse",
+        "type": "object"
+      },
+      "PriceTierResponse": {
+        "description": "Represents a pricing tier.",
+        "properties": {
+          "flat_amount": {
+            "description": "Price for the entire tier.",
+            "title": "Flat Amount",
+            "type": "integer"
+          },
+          "flat_amount_decimal": {
+            "description": "Same as flat_amount, but contains a decimal value with at most 12 decimal places.",
+            "title": "Flat Amount Decimal",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "Per unit price for units relevant to the tier.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Same as unit_amount, but contains a decimal value with at most 12 decimal places.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          },
+          "up_to": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Up to and including this quantity will be contained in the tier. Can be 'inf' for the last tier.",
+            "title": "Up To"
+          }
+        },
+        "title": "PriceTierResponse",
+        "type": "object"
+      },
+      "RecurringResponse": {
+        "description": "The recurring components of a price.",
+        "properties": {
+          "interval": {
+            "description": "The frequency at which a subscription is billed. One of 'day', 'week', 'month' or 'year'.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "interval_count": {
+            "description": "The number of intervals between subscription billings.",
+            "title": "Interval Count",
+            "type": "integer"
+          },
+          "meter": {
+            "description": "The meter tracking the usage of a metered price.",
+            "title": "Meter",
+            "type": "string"
+          },
+          "usage_type": {
+            "description": "Configures how the quantity per period should be determined. Either 'metered' or 'licensed'.",
+            "title": "Usage Type",
+            "type": "string"
+          }
+        },
+        "required": ["interval", "interval_count", "usage_type"],
+        "title": "RecurringResponse",
+        "type": "object"
+      },
+      "TransformQuantityResponse": {
+        "description": "Apply a transformation to the reported usage or set quantity.",
+        "properties": {
+          "divide_by": {
+            "description": "Divide usage by this number.",
+            "title": "Divide By",
+            "type": "integer"
+          },
+          "round": {
+            "description": "After division, either round the result 'up' or 'down'.",
+            "title": "Round",
+            "type": "string"
+          }
+        },
+        "required": ["divide_by", "round"],
+        "title": "TransformQuantityResponse",
+        "type": "object"
+      },
+      "UpdatePriceResponse": {
+        "description": "Response containing the updated Stripe Price object.",
+        "properties": {
+          "active": {
+            "description": "Whether the price can be used for new purchases.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "billing_scheme": {
+            "description": "Describes how to compute the price per period. Either 'per_unit' or 'tiered'.",
+            "title": "Billing Scheme",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "currency_options": {
+            "additionalProperties": {
+              "$ref": "#/$defs/CurrencyOptionResponse"
+            },
+            "description": "Prices defined in each available currency option.",
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "custom_unit_amount": {
+            "$ref": "#/$defs/CustomUnitAmountResponse",
+            "description": "When set, provides configuration to enable adjusting quantity by the customer.",
+            "title": "Custom Unit Amount"
+          },
+          "id": {
+            "description": "Unique identifier for the price object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "lookup_key": {
+            "description": "A lookup key used to retrieve prices dynamically from a static string. Maximum of 200 characters.",
+            "title": "Lookup Key",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "nickname": {
+            "description": "A brief description of the price, hidden from customers.",
+            "title": "Nickname",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Objects of the same type share the same value. Value is 'price'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "product": {
+            "description": "The ID of the product this price is associated with.",
+            "title": "Product",
+            "type": "string"
+          },
+          "recurring": {
+            "$ref": "#/$defs/RecurringResponse",
+            "description": "The recurring components of a price such as interval and usage_type.",
+            "title": "Recurring"
+          },
+          "tax_behavior": {
+            "description": "Specifies whether the price is considered inclusive of taxes or exclusive of taxes.",
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "tiers": {
+            "description": "Each element represents a pricing tier.",
+            "items": {
+              "$ref": "#/$defs/PriceTierResponse"
+            },
+            "title": "Tiers",
+            "type": "array"
+          },
+          "tiers_mode": {
+            "description": "Defines if the tiering price should be 'graduated' or 'volume' based.",
+            "title": "Tiers Mode",
+            "type": "string"
+          },
+          "transform_quantity": {
+            "$ref": "#/$defs/TransformQuantityResponse",
+            "description": "Apply a transformation to the reported usage or set quantity before computing the amount billed.",
+            "title": "Transform Quantity"
+          },
+          "type": {
+            "description": "One of 'one_time' or 'recurring' depending on whether the price is for a one-time purchase or a recurring (subscription) purchase.",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "The unit amount in smallest currency unit to be charged, represented as a whole integer if possible.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "The unit amount as a decimal string with at most 12 decimal places.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "active",
+          "billing_scheme",
+          "created",
+          "currency",
+          "livemode",
+          "metadata",
+          "product",
+          "type"
+        ],
+        "title": "UpdatePriceResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdatePriceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

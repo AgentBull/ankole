@@ -1,0 +1,119 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an access control rule for the specified calendar.",
+  "inputSchema": {
+    "properties": {
+      "calendar_id": {
+        "description": "Calendar identifier. To retrieve calendar IDs call the calendarList.list method. If you want to access the primary calendar of the currently logged in user, use the \"primary\" keyword.",
+        "examples": ["primary"],
+        "human_parameter_description": "The calendar you want to update. Use 'primary' for your main calendar, or paste the specific calendar ID from your calendar list.",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "role": {
+        "description": "The role assigned to the scope. Possible values are: \n- \"none\" - Provides no access. \n- \"freeBusyReader\" - Provides read access to free/busy information. \n- \"reader\" - Provides read access to the calendar. Private events will appear to users with reader access, but event details will be hidden. \n- \"writer\" - Provides read and write access to the calendar. Private events will appear to users with writer access, and event details will be visible. \n- \"owner\" - Provides ownership of the calendar. This role has all of the permissions of the writer role with the additional ability to see and manipulate ACLs.",
+        "examples": ["reader"],
+        "human_parameter_description": "The permission level you want to assign, like reader, writer, or owner. Choose how much access the person or group should have.",
+        "human_parameter_name": "Role",
+        "title": "Role",
+        "type": "string"
+      },
+      "rule_id": {
+        "description": "ACL rule identifier.",
+        "examples": ["user:test.user@example.com"],
+        "human_parameter_description": "The specific sharing rule you want to change. Use formats like 'user:person@example.com', 'group:team@domain.com', or 'default' for the public rule.",
+        "human_parameter_name": "Rule ID",
+        "title": "Rule Id",
+        "type": "string"
+      },
+      "send_notifications": {
+        "default": true,
+        "description": "Whether to send notifications about the calendar sharing change. Note that there are no notifications on access removal. Optional. The default is True.",
+        "human_parameter_description": "Decide if people affected by this change should receive an email notification. Turn this off if you don't want to alert them.",
+        "human_parameter_name": "Send Notifications",
+        "title": "Send Notifications",
+        "type": "boolean"
+      }
+    },
+    "required": ["calendar_id", "rule_id", "role"],
+    "title": "AclUpdateRequest",
+    "type": "object"
+  },
+  "name": "acl_update",
+  "outputSchema": {
+    "$defs": {
+      "AclRuleScope": {
+        "properties": {
+          "type": {
+            "description": "The type of the scope.",
+            "enum": ["default", "user", "group", "domain"],
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The email address of a user or group, or the name of a domain, depending on the scope type. Omitted or null for type 'default'.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AclRuleScope",
+        "type": "object"
+      },
+      "AclUpdateResponse": {
+        "properties": {
+          "display_url": {
+            "description": "Direct URL to view this ACL rule in Google Calendar settings.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the resource. Used as a version identifier for concurrency control.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identifier of the ACL rule, typically composed as '<scope_type>:<scope_value>' (e.g., 'default', 'user:user@example.com', 'group:group@example.com', 'domain:example.com').",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "calendar#aclRule",
+            "description": "Type of the resource; always 'calendar#aclRule'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "role": {
+            "description": "The role assigned to the scope.",
+            "enum": ["none", "freeBusyReader", "reader", "writer", "owner"],
+            "title": "Role",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/$defs/AclRuleScope",
+            "description": "Defines the extent to which calendar access is granted by this ACL rule.",
+            "title": "Scope"
+          }
+        },
+        "required": ["kind", "etag", "id", "scope", "role"],
+        "title": "AclUpdateResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AclUpdateResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

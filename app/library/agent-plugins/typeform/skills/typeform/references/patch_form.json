@@ -1,0 +1,147 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to partially update a Typeform using JSON Patch operations. Use when you need to modify specific fields without replacing the entire form. Supports updating title, settings, theme, workspace, and other form properties.",
+  "inputSchema": {
+    "properties": {
+      "form_id": {
+        "description": "Unique form identifier found in the form URL",
+        "examples": ["Y78g1cmS", "u6nXL7"],
+        "title": "Form Id",
+        "type": "string"
+      },
+      "operations": {
+        "description": "List of JSON Patch operations to apply to the form. Each operation specifies an action (add/remove/replace), a path to the field, and optionally a value",
+        "examples": [
+          [
+            {
+              "op": "replace",
+              "path": "/title",
+              "value": "Updated Test Form"
+            }
+          ],
+          [
+            {
+              "op": "replace",
+              "path": "/title",
+              "value": "New Title"
+            },
+            {
+              "op": "replace",
+              "path": "/settings/is_public",
+              "value": false
+            }
+          ]
+        ],
+        "items": {
+          "description": "Represents a single JSON Patch operation",
+          "properties": {
+            "op": {
+              "description": "Operation type: 'add' to add a new field, 'remove' to delete a field, or 'replace' to update an existing field",
+              "enum": ["add", "remove", "replace"],
+              "examples": ["replace"],
+              "title": "Op",
+              "type": "string"
+            },
+            "path": {
+              "description": "JSON path to the field to modify (e.g., '/title' for form title, '/settings/is_public' for privacy setting, '/fields/0/title' for first field title)",
+              "examples": ["/title", "/settings/is_public", "/theme/href"],
+              "title": "Path",
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "additionalProperties": true,
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "type": "array"
+                }
+              ],
+              "description": "New value for the field. Required for 'add' and 'replace' operations, omitted for 'remove' operations. Can be string, number, boolean, object, or array depending on the field being updated",
+              "examples": ["Updated Form Title", true, "https://api.typeform.com/themes/abc123"],
+              "title": "Value"
+            }
+          },
+          "required": ["op", "path"],
+          "title": "PatchOperation",
+          "type": "object"
+        },
+        "minItems": 1,
+        "title": "Operations",
+        "type": "array"
+      }
+    },
+    "required": ["form_id", "operations"],
+    "title": "TypeformPatchFormRequest",
+    "type": "object"
+  },
+  "name": "patch_form",
+  "outputSchema": {
+    "$defs": {
+      "TypeformPatchFormResponse": {
+        "properties": {
+          "message": {
+            "description": "Status message about the update operation",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the form was successfully updated",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success", "message"],
+        "title": "TypeformPatchFormResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/TypeformPatchFormResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

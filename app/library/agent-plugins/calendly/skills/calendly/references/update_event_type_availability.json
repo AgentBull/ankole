@@ -1,0 +1,277 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to update an event type availability schedule in Calendly. Use when you need to change the timezone or availability rules for an event type. WARNING: Updating rules will overwrite all existing rules - retrieve existing rules first using GET /event_type_availability_schedules.",
+  "inputSchema": {
+    "description": "Request to update availability schedules for a specific Calendly event type.",
+    "properties": {
+      "availability_rule": {
+        "additionalProperties": false,
+        "description": "Availability rule configuration containing timezone and rules for when the event type is available. WARNING: Rules will overwrite all existing rules.",
+        "properties": {
+          "rules": {
+            "description": "Array of availability rule objects that define when the event type is available. WARNING: This will overwrite all existing rules. To preserve existing rules, first retrieve them using GET /event_type_availability_schedules and then pass the modified rules.",
+            "examples": [
+              [
+                {
+                  "intervals": [
+                    {
+                      "from": "09:00",
+                      "to": "17:00"
+                    }
+                  ],
+                  "type": "wday",
+                  "wday": "monday"
+                }
+              ]
+            ],
+            "items": {
+              "description": "Rule defining availability for a specific day or date.",
+              "properties": {
+                "date": {
+                  "description": "Specific date in ISO 8601 format (YYYY-MM-DD) when type is 'date'. Example: '2025-08-05'. Required when type is 'date'.",
+                  "examples": ["2025-12-31", "2026-01-15"],
+                  "title": "Date",
+                  "type": "string"
+                },
+                "intervals": {
+                  "description": "Array of time intervals defining when the event type is available during the specified day or date. Empty array means no availability for that day.",
+                  "examples": [
+                    [
+                      {
+                        "from": "09:00",
+                        "to": "17:00"
+                      }
+                    ]
+                  ],
+                  "items": {
+                    "description": "Time interval defining when availability exists.",
+                    "properties": {
+                      "from": {
+                        "description": "Start time of the availability interval in 24-hour format (HH:MM), e.g., '09:00'.",
+                        "examples": ["09:00", "14:30"],
+                        "title": "From",
+                        "type": "string"
+                      },
+                      "to": {
+                        "description": "End time of the availability interval in 24-hour format (HH:MM), e.g., '17:00'.",
+                        "examples": ["17:00", "23:45"],
+                        "title": "To",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["from", "to"],
+                    "title": "TimeInterval",
+                    "type": "object"
+                  },
+                  "title": "Intervals",
+                  "type": "array"
+                },
+                "type": {
+                  "description": "The type of availability rule: 'wday' for weekday-based rules or 'date' for specific date rules.",
+                  "examples": ["wday", "date"],
+                  "title": "Type",
+                  "type": "string"
+                },
+                "wday": {
+                  "description": "Day of the week when type is 'wday'. Values: 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'. Required when type is 'wday'.",
+                  "examples": ["monday", "friday"],
+                  "title": "Wday",
+                  "type": "string"
+                }
+              },
+              "required": ["type", "intervals"],
+              "title": "AvailabilityRule",
+              "type": "object"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "timezone": {
+            "description": "IANA timezone identifier for the availability schedule (e.g., 'Europe/London', 'America/New_York', 'Asia/Calcutta').",
+            "examples": ["America/New_York", "Europe/London", "Asia/Calcutta"],
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": ["timezone"],
+        "title": "Availability Rule",
+        "type": "object"
+      },
+      "availability_setting": {
+        "description": "Indicates how availability is determined. Valid values: 'host' or 'all'. Default: 'host'.",
+        "enum": ["host", "all"],
+        "examples": ["host", "all"],
+        "title": "Availability Setting",
+        "type": "string"
+      },
+      "event_type": {
+        "description": "URI of the event type whose availability schedule is to be updated. Must follow the pattern https://api.calendly.com/event_types/{uuid} and contain '/event_types/' in the path. Other Calendly URIs (e.g., user_availability_schedules, scheduling_links, users) are NOT valid for this field.",
+        "examples": ["https://api.calendly.com/event_types/73ec12fc-6c7b-4869-b927-6141c9e716e9"],
+        "title": "Event Type",
+        "type": "string"
+      },
+      "user": {
+        "description": "URI of the user associated with the event type. Required when an admin or org owner is updating a specific user's schedule.",
+        "examples": ["https://api.calendly.com/users/5dc7b7a8-1d8c-4fcc-8b63-5f5a17eea4a3"],
+        "title": "User",
+        "type": "string"
+      }
+    },
+    "required": ["event_type", "availability_rule"],
+    "title": "UpdateEventTypeAvailabilityRequest",
+    "type": "object"
+  },
+  "name": "update_event_type_availability",
+  "outputSchema": {
+    "$defs": {
+      "AvailabilityRule": {
+        "description": "Rule defining availability for a specific day or date.",
+        "properties": {
+          "date": {
+            "description": "Specific date in ISO 8601 format (YYYY-MM-DD) when type is 'date'. Example: '2025-08-05'. Required when type is 'date'.",
+            "examples": ["2025-12-31", "2026-01-15"],
+            "title": "Date",
+            "type": "string"
+          },
+          "intervals": {
+            "description": "Array of time intervals defining when the event type is available during the specified day or date. Empty array means no availability for that day.",
+            "examples": [
+              [
+                {
+                  "from": "09:00",
+                  "to": "17:00"
+                }
+              ]
+            ],
+            "items": {
+              "$ref": "#/$defs/TimeInterval"
+            },
+            "title": "Intervals",
+            "type": "array"
+          },
+          "type": {
+            "description": "The type of availability rule: 'wday' for weekday-based rules or 'date' for specific date rules.",
+            "examples": ["wday", "date"],
+            "title": "Type",
+            "type": "string"
+          },
+          "wday": {
+            "description": "Day of the week when type is 'wday'. Values: 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'. Required when type is 'wday'.",
+            "examples": ["monday", "friday"],
+            "title": "Wday",
+            "type": "string"
+          }
+        },
+        "required": ["type", "intervals"],
+        "title": "AvailabilityRule",
+        "type": "object"
+      },
+      "AvailabilityRuleResponse": {
+        "description": "Availability rule in the response.",
+        "properties": {
+          "name": {
+            "description": "The name of the Availability Schedule.",
+            "title": "Name",
+            "type": "string"
+          },
+          "rules": {
+            "description": "Array of availability rule objects.",
+            "items": {
+              "$ref": "#/$defs/AvailabilityRule"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "timezone": {
+            "description": "IANA timezone identifier for the availability schedule.",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference URI for the Availability Schedule.",
+            "title": "Uri",
+            "type": "string"
+          },
+          "user": {
+            "description": "URI reference to a user (if availability_setting is not 'all').",
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": ["timezone", "uri", "user", "rules"],
+        "title": "AvailabilityRuleResponse",
+        "type": "object"
+      },
+      "EventTypeAvailabilityScheduleResource": {
+        "description": "Event type availability schedule resource in response.",
+        "properties": {
+          "availability_rule": {
+            "$ref": "#/$defs/AvailabilityRuleResponse",
+            "description": "Availability rule configuration containing timezone and rules.",
+            "title": "Availability Rule"
+          },
+          "availability_setting": {
+            "description": "Indicates how availability is determined (e.g., 'host').",
+            "title": "Availability Setting",
+            "type": "string"
+          },
+          "event_type": {
+            "description": "URI of the event type.",
+            "title": "Event Type",
+            "type": "string"
+          }
+        },
+        "required": ["event_type", "availability_setting", "availability_rule"],
+        "title": "EventTypeAvailabilityScheduleResource",
+        "type": "object"
+      },
+      "TimeInterval": {
+        "description": "Time interval defining when availability exists.",
+        "properties": {
+          "from": {
+            "description": "Start time of the availability interval in 24-hour format (HH:MM), e.g., '09:00'.",
+            "examples": ["09:00", "14:30"],
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "description": "End time of the availability interval in 24-hour format (HH:MM), e.g., '17:00'.",
+            "examples": ["17:00", "23:45"],
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": ["from", "to"],
+        "title": "TimeInterval",
+        "type": "object"
+      },
+      "UpdateEventTypeAvailabilityResponse": {
+        "description": "Response containing the updated availability schedule for the event type.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/EventTypeAvailabilityScheduleResource",
+            "description": "The EventTypeAvailabilitySchedule object with updated availability rules.",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "UpdateEventTypeAvailabilityResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateEventTypeAvailabilityResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

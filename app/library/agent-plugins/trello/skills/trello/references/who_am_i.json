@@ -1,0 +1,74 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Return the identity (username, email) of the connected Trello account.",
+  "inputSchema": {
+    "description": "The current connected account's identity. Takes no parameters.",
+    "properties": {},
+    "title": "WhoAmIRequest",
+    "type": "object"
+  },
+  "name": "who_am_i",
+  "outputSchema": {
+    "$defs": {
+      "TrelloWhoAmIData": {
+        "description": "Typed identity details for the connected account.",
+        "properties": {
+          "email": {
+            "description": "Email address, if exposed.",
+            "title": "Email",
+            "type": "string"
+          },
+          "full_name": {
+            "description": "Full name.",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Trello member id.",
+            "title": "Id",
+            "type": "string"
+          },
+          "username": {
+            "description": "Trello username.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "TrelloWhoAmIData",
+        "type": "object"
+      },
+      "WhoAmIResponse_TrelloWhoAmIData_": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/TrelloWhoAmIData",
+            "description": "Typed, toolkit-specific identity details.",
+            "title": "Data"
+          },
+          "display_name": {
+            "description": "Human-readable label identifying the connected account (email, handle, name, …). Null when the provider exposes no usable identifier.",
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": ["data"],
+        "title": "WhoAmIResponse[TrelloWhoAmIData]",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/WhoAmIResponse_TrelloWhoAmIData_",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

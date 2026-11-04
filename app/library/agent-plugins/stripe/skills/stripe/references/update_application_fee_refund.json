@@ -1,0 +1,362 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates metadata on an existing application fee refund identified by its fee ID and refund ID.",
+  "inputSchema": {
+    "description": "Request model for updating an application fee refund.",
+    "properties": {
+      "expand": {
+        "description": "Specifies which fields in the response should be expanded. Expandable fields include: balance_transaction, fee.",
+        "examples": [["balance_transaction", "fee"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Expand",
+        "type": "array"
+      },
+      "fee": {
+        "description": "The ID of the application fee that was refunded. This ID typically starts with 'fee_'.",
+        "examples": ["fee_123456"],
+        "title": "Fee",
+        "type": "string"
+      },
+      "id": {
+        "description": "The ID of the refund to update. This ID typically starts with 'fr_'.",
+        "examples": ["fr_123456"],
+        "title": "Id",
+        "type": "string"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Set of key-value pairs that you can attach to an object. This can be useful for storing additional information about the object in a structured format. Individual keys can be unset by posting an empty value to them. All keys can be unset by posting an empty value to metadata.",
+        "examples": [
+          {
+            "order_id": "order_12345",
+            "reason": "customer_request"
+          }
+        ],
+        "title": "Metadata",
+        "type": "object"
+      }
+    },
+    "required": ["fee", "id"],
+    "title": "UpdateApplicationFeeRefundRequest",
+    "type": "object"
+  },
+  "name": "update_application_fee_refund",
+  "outputSchema": {
+    "$defs": {
+      "BalanceTransaction": {
+        "description": "Balance transaction details for the refund.",
+        "properties": {
+          "amount": {
+            "description": "Amount in cents (or local equivalent).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "available_on": {
+            "description": "Unix timestamp when funds are available.",
+            "title": "Available On",
+            "type": "integer"
+          },
+          "balance_type": {
+            "description": "Balance type (e.g., 'card').",
+            "title": "Balance Type",
+            "type": "string"
+          },
+          "created": {
+            "description": "Unix timestamp of creation.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "exchange_rate": {
+            "description": "Exchange rate.",
+            "title": "Exchange Rate",
+            "type": "number"
+          },
+          "fee": {
+            "description": "Fee amount in cents.",
+            "title": "Fee",
+            "type": "integer"
+          },
+          "fee_details": {
+            "description": "Fee breakdown details.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Fee Details",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the balance transaction.",
+            "title": "Id",
+            "type": "string"
+          },
+          "net": {
+            "description": "Net amount in cents.",
+            "title": "Net",
+            "type": "integer"
+          },
+          "object": {
+            "description": "String representing the object's type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "reporting_category": {
+            "description": "Reporting category.",
+            "title": "Reporting Category",
+            "type": "string"
+          },
+          "source": {
+            "description": "Source of the transaction.",
+            "title": "Source"
+          },
+          "status": {
+            "description": "Status of the transaction (e.g., 'available').",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the transaction.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "available_on",
+          "balance_type",
+          "created",
+          "currency",
+          "fee",
+          "fee_details",
+          "net",
+          "reporting_category",
+          "status",
+          "type"
+        ],
+        "title": "BalanceTransaction",
+        "type": "object"
+      },
+      "FeeRefundList": {
+        "description": "List of refunds for the application fee.",
+        "properties": {
+          "data": {
+            "description": "List of refund objects.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether there are more items.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "Always 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "total_count": {
+            "description": "Total count of items.",
+            "title": "Total Count",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL for the list endpoint.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "FeeRefundList",
+        "type": "object"
+      },
+      "PlatformFee": {
+        "description": "Application fee details.",
+        "properties": {
+          "account": {
+            "description": "Connected account ID or object.",
+            "title": "Account"
+          },
+          "amount": {
+            "description": "Total amount in cents.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "amount_refunded": {
+            "description": "Amount refunded in cents.",
+            "title": "Amount Refunded",
+            "type": "integer"
+          },
+          "application": {
+            "description": "Application ID or object.",
+            "title": "Application"
+          },
+          "balance_transaction": {
+            "description": "Balance transaction ID or object.",
+            "title": "Balance Transaction"
+          },
+          "charge": {
+            "description": "Charge ID or object.",
+            "title": "Charge"
+          },
+          "created": {
+            "description": "Unix timestamp of creation.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "fee_source": {
+            "description": "Fee source ID or object.",
+            "title": "Fee Source"
+          },
+          "id": {
+            "description": "Unique identifier for the application fee.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live mode status.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "Always 'application_fee'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "originating_transaction": {
+            "description": "Originating transaction.",
+            "title": "Originating Transaction"
+          },
+          "refunded": {
+            "description": "Whether fully refunded.",
+            "title": "Refunded",
+            "type": "boolean"
+          },
+          "refunds": {
+            "$ref": "#/$defs/FeeRefundList",
+            "description": "List of refunds.",
+            "title": "Refunds"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "amount_refunded",
+          "created",
+          "currency",
+          "livemode",
+          "refunded",
+          "refunds"
+        ],
+        "title": "PlatformFee",
+        "type": "object"
+      },
+      "UpdateApplicationFeeRefundResponse": {
+        "description": "Response model for updating an application fee refund.",
+        "properties": {
+          "amount": {
+            "description": "Amount, in cents (or local equivalent).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "balance_transaction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/BalanceTransaction"
+              }
+            ],
+            "description": "Balance transaction that describes the impact on your account balance.",
+            "title": "Balance Transaction"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase. Must be a supported currency.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/PlatformFee"
+              }
+            ],
+            "description": "ID of the application fee that was refunded.",
+            "title": "Fee"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "examples": ["fr_123456"],
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object. This can be useful for storing additional information about the object in a structured format.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "const": "fee_refund",
+            "description": "String representing the object's type. Always 'fee_refund'.",
+            "title": "Object",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "amount", "created", "currency", "fee"],
+        "title": "UpdateApplicationFeeRefundResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateApplicationFeeRefundResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

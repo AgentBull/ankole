@@ -1,0 +1,192 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves active organization members belonging to any team assigned to the specified Sentry project.",
+  "inputSchema": {
+    "description": "Parameters for retrieving a list of Sentry project members.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The ID or human-readable slug of the Sentry organization. This identifies the organization to which the project belongs.",
+        "examples": ["my-organization-slug", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The ID or human-readable slug of the Sentry project. This identifies the project for which members will be listed.",
+        "examples": ["my-project-slug", "67890"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "RetrieveProjectMembersListRequest",
+    "type": "object"
+  },
+  "name": "retrieve_project_members_list",
+  "outputSchema": {
+    "$defs": {
+      "MemberFlags": {
+        "additionalProperties": true,
+        "description": "Permission and status flags for a member.",
+        "properties": {},
+        "title": "MemberFlags",
+        "type": "object"
+      },
+      "ProjectMember": {
+        "additionalProperties": true,
+        "description": "A single organization member belonging to the project.",
+        "properties": {
+          "dateCreated": {
+            "description": "The date when the member was added to the organization",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "email": {
+            "description": "The email address of the member",
+            "title": "Email",
+            "type": "string"
+          },
+          "expired": {
+            "description": "Whether the membership has expired",
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "flags": {
+            "$ref": "#/$defs/MemberFlags",
+            "description": "Various permission and status flags for the member",
+            "title": "Flags"
+          },
+          "id": {
+            "description": "The unique identifier of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "inviteStatus": {
+            "description": "The current invitation status (e.g., 'approved', 'pending')",
+            "title": "Invite Status",
+            "type": "string"
+          },
+          "inviterName": {
+            "description": "The email of the person who invited this member, if applicable",
+            "title": "Inviter Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "The display name of the member",
+            "title": "Name",
+            "type": "string"
+          },
+          "orgRole": {
+            "description": "The member's role within the organization (e.g., 'owner', 'member', 'admin', 'manager', 'billing')",
+            "title": "Org Role",
+            "type": "string"
+          },
+          "pending": {
+            "description": "Whether the member invitation is pending",
+            "title": "Pending",
+            "type": "boolean"
+          },
+          "role": {
+            "description": "The role identifier for the member",
+            "title": "Role",
+            "type": "string"
+          },
+          "roleName": {
+            "description": "The human-readable role name for the member",
+            "title": "Role Name",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/UserInfo",
+            "description": "Detailed user information for this member",
+            "title": "User"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "user",
+          "orgRole",
+          "role",
+          "roleName",
+          "pending",
+          "expired",
+          "flags",
+          "dateCreated",
+          "inviteStatus"
+        ],
+        "title": "ProjectMember",
+        "type": "object"
+      },
+      "RetrieveProjectMembersListResponse": {
+        "description": "Response containing the list of Sentry project members.\n\nReturns a list of active organization members that belong to any team assigned to the project.\nEach member includes detailed information about their role, status, and user profile.",
+        "properties": {
+          "data": {
+            "description": "A list of organization members who belong to teams assigned to this project. Each member includes their role, status, and detailed user information.",
+            "items": {
+              "$ref": "#/$defs/ProjectMember"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "RetrieveProjectMembersListResponse",
+        "type": "object"
+      },
+      "UserInfo": {
+        "additionalProperties": true,
+        "description": "User information for a project member.",
+        "properties": {
+          "dateJoined": {
+            "description": "The date when the user joined Sentry",
+            "title": "Date Joined",
+            "type": "string"
+          },
+          "email": {
+            "description": "The email address of the user",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the user",
+            "title": "Id",
+            "type": "string"
+          },
+          "isActive": {
+            "description": "Whether the user account is active",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The display name of the user",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of the user",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "username", "email", "isActive", "dateJoined"],
+        "title": "UserInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveProjectMembersListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

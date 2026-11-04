@@ -1,0 +1,105 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves the Trello board to which a given, valid Trello label ID (`idLabel`) belongs.",
+  "inputSchema": {
+    "description": "Request schema for `GetLabelsBoardByIdLabel`",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Specifies the fields of the board to be returned, as a comma-separated list of specific field names. Allowed values for the list include: 'closed', 'dateLastActivity', 'dateLastView', 'desc', 'descData', 'idOrganization', 'invitations', 'invited', 'labelNames', 'memberships', 'name', 'pinned', 'powerUps', 'prefs', 'shortLink', 'shortUrl', 'starred', 'subscribed', 'url'.",
+        "examples": ["all", "name,url", "idOrganization,prefs,labelNames"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idLabel": {
+        "description": "The unique identifier of the Trello label.",
+        "title": "Id Label",
+        "type": "string"
+      }
+    },
+    "required": ["idLabel"],
+    "title": "GetLabelsBoardByIdLabelRequest",
+    "type": "object"
+  },
+  "name": "get_labels_board_by_id_label",
+  "outputSchema": {
+    "$defs": {
+      "GetLabelsBoardByIdLabelResponse": {
+        "description": "Response schema for `GetLabelsBoardByIdLabel` - Returns the board that the label belongs to.",
+        "properties": {
+          "closed": {
+            "description": "Whether the board is closed (archived).",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "desc": {
+            "description": "The description of the board.",
+            "title": "Desc",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the board.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idOrganization": {
+            "description": "The ID of the organization (workspace) the board belongs to, if any.",
+            "title": "Id Organization",
+            "type": "string"
+          },
+          "labelNames": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "A mapping of label colors to their custom names on this board.",
+            "title": "Label Names",
+            "type": "object"
+          },
+          "name": {
+            "description": "The name of the board.",
+            "title": "Name",
+            "type": "string"
+          },
+          "prefs": {
+            "additionalProperties": true,
+            "description": "Board preferences including permissionLevel, voting, comments, etc.",
+            "title": "Prefs",
+            "type": "object"
+          },
+          "shortLink": {
+            "description": "The short link identifier of the board.",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "The short URL to the board.",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "The full URL to the board.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "GetLabelsBoardByIdLabelResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetLabelsBoardByIdLabelResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a specific note by ID from Salesforce, returning all available fields. Notes with IsPrivate=true require the integration user to have sufficient permissions; inaccessible private notes will not be returned.",
+  "inputSchema": {
+    "properties": {
+      "note_id": {
+        "description": "The Salesforce ID of the note to retrieve.",
+        "examples": ["002Wd000001UYbaIAG", "002XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce ID of the note you want to retrieve. You can copy this from the note's URL or from a previous list or search result.",
+        "human_parameter_name": "Note ID",
+        "title": "Note Id",
+        "type": "string"
+      }
+    },
+    "required": ["note_id"],
+    "title": "GetNoteRequest",
+    "type": "object"
+  },
+  "name": "get_note",
+  "outputSchema": {
+    "$defs": {
+      "GetNoteResponse": {
+        "additionalProperties": true,
+        "description": "Response containing a Salesforce Note record with all fields and metadata.",
+        "properties": {
+          "Body": {
+            "description": "The text content of the Note. Maximum length is 32,000 characters.",
+            "title": "Body",
+            "type": "string"
+          },
+          "CreatedById": {
+            "description": "ID of the User who created the Note.",
+            "title": "Created By Id",
+            "type": "string"
+          },
+          "CreatedDate": {
+            "description": "DateTime when the Note was created, in ISO 8601 format.",
+            "title": "Created Date",
+            "type": "string"
+          },
+          "Id": {
+            "description": "Unique 18-character Salesforce identifier for the Note record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "IsDeleted": {
+            "description": "Indicates whether the Note has been moved to the Recycle Bin (soft deleted).",
+            "title": "Is Deleted",
+            "type": "boolean"
+          },
+          "IsPrivate": {
+            "description": "Indicates whether the Note is private and visible only to the owner and administrators.",
+            "title": "Is Private",
+            "type": "boolean"
+          },
+          "LastModifiedById": {
+            "description": "ID of the User who last modified the Note.",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "LastModifiedDate": {
+            "description": "DateTime when the Note was last modified, in ISO 8601 format.",
+            "title": "Last Modified Date",
+            "type": "string"
+          },
+          "OwnerId": {
+            "description": "ID of the User who owns the Note.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "ParentId": {
+            "description": "ID of the parent object (Account, Contact, Opportunity, etc.) that the Note is associated with.",
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "SystemModstamp": {
+            "description": "DateTime when the Note was last modified by a user or automated process, in ISO 8601 format. This is a read-only system field.",
+            "title": "System Modstamp",
+            "type": "string"
+          },
+          "Title": {
+            "description": "The title of the Note. Maximum length is 255 characters.",
+            "title": "Title",
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/$defs/NoteAttributes",
+            "title": "Attributes"
+          }
+        },
+        "required": [
+          "attributes",
+          "Id",
+          "IsDeleted",
+          "ParentId",
+          "IsPrivate",
+          "OwnerId",
+          "CreatedDate",
+          "CreatedById",
+          "LastModifiedDate",
+          "LastModifiedById",
+          "SystemModstamp"
+        ],
+        "title": "GetNoteResponse",
+        "type": "object"
+      },
+      "NoteAttributes": {
+        "description": "Metadata about the returned record containing object type and resource URL.",
+        "properties": {
+          "type": {
+            "description": "The object type, always 'Note' for Note records.",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The REST API resource URI for accessing this specific Note record.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "NoteAttributes",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetNoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

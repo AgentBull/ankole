@@ -1,0 +1,59 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to delete a coupon from Stripe. Use when you need to remove a coupon code, preventing new redemptions while preserving existing customer discounts.",
+  "inputSchema": {
+    "description": "Request model for deleting a coupon.",
+    "properties": {
+      "coupon": {
+        "description": "The identifier of the coupon to be deleted. Deleting a coupon removes it from the Stripe system, preventing new customers from redeeming it. Customers who have already applied the coupon retain their discount.",
+        "examples": ["ZXw9s0zq", "SUMMER25", "DISCOUNT50"],
+        "title": "Coupon",
+        "type": "string"
+      }
+    },
+    "required": ["coupon"],
+    "title": "DeleteCouponRequest",
+    "type": "object"
+  },
+  "name": "delete_coupon",
+  "outputSchema": {
+    "$defs": {
+      "DeleteCouponResponse": {
+        "description": "Response model for a deleted coupon.",
+        "properties": {
+          "deleted": {
+            "description": "Always true, indicating successful deletion.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the deleted coupon.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'coupon'.",
+            "title": "Object",
+            "type": "string"
+          }
+        },
+        "title": "DeleteCouponResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteCouponResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

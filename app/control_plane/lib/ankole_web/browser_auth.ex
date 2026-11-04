@@ -359,7 +359,7 @@ defmodule AnkoleWeb.BrowserAuth do
           if(
             is_binary(uid) and {:ok, account.tenant.id} == Ankole.Tenants.privileged_id() and
               AuthZ.site_admin?(uid),
-            do: AnkoleWeb.PodURL.site_origin(conn) <> AnkoleWeb.SiteAdminConsole.path()
+            do: AnkoleWeb.SiteAdminConsole.url(conn)
           ),
         accounts: browser_accounts(conn),
         pendingAccounts: pending_accounts(conn, references),
@@ -672,7 +672,7 @@ defmodule AnkoleWeb.BrowserAuth do
 
         return_to =
           if console_return?,
-            do: PodURL.site_origin(conn) <> target.console_return_to,
+            do: AnkoleWeb.SiteAdminConsole.url(conn, target.console_return_to),
             else: PodURL.origin(conn, tenant) <> target.return_to
 
         {:ok, tenant.id, return_to, target.request_params, console_return?}
@@ -682,7 +682,7 @@ defmodule AnkoleWeb.BrowserAuth do
 
         return_to =
           if console_return?,
-            do: PodURL.site_origin(conn) <> target.console_return_to,
+            do: AnkoleWeb.SiteAdminConsole.url(conn, target.console_return_to),
             else: target.return_to
 
         {:ok, target.tenant_id, return_to, target.request_params, console_return?}
@@ -965,7 +965,7 @@ defmodule AnkoleWeb.BrowserAuth do
          %{tenant_id: tenant_id, ceremony_context: %{"console_return_to" => console_path}}
        )
        when is_binary(tenant_id) and is_binary(console_path) do
-    PodURL.site_origin(conn) <> console_path
+    AnkoleWeb.SiteAdminConsole.url(conn, console_path)
   end
 
   defp verified_return_to(conn, %{tenant_id: tenant_id} = completed)

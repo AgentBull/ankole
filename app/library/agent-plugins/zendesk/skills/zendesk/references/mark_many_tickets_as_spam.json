@@ -1,0 +1,131 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Marks multiple tickets as spam in Zendesk. This action is irreversible — the tickets will be marked as spam and moved to the suspended tickets queue. The submitter will also be marked as spam and blocked from submitting further tickets. Use when cleaning up spam or unwanted tickets to protect your support queue. Returns a job_status payload for tracking the bulk operation. Note: Tickets marked as spam are moved to the suspended tickets queue and cannot be recovered through normal means.",
+  "inputSchema": {
+    "description": "Request parameters for marking multiple tickets as spam.",
+    "properties": {
+      "ids": {
+        "description": "Comma-separated list of ticket IDs to mark as spam. Maximum 100 IDs allowed per request.",
+        "examples": ["1,2,3"],
+        "human_parameter_description": "A comma-separated list of ticket IDs you want to mark as spam. Example: 1,2,3. Tickets marked as spam will be moved to the suspended tickets queue and cannot be recovered. Maximum 100 IDs per request.",
+        "human_parameter_name": "Ticket IDs",
+        "title": "Ids",
+        "type": "string"
+      }
+    },
+    "required": ["ids"],
+    "title": "MarkManyTicketsAsSpamRequest",
+    "type": "object"
+  },
+  "name": "mark_many_tickets_as_spam",
+  "outputSchema": {
+    "$defs": {
+      "JobStatus": {
+        "description": "Job status object returned from bulk operations.",
+        "properties": {
+          "id": {
+            "description": "Automatically assigned when the job is queued",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_type": {
+            "description": "The type of the job",
+            "title": "Job Type",
+            "type": "string"
+          },
+          "message": {
+            "description": "Message from the job worker, if any",
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "description": "Number of tasks that have already been completed",
+            "title": "Progress",
+            "type": "integer"
+          },
+          "results": {
+            "description": "Result data from processed tasks",
+            "items": {
+              "$ref": "#/$defs/JobStatusResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "status": {
+            "description": "The current status. One of: queued, working, failed, completed",
+            "enum": ["queued", "working", "failed", "completed"],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "description": "The total number of tasks this job is batching through",
+            "title": "Total",
+            "type": "integer"
+          },
+          "url": {
+            "description": "The URL to poll for status updates",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "job_type", "status", "url"],
+        "title": "JobStatus",
+        "type": "object"
+      },
+      "JobStatusResult": {
+        "description": "Result entry from job processing.",
+        "properties": {
+          "action": {
+            "description": "Action performed (e.g., 'mark_as_spam')",
+            "title": "Action",
+            "type": "string"
+          },
+          "id": {
+            "description": "ID of the affected record",
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Status of the action (e.g., 'Updated')",
+            "title": "Status",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the action was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "JobStatusResult",
+        "type": "object"
+      },
+      "MarkManyTicketsAsSpamResponse": {
+        "description": "Response from marking multiple tickets as spam.",
+        "properties": {
+          "job_status": {
+            "$ref": "#/$defs/JobStatus",
+            "description": "Background job status object returned by the API",
+            "title": "Job Status"
+          }
+        },
+        "required": ["job_status"],
+        "title": "MarkManyTicketsAsSpamResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/MarkManyTicketsAsSpamResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

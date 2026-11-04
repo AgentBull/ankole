@@ -1,7 +1,7 @@
 import { t } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { BaseField, BaseRecord, Value } from '@ankole/applet-sdk/types'
 import { BdiLabel } from '../common/bidi-file-name'
 import { sanitizeFileName } from '../common/bidi'
@@ -29,16 +29,18 @@ export function ReferenceLabelsProvider({
   const { base } = useContent()
   const client = useQueryClient()
   const [revoked, setRevoked] = useState(new Set<string>())
-  const tables = new Map<string, Set<string>>()
-  for (const field of fields.filter(field => field.type === 'link')) {
-    const tableID = String(field.config.table_id)
-    const ids = tables.get(tableID) ?? new Set<string>()
-    for (const record of records) {
-      for (const id of (Array.isArray(record.data[field.id]) ? record.data[field.id] : []) as string[]) ids.add(id)
+  const entries = useMemo(() => {
+    const tables = new Map<string, Set<string>>()
+    for (const field of fields.filter(field => field.type === 'link')) {
+      const tableID = String(field.config.table_id)
+      const ids = tables.get(tableID) ?? new Set<string>()
+      for (const record of records) {
+        for (const id of (Array.isArray(record.data[field.id]) ? record.data[field.id] : []) as string[]) ids.add(id)
+      }
+      if (ids.size) tables.set(tableID, ids)
     }
-    if (ids.size) tables.set(tableID, ids)
-  }
-  const entries = [...tables.entries()].map(([tableID, ids]) => ({ tableID, ids: [...ids].sort() }))
+    return [...tables.entries()].map(([tableID, ids]) => ({ tableID, ids: [...ids].sort() }))
+  }, [fields, records])
   const tableIDs = entries
     .map(entry => entry.tableID)
     .sort()

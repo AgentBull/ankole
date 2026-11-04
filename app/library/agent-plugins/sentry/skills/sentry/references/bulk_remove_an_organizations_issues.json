@@ -1,0 +1,94 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently removes issues from an organization. If IDs are provided, queries and filtering are ignored. Maximum of 1000 issues can be removed at once.",
+  "inputSchema": {
+    "description": "Request schema for bulk removing issues from a Sentry organization.",
+    "properties": {
+      "environment": {
+        "description": "The name of environments to filter by. Used to narrow down which issues to remove based on the environment.",
+        "examples": [["production"], ["staging", "development"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "id": {
+        "description": "The list of issue IDs to be removed. If provided, queries and filtering will be ignored. If not provided, it will attempt to remove the first 1000 issues matching the query and filters.",
+        "examples": [[6942006848], [123456, 789012]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Id",
+        "type": "array"
+      },
+      "limit": {
+        "description": "The maximum number of issues to affect. The maximum allowed value is 100.",
+        "examples": [10, 50, 100],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization from which issues will be removed.",
+        "examples": ["my-organization", "example"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project": {
+        "description": "The IDs of projects to filter by. Use -1 to include all available projects.",
+        "examples": [[1, 2, 3], [-1]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Project",
+        "type": "array"
+      },
+      "query": {
+        "description": "An optional search query for filtering issues. A default query will apply if no view/query is set. Only used if issue IDs are not provided.",
+        "examples": ["is:unresolved", "level:error"],
+        "title": "Query",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Sort order for issues. Accepts: date, freq, inbox, new, trends, user. Defaults to date if not specified.",
+        "examples": ["date", "freq", "new"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "viewId": {
+        "description": "The ID of the view to use. If no query is present, the view's query and filters will be applied. Only used if issue IDs are not provided.",
+        "examples": ["all-issues", "custom-view-123"],
+        "title": "View Id",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "BulkRemoveAnOrganizationsIssuesRequest",
+    "type": "object"
+  },
+  "name": "bulk_remove_an_organizations_issues",
+  "outputSchema": {
+    "$defs": {
+      "BulkRemoveAnOrganizationsIssuesResponse": {
+        "description": "Response schema for bulk removing issues from a Sentry organization.\n\nReturns HTTP 204 No Content on successful deletion with an empty response body.\nThe successful deletion is indicated solely by the 204 status code.",
+        "properties": {},
+        "title": "BulkRemoveAnOrganizationsIssuesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/BulkRemoveAnOrganizationsIssuesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

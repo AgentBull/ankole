@@ -27,7 +27,13 @@ defmodule Ankole.Connectors.Browser.Actions do
           {Store.update_auth_config(actor, attrs.id, attrs), &%{connection: Store.public(&1)}}
 
         :accounts ->
-          {Accounts.list_accounts(actor), &%{accounts: &1}}
+          {Accounts.list_accounts(actor, attrs[:scope] || "mine"), &%{accounts: &1}}
+
+        :connect_personal_credentials ->
+          {Accounts.connect_credentials(actor, attrs, "human"), &%{account: Accounts.public(&1)}}
+
+        :connect_team_credentials ->
+          {Accounts.connect_credentials(actor, attrs, "app"), &%{account: Accounts.public(&1)}}
 
         :disconnect ->
           {Accounts.disconnect_account(actor, attrs.id), &%{account: Accounts.public(&1)}}

@@ -1,0 +1,163 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Adds an attachment to a Trello card by `idCard`; specify either a `file` to upload or a `url` to link, but not both.",
+  "inputSchema": {
+    "description": "Request schema for `AddCardsAttachmentsByIdCard`",
+    "properties": {
+      "file": {
+        "description": "Path to the local file to attach if not linking a `url`.",
+        "examples": ["./path/to/invoice.pdf", "assets/project_logo.png"],
+        "title": "File",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "ID or shortLink of the Trello card.",
+        "examples": ["60d5f0f8e0b9a4002d8f6c3a", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "mimeType": {
+        "description": "MIME type of the attachment, aiding Trello in file handling. Max length 256.",
+        "examples": ["image/png", "application/pdf", "text/plain"],
+        "title": "Mime Type",
+        "type": "string"
+      },
+      "name": {
+        "description": "Desired name for the attachment. If omitted, Trello uses the original filename or a URL-derived default. Max length 256.",
+        "examples": ["Q1 Financial Report", "Project Design Mockup", "Attachment from URL"],
+        "title": "Name",
+        "type": "string"
+      },
+      "url": {
+        "description": "URL of an external resource to attach if not uploading a `file`. Must start with 'http://' or 'https://'.",
+        "examples": ["https://example.com/shared-document.pdf", "https://trello.com/assets/img/logo.png"],
+        "title": "Url",
+        "type": "string"
+      }
+    },
+    "required": ["idCard"],
+    "title": "AddCardsAttachmentsByIdCardRequest",
+    "type": "object"
+  },
+  "name": "add_cards_attachments_by_id_card",
+  "outputSchema": {
+    "$defs": {
+      "AddCardsAttachmentsByIdCardResponse": {
+        "description": "Response schema for `AddCardsAttachmentsByIdCard`",
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AttachmentData"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "The created attachment details.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "AddCardsAttachmentsByIdCardResponse",
+        "type": "object"
+      },
+      "AttachmentData": {
+        "additionalProperties": true,
+        "description": "Details of the created attachment.",
+        "properties": {
+          "bytes": {
+            "description": "Size of the attachment in bytes (null for URL attachments).",
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "date": {
+            "description": "ISO 8601 timestamp when the attachment was created.",
+            "title": "Date",
+            "type": "string"
+          },
+          "edgeColor": {
+            "description": "Edge color extracted from the attachment image, if applicable.",
+            "title": "Edge Color",
+            "type": "string"
+          },
+          "fileName": {
+            "default": "",
+            "description": "Original filename of the attachment.",
+            "title": "File Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the attachment.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member who added the attachment.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "isMalicious": {
+            "default": false,
+            "description": "Whether the attachment has been flagged as malicious.",
+            "title": "Is Malicious",
+            "type": "boolean"
+          },
+          "isUpload": {
+            "description": "True if the attachment was uploaded as a file, false if it was linked via URL.",
+            "title": "Is Upload",
+            "type": "boolean"
+          },
+          "mimeType": {
+            "default": "",
+            "description": "MIME type of the attachment.",
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the attachment.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the attachment relative to other attachments on the card.",
+            "title": "Pos",
+            "type": "integer"
+          },
+          "previews": {
+            "description": "List of preview images at various sizes (for image attachments).",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Previews",
+            "type": "array"
+          },
+          "url": {
+            "description": "URL where the attachment can be accessed.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "date", "idMember", "isUpload", "name", "url", "pos"],
+        "title": "AttachmentData",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddCardsAttachmentsByIdCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,409 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a two-way relationship between two issues. The caller must be allowed to update both issues. Supports related issues, blocking, and blocked-by relationships.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "ID or unencoded namespace path of the source project.",
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "Project-local IID of the source issue.",
+        "title": "Issue Iid",
+        "type": "integer"
+      },
+      "link_type": {
+        "description": "Relationship from source to target. GitLab defaults to relates_to.",
+        "enum": ["relates_to", "blocks", "is_blocked_by"],
+        "title": "Link Type",
+        "type": "string"
+      },
+      "target_issue_iid": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "Project-local IID of the target issue.",
+        "title": "Target Issue Iid"
+      },
+      "target_project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "ID or unencoded namespace path of the target project.",
+        "title": "Target Project Id"
+      }
+    },
+    "required": ["id", "issue_iid", "target_project_id", "target_issue_iid"],
+    "title": "CreateIssueLinkRequest",
+    "type": "object"
+  },
+  "name": "create_issue_link",
+  "outputSchema": {
+    "$defs": {
+      "CreateIssueLinkResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "description": "Issue relationship ID, when returned.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "link_type": {
+            "description": "Relationship from source to target.",
+            "title": "Link Type",
+            "type": "string"
+          },
+          "source_issue": {
+            "$ref": "#/$defs/GetIssueByIdResponse",
+            "description": "Source issue of the relationship.",
+            "title": "Source Issue"
+          },
+          "target_issue": {
+            "$ref": "#/$defs/GetIssueByIdResponse",
+            "description": "Target issue of the relationship.",
+            "title": "Target Issue"
+          }
+        },
+        "required": ["source_issue", "target_issue", "link_type"],
+        "title": "CreateIssueLinkResponse",
+        "type": "object"
+      },
+      "GetIssueByIdResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "closed_by": {
+            "$ref": "#/$defs/IssueUser",
+            "description": "User who closed the issue.",
+            "title": "Closed By"
+          },
+          "service_desk_reply_to": {
+            "description": "Service Desk reply address.",
+            "title": "Service Desk Reply To",
+            "type": "string"
+          },
+          "user_notes_count": {
+            "description": "User note count.",
+            "title": "User Notes Count",
+            "type": "integer"
+          },
+          "weight": {
+            "description": "Issue weight on Premium or Ultimate.",
+            "title": "Weight",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "downvotes": {
+            "description": "Downvote count.",
+            "title": "Downvotes",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Issue description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "issue_type": {
+            "description": "Issue type, such as issue or incident.",
+            "title": "Issue Type",
+            "type": "string"
+          },
+          "closed_at": {
+            "description": "Closure timestamp.",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "time_stats": {
+            "$ref": "#/$defs/IssueTimeStats",
+            "description": "Time tracking statistics.",
+            "title": "Time Stats"
+          },
+          "assignee": {
+            "$ref": "#/$defs/IssueUser",
+            "description": "Deprecated single assignee; prefer assignees.",
+            "title": "Assignee"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "merge_requests_count": {
+            "description": "Related merge request count.",
+            "title": "Merge Requests Count",
+            "type": "integer"
+          },
+          "imported_from": {
+            "description": "Import source.",
+            "title": "Imported From",
+            "type": "string"
+          },
+          "severity": {
+            "description": "Issue severity.",
+            "title": "Severity",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Whether the caller is subscribed.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "imported": {
+            "description": "Whether the issue was imported.",
+            "title": "Imported",
+            "type": "boolean"
+          },
+          "assignees": {
+            "description": "Assigned users.",
+            "items": {
+              "$ref": "#/$defs/IssueUser"
+            },
+            "title": "Assignees",
+            "type": "array"
+          },
+          "iid": {
+            "description": "Project-local issue IID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "web_url": {
+            "description": "Issue web URL.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "description": "Whether discussion is locked.",
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "author": {
+            "$ref": "#/$defs/IssueUser",
+            "description": "Issue author.",
+            "title": "Author"
+          },
+          "milestone": {
+            "$ref": "#/$defs/IssueMilestone",
+            "description": "Assigned milestone.",
+            "title": "Milestone"
+          },
+          "confidential": {
+            "description": "Whether the issue is confidential.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "project_id": {
+            "description": "Project ID, when returned.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "health_status": {
+            "description": "Issue health status on Ultimate.",
+            "title": "Health Status",
+            "type": "string"
+          },
+          "upvotes": {
+            "description": "Upvote count.",
+            "title": "Upvotes",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Issue label names.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "state": {
+            "description": "Issue state, such as opened or closed.",
+            "title": "State",
+            "type": "string"
+          },
+          "id": {
+            "description": "Global issue ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Issue title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Issue due date.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "moved_to_id": {
+            "description": "Destination ID for a moved issue.",
+            "title": "Moved To Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "iid", "title", "state"],
+        "title": "GetIssueByIdResponse",
+        "type": "object"
+      },
+      "IssueMilestone": {
+        "additionalProperties": true,
+        "properties": {
+          "closed_at": {
+            "description": "Closure timestamp, if closed.",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Milestone description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Milestone due date.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "id": {
+            "description": "Milestone ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Milestone internal ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "project_id": {
+            "description": "Milestone project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Milestone state.",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Milestone title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "IssueMilestone",
+        "type": "object"
+      },
+      "IssueTimeStats": {
+        "additionalProperties": true,
+        "properties": {
+          "human_time_estimate": {
+            "description": "Readable estimate.",
+            "title": "Human Time Estimate",
+            "type": "string"
+          },
+          "human_total_time_spent": {
+            "description": "Readable time spent.",
+            "title": "Human Total Time Spent",
+            "type": "string"
+          },
+          "time_estimate": {
+            "description": "Estimated time in seconds.",
+            "title": "Time Estimate",
+            "type": "integer"
+          },
+          "total_time_spent": {
+            "description": "Recorded time in seconds.",
+            "title": "Total Time Spent",
+            "type": "integer"
+          }
+        },
+        "required": ["time_estimate", "total_time_spent"],
+        "title": "IssueTimeStats",
+        "type": "object"
+      },
+      "IssueUser": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Avatar URL, if available.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "User profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "IssueUser",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateIssueLinkResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

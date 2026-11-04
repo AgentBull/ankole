@@ -1,0 +1,193 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves aggregate approval status for a GitLab merge request on any GitLab tier. Returns every approving user, even when an approval does not satisfy a specific approval rule. Use Get Merge Request Approval State instead when Premium or Ultimate rule-level satisfaction is needed.",
+  "inputSchema": {
+    "properties": {
+      "merge_request_iid": {
+        "description": "The project-scoped internal ID (IID) of the merge request.",
+        "examples": [42],
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the GitLab project.",
+        "examples": [123, "group/project-name"],
+        "title": "Project Id"
+      }
+    },
+    "required": ["project_id", "merge_request_iid"],
+    "title": "GetMergeRequestApprovalsRequest",
+    "type": "object"
+  },
+  "name": "get_merge_request_approvals",
+  "outputSchema": {
+    "$defs": {
+      "Approval": {
+        "properties": {
+          "approved_at": {
+            "description": "Timestamp when the approval was recorded.",
+            "format": "date-time",
+            "title": "Approved At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/ApprovalUser",
+            "description": "User who approved the merge request.",
+            "title": "User"
+          }
+        },
+        "required": ["user"],
+        "title": "Approval",
+        "type": "object"
+      },
+      "ApprovalUser": {
+        "properties": {
+          "avatar_url": {
+            "description": "URL of the user's avatar.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "GitLab user ID of the approver.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the approver.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "Current state of the user account.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "GitLab username of the approver.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "URL of the user's GitLab profile.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "name"],
+        "title": "ApprovalUser",
+        "type": "object"
+      },
+      "GetMergeRequestApprovalsResponse": {
+        "properties": {
+          "approvals": {
+            "$ref": "#/$defs/MergeRequestApprovals",
+            "description": "Aggregate merge request approval status and all recorded approving users.",
+            "title": "Approvals"
+          }
+        },
+        "required": ["approvals"],
+        "title": "GetMergeRequestApprovalsResponse",
+        "type": "object"
+      },
+      "MergeRequestApprovals": {
+        "properties": {
+          "approvals_left": {
+            "description": "Number of additional approvals still required.",
+            "title": "Approvals Left",
+            "type": "integer"
+          },
+          "approvals_required": {
+            "description": "Total number of approvals required to satisfy approval requirements.",
+            "title": "Approvals Required",
+            "type": "integer"
+          },
+          "approved": {
+            "description": "Whether the merge request meets GitLab's aggregate approval requirement.",
+            "title": "Approved",
+            "type": "boolean"
+          },
+          "approved_by": {
+            "description": "All users who approved the merge request, including approvals that do not satisfy a specific rule.",
+            "items": {
+              "$ref": "#/$defs/Approval"
+            },
+            "title": "Approved By",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Timestamp when the merge request was created.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the merge request.",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Global ID of the merge request.",
+            "title": "Id",
+            "type": "string"
+          },
+          "iid": {
+            "description": "Project-scoped internal ID of the merge request.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "merge_status": {
+            "description": "GitLab's mergeability status for the merge request.",
+            "title": "Merge Status",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "ID of the project containing the merge request.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "state": {
+            "description": "Current state of the merge request.",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title of the merge request.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the merge request was last updated.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id", "iid", "project_id", "approved"],
+        "title": "MergeRequestApprovals",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMergeRequestApprovalsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

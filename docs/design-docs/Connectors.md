@@ -12,8 +12,10 @@ its required `tools/0` and `call/3` callbacks at startup.
 A tenant administrator manages first-party applications through the Pod
 Connectors page and its typed `/api/v2/pod/connectors` API. Each application has
 a tenant-unique slug, a platform, an authentication scheme, public metadata,
-and a row-encrypted root secret. One active connection per platform can be the
-default. The database prevents the same external application identity from
+and a row-encrypted root secret. Local application configurations use `mode = local`;
+Ankole Cloud configurations use `mode = cloud` and reference the official application
+without copying its secret into the Pod. One active local connection per platform can
+be the default. The database prevents the same external application identity from
 being active in two tenants. A caller names its connection explicitly when it
 needs a particular account; the gateway never substitutes another account
 following an authentication failure.
@@ -24,6 +26,21 @@ exists. Identity-provider and IM configuration saves make the first imported
 connection the default and preserve it when adding other applications. Those
 saves resolve or create their shared application root under the same lock, so
 concurrent identity and IM setup reuse one connection.
+
+The `connectors.cloud_provider` plugin contract supplies the available managed
+connections and JSON-serializable authorization, execution, and subscription
+operations. The FOSS core depends only on this contract. A SaaS deployment
+registers its in-process provider; a remote provider can use the same contract
+with a Cloud account and an explicit consuming Pod scope.
+
+Store presents available Cloud configurations without writing a row for every
+Pod. The first authorization, credential binding, or subscription materializes
+one Cloud root per platform under the existing configuration lock. Explicit
+selectors retain their connection. Without a selector, an active local
+configuration takes priority over Cloud; multiple local configurations use the
+administrator's default. Adding a local application can therefore require a
+member to authorize that application on their next default call. Existing
+subscriptions retain their `auth_config_id` until deliberately migrated.
 
 `connector_auth_configs` owns application roots. `connector_connected_accounts`
 owns installation slots and OAuth tokens. A human account records both its
@@ -134,8 +151,55 @@ claims the completion code through its authenticated Pod session. Claiming
 checks the original actor, tenant, live Human work access, and expiry before
 storing the connection. A reconnect leaves the current connection available
 until the new grant is claimed successfully. Progressive authorization requests
-include the member's previously granted scopes together with the newly required
-scopes, so connecting another Toolkit preserves the earlier grant.
+include the selected personal or team account's previously granted scopes together
+with the newly required scopes, so connecting another Toolkit preserves the
+earlier grant. Reauthorization also preserves these scopes when the account has
+expired.
+
+The connection page separates the current member's personal accounts from team
+integrations. `scope=mine` projects only the signed-in member's human accounts,
+including for an administrator; `scope=team` projects shared application accounts.
+Members and their personal assistants resolve personal credentials through the
+Human Principal's authority. Administrators can disconnect a failing account
+from subscription management, but cannot execute with another member's credentials
+or attach a new consumer to that member's personal subscription.
+Adding consumers to a team event source requires Pod administrator permission,
+including application-level sources that do not use a ConnectedAccount.
+
+Figma supports both personal and team access tokens. Stripe, Sentry, and Zendesk
+use administrator-managed team credentials. Each platform adapter validates the
+credentials against its account endpoint before Connectors saves them and returns
+the external account identity to the browser. Personal binding accepts only the
+platform's user-facing credential fields. Consent errors carry an absolute Pod
+URL, the connection, subject kind, required scopes, and task intent. Personal
+token links open the member's credential form; team-token links open the
+administrator's shared credential form. A permanently expired shared account
+continues to return a team reconnect link on subsequent calls.
+The gateway derives a task return path from the verified native conversation
+RunRef or the signed Applet Page and Job context. After binding, the member can
+select **Return to task**. External IM calls retain the instruction to resume
+their original conversation rather than linking to a different Pod conversation.
+
+Official Cloud OAuth applications belong to Ankole. Cloud holds their encrypted
+refresh tokens; the Pod stores an `upstream_connection_id` beside its local
+account ownership, access version, scopes, status, and public metadata. The local
+refresh worker skips Cloud accounts. Local OAuth and user-supplied tokens remain
+encrypted in the Pod and reach Cloud only as inline execution credentials.
+The provider owns each consuming Pod's trusted origin and redirects OAuth results
+there after validating its own state and PKCE. The Pod exchanges the one-use
+Cloud ticket, then uses its existing authenticated completion-code claim.
+
+A successful reconnect preserves the local account ID and all subscription
+references. The account transaction records the replacement Cloud reference and
+queues an idempotent handover through Oban. Cloud transfers existing subscriptions
+before removing the prior grant. Once the handover completes, Connectors queues
+failed subscriptions for reconciliation with the replacement credential. Local
+account reconnection performs the same recovery in its account transaction.
+Subscription IDs, consumer bindings, and deletion intent survive this recovery.
+An abandoned callback leaves the live account
+untouched. Disconnect and Human offboarding revoke local authority in the owning
+transaction and queue Cloud cleanup for execution after commit. Principal rename
+changes the local owner and account key without revoking the Cloud grant.
 
 For adaptive tools, an explicit application account selects that workspace even
 when the caller has a personal grant. Without an account selector, a saved
@@ -156,6 +220,8 @@ needed; an existing `calendar:calendar:readonly` or `calendar:calendar` grant
 also satisfies this requirement.
 Creating or retrying a subscription checks the account's current grants and
 returns its owner's consent link before attempting an upstream subscription.
+Team OAuth subscriptions request any missing permissions through the team's
+authorization flow while preserving the account's previously granted scopes.
 An identity provider can merge these grants into sign-in; that opt-in path uses
 the same v2 authorization-code and refresh protocol as personal connections.
 Linear application authorization uses `actor=app`, while member authorization
@@ -188,8 +254,10 @@ Disabling a Human increments their access version and revokes their personal
 connections in the same transaction. Gateway requests check live membership and
 connection status. Existing work owners stop personal Jobs and sources through
 their WorkAccess lifecycle. Subscription teardown can use the last stored token
-to unsubscribe without reviving a revoked account. An upstream refusal leaves
-a visible degraded subscription for administrator repair.
+to unsubscribe without reviving a revoked account. When the platform confirms
+that the subscription or its authorization is unavailable, Ankole removes the
+local subscription reference. Transient upstream failures remain visible and
+retryable.
 
 Tenant deletion removes external subscriptions before deleting connection
 credentials. If an upstream service refuses the unsubscribe, the tenant deletion
@@ -210,6 +278,23 @@ the original JSON Schemas for discovery and generated contracts. Dynamic Skill
 schemas use the same validation owner at invocation time.
 The Agent finds the operation in the index and reads its individual contract;
 external operations are not added to the model's native tool registry.
+
+Cloud-backed platform plugins own the public tool names, input and output
+schemas, scope requirements, and event types. Their checked-in catalog pins the
+upstream toolkit version, and `mix ankole.toolkits --write` generates the same
+Skill references and Applet types as native plugins. Cloud uses inline credentials
+and that exact version for execution. Replacing an upstream operation with a
+native platform call preserves this public contract and the account reference.
+Maintainers provide a project key through `COMPOSIO_API_KEY` and run
+`bun run connectors:sync-catalog` to check the pinned upstream metadata against
+the reviewed selection in `plugins/cloud_connectors_adapter/selection.json`.
+The matching `catalog/<platform>.json` file owns the pinned version. After
+editing either, run `bun run connectors:sync-catalog --write`, then run
+`MIX_ENV=test mix ankole.toolkits --write` from `app/control_plane`. The importer
+preserves complete JSON Schema definitions and references; generated TypeScript
+aliases represent recursive types. The platform result projection omits optional
+null-valued fields only when their schema rejects null, while preserving
+required fields and explicitly nullable values.
 
 The internal Toolkit endpoint is
 `/api/internal/mcp/toolkits/:toolkit?connection=:slug&account=:account_key`.
@@ -274,6 +359,10 @@ account through the shared refresh lease or application-token cache. A late
 rejection cannot invalidate a newer token. The gateway retries a read-only or
 explicitly idempotent operation at most once. Other writes, uploads, and file
 downloads that write to Drive require explicit retry after credential recovery.
+Cloud applies the same rules when the execution service returns a platform HTTP
+error inside a successful transport response. Rejection of the execution service's
+own API key is a service availability error and does not invalidate the member's
+platform credentials.
 Git authentication returns the token that passed the repository access check.
 An account without a refresh token, or a permanently rejected refresh grant,
 requires authorization for that same account kind. A temporary refresh failure
@@ -303,8 +392,19 @@ desired state again. A binding added during unsubscribe therefore starts another
 reconciliation. An ambiguous or failed result marks the trigger degraded; the
 management API exposes an explicit retry operation. Retry locks the current
 trigger, preserves its deletion intent, and queues reconciliation in the same
-transaction. An active reconciliation lease returns `connector_trigger_busy`,
+transaction. Provider status notifications cannot replace a pending deletion or
+its recorded failure. An active reconciliation lease returns `connector_trigger_busy`,
 so the current owner can record the upstream result before another attempt.
+If a Cloud endpoint or token refresh is already leased, the reconciliation job
+releases its local lease and retries automatically without degrading the
+subscription.
+
+For Trello, reconciliation recreates a webhook removed by grant revocation and
+enables an existing webhook when the subscription is desired. For Stripe, Cloud
+stores the webhook ID and signing secret in the same transaction. If creation
+completed externally but Cloud has not saved that result, reconciliation replaces
+only the orphan with the same Cloud callback URL to obtain its signing secret.
+
 Failed subscriptions retain the provider's code, message, details, and retry
 information after removing credentials. The Automation panel displays that
 diagnosis and links to the exact connection and subscription for repair. A
@@ -313,6 +413,8 @@ requests recover a rejected token without replaying hook creation automatically.
 The scheduler checks desired subscriptions every minute. While the Applet
 Automation panel is open, it refreshes subscription status every five seconds
 so members can see when an asynchronous subscription becomes ready or fails.
+The Connectors page uses the account status returned with each subscription
+refresh to offer reauthorization when a grant expires.
 Ankole shows account owners their subscriptions and Pod administrators all
 subscriptions. A personal assistant uses its Human owner's account
 identity. Revoked accounts remain visible so their owners can repair or remove
@@ -333,6 +435,49 @@ trigger a business action; the native chat adapter runs only when chat context
 exists. Current callbacks acknowledge acceptance with a short toast, and legacy
 HTTP callbacks return an empty object. Approval execution and card updates run
 as the destination Action after acceptance.
+
+Cloud receives public callbacks on `console.<domain>`. After verifying the
+platform's signature, it resolves the consuming Pod scope before calling
+`Connectors.receive_cloud_delivery/1`. A `trigger_event` delivery names the local
+trigger and a stable delivery ID; `Signals` owns durable fan-out and duplicate
+suppression. A `trigger_status` delivery updates the subscription's operational
+status and diagnosis. Cloud acknowledges event acceptance only after the Pod's
+Signal transaction succeeds. Google Analytics has no inbound subscription;
+scheduled automation can query its reports through the same Toolkit.
+
+The Cloud connector catalog exposes these platform contracts:
+
+| Platform | Member or team credential | Inbound events |
+| --- | --- | --- |
+| GitLab | OAuth | Merge requests, pushes, issues, and completed pipelines |
+| Typeform | OAuth | Form submissions |
+| Salesforce | OAuth | Lead and Contact creation; standard and custom object updates |
+| Trello | OAuth | Card creation, changes, and moves |
+| Calendly | OAuth | Personal or organization invitee creation and cancellation |
+| Google Analytics | OAuth | Scheduled report queries |
+| Google Calendar | OAuth | Event creation, updates, and cancellation |
+| Stripe | Team token | Completed checkouts, paid invoices, and successful payments |
+| Sentry | Team token | Issues and project error alerts |
+| Zendesk | Team credentials | Ticket creation and updates |
+| Figma | Personal or team token | File updates, comments, and library publication in a file, project, or team |
+
+Google Calendar and Salesforce use account-scoped polling connections with
+short-lived access tokens. Other event sources use native platform Webhooks.
+Cloud shares an external endpoint among subscriptions for the same account and
+resource, and removes it when the final consumer disconnects. Sentry's Internal
+Integration requires the administrator to register the callback shown in the
+subscription page; signed events are filtered to the selected project.
+Calendly defaults to the connected member's events, and Figma defaults to a
+file; the subscription form exposes the broader scopes explicitly. Stripe and
+Zendesk subscriptions use the selected account without requesting a redundant
+resource identifier.
+
+Each event carries an Ankole-owned data envelope:
+`{resource: {id, attributes}, changes}`. The resource ID identifies the platform
+object, while the delivery ID controls duplicate suppression. Attributes contain
+the platform's resource fields; consumers tolerate optional fields. Changes
+contains the supplied field diff, or an empty object when the platform provides
+none.
 
 ## Persistence and lock order
 

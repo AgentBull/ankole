@@ -1,0 +1,470 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a single issue from a GitLab project by its internal ID (iid). Returns comprehensive issue details including description, state, labels, assignees, time tracking, and task status. Use this action when you need to inspect a specific issue's current state, check its metadata, or retrieve detailed information before performing updates or analysis. Requires knowing both the project ID/path and the issue's internal ID.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "Project identifier: numeric ID (e.g., 123) or namespace path in format 'namespace/project-name' (e.g., 'my-group/my-project'). Path must use forward slash / as separator. URL-encoding is handled automatically.",
+        "examples": [123, "my-group/my-project"],
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "The internal ID of the project's issue.",
+        "examples": [42],
+        "title": "Issue Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid"],
+    "title": "GetIssueRequest",
+    "type": "object"
+  },
+  "name": "get_issue",
+  "outputSchema": {
+    "$defs": {
+      "GetIssueResponse": {
+        "properties": {
+          "references": {
+            "$ref": "#/$defs/References",
+            "description": "References related to the issue.",
+            "title": "References"
+          },
+          "closed_by": {
+            "$ref": "#/$defs/User",
+            "description": "User who closed the issue.",
+            "title": "Closed By"
+          },
+          "service_desk_reply_to": {
+            "description": "Service Desk reply address, if applicable.",
+            "title": "Service Desk Reply To",
+            "type": "string"
+          },
+          "user_notes_count": {
+            "description": "Number of user notes.",
+            "title": "User Notes Count",
+            "type": "integer"
+          },
+          "task_status": {
+            "description": "Task status string.",
+            "title": "Task Status",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Issue weight. Premium/Ultimate only.",
+            "title": "Weight",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "Issue update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "downvotes": {
+            "description": "Number of downvotes.",
+            "title": "Downvotes",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Issue description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "issue_type": {
+            "description": "Issue type (e.g., issue, incident, test_case, task).",
+            "title": "Issue Type",
+            "type": "string"
+          },
+          "closed_at": {
+            "description": "Issue closure timestamp.",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "time_stats": {
+            "$ref": "#/$defs/TimeStats",
+            "description": "Time tracking statistics.",
+            "title": "Time Stats"
+          },
+          "assignee": {
+            "$ref": "#/$defs/User",
+            "description": "Single assignee (deprecated, use assignees).",
+            "title": "Assignee"
+          },
+          "has_tasks": {
+            "description": "Whether the issue has tasks.",
+            "title": "Has Tasks",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Issue creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "merge_requests_count": {
+            "description": "Number of related merge requests.",
+            "title": "Merge Requests Count",
+            "type": "integer"
+          },
+          "imported_from": {
+            "description": "Source of import.",
+            "title": "Imported From",
+            "type": "string"
+          },
+          "_links": {
+            "$ref": "#/$defs/IssueLinks",
+            "description": "Links related to the issue.",
+            "title": " Links"
+          },
+          "severity": {
+            "description": "Issue severity.",
+            "title": "Severity",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Whether authenticated user is subscribed to the issue.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "imported": {
+            "description": "Whether imported from another system.",
+            "title": "Imported",
+            "type": "boolean"
+          },
+          "assignees": {
+            "description": "List of assignees.",
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Assignees",
+            "type": "array"
+          },
+          "iid": {
+            "description": "Issue internal ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "web_url": {
+            "description": "URL to the issue.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "description": "Whether discussion is locked.",
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "author": {
+            "$ref": "#/$defs/User",
+            "description": "Issue author.",
+            "title": "Author"
+          },
+          "milestone": {
+            "$ref": "#/$defs/Milestone",
+            "description": "Milestone assigned to the issue.",
+            "title": "Milestone"
+          },
+          "confidential": {
+            "description": "Whether the issue is confidential.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "epic": {
+            "additionalProperties": true,
+            "description": "Epic associated with the issue. Premium/Ultimate only.",
+            "title": "Epic",
+            "type": "object"
+          },
+          "project_id": {
+            "description": "Project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "task_completion_status": {
+            "$ref": "#/$defs/TaskCompletionStatus",
+            "description": "Task completion status.",
+            "title": "Task Completion Status"
+          },
+          "health_status": {
+            "description": "Health status. Premium/Ultimate only.",
+            "title": "Health Status",
+            "type": "string"
+          },
+          "upvotes": {
+            "description": "Number of upvotes.",
+            "title": "Upvotes",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "List of labels.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "state": {
+            "description": "Issue state (e.g., opened, closed).",
+            "title": "State",
+            "type": "string"
+          },
+          "id": {
+            "description": "Issue ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Issue title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Due date.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "moved_to_id": {
+            "description": "ID if issue was moved to another project.",
+            "title": "Moved To Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "iid",
+          "project_id",
+          "title",
+          "state",
+          "created_at",
+          "updated_at",
+          "labels",
+          "author",
+          "user_notes_count",
+          "upvotes",
+          "downvotes",
+          "confidential",
+          "web_url"
+        ],
+        "title": "GetIssueResponse",
+        "type": "object"
+      },
+      "IssueLinks": {
+        "properties": {
+          "award_emoji": {
+            "description": "Link to award emoji.",
+            "title": "Award Emoji",
+            "type": "string"
+          },
+          "closed_as_duplicate_of": {
+            "description": "Link to duplicate issue.",
+            "title": "Closed As Duplicate Of",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Link to issue notes.",
+            "title": "Notes",
+            "type": "string"
+          },
+          "project": {
+            "description": "Link to the project.",
+            "title": "Project",
+            "type": "string"
+          },
+          "self": {
+            "description": "Link to the issue.",
+            "title": "Self",
+            "type": "string"
+          }
+        },
+        "required": ["self", "notes", "award_emoji", "project"],
+        "title": "IssueLinks",
+        "type": "object"
+      },
+      "Milestone": {
+        "properties": {
+          "created_at": {
+            "description": "Milestone creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Milestone description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Milestone due date.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "id": {
+            "description": "Milestone ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Milestone internal ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "project_id": {
+            "description": "Project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "start_date": {
+            "description": "Milestone start date.",
+            "title": "Start Date",
+            "type": "string"
+          },
+          "state": {
+            "description": "Milestone state.",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Milestone title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Milestone update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "URL to the milestone.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "iid", "project_id", "title", "state", "created_at", "updated_at", "web_url"],
+        "title": "Milestone",
+        "type": "object"
+      },
+      "References": {
+        "properties": {
+          "full": {
+            "description": "Full reference.",
+            "title": "Full",
+            "type": "string"
+          },
+          "relative": {
+            "description": "Relative reference.",
+            "title": "Relative",
+            "type": "string"
+          },
+          "short": {
+            "description": "Short reference.",
+            "title": "Short",
+            "type": "string"
+          }
+        },
+        "required": ["short", "relative", "full"],
+        "title": "References",
+        "type": "object"
+      },
+      "TaskCompletionStatus": {
+        "properties": {
+          "completed_count": {
+            "description": "Completed task count.",
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "count": {
+            "description": "Total task count.",
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": ["count", "completed_count"],
+        "title": "TaskCompletionStatus",
+        "type": "object"
+      },
+      "TimeStats": {
+        "properties": {
+          "human_time_estimate": {
+            "description": "Human-readable time estimate.",
+            "title": "Human Time Estimate",
+            "type": "string"
+          },
+          "human_total_time_spent": {
+            "description": "Human-readable total time spent.",
+            "title": "Human Total Time Spent",
+            "type": "string"
+          },
+          "time_estimate": {
+            "description": "Time estimate in seconds.",
+            "title": "Time Estimate",
+            "type": "integer"
+          },
+          "total_time_spent": {
+            "description": "Total time spent in seconds.",
+            "title": "Total Time Spent",
+            "type": "integer"
+          }
+        },
+        "required": ["time_estimate", "total_time_spent"],
+        "title": "TimeStats",
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "avatar_url": {
+            "description": "URL to user's avatar.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User state (e.g., active, blocked).",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "URL to user's profile.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "username", "state", "web_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetIssueResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

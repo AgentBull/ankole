@@ -1,0 +1,61 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Delete the specified repository tag from a project.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "tag_name": {
+        "description": "Name of the tag to delete, without URL encoding.",
+        "title": "Tag Name",
+        "type": "string"
+      }
+    },
+    "required": ["id", "tag_name"],
+    "title": "DeleteRepositoryTagRequest",
+    "type": "object"
+  },
+  "name": "delete_repository_tag",
+  "outputSchema": {
+    "$defs": {
+      "DeleteRepositoryTagResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "success": {
+            "description": "True when GitLab returns an empty successful deletion response.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "DeleteRepositoryTagResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteRepositoryTagResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

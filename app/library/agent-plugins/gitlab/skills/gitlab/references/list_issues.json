@@ -1,0 +1,593 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List one page of issues accessible to the authenticated user across projects. Defaults to issues created by the current user, not every accessible issue. Use filters to narrow results and next_page to continue pagination. GitLab.com may reject scope=all; use a group or project issues action in that case.",
+  "inputSchema": {
+    "properties": {
+      "assignee_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "enum": ["None", "Any"],
+            "type": "string"
+          }
+        ],
+        "description": "Assignee ID, None for unassigned, or Any for assigned; mutually exclusive with assignee_username.",
+        "title": "Assignee Id"
+      },
+      "assignee_username": {
+        "description": "Issues assigned to all these usernames; CE accepts one. Mutually exclusive with assignee_id.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Assignee Username",
+        "type": "array"
+      },
+      "author_id": {
+        "description": "Author ID; mutually exclusive with author_username. Combine with scope=all or assigned_to_me.",
+        "title": "Author Id",
+        "type": "integer"
+      },
+      "author_username": {
+        "description": "Author username; mutually exclusive with author_id.",
+        "title": "Author Username",
+        "type": "string"
+      },
+      "confidential": {
+        "description": "Filter confidential (true) or public (false) issues.",
+        "title": "Confidential",
+        "type": "boolean"
+      },
+      "created_after": {
+        "description": "Created on or after this ISO 8601 timestamp.",
+        "format": "date-time",
+        "title": "Created After",
+        "type": "string"
+      },
+      "created_before": {
+        "description": "Created on or before this ISO 8601 timestamp.",
+        "format": "date-time",
+        "title": "Created Before",
+        "type": "string"
+      },
+      "due_date": {
+        "description": "Due-date window; 0 means no due date.",
+        "enum": ["0", "any", "today", "tomorrow", "overdue", "week", "month", "next_month_and_previous_two_weeks"],
+        "title": "Due Date",
+        "type": "string"
+      },
+      "epic_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "enum": ["None", "Any"],
+            "type": "string"
+          }
+        ],
+        "description": "Epic ID, None for no epic, or Any for an epic (Premium/Ultimate).",
+        "title": "Epic Id"
+      },
+      "health_status": {
+        "description": "Health status, None for unset, or Any for set (Ultimate).",
+        "title": "Health Status",
+        "type": "string"
+      },
+      "iids": {
+        "description": "Return only these issue internal IDs.",
+        "items": {
+          "type": "integer"
+        },
+        "title": "Iids",
+        "type": "array"
+      },
+      "in": {
+        "description": "Search fields; default title,description.",
+        "enum": ["title", "description", "title,description", "description,title"],
+        "title": "In",
+        "type": "string"
+      },
+      "issue_type": {
+        "description": "Filter by issue type.",
+        "enum": ["issue", "incident", "test_case", "task"],
+        "title": "Issue Type",
+        "type": "string"
+      },
+      "iteration_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "enum": ["None", "Any"],
+            "type": "string"
+          }
+        ],
+        "description": "Iteration ID, None, or Any; mutually exclusive with iteration_title (Premium/Ultimate).",
+        "title": "Iteration Id"
+      },
+      "iteration_title": {
+        "description": "Iteration title; mutually exclusive with iteration_id (Premium/Ultimate).",
+        "title": "Iteration Title",
+        "type": "string"
+      },
+      "labels": {
+        "description": "Comma-separated labels (all required), None for unlabeled, or Any for labeled. No+Label is deprecated.",
+        "title": "Labels",
+        "type": "string"
+      },
+      "milestone": {
+        "description": "Milestone title; mutually exclusive with milestone_id. None/Any are planned for deprecation; use milestone_id.",
+        "title": "Milestone",
+        "type": "string"
+      },
+      "milestone_id": {
+        "description": "Milestone timebox: None, Any, Upcoming, or Started; mutually exclusive with milestone.",
+        "title": "Milestone Id",
+        "type": "string"
+      },
+      "my_reaction_emoji": {
+        "description": "Reaction emoji, None for no reaction, or Any for any reaction by the current user.",
+        "title": "My Reaction Emoji",
+        "type": "string"
+      },
+      "non_archived": {
+        "description": "Only non-archived projects (provider default true); false includes archived projects.",
+        "title": "Non Archived",
+        "type": "boolean"
+      },
+      "not": {
+        "additionalProperties": false,
+        "description": "Exclusions supported by GET /issues, not project-specific filters.",
+        "properties": {
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "enum": ["None", "Any"],
+                "type": "string"
+              }
+            ],
+            "description": "Exclude this assignee ID, unassigned (None), or assigned (Any).",
+            "title": "Assignee Id"
+          },
+          "assignee_username": {
+            "description": "Exclude assignee usernames.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Assignee Username",
+            "type": "array"
+          },
+          "author_id": {
+            "description": "Exclude this author ID.",
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "author_username": {
+            "description": "Exclude this author username.",
+            "title": "Author Username",
+            "type": "string"
+          },
+          "iids": {
+            "description": "Exclude these issue internal IDs.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Iids",
+            "type": "array"
+          },
+          "iteration_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "enum": ["None", "Any"],
+                "type": "string"
+              }
+            ],
+            "description": "Exclude this iteration ID, None, or Any (Premium/Ultimate).",
+            "title": "Iteration Id"
+          },
+          "iteration_title": {
+            "description": "Exclude this iteration title (Premium/Ultimate).",
+            "title": "Iteration Title",
+            "type": "string"
+          },
+          "labels": {
+            "description": "Exclude comma-separated label names, None, or Any.",
+            "title": "Labels",
+            "type": "string"
+          },
+          "milestone": {
+            "description": "Exclude this milestone title.",
+            "title": "Milestone",
+            "type": "string"
+          },
+          "milestone_id": {
+            "description": "Exclude milestone timebox: None, Any, Upcoming, or Started.",
+            "title": "Milestone Id",
+            "type": "string"
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "enum": ["None", "Any"],
+                "type": "string"
+              }
+            ],
+            "description": "Exclude this weight, None, or Any (Premium/Ultimate).",
+            "title": "Weight"
+          }
+        },
+        "title": "NotIssueFilters",
+        "type": "object"
+      },
+      "order_by": {
+        "description": "Ordering field; provider default created_at.",
+        "enum": [
+          "created_at",
+          "due_date",
+          "label_priority",
+          "milestone_due",
+          "popularity",
+          "priority",
+          "relative_position",
+          "title",
+          "updated_at",
+          "weight"
+        ],
+        "title": "Order By",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "scope": {
+        "description": "Provider default created_by_me. GitLab.com may reject all with HTTP 400 when global listing is restricted; use group/project listing instead.",
+        "enum": ["created_by_me", "assigned_to_me", "all"],
+        "title": "Scope",
+        "type": "string"
+      },
+      "search": {
+        "description": "Search issue titles and descriptions, narrowed by in.",
+        "title": "Search",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Sort direction; provider default desc.",
+        "enum": ["asc", "desc"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "state": {
+        "description": "Issue state filter.",
+        "enum": ["all", "opened", "closed"],
+        "title": "State",
+        "type": "string"
+      },
+      "updated_after": {
+        "description": "Updated on or after this ISO 8601 timestamp.",
+        "format": "date-time",
+        "title": "Updated After",
+        "type": "string"
+      },
+      "updated_before": {
+        "description": "Updated on or before this ISO 8601 timestamp.",
+        "format": "date-time",
+        "title": "Updated Before",
+        "type": "string"
+      },
+      "weight": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "enum": ["None", "Any"],
+            "type": "string"
+          }
+        ],
+        "description": "Weight, None for unset, or Any for set (Premium/Ultimate).",
+        "title": "Weight"
+      },
+      "with_labels_details": {
+        "description": "Return label objects instead of names; provider default false.",
+        "title": "With Labels Details",
+        "type": "boolean"
+      }
+    },
+    "title": "ListIssuesRequest",
+    "type": "object"
+  },
+  "name": "list_issues",
+  "outputSchema": {
+    "$defs": {
+      "Issue": {
+        "additionalProperties": true,
+        "properties": {
+          "assignee": {
+            "$ref": "#/$defs/IssueUser",
+            "description": "Deprecated single assignee; use assignees.",
+            "title": "Assignee"
+          },
+          "assignees": {
+            "description": "Assigned users.",
+            "items": {
+              "$ref": "#/$defs/IssueUser"
+            },
+            "title": "Assignees",
+            "type": "array"
+          },
+          "author": {
+            "$ref": "#/$defs/IssueUser",
+            "description": "Issue author.",
+            "title": "Author"
+          },
+          "closed_at": {
+            "description": "Closure timestamp, if closed.",
+            "format": "date-time",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "closed_by": {
+            "$ref": "#/$defs/IssueUser",
+            "description": "User who closed the issue.",
+            "title": "Closed By"
+          },
+          "confidential": {
+            "description": "Whether the issue is confidential.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Nullable issue description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "description": "Whether discussion is locked, if specified.",
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "due_date": {
+            "description": "Nullable due date.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "health_status": {
+            "description": "Nullable health status (Ultimate).",
+            "title": "Health Status",
+            "type": "string"
+          },
+          "id": {
+            "description": "Global issue ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Issue internal ID within its project.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "issue_type": {
+            "description": "Issue type.",
+            "title": "Issue Type",
+            "type": "string"
+          },
+          "labels": {
+            "description": "Label names, or detailed label objects when requested.",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/IssueLabel"
+                }
+              ]
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "milestone": {
+            "$ref": "#/$defs/IssueMilestone",
+            "description": "Assigned milestone, if any.",
+            "title": "Milestone"
+          },
+          "moved_to_id": {
+            "description": "Destination issue ID after a move.",
+            "title": "Moved To Id",
+            "type": "integer"
+          },
+          "project_id": {
+            "description": "Project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Issue state.",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Issue title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Issue web URL.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Nullable issue weight (Premium/Ultimate).",
+            "title": "Weight",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "iid", "project_id", "title", "state"],
+        "title": "Issue",
+        "type": "object"
+      },
+      "IssueLabel": {
+        "additionalProperties": true,
+        "properties": {
+          "color": {
+            "description": "Label background color.",
+            "title": "Color",
+            "type": "string"
+          },
+          "description": {
+            "description": "Nullable label description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_html": {
+            "description": "Nullable HTML label description.",
+            "title": "Description Html",
+            "type": "string"
+          },
+          "name": {
+            "description": "Label name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "text_color": {
+            "description": "Label text color.",
+            "title": "Text Color",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "title": "IssueLabel",
+        "type": "object"
+      },
+      "IssueMilestone": {
+        "additionalProperties": true,
+        "properties": {
+          "description": {
+            "description": "Nullable milestone description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Nullable milestone due date.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "id": {
+            "description": "Milestone ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Milestone internal ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Milestone title.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "IssueMilestone",
+        "type": "object"
+      },
+      "IssueUser": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Avatar URL, if available.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "IssueUser",
+        "type": "object"
+      },
+      "ListIssuesResponse": {
+        "properties": {
+          "issues": {
+            "description": "One page of accessible issues matching the filters.",
+            "items": {
+              "$ref": "#/$defs/Issue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          }
+        },
+        "required": ["issues"],
+        "title": "ListIssuesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListIssuesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

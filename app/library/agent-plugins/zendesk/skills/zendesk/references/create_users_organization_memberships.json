@@ -1,0 +1,124 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a new organization membership for a specific user in Zendesk by assigning a user to an organization. Use when you need to associate an existing user with an organization so they can access organization-specific tickets and data. This action targets a specific user by their ID. This action is idempotent in that creating a duplicate membership will fail with a specific error, but the operation itself is not naturally idempotent.",
+  "inputSchema": {
+    "description": "Request parameters for creating a user organization membership.",
+    "properties": {
+      "default": {
+        "default": false,
+        "description": "Denotes whether this is the default organization membership for the user. If set to true, this membership will be the primary organization for the user. Defaults to false if not specified.",
+        "examples": [false],
+        "human_parameter_description": "Whether this should be the user's default organization. When true, this becomes the primary organization for the user. Defaults to false.",
+        "human_parameter_name": "Default",
+        "title": "Default",
+        "type": "boolean"
+      },
+      "organization_id": {
+        "description": "The ID of the organization to assign the user to. Must be a non-null integer. Obtain from zendesk.get_all_zendesk_organizations or zendesk.get_zendesk_organization_BY_ID; do not guess or fabricate IDs.",
+        "examples": [26925678097820],
+        "human_parameter_description": "Enter the numeric ID of the organization to which the user should be assigned. You can find organization IDs by listing or searching organizations in Zendesk.",
+        "human_parameter_name": "Organization ID",
+        "minimum": 1,
+        "title": "Organization Id",
+        "type": "integer"
+      },
+      "user_id": {
+        "description": "The ID of the user for whom to create the organization membership. Must be a non-null integer. Obtain from ZENDESK_LIST_USERS or ZENDESK_SEARCH_USERS; do not guess or fabricate IDs.",
+        "examples": [26923127464348],
+        "human_parameter_description": "Enter the numeric ID of the user for whom to create the organization membership. You can find user IDs by listing or searching users in Zendesk.",
+        "human_parameter_name": "User ID",
+        "minimum": 1,
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id", "organization_id"],
+    "title": "CreateUsersOrganizationMembershipsRequest",
+    "type": "object"
+  },
+  "name": "create_users_organization_memberships",
+  "outputSchema": {
+    "$defs": {
+      "CreateUsersOrganizationMembershipsResponse": {
+        "description": "Response model for creating a user organization membership.",
+        "properties": {
+          "organization_membership": {
+            "$ref": "#/$defs/OrganizationMembershipResponse",
+            "description": "The created organization membership object",
+            "title": "Organization Membership"
+          }
+        },
+        "required": ["organization_membership"],
+        "title": "CreateUsersOrganizationMembershipsResponse",
+        "type": "object"
+      },
+      "OrganizationMembershipResponse": {
+        "description": "Organization membership object returned from the API.",
+        "properties": {
+          "created_at": {
+            "description": "When this record was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Denotes whether this is the default organization membership for the user",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Automatically assigned when the membership is created",
+            "title": "Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "The ID of the organization associated with this user",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "organization_name": {
+            "description": "The name of the organization associated with this user",
+            "title": "Organization Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When this record last got updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "The API url of this membership",
+            "title": "Url",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "The ID of the user for whom this membership belongs",
+            "title": "User Id",
+            "type": "integer"
+          },
+          "view_tickets": {
+            "description": "Denotes whether the user can or cannot have access to all organization's tickets",
+            "title": "View Tickets",
+            "type": "boolean"
+          }
+        },
+        "required": ["user_id", "organization_id"],
+        "title": "OrganizationMembershipResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateUsersOrganizationMembershipsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Delete an existing note (comment) from a merge request. This permanently removes the specified note. See https://docs.gitlab.com/api/notes/#delete-a-merge-request-note.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Project-local IID of the merge request.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "note_id": {
+        "description": "ID of the merge request note to delete.",
+        "title": "Note Id",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid", "note_id"],
+    "title": "DeleteMergeRequestNoteRequest",
+    "type": "object"
+  },
+  "name": "delete_merge_request_note",
+  "outputSchema": {
+    "$defs": {
+      "DeleteMergeRequestNoteResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "success": {
+            "description": "Whether the merge request note was deleted.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "DeleteMergeRequestNoteResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteMergeRequestNoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

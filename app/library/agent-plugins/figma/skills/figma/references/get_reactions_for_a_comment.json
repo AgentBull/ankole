@@ -1,0 +1,143 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves reactions for a specific comment in a Figma file.",
+  "inputSchema": {
+    "description": "Request schema for retrieving all reactions for a specific comment in a Figma file.",
+    "properties": {
+      "comment_id": {
+        "description": "Identifier of the comment.",
+        "examples": ["1234567890", "0987654321"],
+        "title": "Comment Id",
+        "type": "string"
+      },
+      "cursor": {
+        "description": "Pagination cursor from `next_page` of a previous response. Omit or use null for the first page.",
+        "examples": ["opaque_cursor_string_from_previous_response"],
+        "title": "Cursor",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "Key for the Figma file or branch. Can be a file key (from URL) or a branch key. To get a branch key, use `GET /v1/files/:key` with the `branch_data` query parameter.",
+        "examples": ["your_figma_file_key", "a_specific_branch_key"],
+        "title": "File Key",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "comment_id"],
+    "title": "GetReactionsForACommentRequest",
+    "type": "object"
+  },
+  "name": "get_reactions_for_a_comment",
+  "outputSchema": {
+    "$defs": {
+      "GetReactionsForACommentResponse": {
+        "description": "Response schema detailing the reactions for the specified comment.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Contains the list of reactions and pagination details.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetReactionsForACommentResponse",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "description": "Pagination URLs (`prev_page`, `next_page`) for navigating results.",
+            "title": "Pagination"
+          },
+          "reactions": {
+            "description": "List of reaction objects.",
+            "items": {
+              "$ref": "#/$defs/Reaction"
+            },
+            "title": "Reactions",
+            "type": "array"
+          }
+        },
+        "required": ["reactions", "pagination"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Pagination": {
+        "properties": {
+          "next_page": {
+            "description": "URL for the next page of reactions, if any.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "prev_page": {
+            "description": "URL for the previous page of reactions, if any.",
+            "title": "Prev Page",
+            "type": "string"
+          }
+        },
+        "title": "Pagination",
+        "type": "object"
+      },
+      "Reaction": {
+        "properties": {
+          "created_at": {
+            "description": "UTC ISO 8601 timestamp of reaction creation.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "emoji": {
+            "description": "Emoji shortcode (e.g., `:heart:`, `:+1::skin-tone-2:`). See full list of accepted shortcodes at https://raw.githubusercontent.com/missive/emoji-mart/main/packages/emoji-mart-data/sets/14/native.json.",
+            "title": "Emoji",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "User who added the reaction.",
+            "title": "User"
+          }
+        },
+        "required": ["user", "emoji", "created_at"],
+        "title": "Reaction",
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "handle": {
+            "description": "User's display name.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "description": "User's unique identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "img_url": {
+            "description": "User's profile image URL.",
+            "title": "Img Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "handle", "img_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetReactionsForACommentResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

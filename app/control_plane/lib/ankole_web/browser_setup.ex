@@ -539,7 +539,7 @@ defmodule AnkoleWeb.BrowserSetup do
       conn
       |> WebSession.clear_setup_session()
       |> WebSession.put_authentication(completed.browser, completed.authentication)
-      |> BrowserAPI.ok(%{returnTo: AnkoleWeb.SiteAdminConsole.path()})
+      |> BrowserAPI.ok(%{returnTo: AnkoleWeb.SiteAdminConsole.url(conn)})
     else
       {:error, status, reason} -> error(conn, status, reason)
       {:error, reason} -> AnkoleWeb.BrowserAPI.Error.login(reason)

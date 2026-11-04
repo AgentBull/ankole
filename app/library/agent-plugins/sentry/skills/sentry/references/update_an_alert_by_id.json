@@ -1,0 +1,230 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates a Sentry alert workflow by ID, including its name, filters, triggers, or configuration; the enabled setting defaults to true unless set otherwise or explicitly set to null. This endpoint is in beta and supported by New Monitors and Alerts.",
+  "inputSchema": {
+    "description": "Request schema for updating an existing Sentry alert (workflow).",
+    "properties": {
+      "action_filters": {
+        "description": "The filters to run before the action will fire and the action(s) to fire. logicType can be one of: any-short, all, or none. See API documentation for full schema of conditions and actions.",
+        "examples": [
+          [
+            {
+              "actions": [
+                {
+                  "config": {
+                    "targetDisplay": "null",
+                    "targetIdentifier": "56789",
+                    "targetType": "user"
+                  },
+                  "data": {},
+                  "id": "123",
+                  "integrationId": "null",
+                  "status": "active",
+                  "type": "email"
+                }
+              ],
+              "conditions": [
+                {
+                  "comparison": {
+                    "level": 50,
+                    "match": "eq"
+                  },
+                  "conditionResult": true,
+                  "type": "level"
+                }
+              ],
+              "logicType": "any"
+            }
+          ]
+        ],
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Action Filters",
+        "type": "array"
+      },
+      "config": {
+        "additionalProperties": true,
+        "description": "Typically the frequency at which the alert will fire, in minutes. Valid values: 0 (0 minutes), 5 (5 minutes), 10 (10 minutes), 30 (30 minutes), 60 (1 hour), 180 (3 hours), 720 (12 hours), 1440 (24 hours)",
+        "examples": [
+          {
+            "frequency": 3600
+          },
+          {
+            "frequency": 60
+          }
+        ],
+        "title": "Config",
+        "type": "object"
+      },
+      "enabled": {
+        "default": true,
+        "description": "Whether the alert is enabled or disabled",
+        "examples": [true, false],
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "environment": {
+        "description": "The name of the environment for the alert to evaluate in",
+        "examples": ["production", "staging", "development"],
+        "title": "Environment",
+        "type": "string"
+      },
+      "id": {
+        "description": "The ID of the existing alert",
+        "examples": ["123456", "789012"],
+        "title": "Id",
+        "type": "string"
+      },
+      "name": {
+        "description": "The name of the alert",
+        "examples": ["Updated Alert Name - Test Update", "Critical Error Alert"],
+        "maxLength": 256,
+        "title": "Name",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["mia-yd", "my-org-slug", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "triggers": {
+        "additionalProperties": true,
+        "description": "The conditions on which the alert will trigger. logicType can be one of: any-short, all, or none. Common trigger types include: first_seen_event, issue_resolved_trigger, reappeared_event, regression_event",
+        "examples": [
+          {
+            "actions": [],
+            "conditions": [
+              {
+                "comparison": true,
+                "conditionResult": true,
+                "type": "first_seen_event"
+              },
+              {
+                "comparison": true,
+                "conditionResult": true,
+                "type": "issue_resolved_trigger"
+              }
+            ],
+            "logicType": "any-short",
+            "organizationId": "1"
+          }
+        ],
+        "title": "Triggers",
+        "type": "object"
+      },
+      "workflow_id": {
+        "description": "The ID of the alert you'd like to query.",
+        "examples": [2104912, 123456],
+        "title": "Workflow Id",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id_or_slug", "workflow_id", "name"],
+    "title": "UpdateAnAlertByIdRequest",
+    "type": "object"
+  },
+  "name": "update_an_alert_by_id",
+  "outputSchema": {
+    "$defs": {
+      "UpdateAnAlertByIdResponse": {
+        "description": "Response schema containing the updated alert details.",
+        "properties": {
+          "action_filters": {
+            "description": "The filters and actions for the alert",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Action Filters",
+            "type": "array"
+          },
+          "config": {
+            "additionalProperties": true,
+            "description": "Alert configuration including frequency",
+            "title": "Config",
+            "type": "object"
+          },
+          "createdBy": {
+            "description": "User who created the alert",
+            "title": "Created By",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the alert was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateUpdated": {
+            "description": "ISO 8601 timestamp when the alert was last updated",
+            "title": "Date Updated",
+            "type": "string"
+          },
+          "detectorIds": {
+            "description": "List of detector IDs associated with this alert",
+            "items": {
+              "type": "string"
+            },
+            "title": "Detector Ids",
+            "type": "array"
+          },
+          "enabled": {
+            "description": "Whether the alert is enabled or disabled",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "environment": {
+            "description": "Environment the alert evaluates in",
+            "title": "Environment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the alert",
+            "title": "Id",
+            "type": "string"
+          },
+          "lastTriggered": {
+            "description": "ISO 8601 timestamp when the alert was last triggered",
+            "title": "Last Triggered",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the alert",
+            "title": "Name",
+            "type": "string"
+          },
+          "organizationId": {
+            "description": "ID of the organization this alert belongs to",
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "triggers": {
+            "additionalProperties": true,
+            "description": "Trigger conditions for the alert",
+            "title": "Triggers",
+            "type": "object"
+          }
+        },
+        "required": ["config", "dateCreated", "dateUpdated", "enabled", "id", "name", "organizationId"],
+        "title": "UpdateAnAlertByIdResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateAnAlertByIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

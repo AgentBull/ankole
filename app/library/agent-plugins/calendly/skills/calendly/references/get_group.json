@@ -1,0 +1,70 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves all attributes of a specific Calendly group by its UUID; the group must exist.",
+  "inputSchema": {
+    "description": "Request schema for `GetGroup`",
+    "properties": {
+      "uuid": {
+        "description": "Unique identifier (UUID) of the Calendly group.",
+        "examples": ["f73d2bab-7586-4679-8c11-8ebb2gh9fca7"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "GetGroupRequest",
+    "type": "object"
+  },
+  "name": "get_group",
+  "outputSchema": {
+    "$defs": {
+      "GetGroupResponse": {
+        "description": "Response schema for `GetGroup`, containing all attributes of the specified Calendly group.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp indicating when the group was created (ISO 8601 format).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the group.",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization": {
+            "description": "URI of the organization this group belongs to.",
+            "title": "Organization",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp indicating when the group was last updated (ISO 8601 format).",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the group.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "name"],
+        "title": "GetGroupResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetGroupResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

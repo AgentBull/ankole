@@ -1,0 +1,421 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a Sentry metric alert rule for an organization, mandating a 'critical' trigger, typically for a single project, where actions may require Sentry integrations.",
+  "inputSchema": {
+    "description": "Request schema for `CreateOrganizationAlertRule`",
+    "properties": {
+      "activationCondition": {
+        "description": "Optional integer. Represents a trigger condition for when to start monitoring the alert rule, typically used when `monitorType` indicates conditional monitoring. Consult Sentry documentation for specific values.",
+        "examples": ["1", "5"],
+        "title": "Activation Condition",
+        "type": "integer"
+      },
+      "aggregate": {
+        "description": "The aggregate function used in this alert rule. Valid functions include `count`, `count_unique`, `percentage`, `avg`, `apdex`, `failure_rate`, `p50`, `p75`, `p95`, `p99`, `p100`, and `percentile`. Refer to Sentry's [Metric Alert Rule Types] documentation for valid configurations based on dataset and query type.",
+        "examples": ["count", "p95", "failure_rate"],
+        "title": "Aggregate",
+        "type": "string"
+      },
+      "comparisonDelta": {
+        "description": "Optional. The time delta in minutes for the comparison period. Required when using a percentage change threshold (e.g., 'X% higher/lower compared to `comparisonDelta` minutes ago'). Cannot be used for Crash Free Session Rate or Crash Free User Rate alerts.",
+        "examples": ["60", "1440"],
+        "title": "Comparison Delta",
+        "type": "integer"
+      },
+      "dataset": {
+        "description": "The Sentry dataset this query will execute on. Valid values include `events`, `transactions`, `metrics`, `sessions`, and `generic-metrics`. Defaults to `events` if not specified. Refer to Sentry's [Metric Alert Rule Types] documentation for valid configurations.",
+        "examples": ["transactions", "metrics", "events"],
+        "title": "Dataset",
+        "type": "string"
+      },
+      "environment": {
+        "description": "The name of the environment to filter by. If None or omitted, the alert rule applies to all environments.",
+        "examples": ["production", "staging"],
+        "title": "Environment",
+        "type": "string"
+      },
+      "eventTypes": {
+        "description": "A list of event types this alert will relate to. Valid values are `default` (for events captured via Capture Message), `error`, and `transaction`.",
+        "examples": [["error"], ["default", "transaction"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Event Types",
+        "type": "array"
+      },
+      "monitorType": {
+        "description": "Integer representing the monitor type. This determines if the alert rule is actively monitored or monitored based on a specific activation condition. Consult Sentry documentation for specific values and their meanings.",
+        "examples": ["0", "1"],
+        "title": "Monitor Type",
+        "type": "integer"
+      },
+      "name": {
+        "description": "The name for the alert rule. Maximum length of 256 characters.",
+        "examples": ["High Error Rate Notification", "Critical Latency Alert"],
+        "title": "Name",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization to which this alert rule belongs.",
+        "examples": ["my-org-slug", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "owner": {
+        "description": "The ID of the Sentry team or user that owns this alert rule. Can be a numeric ID or a string in the format 'team:<team_id>' or 'user:<user_id>'.",
+        "examples": ["team:12345", "user:67890", "123"],
+        "title": "Owner",
+        "type": "string"
+      },
+      "projects": {
+        "description": "A list of project slugs to filter by. For metric alerts, this list is typically limited to containing a single project slug.",
+        "examples": [["my-project-slug"], ["another-project"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Projects",
+        "type": "array"
+      },
+      "query": {
+        "description": "An event search query to filter events for the alert. For example, to include only transactions with status code 400, use `http.status_code:400`. Use an empty string for no filter.",
+        "examples": ["http.status_code:500", "level:error transaction.duration:>1s"],
+        "title": "Query",
+        "type": "string"
+      },
+      "queryType": {
+        "description": "The type of query. If no value is provided, `queryType` defaults based on the specified `dataset`. Supported values: `0` (Error events: event.type:error), `1` (Transaction events: event.type:transaction), `2` (None: for datasets like metrics that don't use this). See Sentry's [Metric Alert Rule Types] for valid configurations.",
+        "examples": ["0", "1"],
+        "title": "Query Type",
+        "type": "integer"
+      },
+      "resolveThreshold": {
+        "description": "Optional. The numeric value the metric must reach to resolve an active alert. If not provided, it's automatically set based on the lowest severity trigger's `alertThreshold` and `thresholdType`. For example, if an alert triggers 'Above' 50, it might resolve 'Below' 50. If `thresholdType` is `0` (Above), `resolveThreshold` must typically be less than or equal to the critical threshold; if `thresholdType` is `1` (Below), it must be greater than or equal.",
+        "examples": ["40", "20"],
+        "title": "Resolve Threshold",
+        "type": "integer"
+      },
+      "thresholdType": {
+        "description": "The comparison operator for the critical and warning thresholds. `0` for 'Above' and `1` for 'Below'. The resolved threshold uses the opposite operator. For percentage change thresholds, `0` means 'Higher than' and `1` means 'Lower than'.",
+        "examples": ["0", "1"],
+        "title": "Threshold Type",
+        "type": "integer"
+      },
+      "timeWindow": {
+        "description": "The time period in minutes to aggregate over. Supported values: `1` (1 minute), `5` (5 minutes), `10` (10 minutes), `15` (15 minutes), `30` (30 minutes), `60` (1 hour), `120` (2 hours), `240` (4 hours), `1440` (24 hours).",
+        "examples": ["60", "10", "1440"],
+        "title": "Time Window",
+        "type": "integer"
+      },
+      "triggers": {
+        "description": "List of trigger configurations. Each trigger must specify `label` ('critical' or 'warning'; 'critical' is mandatory), `alertThreshold` (numeric value to trigger), and `actions`. Each action specifies `type` (e.g., 'email', 'slack', 'msteams', 'pagerduty', 'sentry_app', 'sentry_notification', 'opsgenie'), `targetType` (must be lowercase, valid values: 'user', 'team', 'specific', 'sentry_app'), `targetIdentifier` (ID/name, format varies by type e.g., email string, PagerDuty integer). Optional action fields include `inputChannelId` (Slack-specific), `integrationId` (usually required, except for 'email'/'sentry_app'), `sentryAppId` (if action `type` is 'sentry_app'), and `priority` (e.g., PagerDuty 'critical', Opsgenie 'P1').",
+        "examples": [
+          "[{\"label\": \"critical\", \"alertThreshold\": 50, \"actions\": [{\"type\": \"slack\", \"targetType\": \"specific\", \"targetIdentifier\": \"#get-crit\", \"inputChannelId\": \"2454362\", \"integrationId\": 653532}]}, {\"label\": \"warning\", \"alertThreshold\": 25, \"actions\": []}]",
+          "[{\"label\": \"critical\", \"alertThreshold\": 100, \"actions\": [{\"type\": \"email\", \"targetType\": \"team\", \"targetIdentifier\": \"12345\", \"integrationId\": null}]}]"
+        ],
+        "items": {},
+        "title": "Triggers",
+        "type": "array"
+      }
+    },
+    "required": [
+      "organization_id_or_slug",
+      "name",
+      "aggregate",
+      "timeWindow",
+      "projects",
+      "query",
+      "thresholdType",
+      "triggers"
+    ],
+    "title": "CreateOrganizationAlertRuleRequest",
+    "type": "object"
+  },
+  "name": "create_organization_alert_rule",
+  "outputSchema": {
+    "$defs": {
+      "Action": {
+        "description": "Action to execute when a trigger fires",
+        "properties": {
+          "alertRuleTriggerId": {
+            "description": "ID of the parent trigger",
+            "title": "Alert Rule Trigger Id",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the action was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the action",
+            "title": "Id",
+            "type": "string"
+          },
+          "integrationId": {
+            "description": "ID of the integration if applicable",
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "sentryAppId": {
+            "description": "ID of the Sentry app if applicable",
+            "title": "Sentry App Id",
+            "type": "string"
+          },
+          "targetIdentifier": {
+            "description": "Identifier of the target (email, channel ID, etc)",
+            "title": "Target Identifier",
+            "type": "string"
+          },
+          "targetType": {
+            "description": "Type of target for the action",
+            "title": "Target Type",
+            "type": "string"
+          },
+          "type": {
+            "description": "Action type (email, slack, msteams, pagerduty, sentry_app, sentry_notification, opsgenie)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "alertRuleTriggerId", "type", "dateCreated"],
+        "title": "Action",
+        "type": "object"
+      },
+      "CreateOrganizationAlertRuleResponse": {
+        "description": "Response schema for `CreateOrganizationAlertRule`",
+        "properties": {
+          "aggregate": {
+            "description": "The aggregate function (count, count_unique, percentage, avg, apdex, failure_rate, p50, p75, p95, p99, p100, percentile)",
+            "title": "Aggregate",
+            "type": "string"
+          },
+          "comparisonDelta": {
+            "description": "Time delta in minutes for comparison period when using percentage change threshold (null if not applicable)",
+            "title": "Comparison Delta",
+            "type": "number"
+          },
+          "createdBy": {
+            "$ref": "#/$defs/CreatedBy",
+            "title": "Created By"
+          },
+          "dataset": {
+            "description": "The dataset name (events, transactions, metrics, sessions, generic_metrics)",
+            "title": "Dataset",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the alert rule was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateModified": {
+            "description": "ISO 8601 timestamp when the alert rule was last modified",
+            "title": "Date Modified",
+            "type": "string"
+          },
+          "environment": {
+            "description": "The environment filter (null if applies to all environments)",
+            "title": "Environment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the alert rule",
+            "title": "Id",
+            "type": "string"
+          },
+          "includeAllProjects": {
+            "description": "Whether the alert rule applies to all projects in the organization",
+            "title": "Include All Projects",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Name of the metric alert rule",
+            "title": "Name",
+            "type": "string"
+          },
+          "organizationId": {
+            "description": "The organization identifier",
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "originalAlertRuleId": {
+            "description": "ID of the original alert rule if this is a copy (null otherwise)",
+            "title": "Original Alert Rule Id",
+            "type": "string"
+          },
+          "owner": {
+            "description": "Team or user that owns the alert rule (format: team:id or user:id, null if unassigned)",
+            "title": "Owner",
+            "type": "string"
+          },
+          "projects": {
+            "description": "Array of project slugs that this alert rule monitors",
+            "items": {
+              "type": "string"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "query": {
+            "description": "The event search query filter",
+            "title": "Query",
+            "type": "string"
+          },
+          "queryType": {
+            "description": "Type of query (0 = standard, 1 = crash rate, 2 = error)",
+            "title": "Query Type",
+            "type": "integer"
+          },
+          "resolution": {
+            "description": "The resolution period in minutes",
+            "title": "Resolution",
+            "type": "number"
+          },
+          "resolveThreshold": {
+            "description": "The threshold value for resolving the alert (null if not set)",
+            "title": "Resolve Threshold",
+            "type": "number"
+          },
+          "status": {
+            "description": "Status of the alert rule (0 = active)",
+            "title": "Status",
+            "type": "integer"
+          },
+          "thresholdPeriod": {
+            "description": "The number of time periods that must breach the threshold",
+            "title": "Threshold Period",
+            "type": "integer"
+          },
+          "thresholdType": {
+            "description": "The comparison operator type (0 = higher than, 1 = lower than)",
+            "title": "Threshold Type",
+            "type": "integer"
+          },
+          "timeWindow": {
+            "description": "The time period in minutes for evaluating the alert",
+            "title": "Time Window",
+            "type": "number"
+          },
+          "triggers": {
+            "description": "Array of trigger configurations for the alert rule",
+            "items": {
+              "$ref": "#/$defs/Trigger"
+            },
+            "title": "Triggers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "organizationId",
+          "status",
+          "queryType",
+          "dataset",
+          "query",
+          "aggregate",
+          "thresholdType",
+          "timeWindow",
+          "resolution",
+          "thresholdPeriod",
+          "triggers",
+          "projects",
+          "includeAllProjects",
+          "dateModified",
+          "dateCreated",
+          "createdBy"
+        ],
+        "title": "CreateOrganizationAlertRuleResponse",
+        "type": "object"
+      },
+      "CreatedBy": {
+        "description": "Information about the user or service that created the alert rule",
+        "properties": {
+          "email": {
+            "description": "Email of the creator (may be empty for service accounts)",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID of the creator",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the creator",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "email"],
+        "title": "CreatedBy",
+        "type": "object"
+      },
+      "Trigger": {
+        "description": "Trigger configuration for the alert rule",
+        "properties": {
+          "actions": {
+            "description": "Array of actions to execute when trigger fires",
+            "items": {
+              "$ref": "#/$defs/Action"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "alertRuleId": {
+            "description": "ID of the parent alert rule",
+            "title": "Alert Rule Id",
+            "type": "string"
+          },
+          "alertThreshold": {
+            "description": "The threshold value that triggers the alert",
+            "title": "Alert Threshold",
+            "type": "number"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the trigger was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the trigger",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "description": "Label for the trigger (critical or warning)",
+            "title": "Label",
+            "type": "string"
+          },
+          "resolveThreshold": {
+            "description": "The threshold value for resolving the alert (null if not set)",
+            "title": "Resolve Threshold",
+            "type": "number"
+          },
+          "thresholdType": {
+            "description": "The comparison operator type for this trigger (0 = higher than, 1 = lower than)",
+            "title": "Threshold Type",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "alertRuleId", "label", "thresholdType", "alertThreshold", "dateCreated", "actions"],
+        "title": "Trigger",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateOrganizationAlertRuleResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

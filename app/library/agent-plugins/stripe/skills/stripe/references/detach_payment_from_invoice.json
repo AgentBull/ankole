@@ -1,0 +1,733 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to detach a payment from an invoice. Use when you need to remove a payment from an invoice's list of payments. Only works with paid or canceled PaymentIntents.",
+  "inputSchema": {
+    "description": "Request model for detaching a payment from an invoice.",
+    "properties": {
+      "id": {
+        "description": "The ID of the invoice from which to detach the payment.",
+        "examples": ["in_1T00bFP3BKO35fWyEzzFPhcy"],
+        "title": "Id",
+        "type": "string"
+      },
+      "payment_intent": {
+        "description": "The ID of the PaymentIntent to detach from the invoice. Either payment_intent or payment_record must be provided.",
+        "examples": ["pi_3T1KGxP3BKO35fWy16lilCkm"],
+        "title": "Payment Intent",
+        "type": "string"
+      },
+      "payment_record": {
+        "description": "The ID of the payment record to detach from the invoice. Either payment_intent or payment_record must be provided.",
+        "examples": ["pr_1T00bFP3BKO35fWyEzzFPhcy"],
+        "title": "Payment Record",
+        "type": "string"
+      }
+    },
+    "required": ["id"],
+    "title": "DetachPaymentFromInvoiceRequest",
+    "type": "object"
+  },
+  "name": "detach_payment_from_invoice",
+  "outputSchema": {
+    "$defs": {
+      "AddressResponse": {
+        "description": "Address information.",
+        "properties": {
+          "city": {
+            "description": "City, district, suburb, town, or village",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2)",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Street, PO Box, or company name",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Apartment, suite, unit, or building",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "ZIP or postal code",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State, county, province, or region",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "AddressResponse",
+        "type": "object"
+      },
+      "AutomaticTaxLiabilityResponse": {
+        "description": "Account liable for tax under automatic tax settings.",
+        "properties": {
+          "account": {
+            "description": "Connected account reference",
+            "title": "Account",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of account (account, self)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AutomaticTaxLiabilityResponse",
+        "type": "object"
+      },
+      "AutomaticTaxResponse": {
+        "description": "Tax calculation settings and results.",
+        "properties": {
+          "disabled_reason": {
+            "description": "Why automatic tax disabled (finalization_requires_location_inputs, finalization_system_error)",
+            "title": "Disabled Reason",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether Stripe automatically computes tax",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "liability": {
+            "$ref": "#/$defs/AutomaticTaxLiabilityResponse",
+            "description": "Account liable for tax",
+            "title": "Liability"
+          },
+          "provider": {
+            "description": "Tax provider powering automatic tax",
+            "title": "Provider",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status (complete, failed, requires_location_inputs)",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTaxResponse",
+        "type": "object"
+      },
+      "CustomerShippingResponse": {
+        "description": "Shipping information for customer.",
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/AddressResponse",
+            "description": "Shipping address",
+            "title": "Address"
+          },
+          "name": {
+            "description": "Customer name",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Customer phone including extension",
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": ["address", "name"],
+        "title": "CustomerShippingResponse",
+        "type": "object"
+      },
+      "CustomerTaxId": {
+        "description": "Customer tax identifier.",
+        "properties": {
+          "type": {
+            "description": "Tax ID type (ad_nrt, ar_cuit, eu_vat, us_ein, gb_vat, au_abn, in_gst, etc.)",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "Tax ID value",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "CustomerTaxId",
+        "type": "object"
+      },
+      "DetachPaymentFromInvoiceResponse": {
+        "description": "Response model after detaching a payment from an invoice.",
+        "properties": {
+          "customer_phone": {
+            "description": "Customer phone",
+            "title": "Customer Phone",
+            "type": "string"
+          },
+          "lines": {
+            "$ref": "#/$defs/InvoiceLinesResponse",
+            "description": "Individual line items making up invoice",
+            "title": "Lines"
+          },
+          "account_country": {
+            "description": "Country code of the business issuing the invoice",
+            "title": "Account Country",
+            "type": "string"
+          },
+          "subtotal": {
+            "description": "Total before invoice discounts/tax",
+            "title": "Subtotal",
+            "type": "integer"
+          },
+          "total_taxes": {
+            "description": "Aggregate tax information",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Total Taxes",
+            "type": "array"
+          },
+          "application": {
+            "description": "ID of Connect Application that created invoice",
+            "title": "Application",
+            "type": "string"
+          },
+          "test_clock": {
+            "description": "ID of test clock this invoice belongs to",
+            "title": "Test Clock",
+            "type": "string"
+          },
+          "account_tax_ids": {
+            "description": "Tax identifiers associated with the account",
+            "items": {
+              "type": "string"
+            },
+            "title": "Account Tax Ids",
+            "type": "array"
+          },
+          "description": {
+            "description": "Arbitrary string",
+            "title": "Description",
+            "type": "string"
+          },
+          "total": {
+            "description": "Total after discounts and taxes",
+            "title": "Total",
+            "type": "integer"
+          },
+          "hosted_invoice_url": {
+            "description": "URL for hosted invoice page",
+            "title": "Hosted Invoice Url",
+            "type": "string"
+          },
+          "customer_email": {
+            "description": "Customer email",
+            "title": "Customer Email",
+            "type": "string"
+          },
+          "customer_address": {
+            "$ref": "#/$defs/AddressResponse",
+            "description": "Customer's billing address",
+            "title": "Customer Address"
+          },
+          "created": {
+            "description": "Unix timestamp of creation",
+            "title": "Created",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Invoice status (draft, open, paid, uncollectible, void)",
+            "title": "Status",
+            "type": "string"
+          },
+          "customer_shipping": {
+            "$ref": "#/$defs/CustomerShippingResponse",
+            "description": "Shipping information",
+            "title": "Customer Shipping"
+          },
+          "total_pretax_credit_amounts": {
+            "description": "Pretax credits (discounts, grants)",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Total Pretax Credit Amounts",
+            "type": "array"
+          },
+          "discounts": {
+            "description": "Applied discounts",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "issuer": {
+            "$ref": "#/$defs/IssuerResponse",
+            "description": "Connected account issuing invoice",
+            "title": "Issuer"
+          },
+          "billing_reason": {
+            "description": "Reason invoice was created (manual, subscription_create, subscription_cycle, etc.)",
+            "title": "Billing Reason",
+            "type": "string"
+          },
+          "total_excluding_tax": {
+            "description": "Total excluding all taxes",
+            "title": "Total Excluding Tax",
+            "type": "integer"
+          },
+          "latest_revision": {
+            "description": "ID of most recent non-draft revision",
+            "title": "Latest Revision",
+            "type": "string"
+          },
+          "automatic_tax": {
+            "$ref": "#/$defs/AutomaticTaxResponse",
+            "description": "Tax calculation settings and results",
+            "title": "Automatic Tax"
+          },
+          "attempted": {
+            "description": "Whether payment attempt has been made",
+            "title": "Attempted",
+            "type": "boolean"
+          },
+          "amount_shipping": {
+            "description": "Sum of all shipping amounts",
+            "title": "Amount Shipping",
+            "type": "integer"
+          },
+          "customer": {
+            "description": "ID of customer to be billed",
+            "title": "Customer",
+            "type": "string"
+          },
+          "next_payment_attempt": {
+            "description": "Next payment attempt time",
+            "title": "Next Payment Attempt",
+            "type": "integer"
+          },
+          "account_name": {
+            "description": "Public name of the issuing business",
+            "title": "Account Name",
+            "type": "string"
+          },
+          "status_transitions": {
+            "$ref": "#/$defs/StatusTransitions",
+            "description": "Timestamps of status updates",
+            "title": "Status Transitions"
+          },
+          "starting_balance": {
+            "description": "Customer balance before finalization",
+            "title": "Starting Balance",
+            "type": "integer"
+          },
+          "number": {
+            "description": "Unique identifying string for emails",
+            "title": "Number",
+            "type": "string"
+          },
+          "collection_method": {
+            "description": "Either charge_automatically or send_invoice",
+            "title": "Collection Method",
+            "type": "string"
+          },
+          "on_behalf_of": {
+            "description": "Account for which payment funds intended",
+            "title": "On Behalf Of",
+            "type": "string"
+          },
+          "receipt_number": {
+            "description": "Transaction number on receipts",
+            "title": "Receipt Number",
+            "type": "string"
+          },
+          "total_discount_amounts": {
+            "description": "Discount aggregates per discount",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Total Discount Amounts",
+            "type": "array"
+          },
+          "default_tax_rates": {
+            "description": "Tax rates applied to invoice",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Default Tax Rates",
+            "type": "array"
+          },
+          "period_start": {
+            "description": "Start of usage period for items",
+            "title": "Period Start",
+            "type": "integer"
+          },
+          "auto_advance": {
+            "description": "Controls automatic collection behavior",
+            "title": "Auto Advance",
+            "type": "boolean"
+          },
+          "default_payment_method": {
+            "description": "ID of default payment method for invoice",
+            "title": "Default Payment Method",
+            "type": "string"
+          },
+          "customer_tax_ids": {
+            "description": "Customer tax identifiers",
+            "items": {
+              "$ref": "#/$defs/CustomerTaxId"
+            },
+            "title": "Customer Tax Ids",
+            "type": "array"
+          },
+          "ending_balance": {
+            "description": "Customer balance after finalization",
+            "title": "Ending Balance",
+            "type": "integer"
+          },
+          "post_payment_credit_notes_amount": {
+            "description": "Total post-payment credit notes",
+            "title": "Post Payment Credit Notes Amount",
+            "type": "integer"
+          },
+          "attempt_count": {
+            "description": "Number of payment attempts made",
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "subtotal_excluding_tax": {
+            "description": "Subtotal excluding tax in cents",
+            "title": "Subtotal Excluding Tax",
+            "type": "integer"
+          },
+          "statement_descriptor": {
+            "description": "Extra credit card statement information",
+            "title": "Statement Descriptor",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value pairs for structured data storage",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "last_finalization_error": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Error from previous finalization attempt",
+            "title": "Last Finalization Error",
+            "type": "object"
+          },
+          "customer_tax_exempt": {
+            "description": "Tax exempt status (exempt, none, reverse)",
+            "title": "Customer Tax Exempt",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "True for live mode; false for test mode",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code",
+            "title": "Currency",
+            "type": "string"
+          },
+          "amount_remaining": {
+            "description": "Difference between amount_due and amount_paid",
+            "title": "Amount Remaining",
+            "type": "integer"
+          },
+          "payment_settings": {
+            "$ref": "#/$defs/PaymentSettingsResponse",
+            "description": "PaymentIntent configuration settings",
+            "title": "Payment Settings"
+          },
+          "period_end": {
+            "description": "End of usage period for items",
+            "title": "Period End",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the invoice.",
+            "title": "Id",
+            "type": "string"
+          },
+          "webhooks_delivered_at": {
+            "description": "Successful webhook delivery timestamp",
+            "title": "Webhooks Delivered At",
+            "type": "integer"
+          },
+          "footer": {
+            "description": "Footer displayed on invoice",
+            "title": "Footer",
+            "type": "string"
+          },
+          "amount_due": {
+            "description": "Final amount due at this time for this invoice in cents",
+            "title": "Amount Due",
+            "type": "integer"
+          },
+          "invoice_pdf": {
+            "description": "PDF download link",
+            "title": "Invoice Pdf",
+            "type": "string"
+          },
+          "effective_at": {
+            "description": "Date invoice is in effect",
+            "title": "Effective At",
+            "type": "integer"
+          },
+          "pre_payment_credit_notes_amount": {
+            "description": "Total pre-payment credit notes",
+            "title": "Pre Payment Credit Notes Amount",
+            "type": "integer"
+          },
+          "automatically_finalizes_at": {
+            "description": "Unix timestamp when draft invoice will be automatically finalized",
+            "title": "Automatically Finalizes At",
+            "type": "integer"
+          },
+          "object": {
+            "description": "String representing object type; always 'invoice'",
+            "title": "Object",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Payment due date; null for automatic collection",
+            "title": "Due Date",
+            "type": "integer"
+          },
+          "default_source": {
+            "description": "ID of default payment source",
+            "title": "Default Source",
+            "type": "string"
+          },
+          "customer_name": {
+            "description": "Customer name",
+            "title": "Customer Name",
+            "type": "string"
+          },
+          "amount_paid": {
+            "description": "Amount in cents that was paid",
+            "title": "Amount Paid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount_due",
+          "amount_paid",
+          "amount_remaining",
+          "amount_shipping",
+          "attempt_count",
+          "attempted",
+          "auto_advance",
+          "automatic_tax",
+          "collection_method",
+          "created",
+          "currency",
+          "customer",
+          "default_tax_rates",
+          "discounts",
+          "issuer",
+          "lines",
+          "livemode",
+          "period_end",
+          "period_start",
+          "post_payment_credit_notes_amount",
+          "pre_payment_credit_notes_amount",
+          "starting_balance",
+          "status_transitions",
+          "subtotal",
+          "total"
+        ],
+        "title": "DetachPaymentFromInvoiceResponse",
+        "type": "object"
+      },
+      "InvoiceLinesResponse": {
+        "description": "List of invoice line items.",
+        "properties": {
+          "data": {
+            "description": "Line item objects",
+            "items": {
+              "$ref": "#/$defs/LineItemResponse"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether more items exist",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "Always 'list'",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "List access URL",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "InvoiceLinesResponse",
+        "type": "object"
+      },
+      "IssuerResponse": {
+        "description": "Connected account issuing invoice.",
+        "properties": {
+          "account": {
+            "description": "Connected account ID",
+            "title": "Account",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type (account, self)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "IssuerResponse",
+        "type": "object"
+      },
+      "LineItemResponse": {
+        "description": "Individual line item on invoice.",
+        "properties": {
+          "amount": {
+            "description": "Amount in cents",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Item description",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique line item identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live or test mode",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "Always 'line_item'",
+            "title": "Object",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "amount", "currency", "livemode"],
+        "title": "LineItemResponse",
+        "type": "object"
+      },
+      "PaymentSettingsResponse": {
+        "description": "PaymentIntent configuration settings.",
+        "properties": {
+          "default_mandate": {
+            "description": "Mandate ID for payment",
+            "title": "Default Mandate",
+            "type": "string"
+          },
+          "payment_method_options": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Payment method-specific configuration",
+            "title": "Payment Method Options",
+            "type": "object"
+          },
+          "payment_method_types": {
+            "description": "Allowed payment method types",
+            "items": {
+              "type": "string"
+            },
+            "title": "Payment Method Types",
+            "type": "array"
+          }
+        },
+        "title": "PaymentSettingsResponse",
+        "type": "object"
+      },
+      "StatusTransitions": {
+        "description": "Timestamps of status updates.",
+        "properties": {
+          "finalized_at": {
+            "description": "Invoice finalization timestamp",
+            "title": "Finalized At",
+            "type": "integer"
+          },
+          "marked_uncollectible_at": {
+            "description": "Uncollectible marking timestamp",
+            "title": "Marked Uncollectible At",
+            "type": "integer"
+          },
+          "paid_at": {
+            "description": "Payment completion timestamp",
+            "title": "Paid At",
+            "type": "integer"
+          },
+          "voided_at": {
+            "description": "Void timestamp",
+            "title": "Voided At",
+            "type": "integer"
+          }
+        },
+        "title": "StatusTransitions",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DetachPaymentFromInvoiceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

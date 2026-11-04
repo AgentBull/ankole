@@ -1,0 +1,171 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve Zendesk view filter definitions, including condition, grouping, output, and sorting options available for constructing views.",
+  "inputSchema": {
+    "description": "Request parameters for listing Zendesk view filter definitions.",
+    "properties": {},
+    "title": "GetViewDefinitionsRequest",
+    "type": "object"
+  },
+  "name": "get_view_definitions",
+  "outputSchema": {
+    "$defs": {
+      "GetViewDefinitionsResponse": {
+        "description": "Response containing Zendesk view filter definitions.",
+        "properties": {
+          "definitions": {
+            "$ref": "#/$defs/ViewDefinitions",
+            "description": "View definitions containing conditions and options",
+            "title": "Definitions"
+          }
+        },
+        "title": "GetViewDefinitionsResponse",
+        "type": "object"
+      },
+      "ViewConditionItem": {
+        "description": "A condition item for view filter definitions.",
+        "properties": {
+          "field": {
+            "description": "The field name for the condition",
+            "title": "Field",
+            "type": "string"
+          },
+          "operator": {
+            "description": "The operator for the condition",
+            "title": "Operator",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value for the condition",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "ViewConditionItem",
+        "type": "object"
+      },
+      "ViewDefinitions": {
+        "description": "Container for all view definitions.",
+        "properties": {
+          "conditions_all": {
+            "description": "Conditions that must all match (AND logic)",
+            "items": {
+              "$ref": "#/$defs/ViewConditionItem"
+            },
+            "title": "Conditions All",
+            "type": "array"
+          },
+          "conditions_any": {
+            "description": "Conditions where any must match (OR logic)",
+            "items": {
+              "$ref": "#/$defs/ViewConditionItem"
+            },
+            "title": "Conditions Any",
+            "type": "array"
+          },
+          "groupables": {
+            "description": "Fields available for grouping",
+            "items": {
+              "$ref": "#/$defs/ViewGroupable"
+            },
+            "title": "Groupables",
+            "type": "array"
+          },
+          "output": {
+            "description": "Fields available for view output/display",
+            "items": {
+              "$ref": "#/$defs/ViewOutput"
+            },
+            "title": "Output",
+            "type": "array"
+          },
+          "sortables": {
+            "description": "Fields available for sorting",
+            "items": {
+              "$ref": "#/$defs/ViewSortable"
+            },
+            "title": "Sortables",
+            "type": "array"
+          }
+        },
+        "title": "ViewDefinitions",
+        "type": "object"
+      },
+      "ViewGroupable": {
+        "description": "A groupable field definition for views.",
+        "properties": {
+          "field": {
+            "description": "The field name",
+            "title": "Field",
+            "type": "string"
+          },
+          "label": {
+            "description": "Human-readable label for the field",
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of the field",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "ViewGroupable",
+        "type": "object"
+      },
+      "ViewOutput": {
+        "description": "An output field definition for views.",
+        "properties": {
+          "field": {
+            "description": "The field name",
+            "title": "Field",
+            "type": "string"
+          },
+          "label": {
+            "description": "Human-readable label for the field",
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of the field",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "ViewOutput",
+        "type": "object"
+      },
+      "ViewSortable": {
+        "description": "A sortable field definition for views.",
+        "properties": {
+          "field": {
+            "description": "The field name",
+            "title": "Field",
+            "type": "string"
+          },
+          "label": {
+            "description": "Human-readable label for the field",
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "title": "ViewSortable",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetViewDefinitionsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

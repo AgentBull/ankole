@@ -1,0 +1,337 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a new issue in a GitLab project. Use when you need to report a bug, request a feature, or track a task within a specific project.",
+  "inputSchema": {
+    "properties": {
+      "assignee_id": {
+        "description": "The ID of the user to assign the issue to. Only appears on GitLab Free.",
+        "examples": [1],
+        "title": "Assignee Id",
+        "type": "integer"
+      },
+      "assignee_ids": {
+        "description": "The IDs of the users to assign the issue to. Premium and Ultimate only.",
+        "examples": [[1, 2]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Assignee Ids",
+        "type": "array"
+      },
+      "confidential": {
+        "default": false,
+        "description": "Set an issue to be confidential. Default is false.",
+        "title": "Confidential",
+        "type": "boolean"
+      },
+      "created_at": {
+        "description": "When the issue was created. Date time string, ISO 8601 formatted, for example `2016-03-11T03:45:40Z`. Requires administrator or project/group owner rights.",
+        "examples": ["2016-03-11T03:45:40Z"],
+        "title": "Created At",
+        "type": "string"
+      },
+      "description": {
+        "description": "The description of an issue. Limited to 1,048,576 characters.",
+        "examples": ["This is a bug report."],
+        "title": "Description",
+        "type": "string"
+      },
+      "discussion_to_resolve": {
+        "description": "The ID of a discussion to resolve. This fills out the issue with a default description and mark the discussion as resolved. Use in combination with `merge_request_to_resolve_discussions_of`.",
+        "title": "Discussion To Resolve",
+        "type": "string"
+      },
+      "due_date": {
+        "description": "The due date. Date time string in the format `YYYY-MM-DD`, for example `2016-03-11`.",
+        "examples": ["2016-03-11"],
+        "title": "Due Date",
+        "type": "string"
+      },
+      "epic_id": {
+        "description": "ID of the epic to add the issue to. Valid values are greater than or equal to 0. Premium and Ultimate only.",
+        "examples": [42],
+        "title": "Epic Id",
+        "type": "integer"
+      },
+      "epic_iid": {
+        "description": "IID of the epic to add the issue to. Valid values are greater than or equal to 0. (deprecated, scheduled for removal in API version 5). Premium and Ultimate only.",
+        "examples": [5],
+        "title": "Epic Iid",
+        "type": "integer"
+      },
+      "id": {
+        "description": "The global ID or URL-encoded path of the project (e.g., '12345', 'my-group/my-project', or 'my-group%2Fmy-project').",
+        "examples": ["12345", "my-group/my-project", "my-group%2Fmy-project"],
+        "title": "Id",
+        "type": "string"
+      },
+      "iid": {
+        "description": "The internal ID of the project’s issue (requires administrator or project owner rights).",
+        "title": "Iid",
+        "type": "integer"
+      },
+      "issue_type": {
+        "default": "issue",
+        "description": "The type of issue. One of `issue`, `incident`, `test_case` or `task`. Default is `issue`.",
+        "enum": ["issue", "incident", "test_case", "task"],
+        "title": "Issue Type",
+        "type": "string"
+      },
+      "labels": {
+        "description": "Comma-separated label names to assign to the new issue. If a label does not already exist, this creates a new project label and assigns it to the issue.",
+        "examples": ["bug,critical"],
+        "title": "Labels",
+        "type": "string"
+      },
+      "merge_request_to_resolve_discussions_of": {
+        "description": "The IID of a merge request in which to resolve all issues. This fills out the issue with a default description and mark all discussions as resolved. When passing a description or title, these values take precedence over the default values.",
+        "title": "Merge Request To Resolve Discussions Of",
+        "type": "integer"
+      },
+      "milestone_id": {
+        "description": "The global ID of a milestone to assign issue. To find the `milestone_id` associated with a milestone, view an issue with the milestone assigned and use the API to retrieve the issue’s details.",
+        "title": "Milestone Id",
+        "type": "integer"
+      },
+      "title": {
+        "description": "The title of an issue.",
+        "examples": ["Issue with authentication"],
+        "title": "Title",
+        "type": "string"
+      },
+      "weight": {
+        "description": "The weight of the issue. Valid values are greater than or equal to 0. Premium and Ultimate only.",
+        "examples": [5],
+        "title": "Weight",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "title"],
+    "title": "CreateProjectIssueRequest",
+    "type": "object"
+  },
+  "name": "create_project_issue",
+  "outputSchema": {
+    "$defs": {
+      "CreateProjectIssueResponse": {
+        "properties": {
+          "_links": {
+            "additionalProperties": true,
+            "description": "Links related to the issue.",
+            "title": " Links",
+            "type": "object"
+          },
+          "assignee": {
+            "additionalProperties": true,
+            "description": "The assignee of the issue (deprecated).",
+            "title": "Assignee",
+            "type": "object"
+          },
+          "assignees": {
+            "description": "List of assignees.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Assignees",
+            "type": "array"
+          },
+          "author": {
+            "additionalProperties": true,
+            "description": "The author of the issue.",
+            "title": "Author",
+            "type": "object"
+          },
+          "closed_at": {
+            "description": "Timestamp of when the issue was closed.",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "closed_by": {
+            "additionalProperties": true,
+            "description": "User who closed the issue.",
+            "title": "Closed By",
+            "type": "object"
+          },
+          "created_at": {
+            "description": "Timestamp of when the issue was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the issue.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "description": "Indicates if discussion on the issue is locked.",
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "downvotes": {
+            "description": "Number of downvotes.",
+            "title": "Downvotes",
+            "type": "integer"
+          },
+          "due_date": {
+            "description": "Due date of the issue.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "epic": {
+            "additionalProperties": true,
+            "description": "Epic associated with the issue.",
+            "title": "Epic",
+            "type": "object"
+          },
+          "health_status": {
+            "description": "Health status of the issue.",
+            "title": "Health Status",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the issue.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "The internal ID of the issue.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "List of labels assigned to the issue.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "merge_requests_count": {
+            "description": "Number of merge requests related to the issue.",
+            "title": "Merge Requests Count",
+            "type": "integer"
+          },
+          "milestone": {
+            "additionalProperties": true,
+            "description": "Milestone assigned to the issue.",
+            "title": "Milestone",
+            "type": "object"
+          },
+          "project_id": {
+            "description": "The ID of the project the issue belongs to.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "references": {
+            "additionalProperties": true,
+            "description": "References related to the issue.",
+            "title": "References",
+            "type": "object"
+          },
+          "severity": {
+            "description": "Severity of the issue.",
+            "title": "Severity",
+            "type": "string"
+          },
+          "state": {
+            "description": "The state of the issue (e.g., opened, closed).",
+            "title": "State",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Indicates if the user is subscribed to the issue.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "task_completion_status": {
+            "additionalProperties": true,
+            "description": "Task completion status.",
+            "title": "Task Completion Status",
+            "type": "object"
+          },
+          "time_stats": {
+            "additionalProperties": true,
+            "description": "Time tracking statistics for the issue.",
+            "title": "Time Stats",
+            "type": "object"
+          },
+          "title": {
+            "description": "The title of the issue.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of the issue.",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp of when the issue was last updated.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "upvotes": {
+            "description": "Number of upvotes.",
+            "title": "Upvotes",
+            "type": "integer"
+          },
+          "user_notes_count": {
+            "description": "Number of user notes on the issue.",
+            "title": "User Notes Count",
+            "type": "integer"
+          },
+          "web_url": {
+            "description": "URL of the issue.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Weight of the issue.",
+            "title": "Weight",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "id",
+          "iid",
+          "title",
+          "state",
+          "assignees",
+          "type",
+          "labels",
+          "upvotes",
+          "downvotes",
+          "merge_requests_count",
+          "author",
+          "created_at",
+          "updated_at",
+          "subscribed",
+          "user_notes_count",
+          "web_url",
+          "references",
+          "time_stats",
+          "_links",
+          "task_completion_status"
+        ],
+        "title": "CreateProjectIssueResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateProjectIssueResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

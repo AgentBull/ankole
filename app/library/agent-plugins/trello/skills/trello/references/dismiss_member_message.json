@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Dismisses a one-time message for a Trello member, adding it to their dismissed messages list. This endpoint marks a specific one-time message (notification, banner, or prompt) as dismissed for the specified member. Once dismissed, the message will not be shown to the user again. Common use cases include dismissing onboarding messages, feature announcements, or team-specific prompts. Requires write access to the member's account. Use 'me' as idMember for the authenticated user.",
+  "inputSchema": {
+    "description": "Request schema for dismissing a one-time message for a Trello member.",
+    "properties": {
+      "idMember": {
+        "description": "The ID or username of the Trello member. Use 'me' for the authenticated user.",
+        "examples": ["me", "5a1c0b1c8e9e6d1d3c4b5a6f", "johndoe123"],
+        "title": "Id Member",
+        "type": "string"
+      },
+      "value": {
+        "description": "The message identifier to dismiss. This is a string key representing the one-time message, notification, or banner that should be marked as dismissed for the member.",
+        "examples": ["new-user-onboarding", "team-template-picker-697231bb61291ca2afe0d39e"],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idMember", "value"],
+    "title": "DismissMemberMessageRequest",
+    "type": "object"
+  },
+  "name": "dismiss_member_message",
+  "outputSchema": {
+    "$defs": {
+      "DismissMemberMessageResponse": {
+        "description": "Response schema for dismissing a one-time message for a Trello member.\n\nThe API returns HTTP 200 OK on success with an empty response body.\nThe official Trello API documentation confirms the endpoint returns '200 OK - Success'\nbut does not provide a detailed response body schema or example, indicating an empty response.",
+        "properties": {},
+        "title": "DismissMemberMessageResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DismissMemberMessageResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

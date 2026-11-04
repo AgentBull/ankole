@@ -1,0 +1,133 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves all check items from a Trello checklist. Returns item details including name, position, completion state, and optionally due dates and assigned members.",
+  "inputSchema": {
+    "description": "Request schema for retrieving check items from a specific Trello checklist.",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Comma-separated list of fields to return for each check item, or 'all' for all fields. Available fields: name, nameData, pos, state, type, due, dueReminder, idMember.",
+        "examples": ["all", "name,pos,state", "name,state"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "filter": {
+        "default": "all",
+        "description": "Filter which check items to return. 'all' returns all items, 'none' returns no items.",
+        "examples": ["all", "none"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "The unique identifier (24-character hex string) of the Trello checklist to retrieve items from.",
+        "examples": ["5f9f1b9b3b9b4e001f3e8b9a"],
+        "title": "Id Checklist",
+        "type": "string"
+      }
+    },
+    "required": ["idChecklist"],
+    "title": "GetChecklistsCheckItemsByIdChecklistRequest",
+    "type": "object"
+  },
+  "name": "get_checklists_check_items_by_id_checklist",
+  "outputSchema": {
+    "$defs": {
+      "CheckItem": {
+        "additionalProperties": true,
+        "description": "A single check item within a Trello checklist.",
+        "properties": {
+          "creationMethod": {
+            "description": "Method used to create the check item, if tracked.",
+            "title": "Creation Method",
+            "type": "string"
+          },
+          "due": {
+            "description": "Due date for the check item in ISO 8601 format, if set.",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Due reminder setting in minutes before due date, if set.",
+            "title": "Due Reminder",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The unique identifier for the check item (24-character hex string).",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "The ID of the parent checklist containing this check item.",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member assigned to this check item, if any.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name/text of the check item.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "additionalProperties": true,
+            "description": "Additional data about the name, including emoji information.",
+            "title": "Name Data",
+            "type": "object"
+          },
+          "pos": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "The position of the item within the checklist (numeric value).",
+            "title": "Pos"
+          },
+          "state": {
+            "description": "The completion status of the item: 'complete' or 'incomplete'.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "CheckItem",
+        "type": "object"
+      },
+      "GetChecklistsCheckItemsByIdChecklistResponse": {
+        "description": "Response schema containing a list of check items from the specified Trello checklist.",
+        "properties": {
+          "check_items": {
+            "description": "List of check items from the checklist. May be empty if no items exist or filter='none'.",
+            "items": {
+              "$ref": "#/$defs/CheckItem"
+            },
+            "title": "Check Items",
+            "type": "array"
+          }
+        },
+        "required": ["check_items"],
+        "title": "GetChecklistsCheckItemsByIdChecklistResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetChecklistsCheckItemsByIdChecklistResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

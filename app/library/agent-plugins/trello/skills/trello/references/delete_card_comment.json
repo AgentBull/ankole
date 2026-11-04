@@ -1,0 +1,55 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a specific comment action (identified by `idAction`) from a Trello card (identified by `idCard`); this operation is irreversible and only affects comments.",
+  "inputSchema": {
+    "description": "Defines the parameters required to delete a specific comment from an action on a Trello card.",
+    "properties": {
+      "idAction": {
+        "description": "The ID of the comment action to be deleted. This identifies the specific comment within the card's activity.",
+        "examples": ["54de4a978fca077904689072"],
+        "title": "Id Action",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "The ID or shortLink of the Trello card from which the comment will be deleted.",
+        "examples": ["60d5ecb8e7a5a8000d4c3b2a", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "idAction"],
+    "title": "DeleteCardCommentRequest",
+    "type": "object"
+  },
+  "name": "delete_card_comment",
+  "outputSchema": {
+    "$defs": {
+      "DeleteCardCommentResponse": {
+        "description": "Represents the outcome of the request to delete a comment from a Trello card action.",
+        "properties": {
+          "value": {
+            "description": "DELETE operations in Trello API return an empty or null-like response body. Success is indicated by HTTP 200 status code rather than response body content.",
+            "title": "Value",
+            "type": "null"
+          }
+        },
+        "title": "DeleteCardCommentResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteCardCommentResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

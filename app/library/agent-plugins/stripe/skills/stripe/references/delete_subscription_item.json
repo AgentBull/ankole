@@ -1,0 +1,75 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a subscription item without canceling the subscription. Use when you need to remove a specific item from a customer's subscription while keeping the subscription active.",
+  "inputSchema": {
+    "description": "Request model for deleting a subscription item.",
+    "properties": {
+      "clear_usage": {
+        "description": "Delete all usage records for the subscription item. Only applicable when the plan's usage_type is metered.",
+        "title": "Clear Usage",
+        "type": "boolean"
+      },
+      "item": {
+        "description": "The identifier of the subscription item to be deleted.",
+        "examples": ["si_TepCnwmto1pIcs"],
+        "title": "Item",
+        "type": "string"
+      },
+      "proration_behavior": {
+        "description": "Handles proration adjustments during billing changes. Default: create_prorations. Options: always_invoice (invoice immediately), create_prorations (add proration items to next invoice), none (disable proration).",
+        "enum": ["always_invoice", "create_prorations", "none"],
+        "title": "Proration Behavior",
+        "type": "string"
+      },
+      "proration_date": {
+        "description": "Sets the calculation date for proration as a Unix timestamp. Useful for matching previewed amounts from the upcoming invoice endpoint.",
+        "title": "Proration Date",
+        "type": "integer"
+      }
+    },
+    "required": ["item"],
+    "title": "DeleteSubscriptionItemRequest",
+    "type": "object"
+  },
+  "name": "delete_subscription_item",
+  "outputSchema": {
+    "$defs": {
+      "DeleteSubscriptionItemResponse": {
+        "description": "Response model for a deleted subscription item.",
+        "properties": {
+          "deleted": {
+            "description": "Confirmation flag set to true upon successful deletion.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The subscription item identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'subscription_item' for this endpoint.",
+            "title": "Object",
+            "type": "string"
+          }
+        },
+        "title": "DeleteSubscriptionItemResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteSubscriptionItemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

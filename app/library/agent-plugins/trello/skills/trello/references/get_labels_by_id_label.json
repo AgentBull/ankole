@@ -1,0 +1,85 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information for a specific Trello label by its ID, allowing selection of specific fields to return.",
+  "inputSchema": {
+    "description": "Request schema for `GetLabelsByIdLabel`",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Fields to return for the label. Allowed: `color`, `idBoard`, `name`.",
+        "examples": ["all", "name,color", "idBoard"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idLabel": {
+        "description": "The unique identifier of the Trello label to retrieve.",
+        "title": "Id Label",
+        "type": "string"
+      }
+    },
+    "required": ["idLabel"],
+    "title": "GetLabelsByIdLabelRequest",
+    "type": "object"
+  },
+  "name": "get_labels_by_id_label",
+  "outputSchema": {
+    "$defs": {
+      "GetLabelsByIdLabelResponse": {
+        "description": "Response schema for `GetLabelsByIdLabel` - represents a Trello Label object",
+        "properties": {
+          "color": {
+            "description": "The color of the label (e.g., 'green', 'yellow', 'red', 'blue', 'purple', 'orange', 'black', 'sky', 'pink', 'lime', or null for no color).",
+            "title": "Color",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the label.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board the label belongs to.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "idOrganization": {
+            "description": "The ID of the organization (workspace) the label belongs to.",
+            "title": "Id Organization",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name/text of the label.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "The ARI (Atlassian Resource Identifier) node ID of the label.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "uses": {
+            "description": "The number of cards using this label.",
+            "title": "Uses",
+            "type": "integer"
+          }
+        },
+        "title": "GetLabelsByIdLabelResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetLabelsByIdLabelResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

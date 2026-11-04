@@ -1,0 +1,71 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently delete an existing note from a merge request discussion. See https://docs.gitlab.com/api/discussions/#delete-a-merge-request-thread-note.",
+  "inputSchema": {
+    "properties": {
+      "discussion_id": {
+        "description": "ID of the discussion containing the note.",
+        "title": "Discussion Id",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Project-local IID of the merge request.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "note_id": {
+        "description": "ID of the discussion note to delete.",
+        "title": "Note Id",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid", "discussion_id", "note_id"],
+    "title": "DeleteMergeRequestDiscussionNoteRequest",
+    "type": "object"
+  },
+  "name": "delete_merge_request_discussion_note",
+  "outputSchema": {
+    "$defs": {
+      "DeleteMergeRequestDiscussionNoteResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "success": {
+            "description": "Whether the merge request discussion note was deleted.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "DeleteMergeRequestDiscussionNoteResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteMergeRequestDiscussionNoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

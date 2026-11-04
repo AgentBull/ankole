@@ -1,0 +1,175 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists a page of milestones for a specific project, with optional filtering by state, title, search terms, or IID.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "Project identifier: numeric ID (e.g., 123) or namespace path in format 'namespace/project-name' (e.g., 'my-group/my-project'). Path must use forward slash / as separator. URL-encoding is handled automatically.",
+        "examples": ["123", "my-group/my-project"],
+        "title": "Id"
+      },
+      "iids": {
+        "description": "Return milestones with specific internal IDs. Ignored if include_ancestors is true.",
+        "examples": [[1, 2, 3]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Iids[]",
+        "type": "array"
+      },
+      "include_ancestors": {
+        "description": "Include milestones from parent groups. When true, iids parameter is ignored.",
+        "examples": [false],
+        "title": "Include Ancestors",
+        "type": "boolean"
+      },
+      "search": {
+        "description": "Search milestones by title or description content.",
+        "examples": ["release"],
+        "title": "Search",
+        "type": "string"
+      },
+      "state": {
+        "description": "Filter by milestone state: 'active' for open milestones or 'closed' for completed ones.",
+        "enum": ["active", "closed"],
+        "examples": ["active"],
+        "title": "State",
+        "type": "string"
+      },
+      "title": {
+        "description": "Return milestones matching the exact title.",
+        "examples": ["v1.0", "Sprint 5"],
+        "title": "Title",
+        "type": "string"
+      },
+      "updated_after": {
+        "description": "Return milestones updated on or after this time. Expected in ISO 8601 format (2019-03-15T08:00:00Z).",
+        "examples": ["2019-03-01T08:00:00Z"],
+        "format": "date-time",
+        "title": "Updated After",
+        "type": "string"
+      },
+      "updated_before": {
+        "description": "Return milestones updated on or before this time. Expected in ISO 8601 format (2019-03-15T08:00:00Z).",
+        "examples": ["2019-03-15T08:00:00Z"],
+        "format": "date-time",
+        "title": "Updated Before",
+        "type": "string"
+      }
+    },
+    "required": ["id"],
+    "title": "ListMilestonesRequest",
+    "type": "object"
+  },
+  "name": "list_milestones",
+  "outputSchema": {
+    "$defs": {
+      "ListMilestonesResponse": {
+        "properties": {
+          "milestones": {
+            "description": "List of milestones for the project.",
+            "items": {
+              "$ref": "#/$defs/MilestoneItem"
+            },
+            "title": "Milestones",
+            "type": "array"
+          }
+        },
+        "required": ["milestones"],
+        "title": "ListMilestonesResponse",
+        "type": "object"
+      },
+      "MilestoneItem": {
+        "properties": {
+          "created_at": {
+            "description": "Milestone creation timestamp.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Milestone description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Milestone due date in YYYY-MM-DD format.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "expired": {
+            "description": "Whether the milestone has passed its due date.",
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Milestone unique ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Milestone internal ID (project-scoped).",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "project_id": {
+            "description": "Project ID this milestone belongs to.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "start_date": {
+            "description": "Milestone start date in YYYY-MM-DD format.",
+            "title": "Start Date",
+            "type": "string"
+          },
+          "state": {
+            "description": "Milestone state (active or closed).",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Milestone title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Milestone last update timestamp.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Web URL to view the milestone.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "iid", "project_id", "title", "state", "created_at", "updated_at"],
+        "title": "MilestoneItem",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListMilestonesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

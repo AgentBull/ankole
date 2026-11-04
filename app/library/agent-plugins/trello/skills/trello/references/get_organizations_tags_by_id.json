@@ -1,0 +1,70 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists all collections (tags) associated with a Trello organization. Use when you need to retrieve the organization's tags or collections.",
+  "inputSchema": {
+    "description": "Request schema for `GetOrganizationsTagsById`",
+    "properties": {
+      "id": {
+        "description": "The ID or name of the Organization",
+        "examples": ["my-trello-org", "697214b73f53a12dda42706b"],
+        "title": "Id",
+        "type": "string"
+      }
+    },
+    "required": ["id"],
+    "title": "GetOrganizationsTagsByIdRequest",
+    "type": "object"
+  },
+  "name": "get_organizations_tags_by_id",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationsTagsByIdResponse": {
+        "description": "Response schema for `GetOrganizationsTagsById`\n\nThe API returns an array of tag objects directly.",
+        "properties": {
+          "tags": {
+            "description": "List of tags (collections) for the organization",
+            "items": {
+              "$ref": "#/$defs/OrganizationTag"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags"],
+        "title": "GetOrganizationsTagsByIdResponse",
+        "type": "object"
+      },
+      "OrganizationTag": {
+        "description": "A tag (collection) object in Trello",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the tag",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the tag",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "OrganizationTag",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationsTagsByIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

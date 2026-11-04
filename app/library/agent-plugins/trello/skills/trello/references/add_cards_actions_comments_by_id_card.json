@@ -1,0 +1,441 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Adds a new text comment, which can include @mentions, to a Trello card specified by its ID; file attachments are not supported via this action.",
+  "inputSchema": {
+    "description": "Request schema for `AddCardsActionsCommentsByIdCard`",
+    "properties": {
+      "idCard": {
+        "description": "ID or shortLink of the Trello card to add the comment to.",
+        "examples": ["60d21b4667d9290008f9b727", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "text": {
+        "description": "Comment text, between 1 and 16384 characters. Supports @mentions to notify Trello users.",
+        "examples": [
+          "This is an important update!",
+          "What's the status on this task? @username",
+          "Review needed by EOD. Thanks!"
+        ],
+        "title": "Text",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "text"],
+    "title": "AddCardsActionsCommentsByIdCardRequest",
+    "type": "object"
+  },
+  "name": "add_cards_actions_comments_by_id_card",
+  "outputSchema": {
+    "$defs": {
+      "ActionData": {
+        "description": "Relevant information regarding the action.",
+        "properties": {
+          "board": {
+            "$ref": "#/$defs/BoardInfo",
+            "title": "Board"
+          },
+          "card": {
+            "$ref": "#/$defs/CardInfo",
+            "title": "Card"
+          },
+          "list": {
+            "$ref": "#/$defs/ListInfo",
+            "title": "List"
+          },
+          "text": {
+            "description": "The comment text content.",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": ["text", "card", "board", "list"],
+        "title": "ActionData",
+        "type": "object"
+      },
+      "ActionDisplay": {
+        "description": "Localization and display information for the action.",
+        "properties": {
+          "entities": {
+            "$ref": "#/$defs/DisplayEntities",
+            "description": "Contextual entities for the action display, including card, comment, memberCreator, and context information.",
+            "title": "Entities"
+          },
+          "translationKey": {
+            "description": "Key for translating the action display text.",
+            "title": "Translation Key",
+            "type": "string"
+          }
+        },
+        "required": ["translationKey", "entities"],
+        "title": "ActionDisplay",
+        "type": "object"
+      },
+      "ActionLimits": {
+        "description": "Limits and status information for the action.",
+        "properties": {
+          "reactions": {
+            "$ref": "#/$defs/ReactionLimits",
+            "title": "Reactions"
+          }
+        },
+        "required": ["reactions"],
+        "title": "ActionLimits",
+        "type": "object"
+      },
+      "AddCardsActionsCommentsByIdCardResponse": {
+        "description": "Response schema for `AddCardsActionsCommentsByIdCard`",
+        "properties": {
+          "appCreator": {
+            "additionalProperties": true,
+            "description": "Information about the application that created the action (may be null or empty).",
+            "title": "App Creator",
+            "type": "object"
+          },
+          "data": {
+            "$ref": "#/$defs/ActionData",
+            "title": "Data"
+          },
+          "date": {
+            "description": "ISO 8601 timestamp of when the action occurred.",
+            "title": "Date",
+            "type": "string"
+          },
+          "display": {
+            "$ref": "#/$defs/ActionDisplay",
+            "description": "Localization and display information for the action.",
+            "title": "Display"
+          },
+          "entities": {
+            "description": "List of entities referenced in the action (members, cards, comments, etc.) for rendering.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "id": {
+            "description": "The unique identifier for the action.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "The ID of the member who created the comment action.",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/$defs/ActionLimits",
+            "title": "Limits"
+          },
+          "memberCreator": {
+            "$ref": "#/$defs/MemberCreator",
+            "description": "Full member object with profile details of the action creator.",
+            "title": "Member Creator"
+          },
+          "type": {
+            "description": "The type of action performed. For comments, this will be 'commentCard'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idMemberCreator", "data", "type", "date", "limits"],
+        "title": "AddCardsActionsCommentsByIdCardResponse",
+        "type": "object"
+      },
+      "BoardInfo": {
+        "description": "Information about the board containing the card.",
+        "properties": {
+          "id": {
+            "description": "The unique identifier of the board.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the board.",
+            "title": "Name",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "The short link identifier for the board.",
+            "title": "Short Link",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "shortLink"],
+        "title": "BoardInfo",
+        "type": "object"
+      },
+      "CardInfo": {
+        "description": "Information about the card the comment was added to.",
+        "properties": {
+          "id": {
+            "description": "The unique identifier of the card.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idShort": {
+            "description": "The short numeric ID of the card.",
+            "title": "Id Short",
+            "type": "integer"
+          },
+          "name": {
+            "description": "The name of the card.",
+            "title": "Name",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "The short link identifier for the card.",
+            "title": "Short Link",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "idShort", "shortLink"],
+        "title": "CardInfo",
+        "type": "object"
+      },
+      "DisplayEntities": {
+        "additionalProperties": true,
+        "description": "Contextual entities for the action display.",
+        "properties": {
+          "card": {
+            "$ref": "#/$defs/DisplayEntityCard",
+            "description": "Card entity information.",
+            "title": "Card"
+          },
+          "comment": {
+            "$ref": "#/$defs/DisplayEntityComment",
+            "description": "Comment entity information.",
+            "title": "Comment"
+          },
+          "contextOn": {
+            "$ref": "#/$defs/DisplayEntityContextOn",
+            "description": "Context information for the action.",
+            "title": "Context On"
+          },
+          "memberCreator": {
+            "$ref": "#/$defs/DisplayEntityMemberCreator",
+            "description": "Member creator entity information.",
+            "title": "Member Creator"
+          }
+        },
+        "title": "DisplayEntities",
+        "type": "object"
+      },
+      "DisplayEntityCard": {
+        "description": "Card entity in the action display.",
+        "properties": {
+          "hideIfContext": {
+            "description": "Whether to hide this entity in certain contexts.",
+            "title": "Hide If Context",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The unique identifier of the card.",
+            "title": "Id",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "The short link identifier for the card.",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "text": {
+            "description": "Display text for the card (typically the card name).",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of entity ('card').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "shortLink", "text"],
+        "title": "DisplayEntityCard",
+        "type": "object"
+      },
+      "DisplayEntityComment": {
+        "description": "Comment entity in the action display.",
+        "properties": {
+          "text": {
+            "description": "The comment text content.",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of entity ('comment').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "text"],
+        "title": "DisplayEntityComment",
+        "type": "object"
+      },
+      "DisplayEntityContextOn": {
+        "description": "Context information for the action display.",
+        "properties": {
+          "hideIfContext": {
+            "description": "Whether to hide this entity in certain contexts.",
+            "title": "Hide If Context",
+            "type": "boolean"
+          },
+          "idContext": {
+            "description": "ID of the context object.",
+            "title": "Id Context",
+            "type": "string"
+          },
+          "translationKey": {
+            "description": "Translation key for localization.",
+            "title": "Translation Key",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of entity (typically 'translatable').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "DisplayEntityContextOn",
+        "type": "object"
+      },
+      "DisplayEntityMemberCreator": {
+        "description": "Member creator entity in the action display.",
+        "properties": {
+          "id": {
+            "description": "The unique identifier of the member.",
+            "title": "Id",
+            "type": "string"
+          },
+          "text": {
+            "description": "Display text for the member (typically the display name).",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of entity ('member').",
+            "title": "Type",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of the member.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "username", "text"],
+        "title": "DisplayEntityMemberCreator",
+        "type": "object"
+      },
+      "ListInfo": {
+        "description": "Information about the list containing the card.",
+        "properties": {
+          "id": {
+            "description": "The unique identifier of the list.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the list.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "ListInfo",
+        "type": "object"
+      },
+      "MemberCreator": {
+        "description": "Full member object with profile details of the action creator.",
+        "properties": {
+          "avatarHash": {
+            "description": "Hash identifier for the member's avatar.",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "The full name of the member.",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the member.",
+            "title": "Id",
+            "type": "string"
+          },
+          "initials": {
+            "description": "The initials of the member.",
+            "title": "Initials",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of the member.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "MemberCreator",
+        "type": "object"
+      },
+      "ReactionLimitDetail": {
+        "description": "Reaction limit detail.",
+        "properties": {
+          "disableAt": {
+            "description": "The number at which reactions are disabled (typically 1000).",
+            "title": "Disable At",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Status of the reaction limit (e.g., 'ok').",
+            "title": "Status",
+            "type": "string"
+          },
+          "warnAt": {
+            "description": "The number at which a warning is issued (typically 900).",
+            "title": "Warn At",
+            "type": "integer"
+          }
+        },
+        "required": ["status", "disableAt", "warnAt"],
+        "title": "ReactionLimitDetail",
+        "type": "object"
+      },
+      "ReactionLimits": {
+        "description": "Reaction limits for this action.",
+        "properties": {
+          "perAction": {
+            "$ref": "#/$defs/ReactionLimitDetail",
+            "description": "Per-action reaction limits.",
+            "title": "Per Action"
+          },
+          "uniquePerAction": {
+            "$ref": "#/$defs/ReactionLimitDetail",
+            "description": "Unique per-action reaction limits.",
+            "title": "Unique Per Action"
+          }
+        },
+        "required": ["perAction"],
+        "title": "ReactionLimits",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddCardsActionsCommentsByIdCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

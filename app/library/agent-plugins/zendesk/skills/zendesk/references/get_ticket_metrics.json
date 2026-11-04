@@ -1,0 +1,240 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List Zendesk ticket metric records, including response times, resolution times, and assignment statistics, for analyzing ticket performance. Supports sorting and cursor-based page requests with a page size of up to 100.",
+  "inputSchema": {
+    "description": "Request parameters for listing ticket metrics with cursor-based pagination and sorting.",
+    "properties": {
+      "page_after": {
+        "description": "Cursor token to fetch records after this position. Obtain from previous response's 'after_cursor'.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from the previous page to get the next set of results.",
+        "human_parameter_name": "After Cursor",
+        "title": "Page After",
+        "type": "string"
+      },
+      "page_before": {
+        "description": "Cursor token to fetch records before this position. Obtain from previous response's 'before_cursor'.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from the previous page to get the previous set of results.",
+        "human_parameter_name": "Before Cursor",
+        "title": "Page Before",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Number of records per page for cursor pagination (max 100). Use this for large datasets.",
+        "examples": [50],
+        "human_parameter_description": "How many ticket metrics records to return per page. Use up to 100; smaller numbers load faster.",
+        "human_parameter_name": "Page Size",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "sort_by": {
+        "description": "Field to sort results by. Prefix with '-' for descending order.",
+        "examples": ["created_at"],
+        "human_parameter_description": "Pick the field to sort by (e.g., created_at, updated_at). Add '-' prefix for descending order.",
+        "human_parameter_name": "Sort By",
+        "title": "Sort By",
+        "type": "string"
+      }
+    },
+    "title": "GetTicketMetricsRequest",
+    "type": "object"
+  },
+  "name": "get_ticket_metrics",
+  "outputSchema": {
+    "$defs": {
+      "GetTicketMetricsResponse": {
+        "description": "Response containing list of ticket metrics with pagination info.",
+        "properties": {
+          "count": {
+            "description": "Total count of ticket metrics",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "ticket_metrics": {
+            "description": "List of ticket metric records",
+            "items": {
+              "$ref": "#/$defs/TicketMetric"
+            },
+            "title": "Ticket Metrics",
+            "type": "array"
+          }
+        },
+        "required": ["ticket_metrics", "count"],
+        "title": "GetTicketMetricsResponse",
+        "type": "object"
+      },
+      "TicketMetric": {
+        "description": "Individual ticket metric record.",
+        "properties": {
+          "agent_wait_time_in_minutes": {
+            "$ref": "#/$defs/TimeMetrics",
+            "description": "Agent wait time metrics in minutes",
+            "title": "Agent Wait Time In Minutes"
+          },
+          "assigned_at": {
+            "description": "Timestamp when the ticket was assigned",
+            "title": "Assigned At",
+            "type": "string"
+          },
+          "assignee_stations": {
+            "description": "Number of assignee changes",
+            "title": "Assignee Stations",
+            "type": "integer"
+          },
+          "assignee_updated_at": {
+            "description": "Timestamp of last assignee update",
+            "title": "Assignee Updated At",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the metric was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_status_updated_at": {
+            "description": "Timestamp of custom status update",
+            "title": "Custom Status Updated At",
+            "type": "string"
+          },
+          "first_resolution_time_in_minutes": {
+            "$ref": "#/$defs/TimeMetrics",
+            "description": "Time metrics for first resolution in minutes",
+            "title": "First Resolution Time In Minutes"
+          },
+          "full_resolution_time_in_minutes": {
+            "$ref": "#/$defs/TimeMetrics",
+            "description": "Time metrics for full resolution in minutes",
+            "title": "Full Resolution Time In Minutes"
+          },
+          "group_stations": {
+            "description": "Number of group changes",
+            "title": "Group Stations",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique ticket metric ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "initially_assigned_at": {
+            "description": "Timestamp of initial assignment",
+            "title": "Initially Assigned At",
+            "type": "string"
+          },
+          "latest_comment_added_at": {
+            "description": "Timestamp of latest comment",
+            "title": "Latest Comment Added At",
+            "type": "string"
+          },
+          "on_hold_time_in_minutes": {
+            "$ref": "#/$defs/TimeMetrics",
+            "description": "On-hold time metrics in minutes",
+            "title": "On Hold Time In Minutes"
+          },
+          "reopens": {
+            "description": "Number of times ticket was reopened",
+            "title": "Reopens",
+            "type": "integer"
+          },
+          "replies": {
+            "description": "Number of replies on the ticket",
+            "title": "Replies",
+            "type": "integer"
+          },
+          "reply_time_in_minutes": {
+            "$ref": "#/$defs/TimeMetrics",
+            "description": "Time metrics for first reply in minutes",
+            "title": "Reply Time In Minutes"
+          },
+          "reply_time_in_seconds": {
+            "$ref": "#/$defs/TimeMetrics",
+            "description": "Time metrics for reply time in seconds",
+            "title": "Reply Time In Seconds"
+          },
+          "requester_updated_at": {
+            "description": "Timestamp of last requester update",
+            "title": "Requester Updated At",
+            "type": "string"
+          },
+          "requester_wait_time_in_minutes": {
+            "$ref": "#/$defs/TimeMetrics",
+            "description": "Requester wait time metrics in minutes",
+            "title": "Requester Wait Time In Minutes"
+          },
+          "solved_at": {
+            "description": "Timestamp when ticket was solved",
+            "title": "Solved At",
+            "type": "string"
+          },
+          "status_updated_at": {
+            "description": "Timestamp of last status change",
+            "title": "Status Updated At",
+            "type": "string"
+          },
+          "ticket_id": {
+            "description": "ID of the associated ticket",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "Timestamp when the metric was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the ticket metric",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "ticket_id"],
+        "title": "TicketMetric",
+        "type": "object"
+      },
+      "TimeMetrics": {
+        "description": "Time metrics with business and calendar durations in minutes.",
+        "properties": {
+          "business": {
+            "description": "Business hours duration in minutes",
+            "title": "Business",
+            "type": "integer"
+          },
+          "calendar": {
+            "description": "Calendar duration in minutes",
+            "title": "Calendar",
+            "type": "integer"
+          }
+        },
+        "title": "TimeMetrics",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTicketMetricsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

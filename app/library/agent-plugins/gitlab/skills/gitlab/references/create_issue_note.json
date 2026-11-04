@@ -1,0 +1,198 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new note (comment) on a project issue in GitLab. Use this action when you need to add a comment, provide feedback, or document information on an existing issue.",
+  "inputSchema": {
+    "properties": {
+      "body": {
+        "description": "The content of a note. Limited to 1,000,000 characters.",
+        "examples": ["This is a note on the issue."],
+        "title": "Body",
+        "type": "string"
+      },
+      "confidential": {
+        "description": "Deprecated flag for confidential notes; scheduled for removal in GitLab 16.0. Use 'internal' instead.",
+        "title": "Confidential",
+        "type": "boolean"
+      },
+      "created_at": {
+        "description": "Date time string, ISO 8601 formatted, for example 2016-03-11T03:45:40Z. Requires administrator or project/group owner rights.",
+        "examples": ["2016-03-11T03:45:40Z"],
+        "title": "Created At",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "Project identifier: numeric ID (e.g., 123) or namespace path in format 'namespace/project-name' (e.g., 'my-group/my-project'). Path must use forward slash / as separator. URL-encoding is handled automatically.",
+        "examples": ["123", "my-group/my-project"],
+        "title": "Id"
+      },
+      "internal": {
+        "description": "Controls note visibility. When set to true, the note is visible only to project members with at least Reporter role. Default is false.",
+        "examples": [false],
+        "title": "Internal",
+        "type": "boolean"
+      },
+      "issue_iid": {
+        "description": "The internal ID of a project's issue.",
+        "examples": [42],
+        "title": "Issue Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid", "body"],
+    "title": "CreateIssueNoteRequest",
+    "type": "object"
+  },
+  "name": "create_issue_note",
+  "outputSchema": {
+    "$defs": {
+      "CreateIssueNoteResponse": {
+        "properties": {
+          "attachment": {
+            "description": "URL of any attachment.",
+            "title": "Attachment",
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/$defs/NoteAuthor",
+            "description": "Author of the note.",
+            "title": "Author"
+          },
+          "body": {
+            "description": "Content of the note.",
+            "title": "Body",
+            "type": "string"
+          },
+          "confidential": {
+            "description": "Whether this note is confidential.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Creation timestamp (ISO 8601).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "ID of the note.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "internal": {
+            "description": "Whether this note is internal (visible only to members).",
+            "title": "Internal",
+            "type": "boolean"
+          },
+          "noteable_id": {
+            "description": "ID of the issue this note belongs to.",
+            "title": "Noteable Id",
+            "type": "integer"
+          },
+          "noteable_iid": {
+            "description": "Internal ID of the issue this note belongs to.",
+            "title": "Noteable Iid",
+            "type": "integer"
+          },
+          "noteable_type": {
+            "description": "Type of the noteable entity.",
+            "title": "Noteable Type",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Project ID this note belongs to.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "resolvable": {
+            "description": "Whether this note is resolvable.",
+            "title": "Resolvable",
+            "type": "boolean"
+          },
+          "system": {
+            "description": "Whether it's a system note.",
+            "title": "System",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "description": "Update timestamp (ISO 8601).",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "body",
+          "author",
+          "created_at",
+          "updated_at",
+          "system",
+          "noteable_id",
+          "noteable_type",
+          "project_id",
+          "resolvable",
+          "noteable_iid"
+        ],
+        "title": "CreateIssueNoteResponse",
+        "type": "object"
+      },
+      "NoteAuthor": {
+        "properties": {
+          "avatar_url": {
+            "description": "Avatar URL of the author.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID of the author.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the author.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "State of the author account (e.g., 'active').",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the author.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Web URL of the author's profile.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "name", "state", "web_url"],
+        "title": "NoteAuthor",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateIssueNoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

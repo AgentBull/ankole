@@ -1,0 +1,328 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update an existing Zendesk view's title, description, active status, position, or default status. Views are saved ticket filters used to organize agent workflows.",
+  "inputSchema": {
+    "description": "Request parameters for updating a Zendesk view.",
+    "properties": {
+      "active": {
+        "description": "Whether the view is active",
+        "examples": [true],
+        "human_parameter_description": "Set to true to activate the view or false to deactivate it.",
+        "human_parameter_name": "Active",
+        "title": "Active",
+        "type": "boolean"
+      },
+      "default": {
+        "description": "If true, the view is a default view",
+        "examples": [false],
+        "human_parameter_description": "Set to true to make this the default view for users.",
+        "human_parameter_name": "Default",
+        "title": "Default",
+        "type": "boolean"
+      },
+      "description": {
+        "description": "The description of the view",
+        "examples": ["View for recent tickets"],
+        "human_parameter_description": "Update the description of the view.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "position": {
+        "description": "The position of the view in the list",
+        "examples": [8],
+        "human_parameter_description": "Set the position of the view in the list (lower numbers appear first).",
+        "human_parameter_name": "Position",
+        "minimum": 0,
+        "title": "Position",
+        "type": "integer"
+      },
+      "title": {
+        "description": "The title of the view",
+        "examples": ["Updated Test View"],
+        "human_parameter_description": "Update the title/name of the view.",
+        "human_parameter_name": "Title",
+        "title": "Title",
+        "type": "string"
+      },
+      "view_id": {
+        "description": "The ID of the view to update",
+        "examples": [26923118341532],
+        "human_parameter_description": "The unique ID of the Zendesk view you want to update. You can find view IDs from the List Views action.",
+        "human_parameter_name": "View ID",
+        "minimum": 1,
+        "title": "View Id",
+        "type": "integer"
+      }
+    },
+    "required": ["view_id"],
+    "title": "UpdateViewRequest",
+    "type": "object"
+  },
+  "name": "update_view",
+  "outputSchema": {
+    "$defs": {
+      "UpdateViewResponse": {
+        "description": "Response from updating a Zendesk view.",
+        "properties": {
+          "columns": {
+            "description": "Column data for the view",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "groups": {
+            "description": "Group data for the view",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "rows": {
+            "description": "Row data for the view (if view is executed)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "view": {
+            "$ref": "#/$defs/View",
+            "description": "The updated view object returned by the API",
+            "title": "View"
+          }
+        },
+        "required": ["view"],
+        "title": "UpdateViewResponse",
+        "type": "object"
+      },
+      "View": {
+        "description": "Individual Zendesk view object.",
+        "properties": {
+          "active": {
+            "description": "Whether the view is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "conditions": {
+            "$ref": "#/$defs/ViewCondition",
+            "description": "Conditions that define when the view applies",
+            "title": "Conditions"
+          },
+          "created_at": {
+            "description": "Timestamp when the view was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether the view is a default view",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "View description",
+            "title": "Description",
+            "type": "string"
+          },
+          "execution": {
+            "$ref": "#/$defs/ViewExecution",
+            "description": "Display and execution settings for the view",
+            "title": "Execution"
+          },
+          "id": {
+            "description": "Unique view ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "position": {
+            "description": "Position in the view order",
+            "title": "Position",
+            "type": "integer"
+          },
+          "restriction": {
+            "$ref": "#/$defs/ViewRestriction",
+            "description": "Access restrictions for the view",
+            "title": "Restriction"
+          },
+          "title": {
+            "description": "View title",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the view was last updated",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "title": "View",
+        "type": "object"
+      },
+      "ViewColumn": {
+        "description": "Column definition for view display.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "Column identifier",
+            "title": "Id"
+          },
+          "title": {
+            "description": "Column title",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Column type",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL for the column",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ViewColumn",
+        "type": "object"
+      },
+      "ViewCondition": {
+        "description": "Condition object for view rules.",
+        "properties": {
+          "all": {
+            "description": "Conditions that must all be true for the view to match",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "All",
+            "type": "array"
+          },
+          "any": {
+            "description": "Conditions where any one must be true for the view to match",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Any",
+            "type": "array"
+          }
+        },
+        "title": "ViewCondition",
+        "type": "object"
+      },
+      "ViewExecution": {
+        "description": "Execution configuration for view display settings.",
+        "properties": {
+          "columns": {
+            "description": "Columns to display in the view",
+            "items": {
+              "$ref": "#/$defs/ViewColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "group": {
+            "$ref": "#/$defs/ViewExecutionGroup",
+            "description": "Grouping configuration",
+            "title": "Group"
+          },
+          "sort": {
+            "$ref": "#/$defs/ViewExecutionSort",
+            "description": "Sort configuration",
+            "title": "Sort"
+          }
+        },
+        "title": "ViewExecution",
+        "type": "object"
+      },
+      "ViewExecutionGroup": {
+        "description": "Grouping configuration for view execution.",
+        "properties": {
+          "id": {
+            "description": "Field ID to group by",
+            "title": "Id",
+            "type": "string"
+          },
+          "order": {
+            "description": "Sort order",
+            "title": "Order",
+            "type": "string"
+          },
+          "title": {
+            "description": "Display title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "ViewExecutionGroup",
+        "type": "object"
+      },
+      "ViewExecutionSort": {
+        "description": "Sort configuration for view execution.",
+        "properties": {
+          "id": {
+            "description": "Field ID to sort by",
+            "title": "Id",
+            "type": "string"
+          },
+          "order": {
+            "description": "Sort order",
+            "title": "Order",
+            "type": "string"
+          },
+          "title": {
+            "description": "Display title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "ViewExecutionSort",
+        "type": "object"
+      },
+      "ViewRestriction": {
+        "description": "Restriction settings for view access.",
+        "properties": {
+          "id": {
+            "description": "Restriction ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Type of restriction (e.g., User)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "ViewRestriction",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateViewResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

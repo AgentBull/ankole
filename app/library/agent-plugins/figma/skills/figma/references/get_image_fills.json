@@ -1,0 +1,102 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves temporary (14-day expiry) download URLs for all image fills in a Figma file; requires `imageRef` from `Paint` objects to map URLs.",
+  "inputSchema": {
+    "description": "Request schema for the `GetImageFills` action, specifying the Figma file.",
+    "properties": {
+      "file_key": {
+        "description": "The unique identifier of a Figma file. Extract this from Figma URLs: https://www.figma.com/file/{file_key}/... or https://www.figma.com/design/{file_key}/... The file_key is a 22-character alphanumeric string (e.g., 'sFHgQh9dL6369o5wrZHmdR').",
+        "examples": ["sFHgQh9dL6369o5wrZHmdR"],
+        "title": "File Key",
+        "type": "string"
+      }
+    },
+    "required": ["file_key"],
+    "title": "GetImageFillsRequest",
+    "type": "object"
+  },
+  "name": "get_image_fills",
+  "outputSchema": {
+    "$defs": {
+      "GetImageFillsResponse": {
+        "description": "Response schema for the `GetImageFills` action, containing image URLs and metadata.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Contains the mapping of image references to their download URLs, along with response status information. May be empty or null in error cases.",
+            "title": "Data"
+          },
+          "error": {
+            "description": "Error information if the request failed. Typically `null` for successful requests.",
+            "title": "Error"
+          },
+          "successfull": {
+            "description": "Indicates if the request was successful. Typically `true` for successful requests.",
+            "title": "Successfull",
+            "type": "boolean"
+          }
+        },
+        "title": "GetImageFillsResponse",
+        "type": "object"
+      },
+      "ImageFillsMapping": {
+        "additionalProperties": {
+          "format": "uri",
+          "minLength": 1,
+          "type": "string"
+        },
+        "description": "A mapping from image reference IDs to their corresponding downloadable image URLs.\n\nKeys are 40-character hexadecimal image reference IDs (found in `imageRef` attributes\nwithin Paint objects from the 'GET /v1/files/:key' endpoint).\n\nValues are temporary S3 URLs for downloading the images. These URLs expire after 14 days.",
+        "title": "ImageFillsMapping",
+        "type": "object"
+      },
+      "Meta": {
+        "description": "Metadata containing image fill URL mappings.",
+        "properties": {
+          "images": {
+            "$ref": "#/$defs/ImageFillsMapping",
+            "description": "A mapping from image reference IDs to their corresponding downloadable image URLs. Image reference IDs are 40-character hexadecimal strings found in `imageRef` attributes within Paint objects (from 'GET /v1/files/:key'). URLs expire after 14 days.",
+            "title": "Images"
+          }
+        },
+        "required": ["images"],
+        "title": "Meta",
+        "type": "object"
+      },
+      "Model": {
+        "description": "Represents the core data of the response, including image URLs and status information.",
+        "properties": {
+          "error": {
+            "description": "Indicates if an error occurred during the request. For successful requests, this value is `false`.",
+            "title": "Error",
+            "type": "boolean"
+          },
+          "i18n": {
+            "description": "Internationalization data (reserved for future use, typically null).",
+            "title": "I18N"
+          },
+          "meta": {
+            "$ref": "#/$defs/Meta",
+            "description": "Metadata containing image fill URL mappings. May be absent if no image fills exist in the file.",
+            "title": "Meta"
+          }
+        },
+        "title": "Model",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetImageFillsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

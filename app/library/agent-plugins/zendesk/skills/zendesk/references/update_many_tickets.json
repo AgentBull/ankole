@@ -1,0 +1,212 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update multiple tickets in Zendesk in a single request. Use when you need to bulk update ticket fields such as status, priority, tags, assignee, or group for multiple tickets at once. The API accepts up to 100 ticket objects per request. Changes are processed asynchronously and return a job_status object for tracking progress.",
+  "inputSchema": {
+    "description": "Request to update multiple tickets in Zendesk.",
+    "properties": {
+      "ids": {
+        "description": "Comma-separated list of ticket IDs to update. Can be used as an alternative to passing ticket objects in the body. When provided, tickets matching these IDs will be updated with the values from the ticket objects.",
+        "examples": ["35436,35437"],
+        "human_parameter_description": "Optional comma-separated list of ticket IDs to update. Can be used alongside the tickets array to target specific tickets.",
+        "human_parameter_name": "Ticket IDs",
+        "title": "Ids",
+        "type": "string"
+      },
+      "tickets": {
+        "description": "List of ticket update objects. Each object must include an 'id' field and can optionally include 'status', 'priority', 'tags', 'custom_status_id', 'assignee_id', and 'group_id'. Maximum 100 tickets per request.",
+        "examples": [
+          [
+            {
+              "id": 1,
+              "status": "open"
+            },
+            {
+              "id": 2,
+              "priority": "high"
+            }
+          ]
+        ],
+        "human_parameter_description": "An array of ticket update objects. Each object requires an 'id' field and can optionally include 'status', 'priority', 'tags', 'custom_status_id', 'assignee_id', and 'group_id'. Maximum 100 tickets per request.",
+        "human_parameter_name": "Tickets",
+        "items": {
+          "description": "Individual ticket update object for bulk update.",
+          "properties": {
+            "assignee_id": {
+              "description": "The numeric ID of the agent to assign the ticket to.",
+              "human_parameter_description": "Assign the ticket to a specific agent by their user ID.",
+              "human_parameter_name": "Assignee ID",
+              "title": "Assignee Id",
+              "type": "integer"
+            },
+            "custom_status_id": {
+              "description": "The ID of a custom ticket status. Use this instead of 'status' when custom statuses are active.",
+              "human_parameter_description": "Set the ticket's custom status by providing its ID. Use when custom statuses are enabled.",
+              "human_parameter_name": "Custom Status ID",
+              "title": "Custom Status Id",
+              "type": "integer"
+            },
+            "group_id": {
+              "description": "The numeric ID of the group to assign the ticket to.",
+              "human_parameter_description": "Assign the ticket to a specific group by its ID.",
+              "human_parameter_name": "Group ID",
+              "title": "Group Id",
+              "type": "integer"
+            },
+            "id": {
+              "description": "The ID of the ticket to update",
+              "examples": [1],
+              "human_parameter_description": "The unique ID of the Zendesk ticket you want to update. You can find ticket IDs from the List Tickets action.",
+              "human_parameter_name": "Ticket ID",
+              "title": "Id",
+              "type": "integer"
+            },
+            "priority": {
+              "description": "Ticket priority. Allowed values: urgent, high, normal, low.",
+              "enum": ["urgent", "high", "normal", "low"],
+              "human_parameter_description": "Set the ticket priority (urgent, high, normal, or low).",
+              "human_parameter_name": "Priority",
+              "title": "Priority",
+              "type": "string"
+            },
+            "status": {
+              "description": "Ticket status category. Allowed values: new, open, pending, hold, solved.",
+              "enum": ["new", "open", "pending", "hold", "solved"],
+              "human_parameter_description": "Update the ticket status category (e.g., new, open, pending, hold, solved).",
+              "human_parameter_name": "Status",
+              "title": "Status",
+              "type": "string"
+            },
+            "tags": {
+              "description": "Tags to set on the ticket. Using tags replaces all existing tags.",
+              "human_parameter_description": "Provide a full list of tags to set on the ticket. This replaces existing tags.",
+              "human_parameter_name": "Tags",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tags",
+              "type": "array"
+            }
+          },
+          "required": ["id"],
+          "title": "TicketUpdateItem",
+          "type": "object"
+        },
+        "title": "Tickets",
+        "type": "array"
+      }
+    },
+    "required": ["tickets"],
+    "title": "UpdateManyTicketsRequest",
+    "type": "object"
+  },
+  "name": "update_many_tickets",
+  "outputSchema": {
+    "$defs": {
+      "JobStatus": {
+        "description": "Job status object returned by the update_many endpoint.",
+        "properties": {
+          "id": {
+            "description": "Automatically assigned when the job is queued",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_type": {
+            "description": "The type of the job",
+            "title": "Job Type",
+            "type": "string"
+          },
+          "message": {
+            "description": "Message from the job worker, if any",
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "description": "Number of tasks that have already been completed",
+            "title": "Progress",
+            "type": "integer"
+          },
+          "results": {
+            "description": "Result data from processed tasks",
+            "items": {
+              "$ref": "#/$defs/TicketUpdateResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "status": {
+            "description": "The current status: queued, working, failed, or completed",
+            "enum": ["queued", "working", "failed", "completed"],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "description": "The total number of tasks this job is batching through",
+            "title": "Total",
+            "type": "integer"
+          },
+          "url": {
+            "description": "The URL to poll for status updates",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "JobStatus",
+        "type": "object"
+      },
+      "TicketUpdateResult": {
+        "description": "Result of a single ticket update within the job.",
+        "properties": {
+          "action": {
+            "description": "The action performed (e.g., 'update')",
+            "title": "Action",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the ticket that was updated",
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The status of the update (e.g., 'Updated')",
+            "title": "Status",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the update was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "TicketUpdateResult",
+        "type": "object"
+      },
+      "UpdateManyTicketsResponse": {
+        "description": "Response from updating multiple tickets.",
+        "properties": {
+          "job_status": {
+            "$ref": "#/$defs/JobStatus",
+            "description": "Background job status object returned by the API",
+            "title": "Job Status"
+          }
+        },
+        "required": ["job_status"],
+        "title": "UpdateManyTicketsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateManyTicketsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

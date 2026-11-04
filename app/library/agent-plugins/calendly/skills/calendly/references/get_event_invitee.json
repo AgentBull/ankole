@@ -1,0 +1,348 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information about a specific invitee of a scheduled event, using their unique UUIDs.",
+  "inputSchema": {
+    "description": "Request schema for `GetEventInvitee`",
+    "properties": {
+      "event_uuid": {
+        "description": "The unique identifier (UUID) of the scheduled event.",
+        "examples": ["f1b2c3d4-e5f6-7890-1234-56789abcdef0"],
+        "title": "Event Uuid",
+        "type": "string"
+      },
+      "invitee_uuid": {
+        "description": "The unique identifier (UUID) of the invitee for the specified event.",
+        "examples": ["gfedcba0-1234-5678-90fe-dcba98765432"],
+        "title": "Invitee Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["event_uuid", "invitee_uuid"],
+    "title": "GetEventInviteeRequest",
+    "type": "object"
+  },
+  "name": "get_event_invitee",
+  "outputSchema": {
+    "$defs": {
+      "CancellationInfo": {
+        "description": "Cancellation details for the event.",
+        "properties": {
+          "canceled_by": {
+            "description": "The name of the person who canceled the event.",
+            "title": "Canceled By",
+            "type": "string"
+          },
+          "canceler_type": {
+            "description": "The type of canceler (e.g., 'host', 'invitee').",
+            "title": "Canceler Type",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the cancellation occurred in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "reason": {
+            "description": "The reason provided for the cancellation.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "CancellationInfo",
+        "type": "object"
+      },
+      "GetEventInviteeResponse": {
+        "description": "Response schema for `GetEventInvitee`",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/Invitee",
+            "description": "The invitee resource object containing full details of the invitee.",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "GetEventInviteeResponse",
+        "type": "object"
+      },
+      "Invitee": {
+        "description": "Represents an invitee for a scheduled Calendly event.",
+        "properties": {
+          "cancel_url": {
+            "description": "URL for the invitee to cancel the scheduled event.",
+            "title": "Cancel Url",
+            "type": "string"
+          },
+          "cancellation": {
+            "$ref": "#/$defs/CancellationInfo",
+            "description": "Cancellation details for the event. Present only if the event has been canceled.",
+            "title": "Cancellation"
+          },
+          "created_at": {
+            "description": "Timestamp when the invitee was created in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "The invitee's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "event": {
+            "description": "Canonical reference (unique identifier) for the associated scheduled event.",
+            "title": "Event",
+            "type": "string"
+          },
+          "first_name": {
+            "description": "The invitee's first name. This field is present when the invitee's name is collected in separate fields.",
+            "title": "First Name",
+            "type": "string"
+          },
+          "last_name": {
+            "description": "The invitee's last name. This field is present when the invitee's name is collected in separate fields.",
+            "title": "Last Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "The invitee's full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "new_invitee": {
+            "description": "Reference URI to the new invitee record if this invitee rescheduled. Null if the event was not rescheduled.",
+            "title": "New Invitee",
+            "type": "string"
+          },
+          "no_show": {
+            "$ref": "#/$defs/NoShowInfo",
+            "description": "No-show information for the invitee. Present only if the invitee has been marked as a no-show.",
+            "title": "No Show"
+          },
+          "old_invitee": {
+            "description": "Reference URI to the previous invitee record if this invitee rescheduled. Null if the event was not rescheduled.",
+            "title": "Old Invitee",
+            "type": "string"
+          },
+          "payment": {
+            "$ref": "#/$defs/PaymentInfo",
+            "description": "Payment information for the scheduled event. Null if no payment is associated with the booking.",
+            "title": "Payment"
+          },
+          "questions_and_answers": {
+            "description": "List of custom questions and the invitee's answers from the booking form.",
+            "items": {
+              "$ref": "#/$defs/QuestionAnswer"
+            },
+            "title": "Questions And Answers",
+            "type": "array"
+          },
+          "reconfirmation": {
+            "$ref": "#/$defs/ReconfirmationInfo",
+            "description": "Reconfirmation data for the invitee. Present only when reconfirmation is enabled for the event type and reconfirmation has been requested.",
+            "title": "Reconfirmation"
+          },
+          "reschedule_url": {
+            "description": "URL for the invitee to reschedule the scheduled event.",
+            "title": "Reschedule Url",
+            "type": "string"
+          },
+          "rescheduled": {
+            "description": "Indicates whether the event has been rescheduled.",
+            "title": "Rescheduled",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "Indicates the invitee's status, typically 'active' or 'canceled'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "text_reminder_number": {
+            "description": "The phone number in E.164 format for SMS reminders. Null if no phone number was provided.",
+            "title": "Text Reminder Number",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "The invitee's timezone (e.g., 'America/New_York', 'Asia/Calcutta').",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "tracking": {
+            "$ref": "#/$defs/TrackingInfo",
+            "title": "Tracking"
+          },
+          "updated_at": {
+            "description": "Timestamp when the invitee was last updated in ISO 8601 format.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the invitee.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri",
+          "email",
+          "name",
+          "status",
+          "timezone",
+          "event",
+          "created_at",
+          "updated_at",
+          "cancel_url",
+          "reschedule_url",
+          "rescheduled",
+          "questions_and_answers",
+          "tracking"
+        ],
+        "title": "Invitee",
+        "type": "object"
+      },
+      "NoShowInfo": {
+        "description": "No-show information for the invitee.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the no-show was created in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the no-show resource.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "title": "NoShowInfo",
+        "type": "object"
+      },
+      "PaymentInfo": {
+        "description": "Payment information for the scheduled event.",
+        "properties": {
+          "amount": {
+            "description": "Payment amount.",
+            "title": "Amount",
+            "type": "number"
+          },
+          "currency": {
+            "description": "Currency code (e.g., 'USD', 'EUR').",
+            "title": "Currency",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "Payment identifier.",
+            "title": "External Id",
+            "type": "string"
+          },
+          "provider": {
+            "description": "Payment provider (e.g., 'stripe', 'paypal').",
+            "title": "Provider",
+            "type": "string"
+          },
+          "successful": {
+            "description": "Whether the payment was successful.",
+            "title": "Successful",
+            "type": "boolean"
+          },
+          "terms": {
+            "description": "Payment terms.",
+            "title": "Terms",
+            "type": "string"
+          }
+        },
+        "title": "PaymentInfo",
+        "type": "object"
+      },
+      "QuestionAnswer": {
+        "description": "Represents a question and answer pair from the booking form.",
+        "properties": {
+          "answer": {
+            "description": "The invitee's answer to the question. For checkbox questions, multiple answers are separated by newline characters.",
+            "title": "Answer",
+            "type": "string"
+          },
+          "position": {
+            "description": "The position (order) of the question in the booking form, starting from 0.",
+            "title": "Position",
+            "type": "integer"
+          },
+          "question": {
+            "description": "The text of the question asked to the invitee.",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": ["question", "answer", "position"],
+        "title": "QuestionAnswer",
+        "type": "object"
+      },
+      "ReconfirmationInfo": {
+        "description": "Reconfirmation details for the invitee.",
+        "properties": {
+          "confirmed_at": {
+            "description": "Timestamp when invitee confirmed attendance in ISO 8601 format. Null until invitee takes action.",
+            "title": "Confirmed At",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when reconfirmation notification was sent in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          }
+        },
+        "title": "ReconfirmationInfo",
+        "type": "object"
+      },
+      "TrackingInfo": {
+        "description": "Tracking information for marketing attribution and integrations.",
+        "properties": {
+          "salesforce_uuid": {
+            "description": "Salesforce UUID for CRM integration. Null if not provided.",
+            "title": "Salesforce Uuid",
+            "type": "string"
+          },
+          "utm_campaign": {
+            "description": "UTM campaign parameter passed via the scheduling URL. Null if not provided.",
+            "title": "Utm Campaign",
+            "type": "string"
+          },
+          "utm_content": {
+            "description": "UTM content parameter passed via the scheduling URL. Null if not provided.",
+            "title": "Utm Content",
+            "type": "string"
+          },
+          "utm_medium": {
+            "description": "UTM medium parameter passed via the scheduling URL. Null if not provided.",
+            "title": "Utm Medium",
+            "type": "string"
+          },
+          "utm_source": {
+            "description": "UTM source parameter passed via the scheduling URL. Null if not provided.",
+            "title": "Utm Source",
+            "type": "string"
+          },
+          "utm_term": {
+            "description": "UTM term parameter passed via the scheduling URL. Null if not provided.",
+            "title": "Utm Term",
+            "type": "string"
+          }
+        },
+        "title": "TrackingInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetEventInviteeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,237 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a detached or, when enabled, merged results merge request pipeline. This does not run a regular branch/tag pipeline. Configure .gitlab-ci.yml for merge request jobs (for example, only: [merge_requests]).",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespaced project path.",
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Project-local internal ID of the merge request.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid"],
+    "title": "CreateMergeRequestPipelineRequest",
+    "type": "object"
+  },
+  "name": "create_merge_request_pipeline",
+  "outputSchema": {
+    "$defs": {
+      "CreateMergeRequestPipelineResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "archived": {
+            "description": "Whether the pipeline is archived.",
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "before_sha": {
+            "description": "Commit SHA before the pipeline.",
+            "title": "Before Sha",
+            "type": "string"
+          },
+          "committed_at": {
+            "description": "Commit timestamp.",
+            "title": "Committed At",
+            "type": "string"
+          },
+          "coverage": {
+            "description": "Pipeline test coverage.",
+            "title": "Coverage",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Pipeline creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detailed_status": {
+            "$ref": "#/$defs/MergeRequestPipelineDetailedStatus",
+            "description": "Detailed pipeline status.",
+            "title": "Detailed Status"
+          },
+          "duration": {
+            "description": "Pipeline duration in seconds.",
+            "title": "Duration",
+            "type": "number"
+          },
+          "finished_at": {
+            "description": "Pipeline finish timestamp.",
+            "title": "Finished At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Pipeline ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "ref": {
+            "description": "Branch or tag ref of the pipeline.",
+            "title": "Ref",
+            "type": "string"
+          },
+          "sha": {
+            "description": "Commit SHA of the pipeline.",
+            "title": "Sha",
+            "type": "string"
+          },
+          "started_at": {
+            "description": "Pipeline start timestamp.",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "description": "Pipeline status.",
+            "title": "Status",
+            "type": "string"
+          },
+          "tag": {
+            "description": "Whether the pipeline ref is a tag.",
+            "title": "Tag",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "description": "Last pipeline update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/MergeRequestPipelineUser",
+            "description": "User who triggered the pipeline.",
+            "title": "User"
+          },
+          "web_url": {
+            "description": "Pipeline URL in GitLab.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "yaml_errors": {
+            "description": "CI configuration errors, if any.",
+            "title": "Yaml Errors",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "CreateMergeRequestPipelineResponse",
+        "type": "object"
+      },
+      "MergeRequestPipelineDetailedStatus": {
+        "additionalProperties": true,
+        "properties": {
+          "details_path": {
+            "description": "Path to pipeline details.",
+            "title": "Details Path",
+            "type": "string"
+          },
+          "favicon": {
+            "description": "Status favicon path.",
+            "title": "Favicon",
+            "type": "string"
+          },
+          "group": {
+            "description": "Status group.",
+            "title": "Group",
+            "type": "string"
+          },
+          "has_details": {
+            "description": "Whether details are available.",
+            "title": "Has Details",
+            "type": "boolean"
+          },
+          "icon": {
+            "description": "Status icon name.",
+            "title": "Icon",
+            "type": "string"
+          },
+          "illustration": {
+            "additionalProperties": true,
+            "description": "Status illustration, if any.",
+            "title": "Illustration",
+            "type": "object"
+          },
+          "label": {
+            "description": "Status label.",
+            "title": "Label",
+            "type": "string"
+          },
+          "text": {
+            "description": "Status text.",
+            "title": "Text",
+            "type": "string"
+          },
+          "tooltip": {
+            "description": "Status tooltip.",
+            "title": "Tooltip",
+            "type": "string"
+          }
+        },
+        "title": "MergeRequestPipelineDetailedStatus",
+        "type": "object"
+      },
+      "MergeRequestPipelineUser": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "User avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "ID of the user who triggered the pipeline.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "User's username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "User profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "MergeRequestPipelineUser",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateMergeRequestPipelineResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

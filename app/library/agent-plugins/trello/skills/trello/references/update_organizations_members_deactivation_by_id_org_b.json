@@ -1,0 +1,53 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update org member deactivation status",
+  "inputSchema": {
+    "description": "Request schema for updating the deactivation status of an organization member.",
+    "properties": {
+      "idMember": {
+        "description": "The ID of the member whose deactivation status is to be updated. Note: You cannot deactivate yourself. Example: '5a7e5c9e4a5a8c0f2a7b6c3e'.",
+        "title": "Id Member",
+        "type": "string"
+      },
+      "idOrg": {
+        "description": "The ID or name of the Trello organization (workspace). Example: '5a7e5c9e4a5a8c0f2a7b6c3d' or 'myworkspace'.",
+        "title": "Id Org",
+        "type": "string"
+      },
+      "value": {
+        "description": "Required. Set to 'true' to deactivate the member (suspend their access temporarily) or 'false' to reactivate them.",
+        "examples": ["true", "false"],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idOrg", "idMember", "value"],
+    "title": "UpdateOrganizationsMembersDeactivationByIdOrgByIdMemberRequest",
+    "type": "object"
+  },
+  "name": "update_organizations_members_deactivation_by_id_org_b",
+  "outputSchema": {
+    "$defs": {
+      "UpdateOrganizationsMembersDeactivationByIdOrgByIdMemberResponse": {
+        "description": "Response schema for updating the deactivation status of an organization member.\n\nThis endpoint returns an empty response body on success. The HTTP status code 200 OK\nindicates successful deactivation or reactivation of the organization member. The\noperation is controlled by the 'value' parameter in the request (true to deactivate,\nfalse to reactivate).",
+        "properties": {},
+        "title": "UpdateOrganizationsMembersDeactivationByIdOrgByIdMemberResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateOrganizationsMembersDeactivationByIdOrgByIdMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

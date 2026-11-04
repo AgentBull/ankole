@@ -1,0 +1,106 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a copy of an existing Salesforce record by reading its data, removing system fields, and creating a new record. Optionally apply field updates to the clone.",
+  "inputSchema": {
+    "properties": {
+      "field_updates": {
+        "description": "Optional field updates to apply to the cloned record as a JSON string. Use this to modify specific fields in the clone. Example: '{\"Name\": \"Clone of Original\", \"Status\": \"New\"}'",
+        "examples": ["{\"Name\": \"Clone of Original\"}", "{\"Status\": \"New\", \"OwnerId\": \"005XXXXXXXXXXXXXXX\"}"],
+        "human_parameter_description": "Any changes you want to make on the new copy, provided as a JSON string with field names and their new values. Use this to tweak details like Name, Status, or Owner on the cloned record.",
+        "human_parameter_name": "Field Updates",
+        "title": "Field Updates",
+        "type": "string"
+      },
+      "object_type": {
+        "description": "The Salesforce object type to clone (e.g., Account, Contact, Lead, Opportunity).",
+        "examples": ["Account", "Contact", "Lead", "Opportunity", "Case"],
+        "human_parameter_description": "The kind of Salesforce record you want to copy, like Account, Contact, Lead, or Opportunity. Choose the object the original record belongs to so we clone the right thing.",
+        "human_parameter_name": "Object Type",
+        "title": "Object Type",
+        "type": "string"
+      },
+      "record_id": {
+        "description": "The ID of the record to clone.",
+        "examples": ["001XXXXXXXXXXXXXXX", "003XXXXXXXXXXXXXXX", "00QXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique ID of the record you want to clone. You can copy this from the record’s URL or a previous search/list result.",
+        "human_parameter_name": "Record ID",
+        "title": "Record Id",
+        "type": "string"
+      }
+    },
+    "required": ["object_type", "record_id"],
+    "title": "CloneRecordRequest",
+    "type": "object"
+  },
+  "name": "clone_record",
+  "outputSchema": {
+    "$defs": {
+      "CloneRecordResponse": {
+        "description": "Response from Salesforce record creation/cloning operation.",
+        "properties": {
+          "errors": {
+            "description": "Array of error objects representing the errors associated with a failed record. Empty array when the operation is successful.",
+            "items": {
+              "$ref": "#/$defs/SalesforceError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The ID of the newly created/cloned record. This field contains a value only if the operation was successful. If this field is empty, the operation was not successful.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the operation was successful (true) or not (false).",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success", "errors"],
+        "title": "CloneRecordResponse",
+        "type": "object"
+      },
+      "SalesforceError": {
+        "description": "Represents an error returned by Salesforce API.",
+        "properties": {
+          "fields": {
+            "description": "Array of field names where the error occurred. Empty array when the error is not associated with a specific field.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable error message describing what went wrong.",
+            "title": "Message",
+            "type": "string"
+          },
+          "statusCode": {
+            "description": "The error code identifier (also referred to as 'errorCode' in some contexts). Examples: INVALID_FIELD, MALFORMED_QUERY, INVALID_SESSION_ID, FIELD_CUSTOM_VALIDATION_EXCEPTION, MALFORMED_ID.",
+            "title": "Status Code",
+            "type": "string"
+          }
+        },
+        "required": ["message", "fields"],
+        "title": "SalesforceError",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CloneRecordResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

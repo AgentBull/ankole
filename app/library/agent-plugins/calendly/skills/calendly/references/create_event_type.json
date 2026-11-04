@@ -1,0 +1,319 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a new one-on-one event type (kind: solo) in Calendly. Use when you need to programmatically create a new event type for scheduling meetings.",
+  "inputSchema": {
+    "description": "Request model for creating a new event type.",
+    "properties": {
+      "active": {
+        "description": "Indicates if the event type is active and available for booking. Defaults to false if not provided.",
+        "examples": [true, false],
+        "title": "Active",
+        "type": "boolean"
+      },
+      "color": {
+        "description": "Hexadecimal color value for the scheduling page. Must match pattern ^#[a-f\\d]{6}$ (e.g., '#fff200')",
+        "examples": ["#fff200", "#8247f5"],
+        "pattern": "^#[a-f\\d]{6}$",
+        "title": "Color",
+        "type": "string"
+      },
+      "description": {
+        "description": "The event type description that will be shown on the scheduling page",
+        "examples": ["A quick 15 minute meeting to discuss your needs"],
+        "title": "Description",
+        "type": "string"
+      },
+      "duration": {
+        "description": "Length of sessions in minutes. Must be between 1 and 720 minutes. Should be one of the duration_options if both are provided.",
+        "examples": [15, 30, 45, 60],
+        "maximum": 720,
+        "minimum": 1,
+        "title": "Duration",
+        "type": "integer"
+      },
+      "duration_options": {
+        "description": "Alternative duration choices for flexible meetings. Maximum 4 unique values allowed. Each must be between 1 and 720 minutes.",
+        "examples": [[15, 30, 45, 60]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Duration Options",
+        "type": "array"
+      },
+      "locale": {
+        "description": "Locale for the event type's scheduling page language",
+        "enum": ["de", "en", "es", "fr", "it", "nl", "pt", "uk"],
+        "examples": ["en", "es", "fr"],
+        "title": "Locale",
+        "type": "string"
+      },
+      "locations": {
+        "description": "Configuration information for each possible location where the event can take place",
+        "examples": [
+          [
+            {
+              "kind": "zoom_conference"
+            }
+          ],
+          [
+            {
+              "additional_info": "Office Building A",
+              "kind": "physical"
+            }
+          ]
+        ],
+        "items": {
+          "description": "Location configuration for the event type.",
+          "properties": {
+            "additional_info": {
+              "description": "Additional location information or instructions for invitees",
+              "examples": ["Building A, Floor 3"],
+              "title": "Additional Info",
+              "type": "string"
+            },
+            "kind": {
+              "description": "Type of location for the event. Common values: 'zoom_conference', 'google_meet', 'microsoft_teams', 'physical', 'ask_invitee', 'outbound_call', 'inbound_call', 'custom'",
+              "examples": ["zoom_conference", "physical", "ask_invitee"],
+              "title": "Kind",
+              "type": "string"
+            },
+            "location": {
+              "description": "Location address or details. Required when kind is 'physical' or 'custom'.",
+              "examples": ["123 Main St, San Francisco, CA 94105"],
+              "title": "Location",
+              "type": "string"
+            },
+            "phone_number": {
+              "description": "Phone number for phone call locations (required when kind is 'outbound_call' or 'inbound_call')",
+              "examples": ["+14155551234"],
+              "title": "Phone Number",
+              "type": "string"
+            }
+          },
+          "required": ["kind"],
+          "title": "LocationConfig",
+          "type": "object"
+        },
+        "title": "Locations",
+        "type": "array"
+      },
+      "name": {
+        "description": "The event type name that will be displayed to invitees",
+        "examples": ["15 Minute Meeting", "30 Minute Consultation", "Product Demo"],
+        "title": "Name",
+        "type": "string"
+      },
+      "owner": {
+        "description": "The owner URI for this event type (e.g., 'https://api.calendly.com/users/AAAAAAAAAAAAAAAA'). Must be a valid user URI.",
+        "examples": ["https://api.calendly.com/users/AAAAAAAAAAAAAAAA"],
+        "title": "Owner",
+        "type": "string"
+      }
+    },
+    "required": ["owner", "name"],
+    "title": "CreateEventTypeRequest",
+    "type": "object"
+  },
+  "name": "create_event_type",
+  "outputSchema": {
+    "$defs": {
+      "CreateEventTypeResponse": {
+        "description": "Response model containing the created event type details.",
+        "properties": {
+          "active": {
+            "description": "Whether the event type is active and available for booking",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "admin_managed": {
+            "description": "Whether managed by admin",
+            "title": "Admin Managed",
+            "type": "boolean"
+          },
+          "booking_method": {
+            "description": "The booking method for the event type",
+            "title": "Booking Method",
+            "type": "string"
+          },
+          "color": {
+            "description": "Hexadecimal color value",
+            "title": "Color",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when event type was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "description": "Deletion timestamp (null if not deleted)",
+            "title": "Deleted At",
+            "type": "string"
+          },
+          "description_html": {
+            "description": "HTML formatted description",
+            "title": "Description Html",
+            "type": "string"
+          },
+          "description_plain": {
+            "description": "Plain text description",
+            "title": "Description Plain",
+            "type": "string"
+          },
+          "duration": {
+            "description": "Session length in minutes",
+            "title": "Duration",
+            "type": "integer"
+          },
+          "duration_options": {
+            "description": "Available duration options for flexible meetings",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Duration Options",
+            "type": "array"
+          },
+          "internal_note": {
+            "description": "Internal notes for the event type",
+            "title": "Internal Note",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Event type kind (solo for one-on-one)",
+            "title": "Kind",
+            "type": "string"
+          },
+          "locale": {
+            "description": "Language setting",
+            "title": "Locale",
+            "type": "string"
+          },
+          "locations": {
+            "description": "Location configurations",
+            "items": {
+              "$ref": "#/$defs/LocationResponse"
+            },
+            "title": "Locations",
+            "type": "array"
+          },
+          "name": {
+            "description": "The event type name",
+            "title": "Name",
+            "type": "string"
+          },
+          "pooling_type": {
+            "description": "Pooling type for event assignment",
+            "title": "Pooling Type",
+            "type": "string"
+          },
+          "position": {
+            "description": "Position/order of event type",
+            "title": "Position",
+            "type": "integer"
+          },
+          "profile": {
+            "$ref": "#/$defs/ProfileInfo",
+            "description": "Profile information of the event type owner",
+            "title": "Profile"
+          },
+          "scheduling_url": {
+            "description": "Public scheduling page URL where invitees can book",
+            "title": "Scheduling Url",
+            "type": "string"
+          },
+          "secret": {
+            "description": "Whether event type is secret/hidden",
+            "title": "Secret",
+            "type": "boolean"
+          },
+          "slug": {
+            "description": "URL-friendly identifier for the event type",
+            "title": "Slug",
+            "type": "string"
+          },
+          "type": {
+            "description": "Event type classification",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when event type was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the event type",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "name", "active"],
+        "title": "CreateEventTypeResponse",
+        "type": "object"
+      },
+      "LocationResponse": {
+        "description": "Location configuration in the response.",
+        "properties": {
+          "additional_info": {
+            "description": "Additional location details",
+            "title": "Additional Info",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of location",
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "description": "Location address or details",
+            "title": "Location",
+            "type": "string"
+          },
+          "phone_number": {
+            "description": "Phone number for call locations",
+            "title": "Phone Number",
+            "type": "string"
+          }
+        },
+        "title": "LocationResponse",
+        "type": "object"
+      },
+      "ProfileInfo": {
+        "description": "Profile information of the event type owner.",
+        "properties": {
+          "name": {
+            "description": "Name of the profile owner",
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "description": "URI of the owning user resource",
+            "title": "Owner",
+            "type": "string"
+          },
+          "type": {
+            "description": "Profile type, typically 'User'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "ProfileInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateEventTypeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

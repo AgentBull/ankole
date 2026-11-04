@@ -1,0 +1,67 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Bulk delete alerts for a given organization. Use when you need to delete multiple alerts at once. ⚠️ This endpoint is currently in beta and may be subject to change.",
+  "inputSchema": {
+    "description": "Request schema for bulk deleting alerts from a Sentry organization.",
+    "properties": {
+      "id": {
+        "description": "The ID of the alert you'd like to delete. Multiple IDs can be provided to delete multiple alerts at once.",
+        "examples": [["2330575", "2330576"], ["12345"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Id",
+        "type": "array"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["my-organization", "example", "mia-yd"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project": {
+        "description": "The IDs of projects to filter by. '-1' means all available projects. For example: '/?project=1234&project=56789' or '/?project=-1'",
+        "examples": [["-1"], ["1234", "56789"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Project",
+        "type": "array"
+      },
+      "query": {
+        "description": "An optional search query for filtering alerts to delete.",
+        "examples": ["status:active", "type:metric"],
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "DeleteBulkAlertsRequest",
+    "type": "object"
+  },
+  "name": "delete_bulk_alerts",
+  "outputSchema": {
+    "$defs": {
+      "DeleteBulkAlertsResponse": {
+        "description": "Response schema for bulk deleting alerts from a Sentry organization.\n\nReturns HTTP 204 No Content on successful deletion with an empty response body.\nThe successful deletion is indicated solely by the 204 status code.",
+        "properties": {},
+        "title": "DeleteBulkAlertsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteBulkAlertsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

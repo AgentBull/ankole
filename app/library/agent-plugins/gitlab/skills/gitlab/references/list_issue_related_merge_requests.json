@@ -1,0 +1,200 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List one page of merge requests related to an issue. Follow next_page for more results. Private projects and confidential issues require credentials with access to the issue.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespaced project path.",
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "Internal ID of the issue in the project.",
+        "title": "Issue Iid",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid"],
+    "title": "ListIssueRelatedMergeRequestsRequest",
+    "type": "object"
+  },
+  "name": "list_issue_related_merge_requests",
+  "outputSchema": {
+    "$defs": {
+      "ListIssueRelatedMergeRequestsResponse": {
+        "properties": {
+          "merge_requests": {
+            "description": "Merge requests related to the issue on this page.",
+            "items": {
+              "$ref": "#/$defs/RelatedMergeRequest"
+            },
+            "title": "Merge Requests",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          }
+        },
+        "required": ["merge_requests"],
+        "title": "ListIssueRelatedMergeRequestsResponse",
+        "type": "object"
+      },
+      "RelatedMergeRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "assignee": {
+            "$ref": "#/$defs/RelatedMergeRequestUser",
+            "description": "Assigned user, or null when unassigned.",
+            "title": "Assignee"
+          },
+          "author": {
+            "$ref": "#/$defs/RelatedMergeRequestUser",
+            "description": "Author of the merge request.",
+            "title": "Author"
+          },
+          "description": {
+            "description": "Merge request description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "draft": {
+            "description": "Whether the merge request is a draft.",
+            "title": "Draft",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Global merge request ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Project-local merge request ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Assigned label names.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "merge_commit_sha": {
+            "description": "Merge commit SHA, if merged.",
+            "title": "Merge Commit Sha",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Project containing the merge request.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "source_branch": {
+            "description": "Source branch name.",
+            "title": "Source Branch",
+            "type": "string"
+          },
+          "state": {
+            "description": "Merge request state.",
+            "title": "State",
+            "type": "string"
+          },
+          "target_branch": {
+            "description": "Target branch name.",
+            "title": "Target Branch",
+            "type": "string"
+          },
+          "title": {
+            "description": "Merge request title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Merge request URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "iid", "project_id", "title", "state", "source_branch", "target_branch", "web_url"],
+        "title": "RelatedMergeRequest",
+        "type": "object"
+      },
+      "RelatedMergeRequestUser": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "User avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "User's username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "User profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "username"],
+        "title": "RelatedMergeRequestUser",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListIssueRelatedMergeRequestsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

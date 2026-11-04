@@ -1,0 +1,478 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create or update up to 100 Zendesk users in a single request; new users require a name. Returns a background job status, with per-user results when available.",
+  "inputSchema": {
+    "description": "Request model for creating or updating multiple users.",
+    "properties": {
+      "users": {
+        "description": "Array of user objects to create or update. Up to 100 users can be included. For new users, 'name' is required. For existing users, 'id' is required to identify the user to update.",
+        "examples": [
+          [
+            {
+              "email": "john@example.com",
+              "name": "John Doe"
+            },
+            {
+              "email": "jane@example.com",
+              "name": "Jane Smith"
+            }
+          ]
+        ],
+        "human_parameter_description": "Array of user objects (up to 100). Each user needs 'name' for new users or 'id' for existing users.",
+        "human_parameter_name": "Users",
+        "items": {
+          "description": "Individual user object for create_or_update_many operation.",
+          "properties": {
+            "locale": {
+              "description": "User's locale (BCP-47 format)",
+              "examples": ["en-US"],
+              "human_parameter_description": "Locale tag for the user (e.g., en-US).",
+              "human_parameter_name": "Locale",
+              "title": "Locale",
+              "type": "string"
+            },
+            "remote_photo_url": {
+              "description": "URL of the user's photo",
+              "human_parameter_description": "URL for the user's profile photo.",
+              "human_parameter_name": "Remote Photo URL",
+              "title": "Remote Photo Url",
+              "type": "string"
+            },
+            "notes": {
+              "description": "Notes about the user",
+              "human_parameter_description": "Optional notes about the user.",
+              "human_parameter_name": "Notes",
+              "title": "Notes",
+              "type": "string"
+            },
+            "group_ids": {
+              "description": "Array of group IDs to add the user to",
+              "examples": [[100, 200]],
+              "human_parameter_description": "List of group IDs to assign the user to.",
+              "human_parameter_name": "Group IDs",
+              "items": {
+                "type": "integer"
+              },
+              "title": "Group Ids",
+              "type": "array"
+            },
+            "external_id": {
+              "description": "External system ID for the user (case-insensitive)",
+              "examples": ["ext-12345"],
+              "human_parameter_description": "Unique identifier from an external system.",
+              "human_parameter_name": "External ID",
+              "title": "External Id",
+              "type": "string"
+            },
+            "agent_brand_ids": {
+              "description": "Array of brand IDs for an agent",
+              "examples": [[1001, 1002]],
+              "human_parameter_description": "Brand IDs to associate with an agent.",
+              "human_parameter_name": "Agent Brand IDs",
+              "items": {
+                "type": "integer"
+              },
+              "title": "Agent Brand Ids",
+              "type": "array"
+            },
+            "details": {
+              "description": "Free-form details about the user",
+              "human_parameter_description": "Optional free-form details.",
+              "human_parameter_name": "Details",
+              "title": "Details",
+              "type": "string"
+            },
+            "only_private_comments": {
+              "description": "Whether the user can only leave private comments",
+              "human_parameter_description": "Set to true to restrict to private comments only.",
+              "human_parameter_name": "Only Private Comments",
+              "title": "Only Private Comments",
+              "type": "boolean"
+            },
+            "tags": {
+              "description": "Array of tags for the user",
+              "examples": [["vip", "beta"]],
+              "human_parameter_description": "Tags to assign to the user.",
+              "human_parameter_name": "Tags",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tags",
+              "type": "array"
+            },
+            "phone": {
+              "description": "Phone number of the user in E.164 format",
+              "examples": ["+14155551234"],
+              "human_parameter_description": "Phone number in international format.",
+              "human_parameter_name": "Phone",
+              "title": "Phone",
+              "type": "string"
+            },
+            "locale_id": {
+              "description": "User's locale ID",
+              "examples": [1],
+              "human_parameter_description": "Numeric locale ID.",
+              "human_parameter_name": "Locale ID",
+              "title": "Locale Id",
+              "type": "integer"
+            },
+            "name": {
+              "description": "Full name of the user. Required for new users. Optional for updates (if id is provided).",
+              "examples": ["John Doe"],
+              "human_parameter_description": "Full name of the user to create or update.",
+              "human_parameter_name": "Name",
+              "title": "Name",
+              "type": "string"
+            },
+            "organization": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Organization object for the user (string key-value pairs)",
+              "human_parameter_description": "Organization data for the user.",
+              "human_parameter_name": "Organization",
+              "title": "Organization",
+              "type": "object"
+            },
+            "email": {
+              "description": "Primary email address of the user",
+              "examples": ["john.doe@example.com"],
+              "human_parameter_description": "Email address for the user.",
+              "human_parameter_name": "Email",
+              "title": "Email",
+              "type": "string"
+            },
+            "alias": {
+              "description": "Alias displayed to end users",
+              "human_parameter_description": "Optional alias shown to end users.",
+              "human_parameter_name": "Alias",
+              "title": "Alias",
+              "type": "string"
+            },
+            "custom_role_id": {
+              "description": "Agent-only: ID of a custom agent role",
+              "examples": [123],
+              "human_parameter_description": "Custom agent role ID when role is 'agent'.",
+              "human_parameter_name": "Custom Role ID",
+              "title": "Custom Role Id",
+              "type": "integer"
+            },
+            "skip_verify_email": {
+              "description": "If true, skip sending verification email to new users",
+              "examples": [true],
+              "human_parameter_description": "Set to true to skip email verification.",
+              "human_parameter_name": "Skip Verify Email",
+              "title": "Skip Verify Email",
+              "type": "boolean"
+            },
+            "moderator": {
+              "description": "Whether the user is a moderator",
+              "examples": [false],
+              "human_parameter_description": "Set to true to make the user a moderator.",
+              "human_parameter_name": "Moderator",
+              "title": "Moderator",
+              "type": "boolean"
+            },
+            "role": {
+              "description": "User role. Defaults to 'end-user' if not specified.",
+              "enum": ["end-user", "agent", "admin"],
+              "examples": ["end-user"],
+              "human_parameter_description": "Role for the user: end-user, agent, or admin.",
+              "human_parameter_name": "Role",
+              "title": "Role",
+              "type": "string"
+            },
+            "organization_ids": {
+              "description": "Array of organization IDs the user belongs to",
+              "examples": [[100, 200]],
+              "human_parameter_description": "List of organization IDs.",
+              "human_parameter_name": "Organization IDs",
+              "items": {
+                "type": "integer"
+              },
+              "title": "Organization Ids",
+              "type": "array"
+            },
+            "signature": {
+              "description": "Agent or admin's signature",
+              "human_parameter_description": "Agent or admin signature.",
+              "human_parameter_name": "Signature",
+              "title": "Signature",
+              "type": "string"
+            },
+            "verified": {
+              "description": "Whether the user's email has been verified",
+              "examples": [true],
+              "human_parameter_description": "Set to true if the user's email is verified.",
+              "human_parameter_name": "Verified",
+              "title": "Verified",
+              "type": "boolean"
+            },
+            "identities": {
+              "description": "Array of user identities (type and value as strings)",
+              "human_parameter_description": "Additional user identities (type/value string pairs).",
+              "human_parameter_name": "Identities",
+              "items": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "title": "Identities",
+              "type": "array"
+            },
+            "active_brand_id": {
+              "description": "Brand ID of the user's active brand",
+              "examples": [1001],
+              "human_parameter_description": "Active brand ID for the user.",
+              "human_parameter_name": "Active Brand ID",
+              "title": "Active Brand Id",
+              "type": "integer"
+            },
+            "suspended": {
+              "description": "Whether the user is suspended",
+              "examples": [false],
+              "human_parameter_description": "Set to true to suspend the user.",
+              "human_parameter_name": "Suspended",
+              "title": "Suspended",
+              "type": "boolean"
+            },
+            "user_fields": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Key-value map of custom user fields (values must be strings)",
+              "human_parameter_description": "Custom user field values (string key-value pairs).",
+              "human_parameter_name": "User Fields",
+              "title": "User Fields",
+              "type": "object"
+            },
+            "active": {
+              "description": "Whether the user is active. Defaults to true if not specified.",
+              "examples": [true],
+              "human_parameter_description": "Set to false to deactivate the user.",
+              "human_parameter_name": "Active",
+              "title": "Active",
+              "type": "boolean"
+            },
+            "ticket_restriction": {
+              "description": "User's ticket visibility restriction",
+              "enum": ["organization", "groups", "assigned", "requested"],
+              "human_parameter_description": "Ticket access restriction setting.",
+              "human_parameter_name": "Ticket Restriction",
+              "title": "Ticket Restriction",
+              "type": "string"
+            },
+            "time_zone": {
+              "description": "User's time zone",
+              "examples": ["Pacific Time (US & Canada)"],
+              "human_parameter_description": "User's time zone.",
+              "human_parameter_name": "Time Zone",
+              "title": "Time Zone",
+              "type": "string"
+            },
+            "id": {
+              "description": "User ID for updating an existing user. If provided, the user with this ID will be updated. If not provided, a new user will be created.",
+              "examples": [12345],
+              "human_parameter_description": "Numeric ID of an existing Zendesk user to update. Omit to create a new user.",
+              "human_parameter_name": "User ID",
+              "title": "Id",
+              "type": "integer"
+            },
+            "shared_phone_number": {
+              "description": "Whether the user shares a phone number with other users",
+              "examples": [true],
+              "human_parameter_description": "Set to true if the phone number is shared.",
+              "human_parameter_name": "Shared Phone Number",
+              "title": "Shared Phone Number",
+              "type": "boolean"
+            },
+            "organization_name": {
+              "description": "Name of an organization to add the user to. Creates the organization if it doesn't exist.",
+              "human_parameter_description": "Name of organization to create or add user to.",
+              "human_parameter_name": "Organization Name",
+              "title": "Organization Name",
+              "type": "string"
+            },
+            "password": {
+              "description": "Password for the user",
+              "human_parameter_description": "User password.",
+              "human_parameter_name": "Password",
+              "title": "Password",
+              "type": "string"
+            },
+            "default_group_id": {
+              "description": "ID of the user's default group",
+              "examples": [100],
+              "human_parameter_description": "Numeric ID of the default group.",
+              "human_parameter_name": "Default Group ID",
+              "title": "Default Group Id",
+              "type": "integer"
+            },
+            "organization_id": {
+              "description": "ID of the user's default organization",
+              "examples": [12345],
+              "human_parameter_description": "Numeric ID of the default organization.",
+              "human_parameter_name": "Organization ID",
+              "title": "Organization Id",
+              "type": "integer"
+            }
+          },
+          "title": "UserCreateOrUpdateItem",
+          "type": "object"
+        },
+        "title": "Users",
+        "type": "array"
+      }
+    },
+    "required": ["users"],
+    "title": "CreateOrUpdateManyUsersRequest",
+    "type": "object"
+  },
+  "name": "create_or_update_many_users",
+  "outputSchema": {
+    "$defs": {
+      "CreateOrUpdateManyUsersResponse": {
+        "description": "Response from creating or updating multiple users.",
+        "properties": {
+          "job_status": {
+            "$ref": "#/$defs/JobStatus",
+            "description": "Background job status object with results for each user operation",
+            "title": "Job Status"
+          }
+        },
+        "required": ["job_status"],
+        "title": "CreateOrUpdateManyUsersResponse",
+        "type": "object"
+      },
+      "JobStatus": {
+        "description": "Background job status for bulk user operations.",
+        "properties": {
+          "id": {
+            "description": "Automatically assigned when the job is queued",
+            "examples": ["82de0b044094f0c67893ac9fe64f1a99"],
+            "title": "Id",
+            "type": "string"
+          },
+          "job_type": {
+            "description": "The type of the job",
+            "examples": ["user_create_or_update_many"],
+            "title": "Job Type",
+            "type": "string"
+          },
+          "message": {
+            "description": "Message from the job worker, if any",
+            "examples": ["Completed at 2018-03-08 10:07:04 +0000"],
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "description": "Number of tasks that have already been completed",
+            "examples": [100],
+            "title": "Progress",
+            "type": "integer"
+          },
+          "results": {
+            "description": "Result data from processed tasks. Contains details for each user operation.",
+            "items": {
+              "$ref": "#/$defs/UserResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "status": {
+            "description": "Current status of the job: queued, working, failed, or completed",
+            "examples": ["completed"],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "description": "Total number of tasks this job is processing",
+            "examples": [2],
+            "title": "Total",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL to poll for status updates",
+            "examples": ["https://example-67894.zendesk.com/api/v2/job_statuses/82de0b0467893ac9fe64f1a99"],
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["status"],
+        "title": "JobStatus",
+        "type": "object"
+      },
+      "UserResult": {
+        "description": "Result object for a single user operation in the job results.",
+        "properties": {
+          "action": {
+            "description": "The action performed (create or update)",
+            "title": "Action",
+            "type": "string"
+          },
+          "details": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Additional details about the result (string key-value pairs)",
+            "title": "Details",
+            "type": "object"
+          },
+          "email": {
+            "description": "User email",
+            "title": "Email",
+            "type": "string"
+          },
+          "error": {
+            "description": "Error message if the operation failed",
+            "title": "Error",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User name",
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status message",
+            "title": "Status",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the operation succeeded",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["action", "success"],
+        "title": "UserResult",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateOrUpdateManyUsersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a new workspace in a specific Typeform account. Use when you need to create a workspace within a particular account using the account ID.",
+  "inputSchema": {
+    "properties": {
+      "account_id": {
+        "description": "The ULID format identifier for the account where the workspace will be created",
+        "examples": ["01KEBVS4Y8D96GR8E7Z6MGV20A"],
+        "title": "Account Id",
+        "type": "string"
+      },
+      "name": {
+        "description": "Name of the new workspace to create",
+        "examples": ["Marketing Team", "Product Development", "Customer Research"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["account_id", "name"],
+    "title": "TypeformCreateAccountWorkspaceRequest",
+    "type": "object"
+  },
+  "name": "create_account_workspace",
+  "outputSchema": {
+    "$defs": {
+      "TypeformCreateAccountWorkspaceResponse": {
+        "properties": {
+          "account_id": {
+            "description": "ID in the ULID format of the account where workspace belongs to",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "forms": {
+            "$ref": "#/$defs/WorkspaceForms",
+            "description": "Information about forms in the workspace",
+            "title": "Forms"
+          },
+          "id": {
+            "description": "Unique identifier for the workspace",
+            "title": "Id",
+            "type": "string"
+          },
+          "members": {
+            "description": "List of workspace members with their roles",
+            "items": {
+              "$ref": "#/$defs/WorkspaceMember"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "name": {
+            "description": "Name of the workspace",
+            "title": "Name",
+            "type": "string"
+          },
+          "self": {
+            "$ref": "#/$defs/WorkspaceSelf",
+            "description": "Self reference links for the workspace",
+            "title": "Self"
+          },
+          "shared": {
+            "description": "Indicates whether the workspace is shared with a team",
+            "title": "Shared",
+            "type": "boolean"
+          }
+        },
+        "required": ["id"],
+        "title": "TypeformCreateAccountWorkspaceResponse",
+        "type": "object"
+      },
+      "WorkspaceForms": {
+        "properties": {
+          "count": {
+            "default": 0,
+            "description": "Number of typeforms in the workspace",
+            "title": "Count",
+            "type": "integer"
+          },
+          "href": {
+            "description": "Link to typeforms in the workspace",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "required": ["href"],
+        "title": "WorkspaceForms",
+        "type": "object"
+      },
+      "WorkspaceMember": {
+        "properties": {
+          "email": {
+            "description": "Member email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "Member name",
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "description": "Member role in the workspace. Valid values are 'owner' or 'member'",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": ["email", "name", "role"],
+        "title": "WorkspaceMember",
+        "type": "object"
+      },
+      "WorkspaceSelf": {
+        "properties": {
+          "href": {
+            "description": "Link to the workspace",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "required": ["href"],
+        "title": "WorkspaceSelf",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/TypeformCreateAccountWorkspaceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,252 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists a page of submissions for a specific routing form, including questions and answers and, when available, routing results and tracking data.",
+  "inputSchema": {
+    "description": "Request model for listing routing form submissions associated with a routing form.",
+    "properties": {
+      "count": {
+        "default": 25,
+        "description": "Number of submissions to return per page. Defaults to 25 to keep responses manageable.",
+        "examples": [20, 25, 50],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Count",
+        "type": "integer"
+      },
+      "form": {
+        "description": "The URI of the routing form whose submissions you want to retrieve. Required to identify which form's submissions to list.",
+        "examples": [
+          "https://api.calendly.com/routing_forms/AAAAAAAAAAAAAAAA",
+          "https://api.calendly.com/routing_forms/12345678"
+        ],
+        "title": "Form",
+        "type": "string"
+      },
+      "page_token": {
+        "description": "Pagination token for retrieving subsequent pages. Check pagination.next_page_token in the response; if non-null, pass it as page_token in the next call. Repeat until next_page_token is null.",
+        "examples": ["NEXT_PAGE_TOKEN_FROM_PREVIOUS_RESPONSE"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Order results by field and direction. Format: 'field:direction'. Supported field: 'created_at'. Directions: 'asc', 'desc'.",
+        "examples": ["created_at:asc", "created_at:desc"],
+        "title": "Sort",
+        "type": "string"
+      }
+    },
+    "required": ["form"],
+    "title": "ListRoutingFormSubmissionsRequest",
+    "type": "object"
+  },
+  "name": "list_routing_form_submissions",
+  "outputSchema": {
+    "$defs": {
+      "ListRoutingFormSubmissionsResponse": {
+        "description": "Response model containing a collection of routing form submissions and pagination information.",
+        "properties": {
+          "collection": {
+            "description": "Array of routing form submission objects.",
+            "items": {
+              "$ref": "#/$defs/RoutingFormSubmission"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection", "pagination"],
+        "title": "ListRoutingFormSubmissionsResponse",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination information for navigating through large result sets.",
+        "properties": {
+          "count": {
+            "description": "Number of results in the current page.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "Full URL to retrieve the next page of results (null if no more pages).",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "next_page_token": {
+            "description": "Token for retrieving the next page (null if no more pages).",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "Full URL to retrieve the previous page of results (null if first page).",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "previous_page_token": {
+            "description": "Token for retrieving the previous page (null if first page).",
+            "title": "Previous Page Token",
+            "type": "string"
+          }
+        },
+        "required": ["count"],
+        "title": "Pagination",
+        "type": "object"
+      },
+      "QuestionAndAnswer": {
+        "description": "Represents a question from the routing form and the submitter's answer.",
+        "properties": {
+          "answer": {
+            "description": "The submitter's answer to the question.",
+            "title": "Answer",
+            "type": "string"
+          },
+          "position": {
+            "description": "The order/position of the question in the form, starting from 0.",
+            "title": "Position",
+            "type": "integer"
+          },
+          "question": {
+            "description": "The text of the question asked in the routing form.",
+            "title": "Question",
+            "type": "string"
+          },
+          "question_uuid": {
+            "description": "Unique identifier for the question.",
+            "title": "Question Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["question_uuid", "question", "answer", "position"],
+        "title": "QuestionAndAnswer",
+        "type": "object"
+      },
+      "RoutingFormSubmission": {
+        "description": "Represents a single routing form submission with all its details.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the routing form submission was created (ISO 8601 format in UTC).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "questions_and_answers": {
+            "description": "List of questions asked and answers provided by the submitter.",
+            "items": {
+              "$ref": "#/$defs/QuestionAndAnswer"
+            },
+            "title": "Questions And Answers",
+            "type": "array"
+          },
+          "result": {
+            "$ref": "#/$defs/RoutingResult",
+            "description": "The routing destination result - indicates where the submission was routed.",
+            "title": "Result"
+          },
+          "routing_form": {
+            "description": "URI reference to the associated routing form.",
+            "title": "Routing Form",
+            "type": "string"
+          },
+          "submitter": {
+            "description": "Identifier or information about the person who submitted the form.",
+            "title": "Submitter",
+            "type": "string"
+          },
+          "submitter_type": {
+            "description": "Type/category of the submitter (e.g., 'external', 'guest').",
+            "title": "Submitter Type",
+            "type": "string"
+          },
+          "tracking": {
+            "$ref": "#/$defs/TrackingInfo",
+            "description": "Marketing attribution and integration tracking data.",
+            "title": "Tracking"
+          },
+          "updated_at": {
+            "description": "Timestamp when the routing form submission was last updated (ISO 8601 format in UTC).",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the routing form submission.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "routing_form", "questions_and_answers", "created_at", "updated_at"],
+        "title": "RoutingFormSubmission",
+        "type": "object"
+      },
+      "RoutingResult": {
+        "description": "The routing destination result indicating where the submission was routed.",
+        "properties": {
+          "type": {
+            "description": "Type of destination (e.g., 'event_type', 'external_url').",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The actual destination (URI or URL) where the submission was routed.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "RoutingResult",
+        "type": "object"
+      },
+      "TrackingInfo": {
+        "description": "Marketing attribution and integration tracking data for the submission.",
+        "properties": {
+          "salesforce_uuid": {
+            "description": "Salesforce UUID for CRM integration tracking.",
+            "title": "Salesforce Uuid",
+            "type": "string"
+          },
+          "utm_campaign": {
+            "description": "UTM campaign parameter for marketing attribution.",
+            "title": "Utm Campaign",
+            "type": "string"
+          },
+          "utm_content": {
+            "description": "UTM content parameter for marketing attribution.",
+            "title": "Utm Content",
+            "type": "string"
+          },
+          "utm_medium": {
+            "description": "UTM medium parameter for marketing attribution.",
+            "title": "Utm Medium",
+            "type": "string"
+          },
+          "utm_source": {
+            "description": "UTM source parameter for marketing attribution.",
+            "title": "Utm Source",
+            "type": "string"
+          },
+          "utm_term": {
+            "description": "UTM term parameter for marketing attribution.",
+            "title": "Utm Term",
+            "type": "string"
+          }
+        },
+        "title": "TrackingInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListRoutingFormSubmissionsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

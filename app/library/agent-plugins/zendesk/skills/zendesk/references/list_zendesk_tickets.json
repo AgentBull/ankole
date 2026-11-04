@@ -1,0 +1,237 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List Zendesk tickets with pagination and filtering. Only server-side filter available is external_id; status, priority, tags, assignee_id, and date-range filters must be applied client-side. Timestamps (created_at, updated_at) are ISO 8601 UTC. ticket.subject may be null — coerce to string before filtering. Attachments are not included; retrieve via zendesk.get_zendesk_ticket_by_id. HTTP 429 rate limit responses include Retry-After header; apply exponential backoff. Paginate by following next_page until null to avoid missing tickets.",
+  "inputSchema": {
+    "description": "Request parameters for listing Zendesk tickets with pagination and filtering.",
+    "properties": {
+      "external_id": {
+        "description": "Filter tickets by external ID",
+        "examples": ["ext-123"],
+        "human_parameter_description": "Enter the external system's ticket ID to show only tickets linked to that identifier.",
+        "human_parameter_name": "External ID",
+        "title": "External Id",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number for offset pagination (1-100). Limited to first 100 pages or 10,000 records total. For larger datasets, use cursor pagination (page_size) instead.",
+        "examples": [1],
+        "human_parameter_description": "Which page of results you want to view. Start at 1 and increase to browse through more tickets. Limited to page 100.",
+        "human_parameter_name": "Page Number",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "page_after": {
+        "description": "Cursor value to retrieve the next page of results. Obtained from previous response's 'after_cursor' or 'next' link.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from the previous page to get the next set of results in cursor-based pagination.",
+        "human_parameter_name": "After Cursor",
+        "title": "Page After",
+        "type": "string"
+      },
+      "page_before": {
+        "description": "Cursor value to retrieve the previous page of results. Obtained from previous response's 'before_cursor' or 'prev' link.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from the previous page to get the previous set of results in cursor-based pagination.",
+        "human_parameter_name": "Before Cursor",
+        "title": "Page Before",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Number of tickets per page for cursor pagination (max 100). Use this for large datasets instead of page/per_page.",
+        "examples": [100],
+        "human_parameter_description": "Number of tickets per page using cursor-based pagination. Recommended for accessing more than 10,000 records.",
+        "human_parameter_name": "Page Size (Cursor)",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of tickets per page for offset pagination (max 100). Note: page * per_page cannot exceed 10,000. Set to 100 for large accounts to minimize requests before client-side filtering.",
+        "examples": [25],
+        "human_parameter_description": "How many tickets to show on each page. You can choose up to 100; smaller numbers can make pages load faster.",
+        "human_parameter_name": "Tickets Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort_by": {
+        "description": "Field to sort by: 'assignee', 'assignee.name', 'created_at', 'group', 'id', 'requester', 'requester.name', 'status', 'subject', 'updated_at' Omitting sort_by provides no guaranteed ordering; set explicitly when ticket order matters.",
+        "examples": ["updated_at"],
+        "human_parameter_description": "Pick the ticket field to sort by (e.g., created date, updated date, status, assignee) so results appear in the order you prefer.",
+        "human_parameter_name": "Sort By",
+        "title": "Sort By",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort order: 'asc' or 'desc'",
+        "enum": ["asc", "desc"],
+        "examples": ["desc"],
+        "human_parameter_description": "Choose the direction of sorting—ascending (asc) or descending (desc)—to control how the list is ordered.",
+        "human_parameter_name": "Sort Order",
+        "title": "Sort Order",
+        "type": "string"
+      }
+    },
+    "title": "ListZendeskTicketsRequest",
+    "type": "object"
+  },
+  "name": "list_zendesk_tickets",
+  "outputSchema": {
+    "$defs": {
+      "ListZendeskTicketsResponse": {
+        "description": "Response containing list of Zendesk tickets with pagination info.",
+        "properties": {
+          "after_cursor": {
+            "description": "Cursor for next page (cursor pagination only)",
+            "title": "After Cursor",
+            "type": "string"
+          },
+          "before_cursor": {
+            "description": "Cursor for previous page (cursor pagination only)",
+            "title": "Before Cursor",
+            "type": "string"
+          },
+          "count": {
+            "description": "Total number of tickets",
+            "title": "Count",
+            "type": "integer"
+          },
+          "has_more": {
+            "description": "Whether more results are available (cursor pagination only)",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "tickets": {
+            "description": "List of tickets",
+            "items": {
+              "$ref": "#/$defs/ZendeskTicket"
+            },
+            "title": "Tickets",
+            "type": "array"
+          }
+        },
+        "required": ["tickets", "count"],
+        "title": "ListZendeskTicketsResponse",
+        "type": "object"
+      },
+      "ZendeskTicket": {
+        "description": "Zendesk ticket object.",
+        "properties": {
+          "assignee_id": {
+            "description": "ID of the assigned agent",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "created_at": {
+            "description": "Ticket creation timestamp",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "Custom field values",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "description": {
+            "description": "Ticket description",
+            "title": "Description",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "ID of the assigned group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique ticket ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "ID of the requester's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Ticket priority (urgent, high, normal, low)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "ID of the user who requested the ticket",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Ticket status (new, open, pending, hold, solved, closed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Ticket subject",
+            "title": "Subject",
+            "type": "string"
+          },
+          "tags": {
+            "description": "List of ticket tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "description": "Ticket type (problem, incident, question, task)",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Ticket last update timestamp",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the ticket",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "status", "requester_id", "created_at", "updated_at", "url"],
+        "title": "ZendeskTicket",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListZendeskTicketsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

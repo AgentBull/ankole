@@ -1,0 +1,51 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "For Enterprise users, initiates deletion of an organization's scheduled event data between a `start_time` and `end_time` (inclusive, where `start_time` must be <= `end_time`); actual data deletion may take up to 7 days to complete.",
+  "inputSchema": {
+    "description": "Request to delete scheduled event data within a specified time range.",
+    "properties": {
+      "end_time": {
+        "description": "Defines the end of the data deletion period (UTC). Events ending at or before this time will be included. Must be within the past 24 months.",
+        "examples": ["2023-12-31T23:59:59Z"],
+        "format": "date-time",
+        "title": "End Time",
+        "type": "string"
+      },
+      "start_time": {
+        "description": "Defines the start of the data deletion period (UTC). Events starting at or after this time will be included. Must be within the past 24 months.",
+        "examples": ["2023-01-01T00:00:00Z"],
+        "format": "date-time",
+        "title": "Start Time",
+        "type": "string"
+      }
+    },
+    "required": ["end_time", "start_time"],
+    "title": "DeleteScheduledEventDataRequest",
+    "type": "object"
+  },
+  "name": "delete_scheduled_event_data",
+  "outputSchema": {
+    "$defs": {
+      "DeleteScheduledEventDataResponse": {
+        "description": "Response indicating the outcome of initiating the data deletion request.\n\nThe DELETE scheduled event data endpoint returns HTTP 202 Accepted with an empty response body\nupon successful submission. This follows standard REST API conventions for asynchronous operations.\nThe actual data deletion is processed asynchronously and can take up to 7 days to complete.\nThis endpoint is only available to Enterprise plan users.",
+        "properties": {},
+        "title": "DeleteScheduledEventDataResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteScheduledEventDataResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

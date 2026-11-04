@@ -1,0 +1,617 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a new Typeform form with customizable fields, logic, and settings. Use when you need to programmatically create a form with specific questions, welcome screens, thank you screens, and conditional logic.",
+  "inputSchema": {
+    "description": "Request to create a new Typeform form",
+    "properties": {
+      "fields": {
+        "description": "Array of field definitions for the form questions",
+        "items": {
+          "description": "A form field definition",
+          "properties": {
+            "attachment": {
+              "additionalProperties": false,
+              "description": "Attachment for a field (image, video, etc.)",
+              "properties": {
+                "href": {
+                  "description": "URL of the attachment",
+                  "title": "Href",
+                  "type": "string"
+                },
+                "properties": {
+                  "additionalProperties": true,
+                  "description": "Additional properties",
+                  "title": "Properties",
+                  "type": "object"
+                },
+                "scale": {
+                  "description": "Scale factor for the attachment",
+                  "title": "Scale",
+                  "type": "number"
+                },
+                "type": {
+                  "description": "Type of attachment (image, video)",
+                  "title": "Type",
+                  "type": "string"
+                }
+              },
+              "title": "FieldAttachment",
+              "type": "object"
+            },
+            "properties": {
+              "additionalProperties": false,
+              "description": "Properties for a field",
+              "properties": {
+                "allow_multiple_selection": {
+                  "description": "Allow multiple selections",
+                  "title": "Allow Multiple Selection",
+                  "type": "boolean"
+                },
+                "allow_other_choice": {
+                  "description": "Allow other choice option",
+                  "title": "Allow Other Choice",
+                  "type": "boolean"
+                },
+                "alphabetical_order": {
+                  "description": "Sort choices alphabetically",
+                  "title": "Alphabetical Order",
+                  "type": "boolean"
+                },
+                "button_text": {
+                  "description": "Custom button text",
+                  "title": "Button Text",
+                  "type": "string"
+                },
+                "choices": {
+                  "description": "Choices for multiple choice fields",
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Choices",
+                  "type": "array"
+                },
+                "description": {
+                  "description": "Field description",
+                  "title": "Description",
+                  "type": "string"
+                },
+                "fields": {
+                  "description": "Sub-fields for group fields",
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Fields",
+                  "type": "array"
+                },
+                "hide_marks": {
+                  "description": "Hide marks on opinion scale",
+                  "title": "Hide Marks",
+                  "type": "boolean"
+                },
+                "randomize": {
+                  "description": "Randomize choice order",
+                  "title": "Randomize",
+                  "type": "boolean"
+                },
+                "vertical_alignment": {
+                  "description": "Vertical alignment for choices",
+                  "title": "Vertical Alignment",
+                  "type": "boolean"
+                }
+              },
+              "title": "FieldProperties",
+              "type": "object"
+            },
+            "ref": {
+              "description": "Unique reference for the field",
+              "title": "Ref",
+              "type": "string"
+            },
+            "title": {
+              "description": "Field title/question",
+              "examples": ["What is your name?"],
+              "title": "Title",
+              "type": "string"
+            },
+            "type": {
+              "description": "Field type. Valid types: calendly, contact_info, date, dropdown, email, file_upload, group, legal, long_text, matrix, multi_format, multiple_choice, nps, number, opinion_scale, payment, phone_number, picture_choice, ranking, rating, short_text, statement, website, yes_no",
+              "examples": ["short_text", "email", "multiple_choice", "nps", "rating"],
+              "title": "Type",
+              "type": "string"
+            },
+            "validations": {
+              "additionalProperties": false,
+              "description": "Validation rules for a field",
+              "properties": {
+                "max_length": {
+                  "description": "Maximum length for text fields",
+                  "title": "Max Length",
+                  "type": "integer"
+                },
+                "max_value": {
+                  "description": "Maximum value for number fields",
+                  "title": "Max Value",
+                  "type": "number"
+                },
+                "min_length": {
+                  "description": "Minimum length for text fields",
+                  "title": "Min Length",
+                  "type": "integer"
+                },
+                "min_value": {
+                  "description": "Minimum value for number fields",
+                  "title": "Min Value",
+                  "type": "number"
+                },
+                "required": {
+                  "description": "Whether the field is required",
+                  "title": "Required",
+                  "type": "boolean"
+                }
+              },
+              "title": "FieldValidation",
+              "type": "object"
+            }
+          },
+          "required": ["title", "type"],
+          "title": "FormField",
+          "type": "object"
+        },
+        "title": "Fields",
+        "type": "array"
+      },
+      "logic": {
+        "description": "Conditional logic jumps and variable calculations",
+        "items": {
+          "description": "Logic jump configuration",
+          "properties": {
+            "actions": {
+              "description": "Actions to perform based on conditions",
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "title": "Actions",
+              "type": "array"
+            },
+            "ref": {
+              "description": "Reference to the field this logic applies to",
+              "title": "Ref",
+              "type": "string"
+            },
+            "type": {
+              "description": "Logic type (field, hidden)",
+              "examples": ["field"],
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": ["type", "ref", "actions"],
+          "title": "LogicJump",
+          "type": "object"
+        },
+        "title": "Logic",
+        "type": "array"
+      },
+      "settings": {
+        "additionalProperties": false,
+        "description": "Form settings configuration",
+        "properties": {
+          "are_uploads_public": {
+            "description": "Make uploads public",
+            "title": "Are Uploads Public",
+            "type": "boolean"
+          },
+          "autosave_progress": {
+            "description": "Autosave respondent progress",
+            "title": "Autosave Progress",
+            "type": "boolean"
+          },
+          "capabilities": {
+            "additionalProperties": true,
+            "description": "Form capabilities",
+            "title": "Capabilities",
+            "type": "object"
+          },
+          "facebook_pixel": {
+            "description": "Facebook Pixel ID",
+            "title": "Facebook Pixel",
+            "type": "string"
+          },
+          "free_form_navigation": {
+            "description": "Allow free form navigation",
+            "title": "Free Form Navigation",
+            "type": "boolean"
+          },
+          "google_analytics": {
+            "description": "Google Analytics ID",
+            "title": "Google Analytics",
+            "type": "string"
+          },
+          "google_tag_manager": {
+            "description": "Google Tag Manager ID",
+            "title": "Google Tag Manager",
+            "type": "string"
+          },
+          "hide_navigation": {
+            "description": "Hide navigation",
+            "title": "Hide Navigation",
+            "type": "boolean"
+          },
+          "is_public": {
+            "description": "Make form public",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "is_trial": {
+            "description": "Is trial form",
+            "title": "Is Trial",
+            "type": "boolean"
+          },
+          "language": {
+            "description": "Form language code",
+            "examples": ["en"],
+            "title": "Language",
+            "type": "string"
+          },
+          "notifications": {
+            "additionalProperties": true,
+            "description": "Notification settings",
+            "title": "Notifications",
+            "type": "object"
+          },
+          "pro_subdomain_enabled": {
+            "description": "Enable pro subdomain",
+            "title": "Pro Subdomain Enabled",
+            "type": "boolean"
+          },
+          "progress_bar": {
+            "description": "Progress bar type (proportion, percentage)",
+            "title": "Progress Bar",
+            "type": "string"
+          },
+          "redirect_after_submit_url": {
+            "description": "Redirect URL after submission",
+            "title": "Redirect After Submit Url",
+            "type": "string"
+          },
+          "show_cookie_consent": {
+            "description": "Show cookie consent",
+            "title": "Show Cookie Consent",
+            "type": "boolean"
+          },
+          "show_key_hint_on_choices": {
+            "description": "Show keyboard hints",
+            "title": "Show Key Hint On Choices",
+            "type": "boolean"
+          },
+          "show_number_of_submissions": {
+            "description": "Show number of submissions",
+            "title": "Show Number Of Submissions",
+            "type": "boolean"
+          },
+          "show_progress_bar": {
+            "description": "Show progress bar",
+            "title": "Show Progress Bar",
+            "type": "boolean"
+          },
+          "show_question_number": {
+            "description": "Show question numbers",
+            "title": "Show Question Number",
+            "type": "boolean"
+          },
+          "show_time_to_complete": {
+            "description": "Show estimated completion time",
+            "title": "Show Time To Complete",
+            "type": "boolean"
+          },
+          "show_typeform_branding": {
+            "description": "Show Typeform branding",
+            "title": "Show Typeform Branding",
+            "type": "boolean"
+          }
+        },
+        "title": "FormSettings",
+        "type": "object"
+      },
+      "thankyou_screens": {
+        "description": "Completion screens shown after form submission",
+        "items": {
+          "description": "Thank you screen configuration",
+          "properties": {
+            "attachment": {
+              "additionalProperties": false,
+              "description": "Attachment for a field (image, video, etc.)",
+              "properties": {
+                "href": {
+                  "description": "URL of the attachment",
+                  "title": "Href",
+                  "type": "string"
+                },
+                "properties": {
+                  "additionalProperties": true,
+                  "description": "Additional properties",
+                  "title": "Properties",
+                  "type": "object"
+                },
+                "scale": {
+                  "description": "Scale factor for the attachment",
+                  "title": "Scale",
+                  "type": "number"
+                },
+                "type": {
+                  "description": "Type of attachment (image, video)",
+                  "title": "Type",
+                  "type": "string"
+                }
+              },
+              "title": "FieldAttachment",
+              "type": "object"
+            },
+            "properties": {
+              "additionalProperties": true,
+              "description": "Thank you screen properties including redirect URLs",
+              "title": "Properties",
+              "type": "object"
+            },
+            "title": {
+              "description": "Thank you screen title",
+              "title": "Title",
+              "type": "string"
+            }
+          },
+          "title": "ThankyouScreen",
+          "type": "object"
+        },
+        "title": "Thankyou Screens",
+        "type": "array"
+      },
+      "theme": {
+        "additionalProperties": false,
+        "description": "Theme reference",
+        "properties": {
+          "href": {
+            "description": "Theme URL reference",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "required": ["href"],
+        "title": "ThemeReference",
+        "type": "object"
+      },
+      "title": {
+        "description": "Form title",
+        "examples": ["Customer Feedback Survey", "Event Registration Form"],
+        "title": "Title",
+        "type": "string"
+      },
+      "type": {
+        "description": "Form type (quiz, classification, score, branching, etc.)",
+        "examples": ["quiz", "form"],
+        "title": "Type",
+        "type": "string"
+      },
+      "welcome_screens": {
+        "description": "Introductory content screens shown before form fields",
+        "items": {
+          "description": "Welcome screen configuration",
+          "properties": {
+            "attachment": {
+              "additionalProperties": false,
+              "description": "Attachment for a field (image, video, etc.)",
+              "properties": {
+                "href": {
+                  "description": "URL of the attachment",
+                  "title": "Href",
+                  "type": "string"
+                },
+                "properties": {
+                  "additionalProperties": true,
+                  "description": "Additional properties",
+                  "title": "Properties",
+                  "type": "object"
+                },
+                "scale": {
+                  "description": "Scale factor for the attachment",
+                  "title": "Scale",
+                  "type": "number"
+                },
+                "type": {
+                  "description": "Type of attachment (image, video)",
+                  "title": "Type",
+                  "type": "string"
+                }
+              },
+              "title": "FieldAttachment",
+              "type": "object"
+            },
+            "properties": {
+              "additionalProperties": true,
+              "description": "Welcome screen properties",
+              "title": "Properties",
+              "type": "object"
+            },
+            "title": {
+              "description": "Welcome screen title",
+              "title": "Title",
+              "type": "string"
+            }
+          },
+          "title": "WelcomeScreen",
+          "type": "object"
+        },
+        "title": "Welcome Screens",
+        "type": "array"
+      },
+      "workspace": {
+        "additionalProperties": false,
+        "description": "Workspace reference",
+        "properties": {
+          "href": {
+            "description": "Workspace URL reference",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "required": ["href"],
+        "title": "WorkspaceReference",
+        "type": "object"
+      }
+    },
+    "required": ["title"],
+    "title": "CreateFormRequest",
+    "type": "object"
+  },
+  "name": "create_form",
+  "outputSchema": {
+    "$defs": {
+      "CreateFormResponse": {
+        "description": "Response containing the created form details",
+        "properties": {
+          "_links": {
+            "$ref": "#/$defs/FormLinksResponse",
+            "description": "Resource links",
+            "title": " Links"
+          },
+          "fields": {
+            "description": "Form fields with complete configuration",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "hidden": {
+            "description": "Hidden field variable names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Hidden",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the created form",
+            "title": "Id",
+            "type": "string"
+          },
+          "logic": {
+            "description": "Logic jumps",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Logic",
+            "type": "array"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "description": "Form settings",
+            "title": "Settings",
+            "type": "object"
+          },
+          "thankyou_screens": {
+            "description": "Thank you screens",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Thankyou Screens",
+            "type": "array"
+          },
+          "theme": {
+            "$ref": "#/$defs/FormThemeResponse",
+            "description": "Theme reference",
+            "title": "Theme"
+          },
+          "title": {
+            "description": "Form title",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Form type",
+            "title": "Type",
+            "type": "string"
+          },
+          "variables": {
+            "additionalProperties": true,
+            "description": "Score, price, and enrichment variables",
+            "title": "Variables",
+            "type": "object"
+          },
+          "welcome_screens": {
+            "description": "Welcome screens",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Welcome Screens",
+            "type": "array"
+          },
+          "workspace": {
+            "$ref": "#/$defs/FormWorkspaceResponse",
+            "description": "Workspace reference",
+            "title": "Workspace"
+          }
+        },
+        "required": ["id", "title"],
+        "title": "CreateFormResponse",
+        "type": "object"
+      },
+      "FormLinksResponse": {
+        "description": "Links to form resources",
+        "properties": {
+          "display": {
+            "description": "Display URL for the form",
+            "title": "Display",
+            "type": "string"
+          }
+        },
+        "title": "FormLinksResponse",
+        "type": "object"
+      },
+      "FormThemeResponse": {
+        "description": "Theme information in response",
+        "properties": {
+          "href": {
+            "description": "Theme URL reference",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "title": "FormThemeResponse",
+        "type": "object"
+      },
+      "FormWorkspaceResponse": {
+        "description": "Workspace information in response",
+        "properties": {
+          "href": {
+            "description": "Workspace URL reference",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "title": "FormWorkspaceResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateFormResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

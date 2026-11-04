@@ -1,0 +1,68 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Delete a CampaignMember record by its ID, or find and delete the first matching member for a campaign and lead or contact ID. When a CampaignMember ID is supplied, it is deleted directly without checking the campaign ID.",
+  "inputSchema": {
+    "properties": {
+      "campaign_id": {
+        "description": "The Salesforce ID of the campaign to remove the member from.",
+        "examples": ["701XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The campaign you want to remove someone from. Paste the Salesforce Campaign ID (you can copy it from the campaign's URL).",
+        "human_parameter_name": "Campaign ID",
+        "title": "Campaign Id",
+        "type": "string"
+      },
+      "campaign_member_id": {
+        "default": "",
+        "description": "The specific CampaignMember record ID to delete. Either member_id or campaign_member_id must be provided.",
+        "examples": ["00vXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The exact member-in-campaign record to delete. Use this if you have the specific Campaign Member ID to remove the link directly.",
+        "human_parameter_name": "Campaign Member ID",
+        "title": "Campaign Member Id",
+        "type": "string"
+      },
+      "member_id": {
+        "default": "",
+        "description": "The Salesforce ID of the lead or contact to remove from the campaign. Either member_id or campaign_member_id must be provided.",
+        "examples": ["00QXXXXXXXXXXXXXXX", "003XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The lead or contact you want to remove. Enter their Salesforce ID if you don't have the specific Campaign Member ID.",
+        "human_parameter_name": "Member ID",
+        "title": "Member Id",
+        "type": "string"
+      }
+    },
+    "required": ["campaign_id"],
+    "title": "RemoveFromCampaignRequest",
+    "type": "object"
+  },
+  "name": "remove_from_campaign",
+  "outputSchema": {
+    "$defs": {
+      "RemoveFromCampaignResponse": {
+        "description": "Response for successful campaign member removal.\n\nHTTP 204 No Content - Salesforce returns empty body on successful deletion.\nError responses (4xx/5xx) are handled via raise_for_status().",
+        "properties": {
+          "message": {
+            "description": "Message when no campaign member was found or when validation fails.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "title": "RemoveFromCampaignResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RemoveFromCampaignResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

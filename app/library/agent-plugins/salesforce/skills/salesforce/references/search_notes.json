@@ -1,0 +1,221 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Search Salesforce Note records by title, body, parent name, owner, creation date, or privacy. Parent-name searches cover Accounts, Contacts, Leads, Opportunities, and Cases; failed parent or owner lookups can return empty results, and body matches are limited before other filters apply.",
+  "inputSchema": {
+    "properties": {
+      "body": {
+        "description": "Search within note body content using full-text search (SOSL). When provided, body search is combined with any additional filters using AND logic.",
+        "examples": ["discussed pricing", "action items", "next steps"],
+        "human_parameter_description": "Provide words or phrases that appear in the note’s content to find relevant notes. Use a few keywords you remember.",
+        "human_parameter_name": "Note Body",
+        "title": "Body",
+        "type": "string"
+      },
+      "created_date_from": {
+        "description": "Filter notes created on or after this date (YYYY-MM-DD).",
+        "examples": ["2024-01-01"],
+        "human_parameter_description": "Start date for when the notes were created, in YYYY-MM-DD. Use this to include only newer notes.",
+        "human_parameter_name": "Created From",
+        "title": "Created Date From",
+        "type": "string"
+      },
+      "created_date_to": {
+        "description": "Filter notes created on or before this date (YYYY-MM-DD).",
+        "examples": ["2024-12-31"],
+        "human_parameter_description": "End date for when the notes were created, in YYYY-MM-DD. Use this to include only older notes up to this date.",
+        "human_parameter_name": "Created To",
+        "title": "Created Date To",
+        "type": "string"
+      },
+      "fields": {
+        "default": "Id,Title,Body,ParentId,Parent.Name,OwnerId,Owner.Name,IsPrivate,CreatedDate,LastModifiedDate",
+        "description": "Comma-separated list of Note fields to retrieve. Parent.Name may be null when the parent record is deleted or inaccessible.",
+        "examples": [
+          "Id,Title,Body,ParentId,Parent.Name,CreatedDate",
+          "Id,Title,Body,ParentId,Parent.Name,OwnerId,Owner.Name,IsPrivate"
+        ],
+        "human_parameter_description": "Specify which details you want returned for each note (e.g., title, owner). Leave the default unless you need specific fields.",
+        "title": "Fields",
+        "type": "string"
+      },
+      "is_private": {
+        "description": "Filter by private status. True for private notes, False for public notes. Private notes may be silently omitted if the integration user lacks permission — absence of results does not guarantee no notes exist.",
+        "human_parameter_description": "Choose whether to show only private notes, only public notes, or leave blank to include both.",
+        "human_parameter_name": "Is Private",
+        "title": "Is Private",
+        "type": "boolean"
+      },
+      "limit": {
+        "default": 50,
+        "description": "Maximum number of notes to return. Maximum allowed value is 2000; apply precise filters or paginate when result sets may exceed the limit.",
+        "human_parameter_description": "Set how many notes to return at most. Lower this for faster searches; increase it to see more results (up to 2000).",
+        "human_parameter_name": "Limit",
+        "maximum": 2000,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "owner_name": {
+        "description": "Search by note owner's user name. Supports partial matches.",
+        "examples": ["John Smith", "Jane"],
+        "human_parameter_description": "Enter the name of the person who owns the note to narrow results. Partial names are okay.",
+        "human_parameter_name": "Owner Name",
+        "title": "Owner Name",
+        "type": "string"
+      },
+      "parent_name": {
+        "description": "Search by parent record name (Account, Contact, Lead, Opportunity, Case, or custom objects). Supports partial matches. Searches across common parent object types to find matching records. Cannot filter by parent record ID or parent object type; use salesforce.run_soql_query for ID-scoped note lookups.",
+        "examples": ["Acme Corp", "John Smith"],
+        "human_parameter_description": "Type the name of the related record (like an Account or Contact) the note is attached to. Partial names are fine.",
+        "human_parameter_name": "Parent Name",
+        "title": "Parent Name",
+        "type": "string"
+      },
+      "title": {
+        "description": "Search by note title. Supports partial matches.",
+        "examples": ["Meeting Notes", "Follow up", "Important"],
+        "human_parameter_description": "Enter words from the note’s title to find matching notes. Partial titles work—type what you remember.",
+        "human_parameter_name": "Note Title",
+        "title": "Title",
+        "type": "string"
+      }
+    },
+    "title": "SearchNotesRequest",
+    "type": "object"
+  },
+  "name": "search_notes",
+  "outputSchema": {
+    "$defs": {
+      "NoteRecord": {
+        "description": "Note record returned by the SOQL query.",
+        "properties": {
+          "Content": {
+            "description": "A URL path pointing to the note content blob. The REST API does not return the actual blob content directly; instead it returns a URL like '/services/data/v42.0/sobjects/ContentNote/{Id}/Content' that must be queried separately to retrieve the actual base64-encoded content.",
+            "title": "Content",
+            "type": "string"
+          },
+          "CreatedById": {
+            "description": "ID of the user who created the note.",
+            "title": "Created By Id",
+            "type": "string"
+          },
+          "CreatedDate": {
+            "description": "ISO 8601 date-time when the note was created.",
+            "title": "Created Date",
+            "type": "string"
+          },
+          "Id": {
+            "description": "Unique identifier for the note record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "IsDeleted": {
+            "description": "Indicates whether the note has been soft deleted. Set to true when the record is deleted.",
+            "title": "Is Deleted",
+            "type": "boolean"
+          },
+          "LastModifiedById": {
+            "description": "ID of the user who last modified the note.",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "LastModifiedDate": {
+            "description": "ISO 8601 date-time when the note was last modified by a user. Can be imported with back-dated values for data migration purposes.",
+            "title": "Last Modified Date",
+            "type": "string"
+          },
+          "OwnerId": {
+            "description": "ID of the user who owns the note.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "SystemModstamp": {
+            "description": "ISO 8601 date-time when the note was last modified by a user or by an automated process (such as a trigger). This is read-only and is always greater than or equal to LastModifiedDate.",
+            "title": "System Modstamp",
+            "type": "string"
+          },
+          "TextPreview": {
+            "description": "A text preview of the note content without HTML formatting.",
+            "title": "Text Preview",
+            "type": "string"
+          },
+          "Title": {
+            "description": "The title of the note.",
+            "title": "Title",
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/$defs/RecordAttributes",
+            "title": "Attributes"
+          }
+        },
+        "required": ["attributes", "Id"],
+        "title": "NoteRecord",
+        "type": "object"
+      },
+      "RecordAttributes": {
+        "description": "Metadata about the record including its type and URL.",
+        "properties": {
+          "type": {
+            "description": "The sObject type for the record (e.g., 'Note' or 'ContentNote').",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The resource path to the specific record in the API.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "RecordAttributes",
+        "type": "object"
+      },
+      "SearchNotesResponse": {
+        "description": "Response schema for Salesforce SOQL query to search Note objects via REST API.",
+        "properties": {
+          "done": {
+            "description": "A boolean indicating whether the query is complete. Returns true on the final page, false if more records exist.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "nextRecordsUrl": {
+            "description": "The path to the next page of results. Only present when done is false and more records are available. Used for pagination.",
+            "title": "Next Records Url",
+            "type": "string"
+          },
+          "records": {
+            "description": "An array containing the note records returned by the query.",
+            "items": {
+              "$ref": "#/$defs/NoteRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "totalSize": {
+            "description": "The total number of results that can be selected with the SOQL query.",
+            "title": "Total Size",
+            "type": "integer"
+          }
+        },
+        "required": ["totalSize", "done", "records"],
+        "title": "SearchNotesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SearchNotesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

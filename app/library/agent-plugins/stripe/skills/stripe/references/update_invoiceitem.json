@@ -1,0 +1,565 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an invoice item on a draft invoice. Use when modifying invoice item properties like amount, description, discounts, or tax settings before invoice finalization.",
+  "inputSchema": {
+    "description": "Request model for updating an invoice item.",
+    "properties": {
+      "amount": {
+        "description": "The integer amount in cents of the charge to be applied to the upcoming invoice. To apply a credit, pass a negative value.",
+        "examples": [3500, 1000, -500],
+        "title": "Amount",
+        "type": "integer"
+      },
+      "description": {
+        "description": "An arbitrary string which you can attach to the invoice item. The description is displayed in the invoice for easy tracking.",
+        "examples": ["Updated description via API", "Monthly subscription fee"],
+        "title": "Description",
+        "type": "string"
+      },
+      "discountable": {
+        "description": "Controls whether discounts apply to this invoice item. Defaults to false for prorations or negative invoice items, and true for all other invoice items.",
+        "examples": [true, false],
+        "title": "Discountable",
+        "type": "boolean"
+      },
+      "discounts": {
+        "description": "The coupons, promotion codes & existing discounts which apply to the invoice item. Item discounts are applied before invoice discounts. Pass an empty array to remove previously-defined discounts.",
+        "items": {
+          "description": "Discount to apply to the invoice item.",
+          "properties": {
+            "coupon": {
+              "description": "ID of the coupon to create a new discount. Mutually exclusive with discount and promotion_code.",
+              "examples": ["coupon_123", "SUMMER20"],
+              "title": "Coupon",
+              "type": "string"
+            },
+            "discount": {
+              "description": "ID of an existing discount to reuse. Mutually exclusive with coupon and promotion_code.",
+              "examples": ["di_1ShVomQvM72TjFrb"],
+              "title": "Discount",
+              "type": "string"
+            },
+            "promotion_code": {
+              "description": "ID of the promotion code to apply. Mutually exclusive with coupon and discount.",
+              "examples": ["promo_1ShVomQvM72TjFrb"],
+              "title": "Promotion Code",
+              "type": "string"
+            }
+          },
+          "title": "DiscountUpdate",
+          "type": "object"
+        },
+        "title": "Discounts",
+        "type": "array"
+      },
+      "invoiceitem_id": {
+        "description": "The ID of the invoice item to update. Must start with 'ii_' followed by alphanumeric characters.",
+        "examples": ["ii_1ShVomQvM72TjFrbfkLA3S8C"],
+        "title": "Invoiceitem Id",
+        "type": "string"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Set of key-value pairs that you can attach to an object. This can be useful for storing additional information in a structured format. Individual keys can be unset by posting an empty value. All keys can be unset by posting an empty value to metadata.",
+        "examples": [
+          {
+            "customer_type": "premium",
+            "order_id": "12345"
+          }
+        ],
+        "title": "Metadata",
+        "type": "object"
+      },
+      "period": {
+        "additionalProperties": false,
+        "description": "Time period for invoice item.",
+        "properties": {
+          "end": {
+            "description": "End of the period (Unix timestamp in seconds). Must be after the start of the period.",
+            "examples": [1612137600, 1643673600],
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "description": "Start of the period (Unix timestamp in seconds). Must be before or equal to the end of the period.",
+            "examples": [1609459200, 1640995200],
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "PeriodUpdate",
+        "type": "object"
+      },
+      "price_data": {
+        "additionalProperties": false,
+        "description": "Data to create a new price inline.",
+        "properties": {
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "examples": ["usd", "eur", "gbp"],
+            "title": "Currency",
+            "type": "string"
+          },
+          "product": {
+            "description": "The ID of the product that this price will belong to.",
+            "examples": ["prod_1ShVomQvM72TjFrb"],
+            "title": "Product",
+            "type": "string"
+          },
+          "tax_behavior": {
+            "description": "Specifies whether the price is considered inclusive of taxes or exclusive of taxes. One of inclusive, exclusive, or unspecified.",
+            "examples": ["inclusive", "exclusive", "unspecified"],
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "A positive integer in cents representing how much to charge. One of unit_amount or unit_amount_decimal is required.",
+            "examples": [1000, 2500, 5000],
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Same as unit_amount, but accepts a decimal value with at most 12 decimal places. One of unit_amount or unit_amount_decimal is required.",
+            "examples": ["10.50", "25.99", "100.00"],
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["currency", "product"],
+        "title": "PriceDataUpdate",
+        "type": "object"
+      },
+      "pricing": {
+        "additionalProperties": false,
+        "description": "Pricing details for the invoice item.",
+        "properties": {
+          "price": {
+            "description": "The ID of the price object to use for this invoice item.",
+            "examples": ["price_1ShVomQvM72TjFrb"],
+            "title": "Price",
+            "type": "string"
+          }
+        },
+        "required": ["price"],
+        "title": "PricingUpdate",
+        "type": "object"
+      },
+      "quantity": {
+        "description": "Non-negative integer. The quantity of units for the invoice item.",
+        "examples": [1, 5, 10],
+        "title": "Quantity",
+        "type": "integer"
+      },
+      "tax_behavior": {
+        "description": "Only required if a default tax behavior was not provided in the Stripe Tax settings. Specifies whether the price is considered inclusive of taxes or exclusive of taxes. One of inclusive, exclusive, or unspecified.",
+        "examples": ["inclusive", "exclusive", "unspecified"],
+        "title": "Tax Behavior",
+        "type": "string"
+      },
+      "tax_code": {
+        "description": "A tax code ID.",
+        "examples": ["txcd_10000000"],
+        "title": "Tax Code",
+        "type": "string"
+      },
+      "tax_rates": {
+        "description": "The tax rates which apply to the invoice item. When set, the default_tax_rates on the invoice do not apply to this invoice item. Pass an empty array to remove previously-defined tax rates.",
+        "examples": [["txr_1ShVomQvM72TjFrb"], []],
+        "items": {
+          "type": "string"
+        },
+        "title": "Tax Rates",
+        "type": "array"
+      },
+      "unit_amount_decimal": {
+        "description": "Same as unit_amount, but accepts a decimal value with at most 12 decimal places.",
+        "examples": ["10.50", "25.99"],
+        "title": "Unit Amount Decimal",
+        "type": "string"
+      }
+    },
+    "required": ["invoiceitem_id"],
+    "title": "UpdateInvoiceitemRequest",
+    "type": "object"
+  },
+  "name": "update_invoiceitem",
+  "outputSchema": {
+    "$defs": {
+      "DiscountAmountResponse": {
+        "description": "Discount amount details.",
+        "properties": {
+          "amount": {
+            "description": "The amount, in cents, of the discount.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "discount": {
+            "description": "The ID of the discount that was applied.",
+            "title": "Discount",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "discount"],
+        "title": "DiscountAmountResponse",
+        "type": "object"
+      },
+      "ParentGenerationResponse": {
+        "description": "Parent generation details.",
+        "properties": {
+          "subscription_details": {
+            "$ref": "#/$defs/SubscriptionDetailsResponse",
+            "description": "Subscription details if type is subscription.",
+            "title": "Subscription Details"
+          },
+          "type": {
+            "description": "Type of parent generation.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "ParentGenerationResponse",
+        "type": "object"
+      },
+      "PeriodResponse": {
+        "description": "Period associated with the invoice item.",
+        "properties": {
+          "end": {
+            "description": "End of the period (Unix timestamp).",
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "description": "Start of the period (Unix timestamp).",
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "PeriodResponse",
+        "type": "object"
+      },
+      "PriceDetailsResponse": {
+        "description": "Price details for the invoice item.",
+        "properties": {
+          "price": {
+            "description": "The ID of the price object.",
+            "title": "Price",
+            "type": "string"
+          },
+          "product": {
+            "description": "The ID of the product this price is associated with.",
+            "title": "Product",
+            "type": "string"
+          }
+        },
+        "required": ["price", "product"],
+        "title": "PriceDetailsResponse",
+        "type": "object"
+      },
+      "PricingResponse": {
+        "description": "Pricing details in the response.",
+        "properties": {
+          "price_details": {
+            "$ref": "#/$defs/PriceDetailsResponse",
+            "description": "Price details object.",
+            "title": "Price Details"
+          },
+          "type": {
+            "description": "Type of pricing details.",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount_decimal": {
+            "description": "Unit amount with up to 12 decimal places.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "PricingResponse",
+        "type": "object"
+      },
+      "ProrationDetailsResponse": {
+        "description": "Proration details for the invoice item.",
+        "properties": {
+          "discount_amounts": {
+            "description": "Array of discount amounts applied to the proration.",
+            "items": {
+              "$ref": "#/$defs/DiscountAmountResponse"
+            },
+            "title": "Discount Amounts",
+            "type": "array"
+          }
+        },
+        "title": "ProrationDetailsResponse",
+        "type": "object"
+      },
+      "SubscriptionDetailsResponse": {
+        "description": "Subscription details in parent generation.",
+        "properties": {
+          "subscription": {
+            "description": "The ID of the subscription.",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "subscription_item": {
+            "description": "The ID of the subscription item.",
+            "title": "Subscription Item",
+            "type": "string"
+          }
+        },
+        "required": ["subscription"],
+        "title": "SubscriptionDetailsResponse",
+        "type": "object"
+      },
+      "TaxRate": {
+        "description": "Tax rate object.",
+        "properties": {
+          "active": {
+            "description": "Defaults to true. When set to false, this tax rate cannot be used with new applications or Checkout Sessions.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2).",
+            "title": "Country",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the tax rate for your internal use only.",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "The display name of the tax rate, which will be shown to users.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "effective_percentage": {
+            "description": "Actual/effective tax rate percentage out of 100.",
+            "title": "Effective Percentage",
+            "type": "number"
+          },
+          "id": {
+            "description": "Unique identifier for the tax rate.",
+            "title": "Id",
+            "type": "string"
+          },
+          "inclusive": {
+            "description": "This specifies if the tax rate is inclusive or exclusive.",
+            "title": "Inclusive",
+            "type": "boolean"
+          },
+          "jurisdiction": {
+            "description": "The jurisdiction for the tax rate.",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "jurisdiction_level": {
+            "description": "The level of the jurisdiction that imposes this tax rate.",
+            "title": "Jurisdiction Level",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'tax_rate'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percentage": {
+            "description": "Tax rate percentage out of 100.",
+            "title": "Percentage",
+            "type": "number"
+          },
+          "state": {
+            "description": "ISO 3166-2 subdivision code.",
+            "title": "State",
+            "type": "string"
+          },
+          "tax_type": {
+            "description": "The high-level tax type.",
+            "title": "Tax Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "active", "created", "display_name", "inclusive", "livemode", "percentage"],
+        "title": "TaxRate",
+        "type": "object"
+      },
+      "UpdateInvoiceitemResponse": {
+        "description": "Response model for an updated invoice item.",
+        "properties": {
+          "amount": {
+            "description": "Amount (in the currency specified) of the invoice item. Equal to unit_amount * quantity.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "customer": {
+            "description": "The ID of the customer who will be billed when this invoice item is billed.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "customer_account": {
+            "description": "The ID of the customer account to bill.",
+            "title": "Customer Account",
+            "type": "string"
+          },
+          "date": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Date",
+            "type": "integer"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the object. Often useful for displaying to users.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discountable": {
+            "description": "If true, discounts will apply to this invoice item. Always false for prorations.",
+            "title": "Discountable",
+            "type": "boolean"
+          },
+          "discounts": {
+            "description": "The discounts which apply to the invoice item. Item discounts are applied before invoice discounts.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the invoice item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "The ID of the invoice this invoice item belongs to.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "net_amount": {
+            "description": "Net amount of the invoice item after discounts, before credits or taxes.",
+            "title": "Net Amount",
+            "type": "integer"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'invoiceitem'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "parent": {
+            "$ref": "#/$defs/ParentGenerationResponse",
+            "description": "Details about the generation of this invoice item.",
+            "title": "Parent"
+          },
+          "period": {
+            "$ref": "#/$defs/PeriodResponse",
+            "description": "The period associated with this invoice item.",
+            "title": "Period"
+          },
+          "pricing": {
+            "$ref": "#/$defs/PricingResponse",
+            "description": "Pricing details for the invoice item.",
+            "title": "Pricing"
+          },
+          "proration": {
+            "description": "Whether the invoice item was created automatically as a proration adjustment when the customer switched plans.",
+            "title": "Proration",
+            "type": "boolean"
+          },
+          "proration_details": {
+            "$ref": "#/$defs/ProrationDetailsResponse",
+            "description": "Additional details about the proration if applicable.",
+            "title": "Proration Details"
+          },
+          "quantity": {
+            "description": "The quantity of units for this invoice item.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "tax_rates": {
+            "description": "The tax rates which apply to the invoice item.",
+            "items": {
+              "$ref": "#/$defs/TaxRate"
+            },
+            "title": "Tax Rates",
+            "type": "array"
+          },
+          "test_clock": {
+            "description": "ID of the test clock this invoice item belongs to.",
+            "title": "Test Clock",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "currency",
+          "customer",
+          "date",
+          "discountable",
+          "livemode",
+          "period",
+          "proration",
+          "quantity"
+        ],
+        "title": "UpdateInvoiceitemResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateInvoiceitemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

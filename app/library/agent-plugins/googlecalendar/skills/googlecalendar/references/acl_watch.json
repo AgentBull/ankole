@@ -1,0 +1,118 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to watch for changes to ACL resources. Use when you need to set up real-time notifications for access control list modifications on a calendar.",
+  "inputSchema": {
+    "properties": {
+      "address": {
+        "description": "The address where notifications are delivered for this channel.",
+        "examples": ["https://example.com/notifications"],
+        "title": "Address",
+        "type": "string"
+      },
+      "calendarId": {
+        "description": "Calendar identifier. To retrieve calendar IDs call the calendarList.list method. If you want to access the primary calendar of the currently logged in user, use the \"primary\" keyword.",
+        "examples": ["primary"],
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "id": {
+        "description": "A UUID or similar unique string that identifies this channel.",
+        "examples": ["01234567-89ab-cdef-0123456789ab"],
+        "title": "Id",
+        "type": "string"
+      },
+      "params": {
+        "additionalProperties": false,
+        "description": "Additional parameters controlling delivery channel behavior. Optional.",
+        "properties": {
+          "ttl": {
+            "description": "Time-to-live in seconds for the notification channel. Default is 604800 seconds (one week).",
+            "examples": ["3600"],
+            "title": "Ttl",
+            "type": "string"
+          }
+        },
+        "title": "AclWatchRequestParams",
+        "type": "object"
+      },
+      "token": {
+        "description": "An arbitrary string delivered to the target address with each notification delivered over this channel. Optional.",
+        "examples": ["target=myApp-myAclChannelDest"],
+        "title": "Token",
+        "type": "string"
+      },
+      "type": {
+        "default": "web_hook",
+        "description": "The type of delivery mechanism used for this channel. Valid values are \"web_hook\" or \"webhook\".",
+        "examples": ["web_hook"],
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["calendarId", "id", "address"],
+    "title": "AclWatchRequest",
+    "type": "object"
+  },
+  "name": "acl_watch",
+  "outputSchema": {
+    "$defs": {
+      "AclWatchResponse": {
+        "properties": {
+          "display_url": {
+            "description": "URL to view this resource in the Google Calendar web interface. Notification channels have no UI representation, so this is always None.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "expiration": {
+            "description": "Date and time of notification channel expiration, expressed as a Unix timestamp, in milliseconds. Optional.",
+            "title": "Expiration",
+            "type": "string"
+          },
+          "id": {
+            "description": "A UUID or similar unique string that identifies this channel.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "api#channel",
+            "description": "Identifies this as a notification channel used to watch for changes to a resource, which is \"api#channel\".",
+            "title": "Kind",
+            "type": "string"
+          },
+          "resourceId": {
+            "description": "An opaque ID that identifies the resource being watched on this channel. Stable across different API versions.",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "resourceUri": {
+            "description": "A version-specific identifier for the watched resource.",
+            "title": "Resource Uri",
+            "type": "string"
+          },
+          "token": {
+            "description": "An arbitrary string delivered to the target address with each notification delivered over this channel. Optional.",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "id", "resourceId", "resourceUri"],
+        "title": "AclWatchResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AclWatchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

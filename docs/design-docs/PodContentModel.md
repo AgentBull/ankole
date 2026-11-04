@@ -158,7 +158,9 @@ and the selection follows blocks that acquire children during the operation.
 
 The heading catalogue covers H1 through H6, with H1 smaller than the Page title.
 Readers can fold each heading's section up to the next sibling heading of equal
-or lower level. Fold state belongs to that editor instance and never modifies
+or lower level, or to the end of its parent container. The editor calculates each
+section by its position, including when containers share immutable node objects.
+Fold state belongs to that editor instance and never modifies
 the document. The slash menu searches translated labels and multilingual aliases,
 so Chinese and English names can select the same block in either interface.
 
@@ -742,6 +744,13 @@ from the submitted query, pickers hide remote results for the previous text so
 users cannot select a stale match. Locally available commands and Agents filter
 immediately. TanStack Query continues to own request cancellation and cached
 results.
+
+Within each QueryClient, Pod shares a read-only index of cached Pages for links
+and navigation. Pod invalidates the index when TanStack Query adds a query with
+initial data, writes successful query data, applies a direct state update, or removes a query.
+It rebuilds the index from the current cache on the next lookup. Pod keeps the
+index valid when callers register an empty query or change an observer. Callers
+treat the shared Page map and array as read-only.
 
 Each paginated TanStack Query owns its directory data in memory. The bootstrap
 fills directories that have no cached data and keeps only the active path in its

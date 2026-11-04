@@ -1,0 +1,215 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List one page of merge requests that close an issue when merged. Private projects and confidential issues require authorized credentials.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "Internal ID of the issue within the project.",
+        "title": "Issue Iid",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid"],
+    "title": "ListIssueClosingMergeRequestsRequest",
+    "type": "object"
+  },
+  "name": "list_issue_closing_merge_requests",
+  "outputSchema": {
+    "$defs": {
+      "IssueClosingMergeRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "assignee": {
+            "$ref": "#/$defs/IssueClosingMergeRequestUser",
+            "description": "Assigned user, or null.",
+            "title": "Assignee"
+          },
+          "author": {
+            "$ref": "#/$defs/IssueClosingMergeRequestUser",
+            "description": "Author.",
+            "title": "Author"
+          },
+          "closed_at": {
+            "description": "Closure timestamp, or null.",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "closed_by": {
+            "$ref": "#/$defs/IssueClosingMergeRequestUser",
+            "description": "User who closed the merge request, or null.",
+            "title": "Closed By"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Merge request description, or null.",
+            "title": "Description",
+            "type": "string"
+          },
+          "draft": {
+            "description": "Whether the merge request is a draft.",
+            "title": "Draft",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Global merge request ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Internal merge request ID within its project.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Merge request label names.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "project_id": {
+            "description": "Project containing the merge request.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "source_branch": {
+            "description": "Source branch name.",
+            "title": "Source Branch",
+            "type": "string"
+          },
+          "state": {
+            "description": "Merge request state.",
+            "title": "State",
+            "type": "string"
+          },
+          "target_branch": {
+            "description": "Target branch name.",
+            "title": "Target Branch",
+            "type": "string"
+          },
+          "title": {
+            "description": "Merge request title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Merge request web URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "iid", "project_id"],
+        "title": "IssueClosingMergeRequest",
+        "type": "object"
+      },
+      "IssueClosingMergeRequestUser": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "User avatar URL, or null.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "User profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "IssueClosingMergeRequestUser",
+        "type": "object"
+      },
+      "ListIssueClosingMergeRequestsResponse": {
+        "properties": {
+          "merge_requests": {
+            "description": "One page of merge requests that close the issue when merged.",
+            "items": {
+              "$ref": "#/$defs/IssueClosingMergeRequest"
+            },
+            "title": "Merge Requests",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          }
+        },
+        "required": ["merge_requests"],
+        "title": "ListIssueClosingMergeRequestsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListIssueClosingMergeRequestsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

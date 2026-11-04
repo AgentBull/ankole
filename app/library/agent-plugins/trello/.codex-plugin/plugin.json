@@ -1,0 +1,6 @@
+{
+  "name": "trello",
+  "version": "1.0.0",
+  "description": "Use trello tools and event subscriptions with Ankole connections.",
+  "skills": "./skills/"
+}

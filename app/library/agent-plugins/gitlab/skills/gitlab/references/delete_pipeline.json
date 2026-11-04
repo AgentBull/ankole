@@ -1,0 +1,66 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to delete a CI/CD pipeline by its ID within a specified project. This action expires all pipeline caches and deletes all immediately related objects such as builds, logs, artifacts, and triggers. This action is irreversible — the pipeline cannot be recovered once deleted. Use when you need to permanently remove a pipeline and all its associated data.",
+  "inputSchema": {
+    "properties": {
+      "pipeline_id": {
+        "description": "The ID of the pipeline to delete.",
+        "examples": [456],
+        "title": "Pipeline Id",
+        "type": "integer"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["123", "group_name/project_name"],
+        "title": "Project Id"
+      }
+    },
+    "required": ["project_id", "pipeline_id"],
+    "title": "DeletePipelineRequest",
+    "type": "object"
+  },
+  "name": "delete_pipeline",
+  "outputSchema": {
+    "$defs": {
+      "DeletePipelineResponse": {
+        "properties": {
+          "message": {
+            "description": "A message indicating the status of the deletion.",
+            "title": "Message",
+            "type": "string"
+          },
+          "status_code": {
+            "description": "HTTP status code of the response.",
+            "title": "Status Code",
+            "type": "integer"
+          }
+        },
+        "required": ["status_code"],
+        "title": "DeletePipelineResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeletePipelineResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Enqueue rebasing a merge request's source branch against its target branch. HTTP 202 means queued, not completed. Poll the retrieve merge request endpoint with include_rebase_in_progress=true to check rebase_in_progress and merge_error. Requires permission to push to the source branch, including force push when protected. See https://docs.gitlab.com/api/merge_requests/#rebase-a-merge-request.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Project-local IID of the merge request.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "skip_ci": {
+        "description": "Set to true to skip creating a CI pipeline.",
+        "title": "Skip Ci",
+        "type": "boolean"
+      }
+    },
+    "required": ["id", "merge_request_iid"],
+    "title": "RebaseMergeRequestRequest",
+    "type": "object"
+  },
+  "name": "rebase_merge_request",
+  "outputSchema": {
+    "$defs": {
+      "RebaseMergeRequestResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "rebase_in_progress": {
+            "description": "Whether the asynchronous rebase is in progress; not proof of completion.",
+            "title": "Rebase In Progress",
+            "type": "boolean"
+          }
+        },
+        "required": ["rebase_in_progress"],
+        "title": "RebaseMergeRequestResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RebaseMergeRequestResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

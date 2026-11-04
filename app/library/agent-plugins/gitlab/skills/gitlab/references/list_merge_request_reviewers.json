@@ -1,0 +1,142 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List a page of merge request reviewers with their review states. Follow next_page to retrieve additional results.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespaced project path.",
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Project-local internal ID of the merge request.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid"],
+    "title": "ListMergeRequestReviewersRequest",
+    "type": "object"
+  },
+  "name": "list_merge_request_reviewers",
+  "outputSchema": {
+    "$defs": {
+      "ListMergeRequestReviewersResponse": {
+        "properties": {
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          },
+          "reviewers": {
+            "description": "Review assignments for the merge request on this page.",
+            "items": {
+              "$ref": "#/$defs/MergeRequestReviewer"
+            },
+            "title": "Reviewers",
+            "type": "array"
+          }
+        },
+        "required": ["reviewers"],
+        "title": "ListMergeRequestReviewersResponse",
+        "type": "object"
+      },
+      "MergeRequestReviewer": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the review assignment was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "state": {
+            "description": "Review state, such as unreviewed or reviewed.",
+            "title": "State",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/MergeRequestReviewerUser",
+            "description": "Assigned reviewer user.",
+            "title": "User"
+          }
+        },
+        "required": ["user"],
+        "title": "MergeRequestReviewer",
+        "type": "object"
+      },
+      "MergeRequestReviewerUser": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "URL of the reviewer's avatar.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Reviewer user ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Reviewer's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "State of the reviewer's account.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Reviewer's username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "URL of the reviewer's profile.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "MergeRequestReviewerUser",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListMergeRequestReviewersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

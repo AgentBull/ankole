@@ -1,0 +1,589 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new customer in Stripe, required for creating charges or subscriptions; an email is highly recommended for customer communications.",
+  "inputSchema": {
+    "properties": {
+      "address": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "The customer's billing address, provided as a dictionary where both keys and values are strings. This address can be used for tax calculation, shipping, and fraud prevention. Common keys include: `line1` (street address, P.O. box, or c/o), `line2` (apartment, suite, unit, or building), `city`, `state` (state, province, or region), `postal_code` (ZIP or postal code), and `country` (a two-letter ISO country code, e.g., 'US', 'GB'). All keys are optional. Can be provided as either a dictionary or a JSON string.",
+        "examples": [
+          {
+            "city": "San Francisco",
+            "country": "US",
+            "line1": "123 Main St",
+            "postal_code": "94105",
+            "state": "CA"
+          },
+          {
+            "city": "Anytown",
+            "country": "GB",
+            "line1": "PO Box 1234",
+            "postal_code": "12345",
+            "state": "AN"
+          }
+        ],
+        "title": "Address",
+        "type": "object"
+      },
+      "description": {
+        "description": "An arbitrary string that you can attach to a customer object for your internal reference (e.g., notes about the customer). This is not visible to the customer.",
+        "examples": ["Loyal customer since 2023", "VIP account for Project X"],
+        "title": "Description",
+        "type": "string"
+      },
+      "email": {
+        "description": "The customer's primary email address, used by Stripe for sending invoices, receipts, and other important communications.",
+        "examples": ["jane.doe@example.com"],
+        "title": "Email",
+        "type": "string"
+      },
+      "name": {
+        "description": "The customer's full name or the name of the business.",
+        "examples": ["Jane Doe", "Acme Corp."],
+        "title": "Name",
+        "type": "string"
+      },
+      "phone": {
+        "description": "The customer's primary phone number. Include the country code for international numbers (e.g., +1 for the USA).",
+        "examples": ["+15551234567", "02079460000"],
+        "title": "Phone",
+        "type": "string"
+      }
+    },
+    "title": "CreateCustomerRequest",
+    "type": "object"
+  },
+  "name": "create_customer",
+  "outputSchema": {
+    "$defs": {
+      "Address": {
+        "properties": {
+          "city": {
+            "description": "City, district, suburb, town, or village.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2).",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Address line 1 (e.g., street, PO Box, or company name).",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Address line 2 (e.g., apartment, suite, unit, or building).",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "ZIP or postal code.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State, county, province, or region.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "Address",
+        "type": "object"
+      },
+      "CashBalance": {
+        "properties": {
+          "available": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "A hash of all cash balances available to this customer.",
+            "title": "Available",
+            "type": "object"
+          },
+          "customer": {
+            "description": "The ID of the customer that this cash balance belongs to.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'cash_balance'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/$defs/CashBalanceSettings",
+            "description": "Settings controlling the behavior of the customer's cash balance.",
+            "title": "Settings"
+          }
+        },
+        "required": ["object", "customer", "livemode", "settings"],
+        "title": "CashBalance",
+        "type": "object"
+      },
+      "CashBalanceSettings": {
+        "properties": {
+          "reconciliation_mode": {
+            "description": "The configuration for how funds that land in the customer cash balance are reconciled. One of: automatic, manual.",
+            "title": "Reconciliation Mode",
+            "type": "string"
+          },
+          "using_merchant_default": {
+            "description": "Whether the reconciliation mode is using the account-level default.",
+            "title": "Using Merchant Default",
+            "type": "boolean"
+          }
+        },
+        "required": ["reconciliation_mode", "using_merchant_default"],
+        "title": "CashBalanceSettings",
+        "type": "object"
+      },
+      "CreateCustomerResponse": {
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "The customer's address.",
+            "title": "Address"
+          },
+          "balance": {
+            "description": "Current balance, if any, on the customer's account. A negative value indicates the customer has credit to apply to their next invoice, while a positive value indicates the customer has an amount owed that will be added to their next invoice. The balance does not refer to any unpaid invoices; it solely takes into account amounts that have yet to be successfully applied to any invoice. This balance is in the currency's smallest unit.",
+            "title": "Balance",
+            "type": "integer"
+          },
+          "cash_balance": {
+            "$ref": "#/$defs/CashBalance",
+            "description": "The current funds being held by Stripe on behalf of the customer.",
+            "title": "Cash Balance"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO code for the currency the customer can be charged in for recurring billing purposes.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "default_source": {
+            "description": "ID of the default payment source for the customer.",
+            "title": "Default Source",
+            "type": "string"
+          },
+          "delinquent": {
+            "description": "When the customer's latest invoice is billed by charging automatically, delinquent is true if the invoice's latest charge failed. When the customer's latest invoice is billed by sending an invoice, delinquent is true if the invoice isn't paid by its due date.",
+            "title": "Delinquent",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the object. Often useful for displaying to users.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discount": {
+            "$ref": "#/$defs/Discount",
+            "description": "Describes the current discount active on the customer, if there is one.",
+            "title": "Discount"
+          },
+          "email": {
+            "description": "The customer's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice_credit_balance": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "The current multi-currency balances, if any, being stored on the customer.",
+            "title": "Invoice Credit Balance",
+            "type": "object"
+          },
+          "invoice_prefix": {
+            "description": "The prefix for the customer used to generate unique invoice numbers.",
+            "title": "Invoice Prefix",
+            "type": "string"
+          },
+          "invoice_settings": {
+            "$ref": "#/$defs/InvoiceSettings",
+            "description": "The customer's default invoice settings.",
+            "title": "Invoice Settings"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object. This can be useful for storing additional information about the object in a structured format.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "The customer's full name or business name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "next_invoice_sequence": {
+            "description": "The suffix of the customer's next invoice number, e.g., 0001.",
+            "title": "Next Invoice Sequence",
+            "type": "integer"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'customer'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "phone": {
+            "description": "The customer's phone number.",
+            "title": "Phone",
+            "type": "string"
+          },
+          "preferred_locales": {
+            "description": "The customer's preferred locales (languages), ordered by preference.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Preferred Locales",
+            "type": "array"
+          },
+          "shipping": {
+            "$ref": "#/$defs/Shipping",
+            "description": "Mailing and shipping address for the customer. Appears on invoices emailed to this customer.",
+            "title": "Shipping"
+          },
+          "sources": {
+            "$ref": "#/$defs/StripeList",
+            "description": "The customer's payment sources, if any.",
+            "title": "Sources"
+          },
+          "subscriptions": {
+            "$ref": "#/$defs/StripeList",
+            "description": "The customer's current subscriptions, if any.",
+            "title": "Subscriptions"
+          },
+          "tax": {
+            "$ref": "#/$defs/Tax",
+            "description": "Tax details about the customer.",
+            "title": "Tax"
+          },
+          "tax_exempt": {
+            "description": "Describes the customer's tax exemption status. One of none, exempt, or reverse. When set to reverse, invoice and receipt PDFs include the text 'Reverse charge'.",
+            "title": "Tax Exempt",
+            "type": "string"
+          },
+          "tax_ids": {
+            "$ref": "#/$defs/StripeList",
+            "description": "The customer's tax IDs.",
+            "title": "Tax Ids"
+          },
+          "test_clock": {
+            "description": "ID of the test clock this customer belongs to.",
+            "title": "Test Clock",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "balance", "created", "livemode"],
+        "title": "CreateCustomerResponse",
+        "type": "object"
+      },
+      "Discount": {
+        "properties": {
+          "checkout_session": {
+            "description": "The Checkout session that this coupon is applied to, if it is applied to a particular session in payment mode.",
+            "title": "Checkout Session",
+            "type": "string"
+          },
+          "customer": {
+            "description": "The ID of the customer associated with this discount.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "end": {
+            "description": "If the coupon has a duration of repeating, the date that this discount will end. If the coupon has a duration of once or forever, this attribute will be null.",
+            "title": "End",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The ID of the discount object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "The invoice that the discount's coupon was applied to, if it was applied directly to a particular invoice.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "invoice_item": {
+            "description": "The invoice item id (or invoice line item id for invoice line items of type='subscription') that the discount's coupon was applied to, if it was applied directly to a particular invoice item or invoice line item.",
+            "title": "Invoice Item",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'discount'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "promotion_code": {
+            "description": "The promotion code applied to create this discount.",
+            "title": "Promotion Code",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/DiscountSource",
+            "description": "Source details containing the coupon type and identifier.",
+            "title": "Source"
+          },
+          "start": {
+            "description": "Date that the coupon was applied.",
+            "title": "Start",
+            "type": "integer"
+          },
+          "subscription": {
+            "description": "The subscription that this coupon is applied to, if it is applied to a particular subscription.",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "subscription_item": {
+            "description": "The subscription item that this coupon is applied to, if it is applied to a particular subscription item.",
+            "title": "Subscription Item",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "source", "start"],
+        "title": "Discount",
+        "type": "object"
+      },
+      "DiscountSource": {
+        "properties": {
+          "coupon": {
+            "description": "The redeemed coupon identifier.",
+            "title": "Coupon",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of source. Value is 'coupon'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "DiscountSource",
+        "type": "object"
+      },
+      "InvoiceCustomField": {
+        "properties": {
+          "name": {
+            "description": "The name of the custom field.",
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value of the custom field.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["name", "value"],
+        "title": "InvoiceCustomField",
+        "type": "object"
+      },
+      "InvoiceRenderingOptions": {
+        "properties": {
+          "amount_tax_display": {
+            "description": "How line-item prices and amounts will be displayed with respect to tax on invoice PDFs.",
+            "title": "Amount Tax Display",
+            "type": "string"
+          },
+          "template": {
+            "description": "ID of the invoice rendering template to use for this customer's invoices.",
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "title": "InvoiceRenderingOptions",
+        "type": "object"
+      },
+      "InvoiceSettings": {
+        "properties": {
+          "custom_fields": {
+            "description": "Default custom fields to be displayed on invoices for this customer.",
+            "items": {
+              "$ref": "#/$defs/InvoiceCustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "default_payment_method": {
+            "description": "ID of a payment method that's attached to the customer, to be used as the customer's default payment method for subscriptions and invoices.",
+            "title": "Default Payment Method",
+            "type": "string"
+          },
+          "footer": {
+            "description": "Default footer to be displayed on invoices for this customer.",
+            "title": "Footer",
+            "type": "string"
+          },
+          "rendering_options": {
+            "$ref": "#/$defs/InvoiceRenderingOptions",
+            "description": "Default options for invoice PDF rendering for this customer.",
+            "title": "Rendering Options"
+          }
+        },
+        "title": "InvoiceSettings",
+        "type": "object"
+      },
+      "Shipping": {
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "Customer shipping address.",
+            "title": "Address"
+          },
+          "name": {
+            "description": "Customer name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Customer phone (including extension).",
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "title": "Shipping",
+        "type": "object"
+      },
+      "StripeList": {
+        "properties": {
+          "data": {
+            "description": "Array of objects (payment sources, subscriptions, or tax IDs).",
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "items": {},
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "True if this list has another page of items after this one that can be fetched.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL where this list can be accessed.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "StripeList",
+        "type": "object"
+      },
+      "Tax": {
+        "properties": {
+          "automatic_tax": {
+            "description": "Surfaces if automatic tax computation is possible given the current customer location information. One of: failed, supported, unsupported.",
+            "title": "Automatic Tax",
+            "type": "string"
+          },
+          "ip_address": {
+            "description": "A recent IP address of the customer used for tax reporting and tax location inference.",
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/$defs/TaxLocation",
+            "description": "The customer's location as identified by Stripe Tax.",
+            "title": "Location"
+          }
+        },
+        "required": ["automatic_tax"],
+        "title": "Tax",
+        "type": "object"
+      },
+      "TaxLocation": {
+        "properties": {
+          "country": {
+            "description": "The customer's country as identified by Stripe Tax.",
+            "title": "Country",
+            "type": "string"
+          },
+          "source": {
+            "description": "The source of the location information.",
+            "title": "Source",
+            "type": "string"
+          },
+          "state": {
+            "description": "The customer's state, county, province, or region as identified by Stripe Tax.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "TaxLocation",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateCustomerResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

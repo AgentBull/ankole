@@ -1,0 +1,60 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Delete a product. Deleting a product is only possible if it has no prices associated with it. Products with type=good cannot be deleted if they have SKUs.",
+  "inputSchema": {
+    "description": "Request model for deleting a product.",
+    "properties": {
+      "product_id": {
+        "description": "The ID of the product to delete. Must start with 'prod_' followed by alphanumeric characters. Only products with no associated prices can be deleted. Products with type=good cannot be deleted if they have SKUs.",
+        "examples": ["prod_TepDPs3GOqI05h", "prod_NWjs8kKbJWmuuc"],
+        "pattern": "^prod_[a-zA-Z0-9]+$",
+        "title": "Product Id",
+        "type": "string"
+      }
+    },
+    "required": ["product_id"],
+    "title": "DeleteProductRequest",
+    "type": "object"
+  },
+  "name": "delete_product",
+  "outputSchema": {
+    "$defs": {
+      "DeleteProductResponse": {
+        "description": "Response model for a deleted product.",
+        "properties": {
+          "deleted": {
+            "description": "Always true for a successful deletion.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the deleted product.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'product' for this endpoint.",
+            "title": "Object",
+            "type": "string"
+          }
+        },
+        "title": "DeleteProductResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteProductResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

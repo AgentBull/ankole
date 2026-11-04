@@ -13,6 +13,7 @@ export type { EditorHost, EmbedAttributes, MentionItem, MentionQueryResult, Moun
 export { commitMention, insertMention, mentionField, type MentionCategory, type MentionSession } from './mention'
 export type { MentionTarget } from './schema'
 export { PageCollaboration, type PageChanges } from './page-collaboration'
+export { pageDocument, replaceTree } from './convert'
 export { toggleFormat, undo, insertImage } from './commands'
 export type { Wordgard as Editor } from '../core/editor'
 export { GardSelection as EditorSelection } from '../core/state'

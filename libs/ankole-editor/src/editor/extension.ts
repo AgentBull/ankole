@@ -4,7 +4,7 @@ import { GardSelection, GardState } from '../core/state'
 import { blocks } from '../blocks'
 import { parseMarkdown } from '../document/markdown'
 import type { Element } from '../document/tree'
-import { pageDocument } from './convert'
+import { normalizedPageDocument, pageDocument } from './convert'
 import { blockKeys } from './block-keys'
 import { blockSelection, clearCompositionHost } from './block-selection'
 import { clipboard } from './clipboard'
@@ -62,7 +62,7 @@ export function editorExtension(): GardState.Extension {
  * inserting before a click, acts there.
  */
 export function initialState(initial: string | Element, config: GardState.Extension): GardState {
-  const doc = pageDocument(typeof initial === 'string' ? parseMarkdown(initial) : initial)
+  const doc = typeof initial === 'string' ? normalizedPageDocument(parseMarkdown(initial)) : pageDocument(initial)
   const state = GardState.create({ doc, config })
   return state.update({ selection: GardSelection.near(state, doc.length, -1) }).state
 }

@@ -1,0 +1,86 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Return the SLA policy metric targets applied to one Zendesk ticket.",
+  "inputSchema": {
+    "description": "Request parameters for retrieving a ticket's SLA policy metrics.",
+    "properties": {
+      "ticket_id": {
+        "description": "ID of the Zendesk ticket, as a string.",
+        "examples": ["123456"],
+        "title": "Ticket Id",
+        "type": "string"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "GetTicketSlaPolicyMetricsRequest",
+    "type": "object"
+  },
+  "name": "get_ticket_sla_policy_metrics",
+  "outputSchema": {
+    "$defs": {
+      "GetTicketSlaPolicyMetricsResponse": {
+        "description": "SLA policy metrics applied to a ticket.",
+        "properties": {
+          "policy_metrics": {
+            "description": "Active, achieved, or breached SLA policy metric targets.",
+            "items": {
+              "$ref": "#/$defs/TicketSlaPolicyMetric"
+            },
+            "title": "Policy Metrics",
+            "type": "array"
+          }
+        },
+        "required": ["policy_metrics"],
+        "title": "GetTicketSlaPolicyMetricsResponse",
+        "type": "object"
+      },
+      "TicketSlaPolicyMetric": {
+        "description": "An SLA policy metric target applied to a ticket.",
+        "properties": {
+          "breach_at": {
+            "description": "Timestamp when the SLA target is or was due to breach.",
+            "title": "Breach At",
+            "type": "string"
+          },
+          "days": {
+            "description": "Duration relative to the SLA target when Zendesk reports days.",
+            "title": "Days",
+            "type": "integer"
+          },
+          "metric": {
+            "description": "SLA metric being measured, such as first_reply_time.",
+            "title": "Metric",
+            "type": "string"
+          },
+          "minutes": {
+            "description": "Duration relative to the SLA target when Zendesk reports minutes.",
+            "title": "Minutes",
+            "type": "integer"
+          },
+          "stage": {
+            "description": "Current metric stage, such as active, achieved, or breached.",
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": ["metric", "stage"],
+        "title": "TicketSlaPolicyMetric",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTicketSlaPolicyMetricsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

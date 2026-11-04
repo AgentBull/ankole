@@ -16,6 +16,10 @@ defmodule Ankole.Connectors.Jobs.ReconcileTrigger do
       when reason in [:connector_trigger_busy, :connector_trigger_degraded, :not_found] ->
         :ok
 
+      {:error, %{code: code}}
+      when code in ["connector_trigger_busy", "connector_refresh_in_progress"] ->
+        {:snooze, 2}
+
       error ->
         error
     end

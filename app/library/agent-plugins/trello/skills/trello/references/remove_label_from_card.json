@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Removes a specific label from a Trello card; the label itself is not deleted from the board, only its association with the card.",
+  "inputSchema": {
+    "description": "Request schema for `RemoveLabelFromCard`",
+    "properties": {
+      "idCard": {
+        "description": "The ID or short link of the card from which the label will be removed.",
+        "examples": ["60d5f0f8e6b3f3000f9d8c4a", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idLabel": {
+        "description": "The ID of the label to be removed from the card.",
+        "examples": ["60d5f0f8e6b3f3000f9d8c4b"],
+        "title": "Id Label",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "idLabel"],
+    "title": "RemoveLabelFromCardRequest",
+    "type": "object"
+  },
+  "name": "remove_label_from_card",
+  "outputSchema": {
+    "$defs": {
+      "RemoveLabelFromCardResponse": {
+        "description": "Response schema for `RemoveLabelFromCard`.\n\nDELETE operation returns 200 OK with an empty or null-like response body.\nThe response body content is unreliable and used internally by Trello.\nBest practice is to validate success using the HTTP status code only.",
+        "properties": {},
+        "title": "RemoveLabelFromCardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RemoveLabelFromCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

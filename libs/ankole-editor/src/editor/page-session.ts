@@ -8,7 +8,7 @@ import { parseMarkdown, printMarkdown } from '../document/markdown'
 import type { SourceFormat } from '../document/tree'
 import { unknownNames } from '../document/vocabulary'
 import { parseXml, printXml } from '../document/xml'
-import { pageDocument, replaceTree } from './convert'
+import { normalizedPageDocument } from './convert'
 import { portablePageChanges, validatedPageSource } from './page-update'
 
 export type PageWrite = { format: SourceFormat; source: string; revision: number }
@@ -71,10 +71,12 @@ export class PageSession {
     // A page that cannot be printed must not replace the current page.
     printMarkdown(tree)
     checkSource(printXml(tree), 'xml')
+    const doc = normalizedPageDocument(tree)
     this.editor.dispatch({
-      ...(write.format === 'markdown'
-        ? { changes: portablePageChanges(this.editor.state.doc, pageDocument(tree)) }
-        : replaceTree(this.editor.state, tree)),
+      changes:
+        write.format === 'markdown'
+          ? portablePageChanges(this.editor.state.doc, doc)
+          : { from: 0, to: this.editor.state.doc.length, insert: doc.content },
       annotations: history.isolate.of(true),
       userEvent: 'page.write'
     })

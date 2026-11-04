@@ -1,0 +1,104 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a specific Calendly organization invitation using its UUID and the parent organization's UUID.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a specific Calendly organization invitation.",
+    "properties": {
+      "org_uuid": {
+        "description": "The unique identifier (UUID) of the Calendly organization to which the invitation belongs.",
+        "examples": ["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
+        "title": "Org Uuid",
+        "type": "string"
+      },
+      "uuid": {
+        "description": "The unique identifier (UUID) of the specific organization invitation to retrieve.",
+        "examples": ["11111111-2222-3333-4444-555555555555"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["org_uuid", "uuid"],
+    "title": "GetOrganizationInvitationRequest",
+    "type": "object"
+  },
+  "name": "get_organization_invitation",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationInvitationResponse": {
+        "description": "Contains the detailed information of the retrieved Calendly organization invitation.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/OrganizationInvitationResource",
+            "description": "Wrapper object containing the organization invitation resource data",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "GetOrganizationInvitationResponse",
+        "type": "object"
+      },
+      "OrganizationInvitationResource": {
+        "description": "Organization invitation resource data.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the invitation was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address of the person invited to join the organization",
+            "title": "Email",
+            "type": "string"
+          },
+          "last_sent_at": {
+            "description": "Timestamp when the invitation email was last sent to the invitee (ISO 8601 format)",
+            "title": "Last Sent At",
+            "type": "string"
+          },
+          "organization": {
+            "description": "Reference (URI) to the organization that the invitation belongs to",
+            "title": "Organization",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the organization invitation. Possible values: 'pending', 'accepted', 'declined'",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the invitation was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the organization invitation",
+            "title": "Uri",
+            "type": "string"
+          },
+          "user": {
+            "description": "Reference (URI) to the user associated with the invitation after it has been accepted",
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "organization", "email", "status", "created_at", "updated_at", "last_sent_at"],
+        "title": "OrganizationInvitationResource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationInvitationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

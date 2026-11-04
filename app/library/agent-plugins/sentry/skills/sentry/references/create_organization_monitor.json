@@ -1,0 +1,395 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new monitor (type 'cron_job') within a Sentry organization to track scheduled tasks, allowing configuration of its name, slug (which must be unique if provided), status, owner, and muting preferences for incidents.",
+  "inputSchema": {
+    "description": "Request schema for `CreateOrganizationMonitor`",
+    "properties": {
+      "config": {
+        "additionalProperties": false,
+        "description": "The configuration for the monitor including schedule type, schedule, and timing settings. This is a required field.",
+        "properties": {
+          "checkin_margin": {
+            "description": "The amount of time (in minutes) Sentry should wait for your check-in before it's considered missed ('grace period'). Recommended to be less than or equal to your interval.",
+            "examples": [5, 10, 30],
+            "title": "Checkin Margin",
+            "type": "integer"
+          },
+          "max_runtime": {
+            "description": "The amount of time (in minutes) your job is allowed to run before it's considered failed.",
+            "examples": [10, 30, 60],
+            "title": "Max Runtime",
+            "type": "integer"
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "array"
+              }
+            ],
+            "description": "The schedule for the monitor. For 'crontab' type, use a cron expression string (e.g., '0 * * * *' for hourly). For 'interval' type, use an array with [value, unit] where unit is 'minute', 'hour', 'day', 'week', 'month', or 'year' (e.g., [5, 'hour'] for every 5 hours).",
+            "examples": ["0 * * * *", [5, "hour"]],
+            "title": "Schedule"
+          },
+          "schedule_type": {
+            "description": "The type of schedule. Either 'crontab' for cron expressions or 'interval' for fixed intervals.",
+            "enum": ["crontab", "interval"],
+            "examples": ["crontab", "interval"],
+            "title": "Schedule Type",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "The timezone for the monitor schedule (e.g., 'UTC', 'America/New_York'). Defaults to 'UTC' if not provided.",
+            "examples": ["UTC", "America/New_York", "Europe/London"],
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": ["schedule_type", "schedule"],
+        "title": "Config",
+        "type": "object"
+      },
+      "is_muted": {
+        "description": "A boolean flag to control incident creation for this monitor. If true, monitor incidents (alerts) will be suppressed. Defaults to false if not provided.",
+        "examples": [true, false],
+        "title": "Is Muted",
+        "type": "boolean"
+      },
+      "name": {
+        "description": "The human-readable name for the monitor. This name is used in notifications and the Sentry UI.",
+        "examples": ["Daily Report Generation", "Hourly Data Sync"],
+        "title": "Name",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The identifier (ID or slug) of the Sentry organization to which this monitor will belong.",
+        "examples": ["my-org-slug", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "owner": {
+        "description": "The Sentry actor ID (team or user) to be designated as the owner of this monitor. Format: 'user:{user_id}' or 'team:{team_id}'. If not provided, the monitor will be unassigned.",
+        "examples": ["user:51234", "team:67890"],
+        "title": "Owner",
+        "type": "string"
+      },
+      "project": {
+        "description": "The project slug to associate the monitor to. This is a required field.",
+        "examples": ["my-project", "backend-api"],
+        "title": "Project",
+        "type": "string"
+      },
+      "slug": {
+        "description": "A unique identifier for the monitor within the organization. If not provided, Sentry will generate one. It must match the pattern `^[a-z][a-z0-9_\\-]*$`. Changing this slug after creation requires updating any instrumented check-in calls. ",
+        "examples": ["daily-report-job", "data-sync-v1"],
+        "pattern": "^[a-z][a-z0-9_\\-]*$",
+        "title": "Slug",
+        "type": "string"
+      },
+      "status": {
+        "description": "The initial status of the monitor. 'active' monitors accept check-ins and contribute to quotas, while 'disabled' monitors do not. Allowed values: 'active', 'disabled'. Note: Monitors are typically created with 'disabled' status by default and must be activated separately.",
+        "enum": ["active", "disabled"],
+        "examples": ["active", "disabled"],
+        "title": "StatusEnm",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project", "name", "config"],
+    "title": "CreateOrganizationMonitorRequest",
+    "type": "object"
+  },
+  "name": "create_organization_monitor",
+  "outputSchema": {
+    "$defs": {
+      "CreateOrganizationMonitorResponse": {
+        "description": "Response schema for `CreateOrganizationMonitor`",
+        "properties": {
+          "alertRule": {
+            "$ref": "#/$defs/MonitorAlertRule",
+            "description": "Alert rule configuration for the monitor.",
+            "title": "Alert Rule"
+          },
+          "config": {
+            "$ref": "#/$defs/MonitorConfigResponse",
+            "title": "Config"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp of when the monitor was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "environments": {
+            "description": "Environment-specific monitor data.",
+            "items": {
+              "$ref": "#/$defs/MonitorEnvironment"
+            },
+            "title": "Environments",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique monitor identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isMuted": {
+            "description": "Disables creation of monitor incidents when set to true.",
+            "title": "Is Muted",
+            "type": "boolean"
+          },
+          "isUpserting": {
+            "description": "Indicates whether an upsert operation is in progress.",
+            "title": "Is Upserting",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Monitor name used in notifications.",
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/$defs/MonitorOwner",
+            "title": "Owner"
+          },
+          "project": {
+            "$ref": "#/$defs/MonitorProject",
+            "title": "Project"
+          },
+          "slug": {
+            "description": "Uniquely identifies your monitor within your organization. Changing this slug will require updates to any instrumented check-in calls.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "description": "Monitor status. Disabled monitors will not accept events and will not count towards the monitor quota.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "status",
+          "isMuted",
+          "isUpserting",
+          "config",
+          "dateCreated",
+          "project",
+          "environments",
+          "owner"
+        ],
+        "title": "CreateOrganizationMonitorResponse",
+        "type": "object"
+      },
+      "MonitorAlertRule": {
+        "description": "Alert rule configuration for the monitor.",
+        "properties": {
+          "environment": {
+            "description": "Environment to which this alert rule applies.",
+            "title": "Environment",
+            "type": "string"
+          },
+          "targets": {
+            "description": "Array of alert targets with their IDs and types.",
+            "items": {},
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": ["targets"],
+        "title": "MonitorAlertRule",
+        "type": "object"
+      },
+      "MonitorConfigResponse": {
+        "description": "Monitor configuration settings including schedule and thresholds.",
+        "properties": {
+          "alert_rule_id": {
+            "description": "ID of the associated alert rule.",
+            "title": "Alert Rule Id",
+            "type": "integer"
+          },
+          "checkin_margin": {
+            "description": "Number of minutes a check-in can be late before it is considered missed.",
+            "title": "Checkin Margin",
+            "type": "integer"
+          },
+          "failure_issue_threshold": {
+            "description": "Number of consecutive missed or failed check-ins before creating an issue.",
+            "title": "Failure Issue Threshold",
+            "type": "integer"
+          },
+          "max_runtime": {
+            "description": "Maximum expected runtime in minutes before a check-in is considered failed.",
+            "title": "Max Runtime",
+            "type": "integer"
+          },
+          "recovery_threshold": {
+            "description": "Number of consecutive successful check-ins required to resolve an issue.",
+            "title": "Recovery Threshold",
+            "type": "integer"
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "array"
+              }
+            ],
+            "description": "Schedule specification. For crontab: a cron string. For interval: an array of [interval_value, interval_unit].",
+            "title": "Schedule"
+          },
+          "schedule_type": {
+            "description": "Type of schedule. Either 'crontab' or 'interval'.",
+            "title": "Schedule Type",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "Timezone for the monitor schedule (e.g., 'America/Los_Angeles').",
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": ["schedule_type", "schedule"],
+        "title": "MonitorConfigResponse",
+        "type": "object"
+      },
+      "MonitorEnvironment": {
+        "description": "Environment-specific monitor data.",
+        "properties": {
+          "dateCreated": {
+            "description": "When the monitor was created in this environment.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "isMuted": {
+            "description": "Whether this environment is muted.",
+            "title": "Is Muted",
+            "type": "boolean"
+          },
+          "lastCheckIn": {
+            "description": "Timestamp of the last check-in.",
+            "title": "Last Check In",
+            "type": "string"
+          },
+          "name": {
+            "description": "Environment name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nextCheckIn": {
+            "description": "Expected timestamp of the next check-in.",
+            "title": "Next Check In",
+            "type": "string"
+          },
+          "nextCheckInLatest": {
+            "description": "Latest acceptable timestamp for the next check-in before it's considered missed.",
+            "title": "Next Check In Latest",
+            "type": "string"
+          },
+          "status": {
+            "description": "Environment-specific monitor status.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["name", "status", "isMuted", "dateCreated"],
+        "title": "MonitorEnvironment",
+        "type": "object"
+      },
+      "MonitorOwner": {
+        "description": "Team or user that owns the monitor.",
+        "properties": {
+          "email": {
+            "description": "Owner email address (for user owners).",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Owner identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Owner name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Owner type. Either 'user' or 'team'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "name"],
+        "title": "MonitorOwner",
+        "type": "object"
+      },
+      "MonitorProject": {
+        "description": "Associated project details.",
+        "properties": {
+          "id": {
+            "description": "Project identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Project name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Project platform (e.g., 'python', 'javascript').",
+            "title": "Platform",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Project slug.",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "slug", "name"],
+        "title": "MonitorProject",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateOrganizationMonitorResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

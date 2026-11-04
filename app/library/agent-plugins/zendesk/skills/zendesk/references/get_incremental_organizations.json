@@ -1,0 +1,171 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve organizations that have been modified since a specified start time using the Incremental Organization Export API. Use when you need to sync or track changes to Zendesk organizations over time. Provide a start_time (Unix timestamp) from a previous response's end_time to paginate through changes incrementally. This action is read-only and idempotent. Organizations may be created, updated, or appear as deleted; interpret based on your use case. Rate limiting may apply for large accounts.",
+  "inputSchema": {
+    "description": "Request parameters for incremental organization export.",
+    "properties": {
+      "per_page": {
+        "description": "Number of records to return per page (max 100). Default varies by API tier.",
+        "examples": [100],
+        "human_parameter_description": "How many organization records to return on each page. You can request up to 100 per page. Use with next_page from previous response for pagination.",
+        "human_parameter_name": "Records Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "start_time": {
+        "description": "Unix timestamp (seconds since epoch) to start the incremental export from. Must be at least one minute in the past. Data isn't provided for the most recent minute. Use the end_time from a previous response for subsequent pagination.",
+        "examples": [1332034771],
+        "human_parameter_description": "The Unix timestamp (in seconds) marking where to start fetching incremental data. Must be at least one minute in the past. Use the end_time from a previous response to get the next batch of changes.",
+        "human_parameter_name": "Start Time",
+        "minimum": 0,
+        "title": "Start Time",
+        "type": "integer"
+      }
+    },
+    "required": ["start_time"],
+    "title": "GetIncrementalOrganizationsRequest",
+    "type": "object"
+  },
+  "name": "get_incremental_organizations",
+  "outputSchema": {
+    "$defs": {
+      "GetIncrementalOrganizationsResponse": {
+        "description": "Response containing incrementally exported organizations.",
+        "properties": {
+          "count": {
+            "description": "Number of organizations in this response",
+            "title": "Count",
+            "type": "integer"
+          },
+          "end_of_stream": {
+            "description": "Whether this is the end of the incremental export stream",
+            "title": "End Of Stream",
+            "type": "boolean"
+          },
+          "end_time": {
+            "description": "Unix timestamp marking the end of this export window. Use this as the start_time for the next request to continue fetching changes.",
+            "title": "End Time",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for the next page of results. Use this to continue pagination if there are more records.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "organizations": {
+            "description": "List of organization records",
+            "items": {
+              "$ref": "#/$defs/IncrementalZendeskOrganization"
+            },
+            "title": "Organizations",
+            "type": "array"
+          }
+        },
+        "required": ["count", "end_of_stream", "organizations"],
+        "title": "GetIncrementalOrganizationsResponse",
+        "type": "object"
+      },
+      "IncrementalZendeskOrganization": {
+        "description": "Zendesk organization object from incremental export.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when organization was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "description": "Details about the organization (e.g., address)",
+            "title": "Details",
+            "type": "string"
+          },
+          "domain_names": {
+            "description": "Domain names associated with the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Domain Names",
+            "type": "array"
+          },
+          "external_id": {
+            "description": "Case-insensitive external identifier for linking to external records",
+            "title": "External Id",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "Group ID for automatic ticket routing",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique organization identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Unique organization name",
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Internal notes about the organization",
+            "title": "Notes",
+            "type": "string"
+          },
+          "organization_fields": {
+            "additionalProperties": true,
+            "description": "Custom field values for the organization",
+            "title": "Organization Fields",
+            "type": "object"
+          },
+          "shared_comments": {
+            "description": "Whether end users can comment on each other's tickets",
+            "title": "Shared Comments",
+            "type": "boolean"
+          },
+          "shared_tickets": {
+            "description": "Whether end users can view each other's tickets",
+            "title": "Shared Tickets",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "Organization tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "updated_at": {
+            "description": "Timestamp of the last update",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API endpoint URL for this organization",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "IncrementalZendeskOrganization",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetIncrementalOrganizationsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

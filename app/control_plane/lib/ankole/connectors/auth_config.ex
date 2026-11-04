@@ -23,6 +23,7 @@ defmodule Ankole.Connectors.AuthConfig do
     )
 
     attribute(:plugin_id, :string, allow_nil?: false)
+    attribute(:mode, :string, allow_nil?: false, default: "local")
     attribute(:slug, :string, allow_nil?: false)
     attribute(:display_name, :string, allow_nil?: false)
     attribute(:auth_scheme, :string, allow_nil?: false)
@@ -30,7 +31,7 @@ defmodule Ankole.Connectors.AuthConfig do
     attribute(:platform_application, :string)
     attribute(:platform_client_id, :string)
     attribute(:public_metadata, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
-    attribute(:sealed_secret, :string, allow_nil?: false, sensitive?: true)
+    attribute(:sealed_secret, :string, sensitive?: true)
     attribute(:secret_version, :integer, allow_nil?: false, default: 1)
     attribute(:status, :string, allow_nil?: false, default: "active")
     attribute(:created_by_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
@@ -49,6 +50,7 @@ defmodule Ankole.Connectors.AuthConfig do
         :id
         | [
             :plugin_id,
+            :mode,
             :slug,
             :display_name,
             :auth_scheme,

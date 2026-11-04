@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a specified reaction from a Trello action. Use when you need to remove a reaction that was previously added to an action.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteActionReaction`",
+    "properties": {
+      "id": {
+        "description": "The ID of the reaction to delete. This is a unique identifier for the reaction.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "6992fe76c04a4a3d151faefb"],
+        "title": "Id",
+        "type": "string"
+      },
+      "idAction": {
+        "description": "The ID of the Action from which to delete the reaction. This is a unique identifier for the action.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "6992fe6f38b36334ac7528bd"],
+        "title": "Id Action",
+        "type": "string"
+      }
+    },
+    "required": ["idAction", "id"],
+    "title": "DeleteActionReactionRequest",
+    "type": "object"
+  },
+  "name": "delete_action_reaction",
+  "outputSchema": {
+    "$defs": {
+      "DeleteActionReactionResponse": {
+        "description": "Response schema for `DeleteActionReaction`. Returns an empty response body with HTTP 200 OK status code when the reaction is successfully deleted.",
+        "properties": {},
+        "title": "DeleteActionReactionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteActionReactionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

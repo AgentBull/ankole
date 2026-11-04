@@ -1,0 +1,198 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of alerts (workflows) for a Sentry organization. Use to get alert configurations, statuses, and trigger details. ⚠️ Note: This endpoint is currently in beta and may be subject to change. It is supported by New Monitors and Alerts and may not be viewable in the UI today.",
+  "inputSchema": {
+    "description": "Request schema for `FetchAlerts` action",
+    "properties": {
+      "id": {
+        "description": "The ID of the alert you'd like to query. Can specify multiple IDs.",
+        "examples": [["alert-123"], ["alert-456", "alert-789"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Id",
+        "type": "array"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["my-org", "mia-yd", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project": {
+        "description": "The IDs of projects to filter by. Use `[-1]` to include all available projects. For example: `[1234, 56789]` or `[-1]`.",
+        "examples": [[1234, 56789], [-1]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Project",
+        "type": "array"
+      },
+      "query": {
+        "description": "An optional search query for filtering alerts.",
+        "examples": ["high priority", "production"],
+        "title": "Query",
+        "type": "string"
+      },
+      "sortBy": {
+        "description": "The field to sort results by. If not specified, the results are sorted by id. Available fields are: `name`, `id`, `dateCreated`, `dateUpdated`, `connectedDetectors`, `actions`, `priorityDetector`. Prefix with `-` to sort in descending order (e.g., `-dateCreated`).",
+        "examples": ["name", "-dateCreated", "dateUpdated", "-id"],
+        "title": "Sort By",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "FetchAlertsRequest",
+    "type": "object"
+  },
+  "name": "fetch_alerts",
+  "outputSchema": {
+    "$defs": {
+      "Alert": {
+        "description": "Individual alert/workflow object.",
+        "properties": {
+          "actionFilters": {
+            "description": "Filters that determine when actions should be performed.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Action Filters",
+            "type": "array"
+          },
+          "config": {
+            "additionalProperties": true,
+            "description": "Configuration settings for the alert.",
+            "title": "Config",
+            "type": "object"
+          },
+          "createdBy": {
+            "description": "ID of the user who created the alert.",
+            "title": "Created By",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the alert was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateUpdated": {
+            "description": "ISO 8601 timestamp when the alert was last updated.",
+            "title": "Date Updated",
+            "type": "string"
+          },
+          "detectorIds": {
+            "description": "List of detector IDs connected to this alert.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Detector Ids",
+            "type": "array"
+          },
+          "enabled": {
+            "description": "Whether the alert is currently enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "environment": {
+            "description": "Environment name associated with the alert (e.g., production).",
+            "title": "Environment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the alert.",
+            "title": "Id",
+            "type": "string"
+          },
+          "lastTriggered": {
+            "description": "ISO 8601 timestamp when the alert was last triggered.",
+            "title": "Last Triggered",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the alert.",
+            "title": "Name",
+            "type": "string"
+          },
+          "organizationId": {
+            "description": "Organization ID that owns this alert.",
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "triggers": {
+            "$ref": "#/$defs/AlertTriggers",
+            "description": "Triggers configuration for the alert.",
+            "title": "Triggers"
+          }
+        },
+        "required": ["id", "name", "organizationId", "enabled", "dateCreated", "dateUpdated", "config"],
+        "title": "Alert",
+        "type": "object"
+      },
+      "AlertTriggers": {
+        "description": "Triggers configuration for an alert.",
+        "properties": {
+          "actions": {
+            "additionalProperties": true,
+            "description": "Actions to perform when the trigger fires.",
+            "title": "Actions",
+            "type": "object"
+          },
+          "conditions": {
+            "additionalProperties": true,
+            "description": "Conditions that must be met for the trigger to fire.",
+            "title": "Conditions",
+            "type": "object"
+          },
+          "id": {
+            "description": "Unique identifier for the trigger.",
+            "title": "Id",
+            "type": "string"
+          },
+          "logicType": {
+            "description": "Logic type for the trigger conditions.",
+            "title": "Logic Type",
+            "type": "string"
+          },
+          "organizationId": {
+            "description": "Organization ID associated with the trigger.",
+            "title": "Organization Id",
+            "type": "string"
+          }
+        },
+        "title": "AlertTriggers",
+        "type": "object"
+      },
+      "FetchAlertsResponse": {
+        "description": "Response schema for `FetchAlerts` containing a list of alerts.",
+        "properties": {
+          "data": {
+            "description": "List of alerts for the organization.",
+            "items": {
+              "$ref": "#/$defs/Alert"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "FetchAlertsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/FetchAlertsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

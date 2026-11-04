@@ -1,0 +1,130 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Validate Measurement Protocol events for a web stream before sending them to production, checking event structure and parameters.",
+  "inputSchema": {
+    "description": "Request model for validating Measurement Protocol events.",
+    "properties": {
+      "api_secret": {
+        "description": "Required. The API secret from Google Analytics for the Measurement Protocol.",
+        "examples": ["test_secret"],
+        "title": "Api Secret",
+        "type": "string"
+      },
+      "client_id": {
+        "description": "Required. Unique client identifier. This uniquely identifies a user instance of a web client.",
+        "examples": ["test_client_123"],
+        "title": "Client Id",
+        "type": "string"
+      },
+      "consent": {
+        "additionalProperties": true,
+        "description": "Optional. The consent state for the user.",
+        "title": "Consent",
+        "type": "object"
+      },
+      "events": {
+        "description": "Required. Array of events to validate. Each event must have a 'name' field and optional 'params' object.",
+        "examples": [
+          [
+            {
+              "name": "test_event",
+              "params": {
+                "engagement_time_msec": "100",
+                "session_id": "123"
+              }
+            }
+          ]
+        ],
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Events",
+        "type": "array"
+      },
+      "measurement_id": {
+        "description": "Required. The measurement ID for web streams. Format: G-XXXXXXXXXX where X is alphanumeric.",
+        "examples": ["G-ABC123XYZ"],
+        "title": "Measurement Id",
+        "type": "string"
+      },
+      "timestamp_micros": {
+        "description": "Optional. A Unix timestamp (in microseconds) for the time to associate with the event.",
+        "examples": ["1234567890000000"],
+        "title": "Timestamp Micros",
+        "type": "string"
+      },
+      "user_id": {
+        "description": "Optional. A unique identifier for a user.",
+        "examples": ["user_123"],
+        "title": "User Id",
+        "type": "string"
+      },
+      "user_properties": {
+        "additionalProperties": true,
+        "description": "Optional. The user properties for the measurement.",
+        "title": "User Properties",
+        "type": "object"
+      }
+    },
+    "required": ["measurement_id", "api_secret", "client_id", "events"],
+    "title": "ValidateEventsRequest",
+    "type": "object"
+  },
+  "name": "validate_events",
+  "outputSchema": {
+    "$defs": {
+      "ValidateEventsResponse": {
+        "description": "Response model for validating Measurement Protocol events.",
+        "properties": {
+          "validationMessages": {
+            "description": "List of validation messages indicating any issues with the event payload. Empty list means validation passed.",
+            "items": {
+              "$ref": "#/$defs/ValidationMessage"
+            },
+            "title": "Validation Messages",
+            "type": "array"
+          }
+        },
+        "title": "ValidateEventsResponse",
+        "type": "object"
+      },
+      "ValidationMessage": {
+        "description": "Schema for a validation message.",
+        "properties": {
+          "description": {
+            "description": "A human-readable description of the validation issue.",
+            "title": "Description",
+            "type": "string"
+          },
+          "fieldPath": {
+            "description": "The field path within the request that has the validation issue.",
+            "title": "Field Path",
+            "type": "string"
+          },
+          "validationCode": {
+            "description": "The validation code identifying the type of issue.",
+            "title": "Validation Code",
+            "type": "string"
+          }
+        },
+        "title": "ValidationMessage",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ValidateEventsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

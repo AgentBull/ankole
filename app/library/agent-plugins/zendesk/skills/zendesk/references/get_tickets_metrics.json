@@ -1,0 +1,208 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get ticket metrics from Zendesk for a specific ticket. Returns performance metrics including resolution times, agent and requester wait times, reply counts, station changes, and timestamps for key events. Use when you need to analyze ticket performance, SLA compliance, or agent productivity metrics.",
+  "inputSchema": {
+    "description": "Request parameters for getting ticket metrics from Zendesk.",
+    "properties": {
+      "ticket_id": {
+        "description": "The ID of the ticket to get metrics for.",
+        "examples": [123456],
+        "human_parameter_description": "The numeric ID of the Zendesk ticket. You can find this ID in the ticket URL or from a ticket list.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "GetTicketsMetricsRequest",
+    "type": "object"
+  },
+  "name": "get_tickets_metrics",
+  "outputSchema": {
+    "$defs": {
+      "GetTicketsMetricsResponse": {
+        "description": "Response containing the metrics for a specific ticket.",
+        "properties": {
+          "ticket_metric": {
+            "$ref": "#/$defs/TicketMetric",
+            "description": "The ticket metric object containing performance data",
+            "title": "Ticket Metric"
+          }
+        },
+        "required": ["ticket_metric"],
+        "title": "GetTicketsMetricsResponse",
+        "type": "object"
+      },
+      "ReplyTimeInSeconds": {
+        "description": "Reply time in seconds.",
+        "properties": {
+          "calendar": {
+            "description": "Calendar reply time in seconds",
+            "title": "Calendar",
+            "type": "integer"
+          }
+        },
+        "title": "ReplyTimeInSeconds",
+        "type": "object"
+      },
+      "TicketMetric": {
+        "description": "Ticket metric object containing performance metrics for a ticket.",
+        "properties": {
+          "agent_wait_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Total time agent spent waiting on customer (business vs calendar)",
+            "title": "Agent Wait Time In Minutes"
+          },
+          "assigned_at": {
+            "description": "Timestamp when the ticket was first assigned (ISO 8601)",
+            "title": "Assigned At",
+            "type": "string"
+          },
+          "assignee_stations": {
+            "description": "Number of times the ticket was assigned to different agents",
+            "title": "Assignee Stations",
+            "type": "integer"
+          },
+          "assignee_updated_at": {
+            "description": "Timestamp when the assignee was last changed (ISO 8601)",
+            "title": "Assignee Updated At",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the metric was created (ISO 8601)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_status_updated_at": {
+            "description": "Timestamp when the custom status was last updated (ISO 8601)",
+            "title": "Custom Status Updated At",
+            "type": "string"
+          },
+          "first_resolution_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time to first resolution (within business hours vs calendar time)",
+            "title": "First Resolution Time In Minutes"
+          },
+          "full_resolution_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time to full resolution (within business hours vs calendar time)",
+            "title": "Full Resolution Time In Minutes"
+          },
+          "group_stations": {
+            "description": "Number of times the ticket was routed to different groups",
+            "title": "Group Stations",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier of the metric",
+            "title": "Id",
+            "type": "integer"
+          },
+          "initially_assigned_at": {
+            "description": "Timestamp when the ticket was initially assigned (ISO 8601)",
+            "title": "Initially Assigned At",
+            "type": "string"
+          },
+          "latest_comment_added_at": {
+            "description": "Timestamp when the latest comment was added (ISO 8601)",
+            "title": "Latest Comment Added At",
+            "type": "string"
+          },
+          "on_hold_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Total time ticket was on hold (business vs calendar)",
+            "title": "On Hold Time In Minutes"
+          },
+          "reopens": {
+            "description": "Number of times the ticket was reopened",
+            "title": "Reopens",
+            "type": "integer"
+          },
+          "replies": {
+            "description": "Total number of public agent replies",
+            "title": "Replies",
+            "type": "integer"
+          },
+          "reply_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time for first agent reply (business vs calendar)",
+            "title": "Reply Time In Minutes"
+          },
+          "reply_time_in_seconds": {
+            "$ref": "#/$defs/ReplyTimeInSeconds",
+            "description": "Time for first agent reply in seconds",
+            "title": "Reply Time In Seconds"
+          },
+          "requester_updated_at": {
+            "description": "Timestamp when the requester was last changed (ISO 8601)",
+            "title": "Requester Updated At",
+            "type": "string"
+          },
+          "requester_wait_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Total time requester spent waiting on agent (business vs calendar)",
+            "title": "Requester Wait Time In Minutes"
+          },
+          "solved_at": {
+            "description": "Timestamp when the ticket was solved (ISO 8601)",
+            "title": "Solved At",
+            "type": "string"
+          },
+          "status_updated_at": {
+            "description": "Timestamp when the ticket status was last changed (ISO 8601)",
+            "title": "Status Updated At",
+            "type": "string"
+          },
+          "ticket_id": {
+            "description": "ID of the ticket",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "Timestamp when the metric was last updated (ISO 8601)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL of the ticket metric resource",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "TicketMetric",
+        "type": "object"
+      },
+      "TimeInMinutes": {
+        "description": "Time duration in minutes broken down by business vs calendar time.",
+        "properties": {
+          "business": {
+            "description": "Time in business hours (minutes)",
+            "title": "Business",
+            "type": "integer"
+          },
+          "calendar": {
+            "description": "Time in calendar hours (minutes)",
+            "title": "Calendar",
+            "type": "integer"
+          }
+        },
+        "title": "TimeInMinutes",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTicketsMetricsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

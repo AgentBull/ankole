@@ -1,0 +1,445 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Converts a checklist item into a new card (useful for promoting a subtask), which inherits some properties from the item; this is irreversible via the API and offers no customization during conversion.",
+  "inputSchema": {
+    "description": "Request schema for `ConvertChecklistItemToCard`",
+    "properties": {
+      "idCard": {
+        "description": "The ID or short link of the card containing the checklist and the item to be converted.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "my-card-shortlink"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idCheckItem": {
+        "description": "The ID of the checklist item that will be converted into a new card.",
+        "examples": ["60d3b3b7c1b9c002a7b0e2f"],
+        "title": "Id Check Item",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "The ID of the checklist that contains the specific item to be converted to a card.",
+        "examples": ["5f9b3b3b7c1b9c002a7b0e1d"],
+        "title": "Id Checklist",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "idChecklist", "idCheckItem"],
+    "title": "ConvertChecklistItemToCardRequest",
+    "type": "object"
+  },
+  "name": "convert_checklist_item_to_card",
+  "outputSchema": {
+    "$defs": {
+      "Badges": {
+        "description": "Metadata about the card including counts and status indicators.",
+        "properties": {
+          "attachments": {
+            "description": "Number of attachments on the card.",
+            "title": "Attachments",
+            "type": "integer"
+          },
+          "attachmentsByType": {
+            "additionalProperties": true,
+            "description": "Attachments categorized by type including Trello board/card counts.",
+            "title": "Attachments By Type",
+            "type": "object"
+          },
+          "checkItems": {
+            "description": "Total number of checklist items.",
+            "title": "Check Items",
+            "type": "integer"
+          },
+          "checkItemsChecked": {
+            "description": "Number of completed checklist items.",
+            "title": "Check Items Checked",
+            "type": "integer"
+          },
+          "comments": {
+            "description": "Number of comments on the card.",
+            "title": "Comments",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Indicates if the card has a description.",
+            "title": "Description",
+            "type": "boolean"
+          },
+          "due": {
+            "description": "Due date string.",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueComplete": {
+            "description": "Indicates if the due date has been marked complete.",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "fogbugz": {
+            "description": "FogBugz integration data.",
+            "title": "Fogbugz",
+            "type": "string"
+          },
+          "location": {
+            "description": "Indicates if the card has location data.",
+            "title": "Location",
+            "type": "boolean"
+          },
+          "start": {
+            "description": "Start date string.",
+            "title": "Start",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Indicates subscription status.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "viewingMemberVoted": {
+            "description": "Indicates if the viewing member has voted.",
+            "title": "Viewing Member Voted",
+            "type": "boolean"
+          },
+          "votes": {
+            "description": "Number of votes on the card.",
+            "title": "Votes",
+            "type": "integer"
+          }
+        },
+        "title": "Badges",
+        "type": "object"
+      },
+      "ConvertChecklistItemToCardResponse": {
+        "description": "Response schema for `ConvertChecklistItemToCard` - returns the newly created card object.",
+        "properties": {
+          "url": {
+            "description": "Full URL of the card.",
+            "title": "Url",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "Short link identifier for the card.",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "due": {
+            "description": "Due date timestamp in ISO 8601 format.",
+            "title": "Due",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board the card belongs to.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Due date reminder setting.",
+            "title": "Due Reminder",
+            "type": "string"
+          },
+          "idChecklists": {
+            "description": "Array of checklist IDs attached to the card.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Checklists",
+            "type": "array"
+          },
+          "idMembers": {
+            "description": "Array of member IDs assigned to the card.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members",
+            "type": "array"
+          },
+          "manualCoverAttachment": {
+            "description": "Indicates if the cover attachment was manually set.",
+            "title": "Manual Cover Attachment",
+            "type": "boolean"
+          },
+          "idLabels": {
+            "description": "Array of label IDs applied to the card.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Labels",
+            "type": "array"
+          },
+          "idAttachmentCover": {
+            "description": "The attachment ID used as the card cover.",
+            "title": "Id Attachment Cover",
+            "type": "string"
+          },
+          "desc": {
+            "description": "The description text of the card.",
+            "title": "Desc",
+            "type": "string"
+          },
+          "name": {
+            "description": "The title/name of the card (inherited from checklist item).",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the card in the list.",
+            "title": "Pos",
+            "type": "number"
+          },
+          "creationMethod": {
+            "description": "Method used to create the card.",
+            "title": "Creation Method",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "Short URL for the card.",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "checklists": {
+            "description": "Array of checklist objects on the card.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Checklists",
+            "type": "array"
+          },
+          "subscribed": {
+            "description": "Indicates if the current user is subscribed to the card.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "dueComplete": {
+            "description": "Indicates if the due date has been marked complete.",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "descData": {
+            "additionalProperties": true,
+            "description": "Description metadata including emoji data.",
+            "title": "Desc Data",
+            "type": "object"
+          },
+          "checkItemStates": {
+            "description": "Array of completed check item states.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Check Item States",
+            "type": "array"
+          },
+          "address": {
+            "description": "Address string for location-enabled cards.",
+            "title": "Address",
+            "type": "string"
+          },
+          "closed": {
+            "description": "Indicates if the card is archived/closed.",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "dateLastActivity": {
+            "description": "Timestamp of the last activity on the card in ISO 8601 format.",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "cover": {
+            "$ref": "#/$defs/Cover",
+            "description": "Cover image settings for the card.",
+            "title": "Cover"
+          },
+          "idShort": {
+            "description": "The short numeric ID of the card on its board.",
+            "title": "Id Short",
+            "type": "integer"
+          },
+          "attachments": {
+            "description": "Array of attachment objects on the card.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "labels": {
+            "description": "Array of label objects attached to the card.",
+            "items": {
+              "$ref": "#/$defs/Label"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "locationName": {
+            "description": "Location name for location-enabled cards.",
+            "title": "Location Name",
+            "type": "string"
+          },
+          "idList": {
+            "description": "The ID of the list the card is currently in.",
+            "title": "Id List",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the newly created card.",
+            "title": "Id",
+            "type": "string"
+          },
+          "customFieldItems": {
+            "description": "Array of custom field values for the card.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Custom Field Items",
+            "type": "array"
+          },
+          "badges": {
+            "$ref": "#/$defs/Badges",
+            "title": "Badges"
+          },
+          "coordinates": {
+            "$ref": "#/$defs/Coordinates",
+            "description": "Location coordinates for location-enabled cards.",
+            "title": "Coordinates"
+          },
+          "stickers": {
+            "description": "Array of stickers on the card.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Stickers",
+            "type": "array"
+          },
+          "members": {
+            "description": "Array of member objects assigned to the card.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "cardRole": {
+            "description": "Card role (e.g., mirror).",
+            "title": "Card Role",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start date timestamp in ISO 8601 format.",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "closed",
+          "idBoard",
+          "idList",
+          "pos",
+          "shortLink",
+          "shortUrl",
+          "url",
+          "dateLastActivity",
+          "badges"
+        ],
+        "title": "ConvertChecklistItemToCardResponse",
+        "type": "object"
+      },
+      "Coordinates": {
+        "description": "Location coordinates for location-enabled cards.",
+        "properties": {
+          "latitude": {
+            "description": "Latitude coordinate.",
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "description": "Longitude coordinate.",
+            "title": "Longitude",
+            "type": "number"
+          }
+        },
+        "title": "Coordinates",
+        "type": "object"
+      },
+      "Cover": {
+        "description": "Cover image settings for the card.",
+        "properties": {
+          "brightness": {
+            "description": "Brightness setting (e.g., light, dark).",
+            "title": "Brightness",
+            "type": "string"
+          },
+          "color": {
+            "description": "Cover color.",
+            "title": "Color",
+            "type": "string"
+          },
+          "idUploadedBackground": {
+            "description": "Background image ID if uploaded.",
+            "title": "Id Uploaded Background",
+            "type": "string"
+          },
+          "isTemplate": {
+            "description": "Indicates if this is a template card.",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "size": {
+            "description": "Size setting (e.g., normal).",
+            "title": "Size",
+            "type": "string"
+          }
+        },
+        "title": "Cover",
+        "type": "object"
+      },
+      "Label": {
+        "description": "Label object attached to the card.",
+        "properties": {
+          "color": {
+            "description": "Label color.",
+            "title": "Color",
+            "type": "string"
+          },
+          "id": {
+            "description": "Label ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "Board ID the label belongs to.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "name": {
+            "description": "Label name.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idBoard"],
+        "title": "Label",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ConvertChecklistItemToCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

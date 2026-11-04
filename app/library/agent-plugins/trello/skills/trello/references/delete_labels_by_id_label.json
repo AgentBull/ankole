@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes an existing label from a Trello board by its ID; this operation is irreversible via the API.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteLabelsByIdLabel`",
+    "properties": {
+      "idLabel": {
+        "description": "The unique identifier of the label to be deleted.",
+        "examples": ["605b04f08de0fc0ae300c8f6", "fc799dca-420e-4cec-a43e-440d4b7aa04d"],
+        "title": "Id Label",
+        "type": "string"
+      }
+    },
+    "required": ["idLabel"],
+    "title": "DeleteLabelsByIdLabelRequest",
+    "type": "object"
+  },
+  "name": "delete_labels_by_id_label",
+  "outputSchema": {
+    "$defs": {
+      "DeleteLabelsByIdLabelResponse": {
+        "description": "Response schema for `DeleteLabelsByIdLabel`\n\nEmpty response body. The DELETE operation returns HTTP 200 OK with no content\nupon successful deletion of the label. Trello API DELETE operations return 200\nOK status with an empty or null response body rather than 204 No Content. The\nsuccessful deletion is indicated by the 200 status code alone.",
+        "properties": {},
+        "title": "DeleteLabelsByIdLabelResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteLabelsByIdLabelResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

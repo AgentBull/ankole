@@ -1,0 +1,95 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Execute a SOSL search to search across multiple Salesforce objects. Use when you need to search for text across multiple object types simultaneously.",
+  "inputSchema": {
+    "properties": {
+      "q": {
+        "description": "SOSL search query string to execute. Must follow SOSL syntax with FIND clause. Special characters and spaces must be URL-encoded. Example: 'FIND {Acme} IN ALL FIELDS RETURNING Account(Name, Phone), Contact(FirstName, LastName)'",
+        "examples": [
+          "FIND {test} IN ALL FIELDS RETURNING Account(Id, Name) LIMIT 5",
+          "FIND {Acme} IN NAME FIELDS RETURNING Account(Name, Phone)",
+          "FIND {john} RETURNING Contact(FirstName, LastName, Email)",
+          "FIND {tech*} IN ALL FIELDS RETURNING Account(Name), Lead(Name, Company)"
+        ],
+        "human_parameter_description": "The SOSL search query to execute. Use FIND clause to specify search terms and RETURNING clause to specify objects and fields to retrieve.",
+        "human_parameter_name": "Search Query",
+        "title": "Q",
+        "type": "string"
+      }
+    },
+    "required": ["q"],
+    "title": "ExecuteSoslSearchRequest",
+    "type": "object"
+  },
+  "name": "execute_sosl_search",
+  "outputSchema": {
+    "$defs": {
+      "ExecuteSoslSearchResponse": {
+        "description": "Response from executing a SOSL search against Salesforce data.",
+        "properties": {
+          "searchRecords": {
+            "description": "Array containing all records that match the search criteria across multiple object types. Returns empty array when no records match.",
+            "items": {
+              "$ref": "#/$defs/SearchRecord"
+            },
+            "title": "Search Records",
+            "type": "array"
+          }
+        },
+        "required": ["searchRecords"],
+        "title": "ExecuteSoslSearchResponse",
+        "type": "object"
+      },
+      "SearchRecord": {
+        "additionalProperties": true,
+        "description": "A single record returned by the SOSL search.",
+        "properties": {
+          "Id": {
+            "description": "The unique Salesforce record ID (15 or 18-character Salesforce ID). Only present if Id is included in the RETURNING clause.",
+            "title": "Id",
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/$defs/SearchRecordAttributes",
+            "title": "Attributes"
+          }
+        },
+        "required": ["attributes"],
+        "title": "SearchRecord",
+        "type": "object"
+      },
+      "SearchRecordAttributes": {
+        "description": "Metadata about the record, including type and URL for RESTful access.",
+        "properties": {
+          "type": {
+            "description": "The Salesforce object type of this record (e.g., Account, Contact, Lead).",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The REST API endpoint URL to directly access this specific record.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "SearchRecordAttributes",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ExecuteSoslSearchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

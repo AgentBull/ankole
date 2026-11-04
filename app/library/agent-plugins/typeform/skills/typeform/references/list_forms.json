@@ -1,0 +1,177 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a list of all forms in your Typeform account with filtering, pagination, and sorting options. Use when you need to list, search, or browse forms across workspaces. Supports filtering by search terms, workspace, and sorting by creation or modification date.",
+  "inputSchema": {
+    "properties": {
+      "order_by": {
+        "description": "Sort order: 'asc' for ascending or 'desc' for descending",
+        "enum": ["asc", "desc"],
+        "title": "Order By",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number for pagination (default: 1)",
+        "examples": [1, 2],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "page_size": {
+        "description": "Number of results per page (default: 10, maximum: 200)",
+        "examples": [10, 50, 100],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "search": {
+        "description": "Filters results containing the specified string in form titles or descriptions",
+        "examples": ["customer feedback", "survey"],
+        "title": "Search",
+        "type": "string"
+      },
+      "sort_by": {
+        "description": "Field to sort results by: 'created_at' for creation date or 'last_updated_at' for last modification date",
+        "enum": ["created_at", "last_updated_at"],
+        "title": "Sort By",
+        "type": "string"
+      },
+      "workspace_id": {
+        "description": "Filter forms by workspace ID to retrieve forms from a specific workspace",
+        "examples": ["wrk_abc123"],
+        "title": "Workspace Id",
+        "type": "string"
+      }
+    },
+    "title": "TypeformListFormsRequest",
+    "type": "object"
+  },
+  "name": "list_forms",
+  "outputSchema": {
+    "$defs": {
+      "FormItem": {
+        "properties": {
+          "_links": {
+            "$ref": "#/$defs/FormLinks",
+            "description": "Related resource links",
+            "title": " Links"
+          },
+          "created_at": {
+            "description": "Creation timestamp in ISO 8601 format",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique form identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_updated_at": {
+            "description": "Last modification timestamp in ISO 8601 format",
+            "title": "Last Updated At",
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/$defs/FormSettings",
+            "description": "Form settings including visibility",
+            "title": "Settings"
+          },
+          "theme": {
+            "$ref": "#/$defs/FormTheme",
+            "description": "Form theme information",
+            "title": "Theme"
+          },
+          "title": {
+            "description": "Form title/name",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "FormItem",
+        "type": "object"
+      },
+      "FormLinks": {
+        "properties": {
+          "display": {
+            "description": "URL to display the form",
+            "title": "Display",
+            "type": "string"
+          },
+          "responses": {
+            "description": "URL to retrieve form responses",
+            "title": "Responses",
+            "type": "string"
+          },
+          "self": {
+            "additionalProperties": true,
+            "description": "Self link containing href to the form resource",
+            "title": "Self",
+            "type": "object"
+          }
+        },
+        "title": "FormLinks",
+        "type": "object"
+      },
+      "FormSettings": {
+        "properties": {
+          "is_public": {
+            "description": "Whether the form is publicly accessible",
+            "title": "Is Public",
+            "type": "boolean"
+          }
+        },
+        "title": "FormSettings",
+        "type": "object"
+      },
+      "FormTheme": {
+        "properties": {
+          "href": {
+            "description": "URL reference to the form theme",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "title": "FormTheme",
+        "type": "object"
+      },
+      "TypeformListFormsResponse": {
+        "properties": {
+          "items": {
+            "description": "List of forms returned in this page",
+            "items": {
+              "$ref": "#/$defs/FormItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page_count": {
+            "description": "Total number of pages available",
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "total_items": {
+            "description": "Total number of forms in the collection",
+            "title": "Total Items",
+            "type": "integer"
+          }
+        },
+        "title": "TypeformListFormsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/TypeformListFormsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

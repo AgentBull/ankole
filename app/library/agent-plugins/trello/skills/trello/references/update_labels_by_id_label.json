@@ -1,0 +1,100 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing Trello label's attributes (color, name, or associated board) by its ID; the label must exist.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateLabelsByIdLabel`",
+    "properties": {
+      "color": {
+        "description": "The new color for the label. Provide a valid Trello label color name or 'null' to remove the color. If omitted, the color remains unchanged.",
+        "examples": ["blue", "red", "green", "yellow_dark", "null"],
+        "title": "Color",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The ID of the board to which the label should be moved or associated. If omitted, the label's board association remains unchanged.",
+        "examples": ["65510980ae322ad6d823rg80"],
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idLabel": {
+        "description": "The ID of the label to update.",
+        "title": "Id Label",
+        "type": "string"
+      },
+      "name": {
+        "description": "The new name for the label. Must be a string with a length from 0 to 16384 characters. If omitted, the name remains unchanged.",
+        "examples": ["Urgent Task", "Project Alpha"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["idLabel"],
+    "title": "UpdateLabelsByIdLabelRequest",
+    "type": "object"
+  },
+  "name": "update_labels_by_id_label",
+  "outputSchema": {
+    "$defs": {
+      "UpdateLabelsByIdLabelResponse": {
+        "description": "Response schema for `UpdateLabelsByIdLabel`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/UpdateLabelsByIdLabelResponseData",
+            "description": "The details of the updated label.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "UpdateLabelsByIdLabelResponse",
+        "type": "object"
+      },
+      "UpdateLabelsByIdLabelResponseData": {
+        "description": "Response data for the updated label.",
+        "properties": {
+          "color": {
+            "description": "The color of the label, or null if no color is set.",
+            "title": "Color",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the updated label.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board the label belongs to.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the label.",
+            "title": "Name",
+            "type": "string"
+          },
+          "uses": {
+            "description": "The number of cards using this label.",
+            "title": "Uses",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "idBoard", "name"],
+        "title": "UpdateLabelsByIdLabelResponseData",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateLabelsByIdLabelResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,144 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to run a GA4 funnel report. Use when you need a customized funnel analysis report for a given property. Funnel step sequence is determined by step attributes in the response, not row order.",
+  "inputSchema": {
+    "description": "Request model for running a GA4 funnel report.",
+    "properties": {
+      "dateRanges": {
+        "description": "List of date ranges to read; overlapping ranges duplicate days across ranges.",
+        "items": {
+          "properties": {
+            "endDate": {
+              "description": "End date of the report range. Format YYYY-MM-DD or relative (e.g., 'today', '1daysAgo').",
+              "title": "End Date",
+              "type": "string"
+            },
+            "name": {
+              "description": "Optional user-defined name for this date range.",
+              "title": "Name",
+              "type": "string"
+            },
+            "startDate": {
+              "description": "Start date of the report range. Format YYYY-MM-DD or relative (e.g., '7daysAgo', 'today').",
+              "title": "Start Date",
+              "type": "string"
+            }
+          },
+          "required": ["startDate", "endDate"],
+          "title": "DateRange",
+          "type": "object"
+        },
+        "title": "Date Ranges",
+        "type": "array"
+      },
+      "dimensionFilter": {
+        "additionalProperties": true,
+        "description": "Dimension-only filter expression.",
+        "title": "Dimension Filter",
+        "type": "object"
+      },
+      "funnel": {
+        "additionalProperties": true,
+        "description": "Funnel configuration object. Must include a 'steps' key with at least one step. Each step requires a 'name' and optionally a 'filterExpression'. Use 'funnelEventFilter' for event filters and 'funnelFieldFilter' for field filters. Filter expressions with 'fieldName' + 'stringFilter' are auto-wrapped in 'funnelFieldFilter'. Example: {\"steps\": [{\"name\": \"First visit\", \"filterExpression\": {\"funnelEventFilter\": {\"eventName\": \"first_visit\"}}}]}",
+        "title": "Funnel",
+        "type": "object"
+      },
+      "funnelBreakdown": {
+        "additionalProperties": true,
+        "description": "Breakdown dimension configuration for the funnel table sub-report. The 'breakdownDimension' is a GA4 Dimension object whose field is 'name' (NOT 'dimensionName'). Example: {\"breakdownDimension\": {\"name\": \"deviceCategory\"}, \"limit\": \"5\"}.",
+        "title": "Funnel Breakdown",
+        "type": "object"
+      },
+      "funnelNextAction": {
+        "additionalProperties": true,
+        "description": "Next-action dimension configuration for the funnel visualization sub-report. The 'nextActionDimension' is a GA4 Dimension object whose field is 'name' (NOT 'dimensionName'). Example: {\"nextActionDimension\": {\"name\": \"eventName\"}, \"limit\": \"5\"}.",
+        "title": "Funnel Next Action",
+        "type": "object"
+      },
+      "funnelVisualizationType": {
+        "description": "Visualization type: STANDARD_FUNNEL (default) or TRENDED_FUNNEL.",
+        "enum": ["STANDARD_FUNNEL", "TRENDED_FUNNEL"],
+        "title": "Funnel Visualization Type",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Number of rows to return. Default 10000; max 250000.",
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "property": {
+        "description": "GA4 property resource name, format: properties/{property_id}.",
+        "examples": ["properties/1234"],
+        "pattern": "^properties/[^/]+$",
+        "title": "Property",
+        "type": "string"
+      },
+      "returnPropertyQuota": {
+        "description": "If true, includes the property's current quota state.",
+        "title": "Return Property Quota",
+        "type": "boolean"
+      },
+      "segments": {
+        "description": "Up to 4 segments; each yields its own row in the report.",
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Segments",
+        "type": "array"
+      }
+    },
+    "required": ["property", "funnel"],
+    "title": "RunFunnelReportRequest",
+    "type": "object"
+  },
+  "name": "run_funnel_report",
+  "outputSchema": {
+    "$defs": {
+      "RunFunnelReportResponse": {
+        "properties": {
+          "funnelTable": {
+            "additionalProperties": true,
+            "description": "Table sub-report with funnel metrics.",
+            "title": "Funnel Table",
+            "type": "object"
+          },
+          "funnelVisualization": {
+            "additionalProperties": true,
+            "description": "Visualization sub-report with funnel metrics.",
+            "title": "Funnel Visualization",
+            "type": "object"
+          },
+          "kind": {
+            "description": "Fixed string: 'analyticsData#runFunnelReport'",
+            "title": "Kind",
+            "type": "string"
+          },
+          "propertyQuota": {
+            "additionalProperties": true,
+            "description": "Snapshot of the property's quota for this request (only returned if returnPropertyQuota is true).",
+            "title": "Property Quota",
+            "type": "object"
+          }
+        },
+        "title": "RunFunnelReportResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RunFunnelReportResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update an organization in Zendesk. After updating, re-fetch via zendesk.get_zendesk_organization if downstream logic depends on current data.",
+  "inputSchema": {
+    "properties": {
+      "data": {
+        "additionalProperties": true,
+        "description": "New data for the organization Must use valid Zendesk organization field names (e.g., `name`, `notes`, `domain_names`, `external_id`); invalid fields may be silently ignored. `domain_names` must be an array and is treated as a full replacement — always include existing domains alongside new ones to avoid removing them. Zendesk trims whitespace from `name`, so near-identical strings may collide on uniqueness validation.",
+        "human_parameter_description": "Provide the fields and values to update for the organization (for example, name, notes, or domains). This is what will replace or modify the current details.",
+        "human_parameter_name": "New Data",
+        "title": "Data",
+        "type": "object"
+      },
+      "organization_id": {
+        "description": "ID of the organization to update Verify the exact ID before updating — multiple organizations may share similar names and updates are persistent.",
+        "human_parameter_description": "The unique ID of the Zendesk organization you want to update. This targets the exact organization whose details you want to change.",
+        "human_parameter_name": "Organization ID",
+        "title": "Organization Id",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id", "data"],
+    "title": "UpdateZendeskOrganizationRequest",
+    "type": "object"
+  },
+  "name": "update_zendesk_organization",
+  "outputSchema": {
+    "$defs": {
+      "UpdateZendeskOrganizationResponse": {
+        "properties": {
+          "success": {
+            "description": "Indicates whether the update was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "UpdateZendeskOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateZendeskOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

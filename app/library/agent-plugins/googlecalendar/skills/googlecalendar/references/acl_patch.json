@@ -1,0 +1,137 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Partially updates the role or scope of an existing Google Calendar access control rule. Provide at least one of role or scope; you can also choose whether to send sharing notifications. This operation modifies an existing rule rather than creating one.",
+  "inputSchema": {
+    "properties": {
+      "calendar_id": {
+        "description": "Calendar identifier. To retrieve calendar IDs call the calendarList.list method. If you want to access the primary calendar of the currently logged in user, use the \"primary\" keyword.",
+        "examples": ["primary", "example@group.calendar.google.com"],
+        "human_parameter_description": "The calendar you want to update. Use 'primary' to change your main calendar, or paste the full calendar ID for another calendar.",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "role": {
+        "description": "The role assigned to the scope. Possible values are: \"none\" - Provides no access; \"freeBusyReader\" - Provides read access to free/busy information; \"reader\" - Provides read access to the calendar (private events appear but details are hidden); \"writer\" - Provides read and write access to the calendar (private events and details are visible); \"owner\" - Provides ownership of the calendar (all permissions of writer plus ability to see and manipulate ACLs).",
+        "examples": ["reader", "writer", "owner"],
+        "human_parameter_description": "The level of access to grant for this rule (reader, writer, owner, etc.). Choose the minimum access the person or group needs.",
+        "human_parameter_name": "Role",
+        "title": "Role",
+        "type": "string"
+      },
+      "rule_id": {
+        "description": "ACL rule identifier of an existing rule. IMPORTANT: The rule must already exist on the calendar - this action cannot create new rules, only modify existing ones. Use the ACL list action to find existing rule IDs, or use the ACL insert action to create a new rule first. Format: 'type:value', such as 'user:email@example.com' or 'group:group@example.com'.",
+        "examples": ["user:test.user@example.com", "group:team@example.com", "domain:example.com"],
+        "human_parameter_description": "The specific sharing rule you want to update. MUST be an existing rule - use ACL list to find valid rule IDs. Format: 'type:value' (e.g., 'user:person@example.com').",
+        "human_parameter_name": "Rule ID",
+        "title": "Rule Id",
+        "type": "string"
+      },
+      "scope": {
+        "additionalProperties": false,
+        "description": "The extent to which calendar access is granted by this ACL rule. Optional for patch operations. Must include `type` (one of: 'user', 'group', 'domain', 'default') and `value` (email address or domain name) for all types except 'default'.",
+        "human_parameter_description": "Who this rule applies to - either a specific user, group, domain, or everyone (default). Include this only if you need to change who the rule targets.",
+        "human_parameter_name": "Scope",
+        "properties": {
+          "type": {
+            "description": "The type of the scope. Possible values are: \"default\" - The public scope; \"user\" - Limits the scope to a single user; \"group\" - Limits the scope to a group; \"domain\" - Limits the scope to a domain.",
+            "examples": ["user", "group", "domain"],
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The email address of a user or group, or the name of a domain, depending on the scope type. Omitted for type 'default'.",
+            "examples": ["user@example.com", "example.com"],
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AclRuleScope",
+        "type": "object"
+      },
+      "send_notifications": {
+        "description": "Whether to send notifications about the calendar sharing change. Note that there are no notifications on access removal. Optional. The default is True.",
+        "examples": [true, false],
+        "human_parameter_description": "Choose whether to email people about the sharing change. Note: emails are not sent when removing access.",
+        "human_parameter_name": "Send Notifications",
+        "title": "Send Notifications",
+        "type": "boolean"
+      }
+    },
+    "required": ["calendar_id", "rule_id"],
+    "title": "AclPatchRequest",
+    "type": "object"
+  },
+  "name": "acl_patch",
+  "outputSchema": {
+    "$defs": {
+      "AclPatchResponse": {
+        "properties": {
+          "display_url": {
+            "description": "Web URL to view or manage this ACL rule in Google Calendar settings.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the resource.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identifier of the ACL rule.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of the resource (\"calendar#aclRule\").",
+            "title": "Kind",
+            "type": "string"
+          },
+          "role": {
+            "description": "The role assigned to the scope. Possible values are: \"none\", \"freeBusyReader\", \"reader\", \"writer\", \"owner\".",
+            "title": "Role",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/$defs/AclPatchResponseScope",
+            "description": "The scope of the rule with 'type' and optional 'value' fields.",
+            "title": "Scope"
+          }
+        },
+        "title": "AclPatchResponse",
+        "type": "object"
+      },
+      "AclPatchResponseScope": {
+        "properties": {
+          "type": {
+            "description": "The type of the scope. Possible values: \"default\", \"user\", \"group\", or \"domain\".",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The email address of a user or group, or the name of a domain, depending on the scope type. Omitted for type 'default'.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "AclPatchResponseScope",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AclPatchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

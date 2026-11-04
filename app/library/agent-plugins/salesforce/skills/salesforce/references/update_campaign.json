@@ -1,0 +1,169 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing campaign in Salesforce with the specified changes. Only provided fields will be updated.",
+  "inputSchema": {
+    "properties": {
+      "actual_cost": {
+        "description": "Updated actual cost. Leave unset to keep unchanged.",
+        "examples": [8500, 4200.75, 22000],
+        "human_parameter_description": "How much has actually been spent on this campaign so far. Enter a number, or leave blank to keep the current amount.",
+        "human_parameter_name": "Actual Cost",
+        "title": "Actual Cost",
+        "type": "number"
+      },
+      "budgeted_cost": {
+        "description": "Updated budgeted cost. Leave unset to keep unchanged.",
+        "examples": [10000, 5000.5, 25000],
+        "human_parameter_description": "How much you plan to spend on this campaign. Enter a number, or leave blank to keep the current amount.",
+        "human_parameter_name": "Budgeted Cost",
+        "title": "Budgeted Cost",
+        "type": "number"
+      },
+      "campaign_id": {
+        "description": "The Salesforce ID of the campaign to update.",
+        "examples": ["701Wd00000BVUYAIA5", "701XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce ID of the campaign you want to update. You can copy this from the campaign's URL or use an ID returned by a previous search.",
+        "human_parameter_name": "Campaign ID",
+        "title": "Campaign Id",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Custom fields to update on the campaign. Use API field names (ending in __c). Leave empty if not updating custom fields.",
+        "examples": [
+          {
+            "Another_Custom__c": 123,
+            "Custom_Field__c": "value"
+          }
+        ],
+        "human_parameter_description": "A dictionary of custom field API names and their values. Custom field names typically end with '__c'. For example: {'Priority__c': 'High', 'Region__c': 'North America'}.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "description": {
+        "default": "",
+        "description": "Updated description. Leave empty to keep unchanged.",
+        "examples": ["Updated campaign description", "Revised strategy for Q4"],
+        "human_parameter_description": "A short summary or notes about the campaign. Leave blank if you don't want to change it.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "end_date": {
+        "default": "",
+        "description": "Updated end date in YYYY-MM-DD format. Leave empty to keep unchanged.",
+        "examples": ["2024-01-31", "2024-06-30"],
+        "human_parameter_description": "The date the campaign should end, in YYYY-MM-DD format. Leave blank to keep the current end date.",
+        "human_parameter_name": "End Date",
+        "title": "End Date",
+        "type": "string"
+      },
+      "expected_response": {
+        "description": "Updated expected response rate. Leave unset to keep unchanged.",
+        "examples": [5, 10.5, 15],
+        "human_parameter_description": "The response rate you expect from this campaign (as a percentage). Enter a number, or leave blank to keep the current value.",
+        "human_parameter_name": "Expected Response",
+        "title": "Expected Response",
+        "type": "number"
+      },
+      "expected_revenue": {
+        "description": "Updated expected revenue. Leave unset to keep unchanged.",
+        "examples": [50000, 25000, 100000],
+        "human_parameter_description": "How much revenue you expect this campaign to generate. Enter a number, or leave blank to keep the current value.",
+        "human_parameter_name": "Expected Revenue",
+        "title": "Expected Revenue",
+        "type": "number"
+      },
+      "is_active": {
+        "description": "Updated active status. Leave as None to keep unchanged.",
+        "examples": [true, false],
+        "human_parameter_description": "Choose whether the campaign should be active. Set to true for active, false for inactive, or leave empty to keep the current setting.",
+        "human_parameter_name": "Active Status",
+        "title": "Is Active",
+        "type": "boolean"
+      },
+      "name": {
+        "default": "",
+        "description": "Updated campaign name. Leave empty to keep unchanged.",
+        "examples": ["Updated Summer Sale 2024", "Q4 Email Campaign - Revised"],
+        "human_parameter_description": "The new name for the campaign. Leave blank if you don't want to change it.",
+        "human_parameter_name": "Campaign Name",
+        "title": "Name",
+        "type": "string"
+      },
+      "number_sent": {
+        "description": "Updated number sent. Leave unset to keep unchanged.",
+        "examples": [1000, 5000, 10000],
+        "human_parameter_description": "The total number of messages, invites, or materials sent for this campaign. Enter a number, or leave blank to keep the current value.",
+        "human_parameter_name": "Number Sent",
+        "title": "Number Sent",
+        "type": "number"
+      },
+      "parent_id": {
+        "default": "",
+        "description": "Updated parent campaign ID. Leave empty to keep unchanged.",
+        "examples": ["701XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce ID of the parent campaign if this campaign is part of a hierarchy. Leave blank to keep the current parent.",
+        "human_parameter_name": "Parent ID",
+        "title": "Parent Id",
+        "type": "string"
+      },
+      "start_date": {
+        "default": "",
+        "description": "Updated start date in YYYY-MM-DD format. Leave empty to keep unchanged.",
+        "examples": ["2024-01-01", "2024-06-15"],
+        "human_parameter_description": "The date the campaign should start, in YYYY-MM-DD format. Leave blank to keep the current start date.",
+        "human_parameter_name": "Start Date",
+        "title": "Start Date",
+        "type": "string"
+      },
+      "status": {
+        "default": "",
+        "description": "Updated campaign status. Leave empty to keep unchanged.",
+        "examples": ["Planned", "In Progress", "Completed", "Aborted"],
+        "human_parameter_description": "The status you want to set for the campaign (e.g., Planned, In Progress). Leave blank to keep the existing status.",
+        "human_parameter_name": "Campaign Status",
+        "title": "Status",
+        "type": "string"
+      },
+      "type": {
+        "default": "",
+        "description": "Updated campaign type. Leave empty to keep unchanged.",
+        "examples": ["Conference", "Webinar", "Email", "Telemarketing", "Advertisement"],
+        "human_parameter_description": "The category that best describes this campaign (for example, Webinar or Email). Leave blank to keep the current type.",
+        "human_parameter_name": "Campaign Type",
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["campaign_id"],
+    "title": "UpdateCampaignRequest",
+    "type": "object"
+  },
+  "name": "update_campaign",
+  "outputSchema": {
+    "$defs": {
+      "UpdateCampaignResponse": {
+        "description": "Response for successful campaign update.\n\nHTTP 204 No Content - Salesforce returns empty body on successful update.\nError responses (4xx/5xx) are handled via raise_for_status().",
+        "properties": {},
+        "title": "UpdateCampaignResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateCampaignResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

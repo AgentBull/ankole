@@ -1,0 +1,283 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Search Salesforce accounts by name, industry, type, location, or contact information. Multiple filters are combined with OR, so accounts matching any filter can be returned; without filters, returns recent accounts.",
+  "inputSchema": {
+    "properties": {
+      "billing_city": {
+        "description": "Search by billing city. Supports partial matches.",
+        "examples": ["San Francisco", "New York", "Chicago"],
+        "human_parameter_description": "The city listed on the account’s billing address. Enter a city name to filter matching accounts.",
+        "human_parameter_name": "Billing City",
+        "title": "Billing City",
+        "type": "string"
+      },
+      "billing_country": {
+        "description": "Search by billing country. Supports partial matches.",
+        "examples": ["United States", "Canada", "UK"],
+        "human_parameter_description": "The country from the account's billing address. Enter the country name to filter results.",
+        "human_parameter_name": "Billing Country",
+        "title": "Billing Country",
+        "type": "string"
+      },
+      "billing_state": {
+        "description": "Search by billing state/province. Supports partial matches.",
+        "examples": ["CA", "NY", "Texas"],
+        "human_parameter_description": "The state or province from the account’s billing address. Use an abbreviation or full name.",
+        "human_parameter_name": "Billing State",
+        "title": "Billing State",
+        "type": "string"
+      },
+      "fields": {
+        "default": "Id,Name,Industry,Phone,Website,BillingStreet,BillingCity,BillingState,BillingCountry,NumberOfEmployees",
+        "description": "Comma-separated list of valid Salesforce Account field API names to retrieve. Only use actual field names like Id, Name, Industry, etc. Do not include type annotations or placeholders like <string> or <DATE_TIME>. If any field in this list is restricted by field-level security, the entire request will fail — use a minimal set of standard fields (e.g., Id,Name,Website) when access is uncertain.",
+        "examples": [
+          "Id,Name,Industry,Phone,Website",
+          "Id,Name,Industry,Phone,Website,BillingCity,BillingState,NumberOfEmployees"
+        ],
+        "human_parameter_description": "Which account details you want back. Provide a comma-separated list of fields to include in the results.",
+        "title": "Fields",
+        "type": "string"
+      },
+      "industry": {
+        "description": "Search by industry.",
+        "examples": ["Technology", "Healthcare", "Manufacturing", "Financial Services"],
+        "human_parameter_description": "The industry the account belongs to. Use a keyword to narrow results to accounts in that industry.",
+        "human_parameter_name": "Industry",
+        "title": "Industry",
+        "type": "string"
+      },
+      "limit": {
+        "default": 50,
+        "description": "Maximum number of accounts to return. Results are hard-capped at approximately 2000 rows; use more selective filters if the full dataset exceeds this.",
+        "human_parameter_description": "How many accounts to return at most. Lower this to get a smaller, faster result set.",
+        "human_parameter_name": "Limit",
+        "maximum": 2000,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "name": {
+        "description": "Search by account name. Supports partial matches.",
+        "examples": ["Acme Corp", "Tech Solutions", "Inc"],
+        "human_parameter_description": "The account name you want to look up. Enter a full or partial name to find matching accounts.",
+        "human_parameter_name": "Account Name",
+        "title": "Name",
+        "type": "string"
+      },
+      "phone": {
+        "description": "Search by phone number. Supports partial matches. Requires field-level security access to the Phone field.",
+        "examples": ["555-1234", "800", "+1"],
+        "human_parameter_description": "The account's phone number or part of it. Use this to find accounts by their phone number.",
+        "human_parameter_name": "Phone Number",
+        "title": "Phone",
+        "type": "string"
+      },
+      "type": {
+        "description": "Search by account type. Note: The Type field may not exist in all Salesforce orgs. If the query fails with 'No such column Type', either omit this parameter or use a custom Type__c field if available in your org.",
+        "examples": ["Customer - Direct", "Customer - Channel", "Prospect", "Partner"],
+        "human_parameter_description": "The kind of relationship this account has with you (e.g., Customer, Prospect, Partner). Note: This field may not be available in all Salesforce orgs.",
+        "human_parameter_name": "Account Type",
+        "title": "Type",
+        "type": "string"
+      },
+      "website": {
+        "description": "Search by website. Supports partial matches.",
+        "examples": ["acme.com", ".com", "https://"],
+        "human_parameter_description": "The account’s website or part of it (like the domain). Use this to find accounts by their web address.",
+        "human_parameter_name": "Website",
+        "title": "Website",
+        "type": "string"
+      }
+    },
+    "title": "SearchAccountsRequest",
+    "type": "object"
+  },
+  "name": "search_accounts",
+  "outputSchema": {
+    "$defs": {
+      "AccountRecord": {
+        "additionalProperties": true,
+        "description": "Individual Account record returned by the SOQL query.",
+        "properties": {
+          "AccountNumber": {
+            "description": "Account number assigned to this account.",
+            "title": "Account Number",
+            "type": "string"
+          },
+          "BillingAddress": {
+            "$ref": "#/$defs/Address",
+            "description": "Compound field containing the billing address components. Read-only field introduced in API v30.0.",
+            "title": "Billing Address"
+          },
+          "CreatedDate": {
+            "description": "DateTime when the account record was created (ISO 8601 format).",
+            "title": "Created Date",
+            "type": "string"
+          },
+          "Id": {
+            "description": "Unique 18-character Salesforce identifier for the Account record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "Industry": {
+            "description": "Industry that the account operates in.",
+            "title": "Industry",
+            "type": "string"
+          },
+          "LastModifiedDate": {
+            "description": "DateTime when the account record was last modified (ISO 8601 format).",
+            "title": "Last Modified Date",
+            "type": "string"
+          },
+          "Name": {
+            "description": "Name of the account.",
+            "title": "Name",
+            "type": "string"
+          },
+          "OwnerId": {
+            "description": "Salesforce User ID of the account owner.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "Phone": {
+            "description": "Primary phone number for the account.",
+            "title": "Phone",
+            "type": "string"
+          },
+          "ShippingAddress": {
+            "$ref": "#/$defs/Address",
+            "description": "Compound field containing the shipping address components. Read-only field introduced in API v30.0.",
+            "title": "Shipping Address"
+          },
+          "Type": {
+            "description": "Type of account, such as Customer, Competitor, or Partner.",
+            "title": "Type",
+            "type": "string"
+          },
+          "Website": {
+            "description": "Website URL for the account.",
+            "title": "Website",
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/$defs/RecordAttributes",
+            "title": "Attributes"
+          }
+        },
+        "required": ["attributes"],
+        "title": "AccountRecord",
+        "type": "object"
+      },
+      "Address": {
+        "description": "Compound field containing address components.",
+        "properties": {
+          "city": {
+            "description": "City.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Country.",
+            "title": "Country",
+            "type": "string"
+          },
+          "geocodeAccuracy": {
+            "description": "Accuracy level of the geocoding for the address.",
+            "title": "Geocode Accuracy",
+            "type": "string"
+          },
+          "latitude": {
+            "description": "Latitude coordinate of the address.",
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "description": "Longitude coordinate of the address.",
+            "title": "Longitude",
+            "type": "number"
+          },
+          "postalCode": {
+            "description": "Postal code or ZIP code.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State or province.",
+            "title": "State",
+            "type": "string"
+          },
+          "street": {
+            "description": "Street address.",
+            "title": "Street",
+            "type": "string"
+          }
+        },
+        "title": "Address",
+        "type": "object"
+      },
+      "RecordAttributes": {
+        "description": "Metadata object containing information about the record type and resource URI for RESTful navigation.",
+        "properties": {
+          "type": {
+            "description": "The Salesforce object type of the record (e.g., 'Account').",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The REST API resource URI for accessing this specific record (e.g., '/services/data/v53.0/sobjects/Account/001D000000IRFmaIAH').",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "RecordAttributes",
+        "type": "object"
+      },
+      "SearchAccountsResponse": {
+        "description": "Response from Salesforce SOQL query for Account records.",
+        "properties": {
+          "done": {
+            "description": "Indicates whether all records have been returned. When true, no additional records can be retrieved. When false, additional records remain to be retrieved via pagination.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "nextRecordsUrl": {
+            "description": "URL path containing the query locator for retrieving the next batch of records. Present only when done is false and additional records remain to be retrieved.",
+            "title": "Next Records Url",
+            "type": "string"
+          },
+          "records": {
+            "description": "Array of Account records returned by the query. Maximum of 2000 records per response.",
+            "items": {
+              "$ref": "#/$defs/AccountRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "totalSize": {
+            "description": "The total number of records that match the SOQL query criteria.",
+            "title": "Total Size",
+            "type": "integer"
+          }
+        },
+        "required": ["totalSize", "done", "records"],
+        "title": "SearchAccountsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SearchAccountsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

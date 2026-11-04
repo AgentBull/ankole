@@ -1,0 +1,756 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List one page of group issues with filters. Follow next_page to retrieve more results.",
+  "inputSchema": {
+    "properties": {
+      "assignee_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "enum": ["None", "Any"],
+            "type": "string"
+          }
+        ],
+        "description": "Assignee user ID, None for unassigned, or Any for assigned. Mutually exclusive with assignee_username.",
+        "title": "Assignee Id"
+      },
+      "assignee_username": {
+        "description": "Require all these assignees; CE supports one username. Mutually exclusive with assignee_id.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Assignee Username",
+        "type": "array"
+      },
+      "author_id": {
+        "description": "Author ID; mutually exclusive with author_username. Combine with scope=all or assigned_to_me.",
+        "title": "Author Id",
+        "type": "integer"
+      },
+      "author_username": {
+        "description": "Author username; mutually exclusive with author_id.",
+        "title": "Author Username",
+        "type": "string"
+      },
+      "confidential": {
+        "description": "Filter confidential or public issues.",
+        "title": "Confidential",
+        "type": "boolean"
+      },
+      "created_after": {
+        "description": "Inclusive creation lower bound in ISO 8601 format.",
+        "format": "date-time",
+        "title": "Created After",
+        "type": "string"
+      },
+      "created_before": {
+        "description": "Inclusive creation upper bound in ISO 8601 format.",
+        "format": "date-time",
+        "title": "Created Before",
+        "type": "string"
+      },
+      "due_date": {
+        "description": "Due-date filter; 0 means no due date.",
+        "enum": ["0", "any", "today", "tomorrow", "overdue", "week", "month", "next_month_and_previous_two_weeks"],
+        "title": "Due Date",
+        "type": "string"
+      },
+      "epic_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "enum": ["None", "Any"],
+            "type": "string"
+          }
+        ],
+        "description": "Epic ID, None for no epic, or Any for an epic. Premium/Ultimate only.",
+        "title": "Epic Id"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Group ID or unencoded group path, including subgroups.",
+        "title": "Id"
+      },
+      "iids": {
+        "description": "Issue internal IDs to return.",
+        "items": {
+          "type": "integer"
+        },
+        "title": "Iids",
+        "type": "array"
+      },
+      "issue_type": {
+        "description": "Issue type to return.",
+        "enum": ["issue", "incident", "test_case", "task"],
+        "title": "Issue Type",
+        "type": "string"
+      },
+      "iteration_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "enum": ["None", "Any"],
+            "type": "string"
+          }
+        ],
+        "description": "Iteration ID, None or Any. Mutually exclusive with iteration_title. Premium/Ultimate only.",
+        "title": "Iteration Id"
+      },
+      "iteration_title": {
+        "description": "Iteration title; mutually exclusive with iteration_id. Premium/Ultimate only.",
+        "title": "Iteration Title",
+        "type": "string"
+      },
+      "labels": {
+        "description": "Require all comma-separated labels. None means no labels; Any means at least one. No+Label is deprecated.",
+        "title": "Labels",
+        "type": "string"
+      },
+      "milestone": {
+        "description": "Milestone title, None for no milestone, or Any for an assigned milestone.",
+        "title": "Milestone",
+        "type": "string"
+      },
+      "my_reaction_emoji": {
+        "description": "Authenticated user's reaction emoji, None for no reaction, or Any for at least one.",
+        "title": "My Reaction Emoji",
+        "type": "string"
+      },
+      "non_archived": {
+        "description": "Restrict to non-archived projects; defaults to true.",
+        "title": "Non Archived",
+        "type": "boolean"
+      },
+      "not": {
+        "additionalProperties": false,
+        "description": "Exclude issues matching these documented group filters.",
+        "properties": {
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "enum": ["None", "Any"],
+                "type": "string"
+              }
+            ],
+            "description": "Exclude this assignee ID, None (unassigned), or Any (assigned).",
+            "title": "Assignee Id"
+          },
+          "assignee_username": {
+            "description": "Exclude these assignee usernames.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Assignee Username",
+            "type": "array"
+          },
+          "author_id": {
+            "description": "Exclude this author ID.",
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "author_username": {
+            "description": "Exclude this author username.",
+            "title": "Author Username",
+            "type": "string"
+          },
+          "in": {
+            "description": "Fields used for the excluded search, such as title,description.",
+            "title": "In",
+            "type": "string"
+          },
+          "labels": {
+            "description": "Exclude matching label names.",
+            "title": "Labels",
+            "type": "string"
+          },
+          "milestone": {
+            "description": "Exclude this milestone title.",
+            "title": "Milestone",
+            "type": "string"
+          },
+          "my_reaction_emoji": {
+            "description": "Exclude this reaction emoji.",
+            "title": "My Reaction Emoji",
+            "type": "string"
+          },
+          "search": {
+            "description": "Exclude issues matching this search.",
+            "title": "Search",
+            "type": "string"
+          }
+        },
+        "title": "GroupIssueExclusions",
+        "type": "object"
+      },
+      "order_by": {
+        "description": "Sort field; defaults to created_at.",
+        "enum": [
+          "created_at",
+          "updated_at",
+          "priority",
+          "due_date",
+          "relative_position",
+          "label_priority",
+          "milestone_due",
+          "popularity",
+          "weight"
+        ],
+        "title": "Order By",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "scope": {
+        "description": "Issue scope; defaults to all.",
+        "enum": ["created_by_me", "assigned_to_me", "all"],
+        "title": "Scope",
+        "type": "string"
+      },
+      "search": {
+        "description": "Search issue title and description.",
+        "title": "Search",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Sort direction; defaults to desc.",
+        "enum": ["asc", "desc"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "state": {
+        "description": "Issue state to return.",
+        "enum": ["all", "opened", "closed"],
+        "title": "State",
+        "type": "string"
+      },
+      "updated_after": {
+        "description": "Inclusive update lower bound in ISO 8601 format.",
+        "format": "date-time",
+        "title": "Updated After",
+        "type": "string"
+      },
+      "updated_before": {
+        "description": "Inclusive update upper bound in ISO 8601 format.",
+        "format": "date-time",
+        "title": "Updated Before",
+        "type": "string"
+      },
+      "weight": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "enum": ["None", "Any"],
+            "type": "string"
+          }
+        ],
+        "description": "Weight, None for no weight, or Any for an assigned weight. Premium/Ultimate only.",
+        "title": "Weight"
+      },
+      "with_labels_details": {
+        "description": "Include label name, color, description, description_html, and text_color; defaults to false.",
+        "title": "With Labels Details",
+        "type": "boolean"
+      }
+    },
+    "required": ["id"],
+    "title": "ListGroupIssuesRequest",
+    "type": "object"
+  },
+  "name": "list_group_issues",
+  "outputSchema": {
+    "$defs": {
+      "GroupIssue": {
+        "additionalProperties": true,
+        "properties": {
+          "references": {
+            "$ref": "#/$defs/References",
+            "description": "References related to the issue.",
+            "title": "References"
+          },
+          "closed_by": {
+            "$ref": "#/$defs/User",
+            "description": "User who closed the issue.",
+            "title": "Closed By"
+          },
+          "user_notes_count": {
+            "description": "Number of user notes.",
+            "title": "User Notes Count",
+            "type": "integer"
+          },
+          "task_status": {
+            "description": "Task status string.",
+            "title": "Task Status",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Issue weight. Premium/Ultimate only.",
+            "title": "Weight",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "Issue update timestamp.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "downvotes": {
+            "description": "Number of downvotes.",
+            "title": "Downvotes",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Issue description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "issue_type": {
+            "description": "Issue type (e.g., issue, incident, test_case, task).",
+            "title": "Issue Type",
+            "type": "string"
+          },
+          "closed_at": {
+            "description": "Issue closure timestamp.",
+            "format": "date-time",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "time_stats": {
+            "$ref": "#/$defs/TimeStats",
+            "description": "Time tracking statistics.",
+            "title": "Time Stats"
+          },
+          "assignee": {
+            "$ref": "#/$defs/User",
+            "description": "Single assignee (deprecated, use assignees).",
+            "title": "Assignee"
+          },
+          "has_tasks": {
+            "description": "Whether the issue has tasks.",
+            "title": "Has Tasks",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Issue creation timestamp.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "_links": {
+            "$ref": "#/$defs/IssueLinks",
+            "description": "Links related to the issue.",
+            "title": " Links"
+          },
+          "severity": {
+            "description": "Issue severity.",
+            "title": "Severity",
+            "type": "string"
+          },
+          "assignees": {
+            "description": "List of assignees.",
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Assignees",
+            "type": "array"
+          },
+          "iid": {
+            "description": "Issue internal ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "web_url": {
+            "description": "URL to the issue.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "description": "Whether discussion is locked.",
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "author": {
+            "$ref": "#/$defs/User",
+            "description": "Issue author.",
+            "title": "Author"
+          },
+          "milestone": {
+            "$ref": "#/$defs/GroupIssueMilestone",
+            "description": "Assigned project or group milestone.",
+            "title": "Milestone"
+          },
+          "confidential": {
+            "description": "Whether the issue is confidential.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "epic": {
+            "additionalProperties": true,
+            "description": "Epic associated with the issue. Premium/Ultimate only.",
+            "title": "Epic",
+            "type": "object"
+          },
+          "project_id": {
+            "description": "Project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "task_completion_status": {
+            "$ref": "#/$defs/TaskCompletionStatus",
+            "description": "Task completion status.",
+            "title": "Task Completion Status"
+          },
+          "health_status": {
+            "description": "Health status. Premium/Ultimate only.",
+            "title": "Health Status",
+            "type": "string"
+          },
+          "upvotes": {
+            "description": "Number of upvotes.",
+            "title": "Upvotes",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Label names or detailed labels when requested.",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/GroupIssueLabel"
+                }
+              ]
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "state": {
+            "description": "Issue state (e.g., opened, closed).",
+            "title": "State",
+            "type": "string"
+          },
+          "id": {
+            "description": "Issue ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Issue title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Due date.",
+            "title": "Due Date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "iid",
+          "project_id",
+          "title",
+          "state",
+          "created_at",
+          "updated_at",
+          "labels",
+          "author",
+          "user_notes_count",
+          "upvotes",
+          "downvotes",
+          "confidential",
+          "web_url"
+        ],
+        "title": "GroupIssue",
+        "type": "object"
+      },
+      "GroupIssueLabel": {
+        "additionalProperties": true,
+        "properties": {
+          "color": {
+            "description": "Label color.",
+            "title": "Color",
+            "type": "string"
+          },
+          "description": {
+            "description": "Label description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_html": {
+            "description": "HTML label description.",
+            "title": "Description Html",
+            "type": "string"
+          },
+          "name": {
+            "description": "Label name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "text_color": {
+            "description": "Label text color.",
+            "title": "Text Color",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "title": "GroupIssueLabel",
+        "type": "object"
+      },
+      "GroupIssueMilestone": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "description": "Milestone creation timestamp.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Milestone due date.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "Group ID for a group milestone.",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Milestone ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Milestone internal ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "project_id": {
+            "description": "Project ID, absent for group milestones.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Milestone state.",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Milestone title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Milestone update timestamp.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id", "iid", "title", "state", "created_at", "updated_at"],
+        "title": "GroupIssueMilestone",
+        "type": "object"
+      },
+      "IssueLinks": {
+        "properties": {
+          "award_emoji": {
+            "description": "Link to award emoji.",
+            "title": "Award Emoji",
+            "type": "string"
+          },
+          "closed_as_duplicate_of": {
+            "description": "Link to duplicate issue.",
+            "title": "Closed As Duplicate Of",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Link to issue notes.",
+            "title": "Notes",
+            "type": "string"
+          },
+          "project": {
+            "description": "Link to the project.",
+            "title": "Project",
+            "type": "string"
+          },
+          "self": {
+            "description": "Link to the issue.",
+            "title": "Self",
+            "type": "string"
+          }
+        },
+        "required": ["self", "notes", "award_emoji", "project"],
+        "title": "IssueLinks",
+        "type": "object"
+      },
+      "ListGroupIssuesResponse": {
+        "properties": {
+          "issues": {
+            "description": "Issues on this page from the group's projects.",
+            "items": {
+              "$ref": "#/$defs/GroupIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          }
+        },
+        "required": ["issues"],
+        "title": "ListGroupIssuesResponse",
+        "type": "object"
+      },
+      "References": {
+        "properties": {
+          "full": {
+            "description": "Full reference.",
+            "title": "Full",
+            "type": "string"
+          },
+          "relative": {
+            "description": "Relative reference.",
+            "title": "Relative",
+            "type": "string"
+          },
+          "short": {
+            "description": "Short reference.",
+            "title": "Short",
+            "type": "string"
+          }
+        },
+        "required": ["short", "relative", "full"],
+        "title": "References",
+        "type": "object"
+      },
+      "TaskCompletionStatus": {
+        "properties": {
+          "completed_count": {
+            "description": "Completed task count.",
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "count": {
+            "description": "Total task count.",
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": ["count", "completed_count"],
+        "title": "TaskCompletionStatus",
+        "type": "object"
+      },
+      "TimeStats": {
+        "properties": {
+          "human_time_estimate": {
+            "description": "Human-readable time estimate.",
+            "title": "Human Time Estimate",
+            "type": "string"
+          },
+          "human_total_time_spent": {
+            "description": "Human-readable total time spent.",
+            "title": "Human Total Time Spent",
+            "type": "string"
+          },
+          "time_estimate": {
+            "description": "Time estimate in seconds.",
+            "title": "Time Estimate",
+            "type": "integer"
+          },
+          "total_time_spent": {
+            "description": "Total time spent in seconds.",
+            "title": "Total Time Spent",
+            "type": "integer"
+          }
+        },
+        "required": ["time_estimate", "total_time_spent"],
+        "title": "TimeStats",
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "avatar_url": {
+            "description": "URL to user's avatar.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User state (e.g., active, blocked).",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "URL to user's profile.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "username", "state", "web_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListGroupIssuesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,247 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create an audience list for later retrieval by initiating a long-running asynchronous request. Use when you need to create a snapshot of users currently in an audience. The method returns quickly with an Operation resource while processing occurs in the background.",
+  "inputSchema": {
+    "description": "Request model for creating an audience list.",
+    "properties": {
+      "audience": {
+        "description": "Required. The audience resource name identifying the audience being listed. Format: 'properties/{property_id}/audiences/{audience_id}'. Example: 'properties/489591273/audiences/11228260226'",
+        "examples": ["properties/489591273/audiences/11228260226"],
+        "title": "Audience",
+        "type": "string"
+      },
+      "dimensions": {
+        "description": "Required. The dimensions requested and displayed in the query response. At least one dimension is required. Each entry must be an object with a `dimensionName` key (e.g., `[{'dimensionName': 'deviceId'}]`). Only dimensions supported for audience lists on that property are valid; unsupported values return a 400 INVALID_ARGUMENT error. Use google_analytics.get_metadata to retrieve valid dimension names.",
+        "items": {
+          "description": "An audience dimension is a user attribute to be included in the audience list query response.",
+          "properties": {
+            "dimensionName": {
+              "description": "API name of the dimension. Common values include 'deviceId', 'userId', 'city', 'country', etc.",
+              "examples": ["deviceId", "userId"],
+              "title": "Dimension Name",
+              "type": "string"
+            }
+          },
+          "required": ["dimensionName"],
+          "title": "AudienceDimension",
+          "type": "object"
+        },
+        "minItems": 1,
+        "title": "Dimensions",
+        "type": "array"
+      },
+      "parent": {
+        "description": "Required. The parent property resource name. Format: 'properties/{property_id}'. Example: 'properties/489591273'",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      },
+      "webhookNotification": {
+        "additionalProperties": false,
+        "description": "Webhook notification configuration for audience list operation updates.",
+        "properties": {
+          "channelToken": {
+            "description": "Optional token (max 64 chars) sent in X-Goog-Channel-Token header to verify webhook authenticity and prevent spoofing.",
+            "title": "Channel Token",
+            "type": "string"
+          },
+          "uri": {
+            "description": "HTTPS endpoint URL to receive POST notifications. Must have valid SSL certificate and respond with HTTP 200 within 5 seconds. Max 128 characters.",
+            "examples": ["https://example.com/webhook"],
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "title": "WebhookNotification",
+        "type": "object"
+      }
+    },
+    "required": ["parent", "audience", "dimensions"],
+    "title": "CreateAudienceListRequest",
+    "type": "object"
+  },
+  "name": "create_audience_list",
+  "outputSchema": {
+    "$defs": {
+      "AudienceDimension": {
+        "description": "An audience dimension is a user attribute to be included in the audience list query response.",
+        "properties": {
+          "dimensionName": {
+            "description": "API name of the dimension. Common values include 'deviceId', 'userId', 'city', 'country', etc.",
+            "examples": ["deviceId", "userId"],
+            "title": "Dimension Name",
+            "type": "string"
+          }
+        },
+        "required": ["dimensionName"],
+        "title": "AudienceDimension",
+        "type": "object"
+      },
+      "AudienceListResource": {
+        "description": "The AudienceList resource contained in the operation response.",
+        "properties": {
+          "audience": {
+            "description": "The audience resource name.",
+            "title": "Audience",
+            "type": "string"
+          },
+          "audienceDisplayName": {
+            "description": "Output only. Descriptive display name for the audience.",
+            "title": "Audience Display Name",
+            "type": "string"
+          },
+          "beginCreatingTime": {
+            "description": "Output only. RFC3339 UTC timestamp when creation began.",
+            "title": "Begin Creating Time",
+            "type": "string"
+          },
+          "creationQuotaTokensCharged": {
+            "description": "Output only. Total quota tokens charged for creation.",
+            "title": "Creation Quota Tokens Charged",
+            "type": "integer"
+          },
+          "dimensions": {
+            "description": "The dimensions requested and displayed in the query response.",
+            "items": {
+              "$ref": "#/$defs/AudienceDimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "errorMessage": {
+            "description": "Output only. Error message if creation failed.",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "Output only. Resource name in format 'properties/{property}/audienceLists/{audienceList}'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "percentageCompleted": {
+            "description": "Output only. Progress percentage (0-100).",
+            "title": "Percentage Completed",
+            "type": "number"
+          },
+          "recurringAudienceList": {
+            "description": "Output only. The recurring list that created this audience list.",
+            "title": "Recurring Audience List",
+            "type": "string"
+          },
+          "rowCount": {
+            "description": "Output only. Total number of rows in the result.",
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Output only. Current state: STATE_UNSPECIFIED, CREATING, ACTIVE, or FAILED.",
+            "title": "State",
+            "type": "string"
+          },
+          "webhookNotification": {
+            "$ref": "#/$defs/WebhookNotification",
+            "description": "Webhook configuration if provided.",
+            "title": "Webhook Notification"
+          }
+        },
+        "title": "AudienceListResource",
+        "type": "object"
+      },
+      "CreateAudienceListResponse": {
+        "description": "Response model representing a long-running Operation for audience list creation.",
+        "properties": {
+          "done": {
+            "description": "False means operation is still in progress, true means completed. May be absent if response is immediately returned.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "error": {
+            "$ref": "#/$defs/ErrorStatus",
+            "description": "Present when operation fails or is cancelled. Mutually exclusive with response field.",
+            "title": "Error"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Service-specific metadata with progress information. Contains '@type' URI field.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "Server-assigned unique identifier for the operation, ending with 'operations/{unique_id}'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "response": {
+            "$ref": "#/$defs/AudienceListResource",
+            "description": "The successful result containing the created AudienceList. Present only when done is true and operation succeeded.",
+            "title": "Response"
+          }
+        },
+        "title": "CreateAudienceListResponse",
+        "type": "object"
+      },
+      "ErrorStatus": {
+        "description": "Error status information for failed operations.",
+        "properties": {
+          "code": {
+            "description": "The status code as a google.rpc.Code enum value.",
+            "title": "Code",
+            "type": "integer"
+          },
+          "details": {
+            "description": "List of error detail messages.",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "message": {
+            "description": "Developer-facing error message in English.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "title": "ErrorStatus",
+        "type": "object"
+      },
+      "WebhookNotification": {
+        "description": "Webhook notification configuration for audience list operation updates.",
+        "properties": {
+          "channelToken": {
+            "description": "Optional token (max 64 chars) sent in X-Goog-Channel-Token header to verify webhook authenticity and prevent spoofing.",
+            "title": "Channel Token",
+            "type": "string"
+          },
+          "uri": {
+            "description": "HTTPS endpoint URL to receive POST notifications. Must have valid SSL certificate and respond with HTTP 200 within 5 seconds. Max 128 characters.",
+            "examples": ["https://example.com/webhook"],
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "title": "WebhookNotification",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateAudienceListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

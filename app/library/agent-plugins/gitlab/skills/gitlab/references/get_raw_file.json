@@ -1,0 +1,79 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a file from a GitLab repository's raw file endpoint as text, without Base64 encoding. The response includes the content type when available.",
+  "inputSchema": {
+    "properties": {
+      "file_path": {
+        "description": "The full path to the file in the repository (e.g., 'app/models/key.rb').",
+        "examples": ["README.md", "src/main.py", "config/settings.json"],
+        "title": "File Path",
+        "type": "string"
+      },
+      "lfs": {
+        "default": false,
+        "description": "When true, returns Git LFS file contents instead of the pointer file. Ignored for non-LFS tracked files.",
+        "title": "Lfs",
+        "type": "boolean"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": [123, "namespace/project-name"],
+        "title": "Project Id"
+      },
+      "ref": {
+        "default": "HEAD",
+        "description": "The name of branch, tag, or commit to retrieve the file from. Defaults to HEAD (the project's default branch).",
+        "examples": ["main", "develop", "v1.0.0", "a1b2c3d4"],
+        "title": "Ref",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "file_path"],
+    "title": "GetRawFileRequest",
+    "type": "object"
+  },
+  "name": "get_raw_file",
+  "outputSchema": {
+    "$defs": {
+      "GetRawFileResponse": {
+        "properties": {
+          "content": {
+            "description": "The raw file contents as a string. For binary files, this will contain the raw bytes as a string.",
+            "title": "Content",
+            "type": "string"
+          },
+          "content_type": {
+            "description": "The content type of the file from the response headers (e.g., 'text/plain', 'application/json').",
+            "title": "Content Type",
+            "type": "string"
+          }
+        },
+        "required": ["content"],
+        "title": "GetRawFileResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRawFileResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

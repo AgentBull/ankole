@@ -1,0 +1,268 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Search localized Zendesk Help Center articles by text and filters.",
+  "inputSchema": {
+    "description": "Request parameters for searching Zendesk Help Center articles.",
+    "properties": {
+      "brand_id": {
+        "description": "Brand ID to search, as a string.",
+        "minLength": 1,
+        "title": "Brand Id",
+        "type": "string"
+      },
+      "category": {
+        "description": "One or more comma-separated category IDs.",
+        "examples": ["12345,67890"],
+        "minLength": 1,
+        "title": "Category",
+        "type": "string"
+      },
+      "label_names": {
+        "description": "Comma-separated article labels. An article matching any label is returned.",
+        "examples": ["billing,refunds"],
+        "minLength": 1,
+        "title": "Label Names",
+        "type": "string"
+      },
+      "locale": {
+        "description": "Enabled locale to search, such as 'en-us', or '*' for every locale.",
+        "examples": ["en-us", "*"],
+        "minLength": 1,
+        "title": "Locale",
+        "type": "string"
+      },
+      "multibrand": {
+        "description": "Search all brands when true and brand_id is omitted.",
+        "title": "Multibrand",
+        "type": "boolean"
+      },
+      "page": {
+        "description": "Offset page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of results to return per page, from 1 to 100.",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "query": {
+        "description": "Text to match in Help Center articles.",
+        "examples": ["reset password"],
+        "minLength": 1,
+        "title": "Query",
+        "type": "string"
+      },
+      "section": {
+        "description": "One or more comma-separated section IDs.",
+        "examples": ["12345,67890"],
+        "minLength": 1,
+        "title": "Section",
+        "type": "string"
+      },
+      "sort_by": {
+        "description": "Sort by creation or update time. Omit to sort by relevance.",
+        "enum": ["created_at", "updated_at"],
+        "title": "Sort By",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort direction. Zendesk defaults to descending when a sort field is used.",
+        "enum": ["asc", "desc"],
+        "title": "Sort Order",
+        "type": "string"
+      }
+    },
+    "required": ["query"],
+    "title": "SearchHelpCenterArticlesRequest",
+    "type": "object"
+  },
+  "name": "search_help_center_articles",
+  "outputSchema": {
+    "$defs": {
+      "HelpCenterArticleSearchResult": {
+        "description": "A Help Center article returned by Zendesk search.",
+        "properties": {
+          "author_id": {
+            "description": "ID of the article author.",
+            "title": "Author Id",
+            "type": "string"
+          },
+          "body": {
+            "description": "Article body as HTML.",
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "draft": {
+            "description": "Whether the article is a draft.",
+            "title": "Draft",
+            "type": "boolean"
+          },
+          "edited_at": {
+            "description": "Last content edit timestamp.",
+            "title": "Edited At",
+            "type": "string"
+          },
+          "html_url": {
+            "description": "Public Help Center URL for the article.",
+            "title": "Html Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique article ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "label_names": {
+            "description": "Labels assigned to the article.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Label Names",
+            "type": "array"
+          },
+          "locale": {
+            "description": "Article locale.",
+            "title": "Locale",
+            "type": "string"
+          },
+          "permission_group_id": {
+            "description": "Permission group allowed to manage the article.",
+            "title": "Permission Group Id",
+            "type": "string"
+          },
+          "position": {
+            "description": "Article display position.",
+            "title": "Position",
+            "type": "integer"
+          },
+          "promoted": {
+            "description": "Whether the article is promoted in Help Center.",
+            "title": "Promoted",
+            "type": "boolean"
+          },
+          "result_type": {
+            "description": "Search result type, which is 'article' for this endpoint.",
+            "title": "Result Type",
+            "type": "string"
+          },
+          "section_id": {
+            "description": "Parent section ID.",
+            "title": "Section Id",
+            "type": "string"
+          },
+          "snippet": {
+            "description": "Article excerpt relevant to the search query.",
+            "title": "Snippet",
+            "type": "string"
+          },
+          "title": {
+            "description": "Localized article title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL for the article.",
+            "title": "Url",
+            "type": "string"
+          },
+          "user_segment_id": {
+            "description": "User segment allowed to view the article.",
+            "title": "User Segment Id",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "HelpCenterArticleSearchResult",
+        "type": "object"
+      },
+      "SearchHelpCenterArticlesResponse": {
+        "description": "One page of Help Center article search results.",
+        "properties": {
+          "count": {
+            "description": "Total number of matching articles.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "URL for the next page, if any.",
+            "title": "Next Page"
+          },
+          "page": {
+            "description": "Current offset page number.",
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_count": {
+            "description": "Total number of result pages.",
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "per_page": {
+            "description": "Page size reported by Zendesk.",
+            "title": "Per Page",
+            "type": "integer"
+          },
+          "previous_page": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "URL for the previous page, if any.",
+            "title": "Previous Page"
+          },
+          "results": {
+            "description": "Articles matching the search criteria.",
+            "items": {
+              "$ref": "#/$defs/HelpCenterArticleSearchResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": ["results", "page", "per_page", "page_count", "count", "next_page", "previous_page"],
+        "title": "SearchHelpCenterArticlesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SearchHelpCenterArticlesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

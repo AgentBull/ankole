@@ -1,0 +1,217 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Bulk enable or disable monitors for an organization. This endpoint is in beta and may change. Use when you need to enable or disable multiple monitors at once based on filters.",
+  "inputSchema": {
+    "description": "Request schema for bulk enabling or disabling an organization's monitors.",
+    "properties": {
+      "enabled": {
+        "description": "Whether to enable or disable the monitors.",
+        "examples": [true, false],
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "id": {
+        "description": "The ID of the monitor you'd like to query.",
+        "examples": [["monitor-123", "monitor-456"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Id",
+        "type": "array"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["mia-yd", "my-org", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project": {
+        "description": "The IDs of projects to filter by. `-1` means all available projects. For example: `/?project=1234&project=56789` or `/?project=-1`",
+        "examples": [["1234", "56789"], ["-1"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Project",
+        "type": "array"
+      },
+      "query": {
+        "description": "An optional search query for filtering monitors.",
+        "examples": ["is:active", "status:enabled"],
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "enabled"],
+    "title": "MutateAnOrganizationsMonitorsRequest",
+    "type": "object"
+  },
+  "name": "mutate_an_organizations_monitors",
+  "outputSchema": {
+    "$defs": {
+      "MonitorDetails": {
+        "description": "Individual monitor details in the response.",
+        "properties": {
+          "alertRuleId": {
+            "description": "Alert rule identifier associated with this monitor.",
+            "title": "Alert Rule Id",
+            "type": "integer"
+          },
+          "conditionGroup": {
+            "additionalProperties": true,
+            "description": "Condition group configuration for the monitor.",
+            "title": "Condition Group",
+            "type": "object"
+          },
+          "config": {
+            "additionalProperties": true,
+            "description": "Monitor configuration details.",
+            "title": "Config",
+            "type": "object"
+          },
+          "createdBy": {
+            "description": "User who created the monitor.",
+            "title": "Created By",
+            "type": "string"
+          },
+          "dataSources": {
+            "description": "Data sources associated with this monitor.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Data Sources",
+            "type": "array"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp of when the monitor was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateUpdated": {
+            "description": "ISO 8601 timestamp of when the monitor was last updated.",
+            "title": "Date Updated",
+            "type": "string"
+          },
+          "description": {
+            "description": "Monitor description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether the monitor is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the monitor.",
+            "title": "Id",
+            "type": "string"
+          },
+          "latestGroup": {
+            "additionalProperties": true,
+            "description": "Latest group information for the monitor.",
+            "title": "Latest Group",
+            "type": "object"
+          },
+          "name": {
+            "description": "Monitor display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "openIssues": {
+            "description": "Number of open issues for this monitor.",
+            "title": "Open Issues",
+            "type": "integer"
+          },
+          "owner": {
+            "$ref": "#/$defs/MonitorOwner",
+            "description": "Owner information (user or team) for the monitor.",
+            "title": "Owner"
+          },
+          "projectId": {
+            "description": "Project identifier associated with this monitor.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "ruleId": {
+            "description": "Rule identifier associated with this monitor.",
+            "title": "Rule Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Monitor type.",
+            "title": "Type",
+            "type": "string"
+          },
+          "workflowIds": {
+            "description": "Workflow identifiers associated with this monitor.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Workflow Ids",
+            "type": "array"
+          }
+        },
+        "required": ["id", "name", "enabled", "type", "projectId", "dateCreated", "dateUpdated", "openIssues"],
+        "title": "MonitorDetails",
+        "type": "object"
+      },
+      "MonitorOwner": {
+        "description": "Monitor owner details (user or team).",
+        "properties": {
+          "email": {
+            "description": "Owner email (for user owners only).",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Owner identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Owner name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Owner type: 'user' or 'team'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "MonitorOwner",
+        "type": "object"
+      },
+      "MutateAnOrganizationsMonitorsResponse": {
+        "description": "Response schema containing a list of mutated monitors with their updated states.",
+        "properties": {
+          "monitors": {
+            "description": "List of monitors that were updated with their new enabled/disabled state.",
+            "items": {
+              "$ref": "#/$defs/MonitorDetails"
+            },
+            "title": "Monitors",
+            "type": "array"
+          }
+        },
+        "title": "MutateAnOrganizationsMonitorsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/MutateAnOrganizationsMonitorsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

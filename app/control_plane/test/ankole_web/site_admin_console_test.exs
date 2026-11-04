@@ -4,6 +4,7 @@ defmodule AnkoleWeb.SiteAdminConsoleTest do
   import Phoenix.ConnTest
   alias AnkoleWeb.SiteAdminConsole
   @endpoint AnkoleWeb.Endpoint
+  @moduletag :foss_sign_in
 
   setup do
     previous = Application.fetch_env(:ankole, :site_admin_console_path)

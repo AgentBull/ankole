@@ -1,0 +1,176 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List the files changed by a GitLab merge request, including available patch content. Results are paginated, with up to 100 changed files per page; unified diff format can be requested. GitLab may omit diff content because of its diff limits.",
+  "inputSchema": {
+    "properties": {
+      "merge_request_iid": {
+        "description": "The internal ID of the merge request.",
+        "examples": [42],
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Page number to return. Defaults to 1.",
+        "examples": [1],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of changed files per page, from 1 to 100. Defaults to 20.",
+        "examples": [20],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The numeric ID or namespace path of the project.",
+        "examples": [123, "my-group/my-project"],
+        "title": "Project Id"
+      },
+      "unidiff": {
+        "description": "If true, return each change in unified diff format.",
+        "title": "Unidiff",
+        "type": "boolean"
+      }
+    },
+    "required": ["project_id", "merge_request_iid"],
+    "title": "ListMergeRequestDiffsRequest",
+    "type": "object"
+  },
+  "name": "list_merge_request_diffs",
+  "outputSchema": {
+    "$defs": {
+      "ListMergeRequestDiffsResponse": {
+        "properties": {
+          "changed_files": {
+            "description": "Changed files in the requested page of merge request diffs.",
+            "items": {
+              "$ref": "#/$defs/MergeRequestChangedFile"
+            },
+            "title": "Changed Files",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number, if another page exists.",
+            "title": "Next Page",
+            "type": "integer"
+          },
+          "page": {
+            "description": "Current page number.",
+            "title": "Page",
+            "type": "integer"
+          },
+          "per_page": {
+            "description": "Number of results per page.",
+            "title": "Per Page",
+            "type": "integer"
+          },
+          "prev_page": {
+            "description": "Previous page number, if a previous page exists.",
+            "title": "Prev Page",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total number of changed files.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "description": "Total number of pages.",
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": ["changed_files"],
+        "title": "ListMergeRequestDiffsResponse",
+        "type": "object"
+      },
+      "MergeRequestChangedFile": {
+        "properties": {
+          "a_mode": {
+            "description": "File mode before the change.",
+            "title": "A Mode",
+            "type": "string"
+          },
+          "b_mode": {
+            "description": "File mode after the change.",
+            "title": "B Mode",
+            "type": "string"
+          },
+          "collapsed": {
+            "description": "Whether the diff was omitted but can be fetched separately.",
+            "title": "Collapsed",
+            "type": "boolean"
+          },
+          "deleted_file": {
+            "description": "Whether the file was deleted.",
+            "title": "Deleted File",
+            "type": "boolean"
+          },
+          "diff": {
+            "description": "Textual diff, unless GitLab omitted it due to diff limits.",
+            "title": "Diff",
+            "type": "string"
+          },
+          "generated_file": {
+            "description": "Whether GitLab identifies the file as generated.",
+            "title": "Generated File",
+            "type": "boolean"
+          },
+          "new_file": {
+            "description": "Whether the file was added.",
+            "title": "New File",
+            "type": "boolean"
+          },
+          "new_path": {
+            "description": "Path of the file after the change.",
+            "title": "New Path",
+            "type": "string"
+          },
+          "old_path": {
+            "description": "Path of the file before the change.",
+            "title": "Old Path",
+            "type": "string"
+          },
+          "renamed_file": {
+            "description": "Whether the file was renamed.",
+            "title": "Renamed File",
+            "type": "boolean"
+          },
+          "too_large": {
+            "description": "Whether the diff was omitted because it exceeds size limits.",
+            "title": "Too Large",
+            "type": "boolean"
+          }
+        },
+        "required": ["old_path", "new_path", "new_file", "renamed_file", "deleted_file"],
+        "title": "MergeRequestChangedFile",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListMergeRequestDiffsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

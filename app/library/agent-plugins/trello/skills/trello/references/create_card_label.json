@@ -1,0 +1,331 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Adds a label to an existing Trello card (specified by `idCard`), defining the label by `name` and either `color` or the overriding `value` (which specifies color by name); a new label is created on the board if a matching one (by name/color combination) doesn't already exist.",
+  "inputSchema": {
+    "description": "Request for adding a label to a Trello card.",
+    "properties": {
+      "color": {
+        "description": "Label color name. Valid colors: green, yellow, orange, red, purple, blue, sky, lime, pink, black, or null for no color. Used if 'value' is not provided.",
+        "examples": ["green", "red", "blue", "yellow", "purple", "orange"],
+        "title": "Color",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "ID or shortlink of the card.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "cardShortLink123"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "name": {
+        "description": "Name for the label (0-16384 chars). If a label with this name exists on the board, it will be reused; otherwise, a new label with this name and specified color is created and added to the card.",
+        "examples": ["High Priority", "Bug", "Feature Request"],
+        "title": "Name",
+        "type": "string"
+      },
+      "value": {
+        "description": "Alternative way to specify label color by name. When using 'all', adds all default board labels to the card. Overrides 'color' parameter if both are provided.",
+        "examples": ["yellow", "all"],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idCard"],
+    "title": "CreateCardLabelRequest",
+    "type": "object"
+  },
+  "name": "create_card_label",
+  "outputSchema": {
+    "$defs": {
+      "Badges": {
+        "description": "Pieces of information about the card that are displayed on the front.",
+        "properties": {
+          "attachments": {
+            "description": "Number of attachments on the card.",
+            "title": "Attachments",
+            "type": "integer"
+          },
+          "attachmentsByType": {
+            "additionalProperties": true,
+            "description": "Attachment counts by type.",
+            "title": "Attachments By Type",
+            "type": "object"
+          },
+          "checkItems": {
+            "description": "Number of total checklist items.",
+            "title": "Check Items",
+            "type": "integer"
+          },
+          "checkItemsChecked": {
+            "description": "Number of completed checklist items.",
+            "title": "Check Items Checked",
+            "type": "integer"
+          },
+          "comments": {
+            "description": "Number of comments on the card.",
+            "title": "Comments",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Indicates if a description exists.",
+            "title": "Description",
+            "type": "boolean"
+          },
+          "due": {
+            "description": "Due date string (or null).",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueComplete": {
+            "description": "Indicates if the due date is marked complete.",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "fogbugz": {
+            "description": "FogBugz integration data.",
+            "title": "Fogbugz",
+            "type": "string"
+          },
+          "location": {
+            "description": "Indicates if the card has location data.",
+            "title": "Location",
+            "type": "boolean"
+          },
+          "start": {
+            "description": "Start date string.",
+            "title": "Start",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Subscription status.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "viewingMemberVoted": {
+            "description": "Indicates if the viewing member voted.",
+            "title": "Viewing Member Voted",
+            "type": "boolean"
+          },
+          "votes": {
+            "description": "Number of votes on the card.",
+            "title": "Votes",
+            "type": "integer"
+          }
+        },
+        "title": "Badges",
+        "type": "object"
+      },
+      "CreateCardLabelResponse": {
+        "description": "Response for `CreateCardLabel` - returns the updated card object.",
+        "properties": {
+          "address": {
+            "description": "Location address.",
+            "title": "Address",
+            "type": "string"
+          },
+          "badges": {
+            "$ref": "#/$defs/Badges",
+            "description": "Pieces of information about the card that are displayed on the front.",
+            "title": "Badges"
+          },
+          "checkItemStates": {
+            "description": "Checklist item completion states.",
+            "items": {},
+            "title": "Check Item States",
+            "type": "array"
+          },
+          "closed": {
+            "description": "Indicates if card is archived.",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "coordinates": {
+            "additionalProperties": true,
+            "description": "Latitude/longitude positioning data.",
+            "title": "Coordinates",
+            "type": "object"
+          },
+          "dateLastActivity": {
+            "description": "The datetime of the last activity on the card.",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "desc": {
+            "description": "Card description (up to 16,384 characters).",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "additionalProperties": true,
+            "description": "Custom emoji data for description rendering.",
+            "title": "Desc Data",
+            "type": "object"
+          },
+          "due": {
+            "description": "Card's due date if one exists.",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueComplete": {
+            "description": "Whether the card's status is complete.",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The card's unique identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idAttachmentCover": {
+            "description": "Selected cover image attachment ID.",
+            "title": "Id Attachment Cover",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The board containing this card.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "idChecklists": {
+            "description": "IDs of associated checklists.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Checklists",
+            "type": "array"
+          },
+          "idLabels": {
+            "description": "Label IDs applied to card.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Labels",
+            "type": "array"
+          },
+          "idList": {
+            "description": "The list containing this card.",
+            "title": "Id List",
+            "type": "string"
+          },
+          "idMembers": {
+            "description": "Member IDs assigned to card.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members",
+            "type": "array"
+          },
+          "idMembersVoted": {
+            "description": "Members who voted on card.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members Voted",
+            "type": "array"
+          },
+          "idShort": {
+            "description": "Numeric ID unique to board only.",
+            "title": "Id Short",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Label objects on this card.",
+            "items": {
+              "$ref": "#/$defs/Label"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "locationName": {
+            "description": "Location name.",
+            "title": "Location Name",
+            "type": "string"
+          },
+          "manualCoverAttachment": {
+            "description": "Whether cover was manually selected.",
+            "title": "Manual Cover Attachment",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Card name/title.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Card's position within list.",
+            "title": "Pos",
+            "type": "number"
+          },
+          "shortLink": {
+            "description": "8-character shortened ID.",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "Card URL without name slug.",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "start": {
+            "description": "Card's start date if one exists.",
+            "title": "Start",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Current member's subscription status.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "Full card URL with name slug.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "idBoard", "idList"],
+        "title": "CreateCardLabelResponse",
+        "type": "object"
+      },
+      "Label": {
+        "description": "Represents a Trello label.",
+        "properties": {
+          "color": {
+            "description": "The color of the label. Null means no color and the label will not be shown on the front of cards.",
+            "title": "Color",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the label.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board the label belongs to.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name displayed for the label.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "Label",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateCardLabelResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

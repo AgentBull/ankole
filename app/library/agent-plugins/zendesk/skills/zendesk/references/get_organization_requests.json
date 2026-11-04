@@ -1,0 +1,318 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List requests for a specific Zendesk organization. Use when you need to retrieve all requests associated with a particular organization. This action returns request details including subject, status, priority, requester, and timestamps. Pagination is available for large result sets.",
+  "inputSchema": {
+    "description": "Request parameters for listing organization requests.",
+    "properties": {
+      "organization_id": {
+        "description": "Numeric ID of the organization whose requests to retrieve. Must be a non-null integer; cast to int if sourced from tools that return it as a string. Do not pass null (skip the call if organization_id is null). Obtain from zendesk.get_all_zendesk_organizations or zendesk.create_zendesk_organization; never derive from organization name.",
+        "examples": [123456],
+        "human_parameter_description": "Enter the numeric ID of the organization whose requests you want to list. You can copy this from the organization's page or from a previous search or list.",
+        "human_parameter_name": "Organization ID",
+        "minimum": 1,
+        "title": "Organization Id",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Page number for pagination (1-100). Limited to first 100 pages or 10,000 records total. For larger datasets, use cursor pagination instead.",
+        "examples": [1],
+        "human_parameter_description": "Which page of results you want to view. Start at 1 and increase to browse through more requests. Limited to page 100.",
+        "human_parameter_name": "Page Number",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "page_after": {
+        "description": "Cursor value to retrieve the next page of results. Obtained from previous response's 'after_cursor' or 'next' link.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from the previous page to get the next set of results in cursor-based pagination.",
+        "human_parameter_name": "After Cursor",
+        "title": "Page After",
+        "type": "string"
+      },
+      "page_before": {
+        "description": "Cursor value to retrieve the previous page of results. Obtained from previous response's 'before_cursor' or 'prev' link.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from the previous page to get the previous set of results in cursor-based pagination.",
+        "human_parameter_name": "Before Cursor",
+        "title": "Page Before",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Number of requests per page for cursor pagination (max 100). Use this for large datasets instead of page/per_page.",
+        "examples": [100],
+        "human_parameter_description": "Number of requests per page using cursor-based pagination. Recommended for accessing more than 10,000 records.",
+        "human_parameter_name": "Page Size (Cursor)",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of requests per page (max 100). Note: page * per_page cannot exceed 10,000. Set to 100 for large accounts to minimize requests before client-side filtering.",
+        "examples": [25],
+        "human_parameter_description": "How many requests to show on each page. You can choose up to 100; smaller numbers can make pages load faster.",
+        "human_parameter_name": "Requests Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort_by": {
+        "description": "Field to sort requests by. Options are 'updated_at' or 'created_at'.",
+        "enum": ["updated_at", "created_at"],
+        "examples": ["updated_at"],
+        "human_parameter_description": "Choose the field to sort the requests list by - either when they were last updated or when they were created.",
+        "human_parameter_name": "Sort By",
+        "title": "Sort By",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort order direction. Options are 'asc' (ascending) or 'desc' (descending). Defaults to 'asc' if not specified.",
+        "enum": ["asc", "desc"],
+        "examples": ["asc"],
+        "human_parameter_description": "Choose the direction of sorting - ascending (A-Z, oldest first) or descending (Z-A, newest first).",
+        "human_parameter_name": "Sort Order",
+        "title": "Sort Order",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id"],
+    "title": "GetOrganizationRequestsRequest",
+    "type": "object"
+  },
+  "name": "get_organization_requests",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationRequestsResponse": {
+        "description": "Response containing list of organization requests.",
+        "properties": {
+          "after_cursor": {
+            "description": "Cursor for next page (cursor pagination only)",
+            "title": "After Cursor",
+            "type": "string"
+          },
+          "before_cursor": {
+            "description": "Cursor for previous page (cursor pagination only)",
+            "title": "Before Cursor",
+            "type": "string"
+          },
+          "count": {
+            "description": "Total number of requests",
+            "title": "Count",
+            "type": "integer"
+          },
+          "has_more": {
+            "description": "Whether more results are available (cursor pagination only)",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "requests": {
+            "description": "List of requests for the organization",
+            "items": {
+              "$ref": "#/$defs/RequestObject"
+            },
+            "title": "Requests",
+            "type": "array"
+          }
+        },
+        "required": ["requests"],
+        "title": "GetOrganizationRequestsResponse",
+        "type": "object"
+      },
+      "RequestObject": {
+        "description": "Zendesk request object.",
+        "properties": {
+          "assignee_id": {
+            "description": "ID of the agent assigned to the request",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "can_be_solved_by_me": {
+            "description": "Whether the requester can mark the request as solved",
+            "title": "Can Be Solved By Me",
+            "type": "boolean"
+          },
+          "collaborator_ids": {
+            "description": "IDs of collaborators on the request",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Timestamp when the request was created (ISO 8601)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "Custom field values",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "custom_status_id": {
+            "description": "Custom status ID for the request",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Description of the request",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "description": "Due date for the request (ISO 8601)",
+            "title": "Due At",
+            "type": "string"
+          },
+          "email_cc_ids": {
+            "description": "IDs of email CC recipients",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Email Cc Ids",
+            "type": "array"
+          },
+          "followup_source_id": {
+            "description": "ID of the source ticket if this is a follow-up",
+            "title": "Followup Source Id",
+            "type": "integer"
+          },
+          "group_id": {
+            "description": "ID of the group the request is assigned to",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier of the request",
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_public": {
+            "description": "Whether the request is public",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "organization_id": {
+            "description": "ID of the organization the request belongs to",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Priority of the request (e.g., 'normal', 'urgent', 'high', 'low')",
+            "title": "Priority",
+            "type": "string"
+          },
+          "recipient": {
+            "description": "Email address of the recipient",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "ID of the user who made the request",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "solved": {
+            "description": "Whether the request has been solved",
+            "title": "Solved",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "Status of the request (e.g., 'open', 'pending', 'solved', 'closed')",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Subject of the request",
+            "title": "Subject",
+            "type": "string"
+          },
+          "ticket_form_id": {
+            "description": "ID of the ticket form used",
+            "title": "Ticket Form Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Type of the request (e.g., 'problem', 'incident', 'question', 'task')",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the request was last updated (ISO 8601)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the request",
+            "title": "Url",
+            "type": "string"
+          },
+          "via": {
+            "$ref": "#/$defs/ViaObject",
+            "description": "Object describing how the request was created",
+            "title": "Via"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "status",
+          "requester_id",
+          "organization_id",
+          "created_at",
+          "updated_at",
+          "url",
+          "can_be_solved_by_me",
+          "is_public",
+          "via"
+        ],
+        "title": "RequestObject",
+        "type": "object"
+      },
+      "ViaObject": {
+        "description": "Object describing how the request was created.",
+        "properties": {
+          "channel": {
+            "description": "The channel through which the request was created (e.g., 'web', 'email')",
+            "title": "Channel",
+            "type": "string"
+          }
+        },
+        "required": ["channel"],
+        "title": "ViaObject",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationRequestsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,237 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of members invited to a specific Trello board who have not yet joined. A 404 response is returned as an empty member list.",
+  "inputSchema": {
+    "description": "Request schema for `GetBoardsMembersInvitedByIdBoard`",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Specifies the fields to return for invited members. Use 'all' for all fields, or provide a comma-separated list. Allowed fields: avatarHash, avatarSource, bio, bioData, confirmed, email, fullName, gravatarHash, idBoards, idBoardsPinned, idOrganizations, idPremOrgsAdmin, initials, loginTypes, memberType, oneTimeMessagesDismissed, prefs, premiumFeatures, products, status, trophies, uploadedAvatarHash, url, username.",
+        "examples": ["all", "fullName,email", "username,initials,status"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The unique identifier of the Trello board.",
+        "examples": ["60d5f8c8e4b8c80029c423b1"],
+        "title": "Id Board",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard"],
+    "title": "GetBoardsMembersInvitedByIdBoardRequest",
+    "type": "object"
+  },
+  "name": "get_boards_members_invited_by_id_board",
+  "outputSchema": {
+    "$defs": {
+      "GetBoardsMembersInvitedByIdBoardResponse": {
+        "description": "Response schema for `GetBoardsMembersInvitedByIdBoard`",
+        "properties": {
+          "members": {
+            "description": "Array of Member objects representing users who have been invited to the board",
+            "items": {
+              "$ref": "#/$defs/InvitedMember"
+            },
+            "title": "Members",
+            "type": "array"
+          }
+        },
+        "required": ["members"],
+        "title": "GetBoardsMembersInvitedByIdBoardResponse",
+        "type": "object"
+      },
+      "InvitedMember": {
+        "description": "Represents a member who has been invited to the board",
+        "properties": {
+          "activityBlocked": {
+            "description": "Whether the member's activity is blocked",
+            "title": "Activity Blocked",
+            "type": "boolean"
+          },
+          "avatarHash": {
+            "description": "Hash for the member's avatar image",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarSource": {
+            "description": "Source of the avatar (deprecated by Trello)",
+            "title": "Avatar Source",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "Direct URL to member's avatar",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "bio": {
+            "description": "Biographical information about the member",
+            "title": "Bio",
+            "type": "string"
+          },
+          "bioData": {
+            "additionalProperties": true,
+            "description": "Structured biographical data",
+            "title": "Bio Data",
+            "type": "object"
+          },
+          "confirmed": {
+            "description": "Whether the user has confirmed their email address for their account",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "Member's email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "The full name related to the account, if it is public",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "gravatarHash": {
+            "description": "Gravatar hash for the member (deprecated by Trello)",
+            "title": "Gravatar Hash",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "List of board IDs this member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idBoardsPinned": {
+            "description": "List of board IDs this member has pinned",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards Pinned",
+            "type": "array"
+          },
+          "idMemberReferrer": {
+            "description": "ID of member who referred this member",
+            "title": "Id Member Referrer",
+            "type": "string"
+          },
+          "idOrganizations": {
+            "description": "List of workspace/organization IDs this member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Organizations",
+            "type": "array"
+          },
+          "idPremOrgsAdmin": {
+            "description": "List of premium organization IDs where this member is an admin",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Prem Orgs Admin",
+            "type": "array"
+          },
+          "initials": {
+            "description": "The initials related to the account, if it is public",
+            "title": "Initials",
+            "type": "string"
+          },
+          "loginTypes": {
+            "description": "Available login types for the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Login Types",
+            "type": "array"
+          },
+          "memberType": {
+            "description": "Type of member (e.g., 'normal', 'admin')",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "oneTimeMessagesDismissed": {
+            "description": "List of one-time messages that have been dismissed",
+            "items": {
+              "type": "string"
+            },
+            "title": "One Time Messages Dismissed",
+            "type": "array"
+          },
+          "prefs": {
+            "additionalProperties": true,
+            "description": "Member preferences and settings",
+            "title": "Prefs",
+            "type": "object"
+          },
+          "premiumFeatures": {
+            "description": "List of premium features available to the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Premium Features",
+            "type": "array"
+          },
+          "products": {
+            "description": "List of Trello products the member has access to",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "status": {
+            "description": "Current status of the member account",
+            "title": "Status",
+            "type": "string"
+          },
+          "trophies": {
+            "description": "List of trophies earned by the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Trophies",
+            "type": "array"
+          },
+          "uploadedAvatarHash": {
+            "description": "Hash for uploaded avatar image",
+            "title": "Uploaded Avatar Hash",
+            "type": "string"
+          },
+          "url": {
+            "description": "Member's profile URL",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of this account",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "InvitedMember",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBoardsMembersInvitedByIdBoardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

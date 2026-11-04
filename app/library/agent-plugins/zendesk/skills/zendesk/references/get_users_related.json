@@ -1,0 +1,80 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get related counts and information for a specific Zendesk user by ID. Returns metadata about assigned tickets, CC'd tickets, organization subscriptions, and requested tickets associated with the user. Use when you need to understand the scale and composition of a user's ticket activity and subscriptions in Zendesk. This is a read-only, idempotent operation.",
+  "inputSchema": {
+    "description": "Request parameters for getting user related information.",
+    "properties": {
+      "user_id": {
+        "description": "The numeric ID of the user to retrieve related information for. Must be a non-null integer; cast to int if sourced from tools that return it as a string. Do not pass null (skip the call if user_id is null). Obtain from zendesk.get_userS, ZENDESK_LIST_USERS, or other user-related actions.",
+        "examples": [35436],
+        "human_parameter_description": "Enter the numeric ID of the user you want to get related information for in Zendesk. You can copy this from the user's page or from a previous search or list.",
+        "human_parameter_name": "User ID",
+        "minimum": 1,
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id"],
+    "title": "GetUsersRelatedRequest",
+    "type": "object"
+  },
+  "name": "get_users_related",
+  "outputSchema": {
+    "$defs": {
+      "GetUsersRelatedResponse": {
+        "description": "Response containing user related information.",
+        "properties": {
+          "user_related": {
+            "$ref": "#/$defs/UserRelated",
+            "description": "Related counts and information for the user",
+            "title": "User Related"
+          }
+        },
+        "required": ["user_related"],
+        "title": "GetUsersRelatedResponse",
+        "type": "object"
+      },
+      "UserRelated": {
+        "description": "Related counts and information for a Zendesk user.",
+        "properties": {
+          "assigned_tickets": {
+            "description": "The number of tickets assigned to the user",
+            "title": "Assigned Tickets",
+            "type": "integer"
+          },
+          "ccd_tickets": {
+            "description": "The number of tickets the user is CC'd on",
+            "title": "Ccd Tickets",
+            "type": "integer"
+          },
+          "organization_subscriptions": {
+            "description": "The number of organization subscriptions for the user",
+            "title": "Organization Subscriptions",
+            "type": "integer"
+          },
+          "requested_tickets": {
+            "description": "The number of tickets requested by the user",
+            "title": "Requested Tickets",
+            "type": "integer"
+          }
+        },
+        "title": "UserRelated",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUsersRelatedResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

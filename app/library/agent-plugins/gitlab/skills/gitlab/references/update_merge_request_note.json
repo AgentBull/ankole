@@ -1,0 +1,183 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update an existing merge request note's content and optional confidential flag. This edits a published note, not an unpublished draft note or a diff discussion. See https://docs.gitlab.com/api/notes/#update-a-merge-request-note.",
+  "inputSchema": {
+    "properties": {
+      "body": {
+        "description": "New note content, up to 1,000,000 characters.",
+        "maxLength": 1000000,
+        "title": "Body",
+        "type": "string"
+      },
+      "confidential": {
+        "description": "Deprecated confidential flag of the note; GitLab defaults to false.",
+        "title": "Confidential",
+        "type": "boolean"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "ID or unencoded path of the project.",
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Project merge request IID.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "note_id": {
+        "description": "ID of the note to update; required in the URL.",
+        "title": "Note Id",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid", "note_id", "body"],
+    "title": "UpdateMergeRequestNoteRequest",
+    "type": "object"
+  },
+  "name": "update_merge_request_note",
+  "outputSchema": {
+    "$defs": {
+      "MergeRequestNoteAuthor": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Author avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Account creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Author email, when visible.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Author user ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Author display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "Author account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Author username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Author profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "MergeRequestNoteAuthor",
+        "type": "object"
+      },
+      "UpdateMergeRequestNoteResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "author": {
+            "$ref": "#/$defs/MergeRequestNoteAuthor",
+            "description": "Note author.",
+            "title": "Author"
+          },
+          "body": {
+            "description": "Note content.",
+            "title": "Body",
+            "type": "string"
+          },
+          "confidential": {
+            "description": "Deprecated confidential flag.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Note creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Note ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "internal": {
+            "description": "Whether the note is internal.",
+            "title": "Internal",
+            "type": "boolean"
+          },
+          "noteable_id": {
+            "description": "Global numeric merge request ID as a precision-preserving decimal string.",
+            "title": "Noteable Id",
+            "type": "string"
+          },
+          "noteable_iid": {
+            "description": "Project merge request IID.",
+            "title": "Noteable Iid",
+            "type": "integer"
+          },
+          "noteable_type": {
+            "description": "Type of the noteable resource.",
+            "title": "Noteable Type",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "resolvable": {
+            "description": "Whether the note is resolvable.",
+            "title": "Resolvable",
+            "type": "boolean"
+          },
+          "system": {
+            "description": "Whether this is a system note.",
+            "title": "System",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "description": "Note update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "title": "UpdateMergeRequestNoteResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateMergeRequestNoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

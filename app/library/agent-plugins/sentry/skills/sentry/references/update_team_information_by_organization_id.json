@@ -1,0 +1,157 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates the slug for an existing team within a Sentry organization.",
+  "inputSchema": {
+    "description": "Request model for updating a team's slug.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID or slug) of the organization to which the team belongs.",
+        "examples": ["my-organization-slug", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "slug": {
+        "description": "The new slug for the team. Must be unique within the organization and follow the pattern: starts with a lowercase letter, followed by lowercase letters, numbers, underscores, or hyphens.",
+        "examples": ["new-team-slug", "another-slug_1"],
+        "pattern": "^[a-z][a-z0-9_\\-]*$",
+        "title": "Slug",
+        "type": "string"
+      },
+      "team_id_or_slug": {
+        "description": "The unique identifier (ID or slug) of the team whose slug is to be updated.",
+        "examples": ["my-team-slug", "67890"],
+        "title": "Team Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "team_id_or_slug", "slug"],
+    "title": "UpdateTeamInformationByOrganizationIdRequest",
+    "type": "object"
+  },
+  "name": "update_team_information_by_organization_id",
+  "outputSchema": {
+    "$defs": {
+      "Avatar": {
+        "description": "Avatar configuration for the team.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar')",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar image, can be null",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "Avatar UUID identifier, can be null",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "Avatar",
+        "type": "object"
+      },
+      "UpdateTeamInformationByOrganizationIdResponse": {
+        "description": "Response model containing the updated team information.",
+        "properties": {
+          "access": {
+            "description": "Array of permission scopes granted to the team",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "avatar": {
+            "$ref": "#/$defs/Avatar",
+            "description": "Avatar configuration for the team",
+            "title": "Avatar"
+          },
+          "dateCreated": {
+            "description": "Team creation timestamp in ISO 8601 format",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "flags": {
+            "additionalProperties": true,
+            "description": "Feature flags object containing team-specific flags",
+            "title": "Flags",
+            "type": "object"
+          },
+          "hasAccess": {
+            "description": "Whether the requester has access to the team",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Team identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "isMember": {
+            "description": "Whether the requester is a team member",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "isPending": {
+            "description": "Whether the team membership is pending",
+            "title": "Is Pending",
+            "type": "boolean"
+          },
+          "memberCount": {
+            "description": "Number of team members",
+            "title": "Member Count",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Team display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly team identifier",
+            "title": "Slug",
+            "type": "string"
+          },
+          "teamRole": {
+            "description": "User's role within the team",
+            "title": "Team Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "dateCreated",
+          "isMember",
+          "flags",
+          "access",
+          "hasAccess",
+          "isPending",
+          "memberCount",
+          "avatar"
+        ],
+        "title": "UpdateTeamInformationByOrganizationIdResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateTeamInformationByOrganizationIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

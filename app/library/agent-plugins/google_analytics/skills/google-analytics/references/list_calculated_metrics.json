@@ -1,0 +1,121 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List Calculated Metrics",
+  "inputSchema": {
+    "description": "Request model for listing CalculatedMetrics on a property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of results to return per request. Default: 50, Maximum: 200",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. Token from a previous response for pagination to retrieve the next page of results",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. Property identifier in format 'properties/{propertyId}'. Example: 'properties/1234'",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListCalculatedMetricsRequest",
+    "type": "object"
+  },
+  "name": "list_calculated_metrics",
+  "outputSchema": {
+    "$defs": {
+      "CalculatedMetric": {
+        "description": "Schema for a CalculatedMetric resource.",
+        "properties": {
+          "calculatedMetricId": {
+            "description": "The API name for the calculated metric",
+            "title": "Calculated Metric Id",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description for the calculated metric. Max 4096 characters",
+            "title": "Description",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Display name shown in Google Analytics UI. Max 82 characters",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "formula": {
+            "description": "The metric's calculation formula. Max 5 unique referenced custom metrics",
+            "title": "Formula",
+            "type": "string"
+          },
+          "invalidMetricReference": {
+            "description": "Indicates if metric contains invalid references",
+            "title": "Invalid Metric Reference",
+            "type": "boolean"
+          },
+          "metricUnit": {
+            "description": "Type of the metric's value. Values: STANDARD, CURRENCY, FEET, MILES, METERS, KILOMETERS, MILLISECONDS, SECONDS, MINUTES, HOURS",
+            "title": "Metric Unit",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource identifier format 'properties/{propertyId}/calculatedMetrics/{calculatedMetricId}'",
+            "title": "Name",
+            "type": "string"
+          },
+          "restrictedMetricType": {
+            "description": "Types of restricted data. Values: COST_DATA, REVENUE_DATA",
+            "items": {
+              "type": "string"
+            },
+            "title": "Restricted Metric Type",
+            "type": "array"
+          }
+        },
+        "title": "CalculatedMetric",
+        "type": "object"
+      },
+      "ListCalculatedMetricsResponse": {
+        "description": "Response model for listing CalculatedMetrics.",
+        "properties": {
+          "calculatedMetrics": {
+            "description": "Array of calculated metric objects",
+            "items": {
+              "$ref": "#/$defs/CalculatedMetric"
+            },
+            "title": "Calculated Metrics",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "Token for retrieving next page. Omitted if no more results available",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "ListCalculatedMetricsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListCalculatedMetricsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

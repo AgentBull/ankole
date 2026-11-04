@@ -1,0 +1,182 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List a page of subproperty event filters on a property, including filters that route events to subproperties. Use the returned page token to retrieve subsequent pages.",
+  "inputSchema": {
+    "description": "Request model for listing subproperty event filters on a property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of resources to return; at most 50 by default, maximum 200.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. Page token received from a previous call to retrieve the next page.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. Resource name of the ordinary property. Format: properties/{property_id}",
+        "examples": ["properties/489591273"],
+        "pattern": "^properties/[^/]+$",
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListSubpropertyEventFiltersRequest",
+    "type": "object"
+  },
+  "name": "list_subproperty_event_filters",
+  "outputSchema": {
+    "$defs": {
+      "FilterClause": {
+        "description": "Filter clause within a subproperty event filter.",
+        "properties": {
+          "filterClauseType": {
+            "description": "Type of filter clause (INCLUDE or EXCLUDE).",
+            "title": "Filter Clause Type",
+            "type": "string"
+          },
+          "filterExpression": {
+            "$ref": "#/$defs/FilterExpression",
+            "description": "Logical expression for event routing.",
+            "title": "Filter Expression"
+          }
+        },
+        "title": "FilterClause",
+        "type": "object"
+      },
+      "FilterCondition": {
+        "description": "Individual filter condition for event routing.",
+        "properties": {
+          "field": {
+            "description": "Field name to filter on.",
+            "title": "Field",
+            "type": "string"
+          },
+          "inListFilter": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "In-list filter specification.",
+            "title": "In List Filter",
+            "type": "object"
+          },
+          "stringFilter": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "String filter specification.",
+            "title": "String Filter",
+            "type": "object"
+          }
+        },
+        "title": "FilterCondition",
+        "type": "object"
+      },
+      "FilterExpression": {
+        "description": "Logical expression for event routing. Contains one of: orGroup, notExpression, or filterCondition.",
+        "properties": {
+          "filterCondition": {
+            "$ref": "#/$defs/FilterCondition",
+            "description": "Individual filter condition.",
+            "title": "Filter Condition"
+          },
+          "notExpression": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "description": "NOT expression wrapping another expression.",
+            "title": "Not Expression",
+            "type": "object"
+          },
+          "orGroup": {
+            "additionalProperties": {
+              "items": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "description": "OR group of filter expressions.",
+            "title": "Or Group",
+            "type": "object"
+          }
+        },
+        "title": "FilterExpression",
+        "type": "object"
+      },
+      "ListSubpropertyEventFiltersResponse": {
+        "description": "Response model for listing subproperty event filters.",
+        "properties": {
+          "nextPageToken": {
+            "description": "Token to retrieve the next page of results, if any.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "subpropertyEventFilters": {
+            "description": "List of subproperty event filters.",
+            "items": {
+              "$ref": "#/$defs/SubpropertyEventFilter"
+            },
+            "title": "Subproperty Event Filters",
+            "type": "array"
+          }
+        },
+        "title": "ListSubpropertyEventFiltersResponse",
+        "type": "object"
+      },
+      "SubpropertyEventFilter": {
+        "description": "A subproperty event filter resource.",
+        "properties": {
+          "applyToProperty": {
+            "description": "Resource name of the Subproperty using this filter.",
+            "title": "Apply To Property",
+            "type": "string"
+          },
+          "filterClauses": {
+            "description": "Unordered list of filter clauses that define the SubpropertyEventFilter.",
+            "items": {
+              "$ref": "#/$defs/FilterClause"
+            },
+            "title": "Filter Clauses",
+            "type": "array"
+          },
+          "name": {
+            "description": "Resource name. Format: properties/{ordinary_property_id}/subpropertyEventFilters/{sub_property_event_filter}",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "SubpropertyEventFilter",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListSubpropertyEventFiltersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

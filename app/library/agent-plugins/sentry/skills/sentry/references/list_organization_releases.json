@@ -1,0 +1,448 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of releases for an existing Sentry organization, optionally filtering by a query string that matches the start of the release version.",
+  "inputSchema": {
+    "description": "Request schema for listing releases within a specific Sentry organization.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization whose releases are to be listed.",
+        "examples": ["my-organization-slug", "sentry"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "query": {
+        "description": "An optional string to filter releases. The filter performs a \"starts with\" match on the release version. For example, \"1.0\" would match \"1.0.1\" and \"1.0-beta\", while \"backend-\" would match \"backend-v2.1\". If omitted, all releases are returned.",
+        "examples": ["1.0.0", "frontend-release-", "v2."],
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "ListOrganizationReleasesRequest",
+    "type": "object"
+  },
+  "name": "list_organization_releases",
+  "outputSchema": {
+    "$defs": {
+      "AdoptionStages": {
+        "description": "Release adoption stage information by project, included when with_adoption_stages parameter is true.",
+        "properties": {
+          "adopted": {
+            "description": "Number of adopted sessions.",
+            "title": "Adopted",
+            "type": "integer"
+          },
+          "stage": {
+            "description": "Current adoption stage.",
+            "title": "Stage",
+            "type": "string"
+          },
+          "unadopted": {
+            "description": "Number of unadopted sessions.",
+            "title": "Unadopted",
+            "type": "integer"
+          }
+        },
+        "title": "AdoptionStages",
+        "type": "object"
+      },
+      "Commit": {
+        "description": "Most recent commit information.",
+        "properties": {
+          "author": {
+            "description": "Commit author information.",
+            "title": "Author"
+          },
+          "dateCreated": {
+            "description": "When the commit was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "id": {
+            "description": "Commit ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Commit message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "pullRequest": {
+            "description": "Associated pull request details.",
+            "title": "Pull Request"
+          },
+          "releases": {
+            "description": "Associated releases.",
+            "title": "Releases"
+          },
+          "repository": {
+            "description": "Repository metadata.",
+            "title": "Repository"
+          }
+        },
+        "title": "Commit",
+        "type": "object"
+      },
+      "Deploy": {
+        "description": "Latest deployment information.",
+        "properties": {
+          "dateFinished": {
+            "description": "When the deployment finished.",
+            "title": "Date Finished",
+            "type": "string"
+          },
+          "dateStarted": {
+            "description": "When the deployment started.",
+            "title": "Date Started",
+            "type": "string"
+          },
+          "environment": {
+            "description": "Deployment environment name.",
+            "title": "Environment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Deployment ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Deployment name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "Deployment URL.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "Deploy",
+        "type": "object"
+      },
+      "ListOrganizationReleasesResponse": {
+        "description": "Response schema for `ListOrganizationReleases`, containing the list of releases.",
+        "items": {
+          "$ref": "#/$defs/Release"
+        },
+        "title": "ListOrganizationReleasesResponse",
+        "type": "array"
+      },
+      "Project": {
+        "description": "Project associated with a release.",
+        "properties": {
+          "hasHealthData": {
+            "description": "Whether the project has health data available.",
+            "title": "Has Health Data",
+            "type": "boolean"
+          },
+          "healthData": {
+            "description": "Project health metrics including crash-free rates and session counts.",
+            "title": "Health Data"
+          },
+          "id": {
+            "description": "Project ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Project name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "newGroups": {
+            "description": "Number of new issue groups in this project for the release.",
+            "title": "New Groups",
+            "type": "integer"
+          },
+          "platform": {
+            "description": "Primary platform for the project.",
+            "title": "Platform",
+            "type": "string"
+          },
+          "platforms": {
+            "description": "List of platforms supported by the project.",
+            "title": "Platforms"
+          },
+          "slug": {
+            "description": "Project slug identifier.",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["slug", "name"],
+        "title": "Project",
+        "type": "object"
+      },
+      "Release": {
+        "description": "A single Sentry release object containing version, status, and deployment information.",
+        "properties": {
+          "adoptionStages": {
+            "$ref": "#/$defs/AdoptionStages",
+            "description": "Release adoption stage information by project, included when with_adoption_stages parameter is true.",
+            "title": "Adoption Stages"
+          },
+          "authors": {
+            "description": "List of commit authors who contributed to this release.",
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "commitCount": {
+            "description": "Total number of commits in this release.",
+            "title": "Commit Count",
+            "type": "integer"
+          },
+          "currentProjectMeta": {
+            "description": "Navigation metadata for the release in the current project context.",
+            "title": "Current Project Meta"
+          },
+          "data": {
+            "description": "Additional custom data fields associated with the release.",
+            "title": "Data"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp of when the release record was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateReleased": {
+            "description": "ISO 8601 timestamp of when the release was marked as released.",
+            "title": "Date Released",
+            "type": "string"
+          },
+          "deployCount": {
+            "description": "Total number of deployments for this release.",
+            "title": "Deploy Count",
+            "type": "integer"
+          },
+          "firstEvent": {
+            "description": "ISO 8601 timestamp of the first event associated with this release.",
+            "title": "First Event",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the release.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "lastCommit": {
+            "$ref": "#/$defs/Commit",
+            "description": "Most recent commit information.",
+            "title": "Last Commit"
+          },
+          "lastDeploy": {
+            "$ref": "#/$defs/Deploy",
+            "description": "Latest deployment information.",
+            "title": "Last Deploy"
+          },
+          "lastEvent": {
+            "description": "ISO 8601 timestamp of the last event associated with this release.",
+            "title": "Last Event",
+            "type": "string"
+          },
+          "newGroups": {
+            "description": "Number of new issue groups detected in this release.",
+            "title": "New Groups",
+            "type": "integer"
+          },
+          "owner": {
+            "$ref": "#/$defs/User",
+            "description": "User who owns the release.",
+            "title": "Owner"
+          },
+          "projects": {
+            "description": "List of projects associated with this release.",
+            "items": {
+              "$ref": "#/$defs/Project"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "ref": {
+            "description": "Git reference or commit hash associated with the release.",
+            "title": "Ref",
+            "type": "string"
+          },
+          "shortVersion": {
+            "description": "Abbreviated version identifier.",
+            "title": "Short Version",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current release status, either 'open' or 'archived'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "External URL for the release.",
+            "title": "Url",
+            "type": "string"
+          },
+          "userAgent": {
+            "description": "User agent string associated with the release.",
+            "title": "User Agent",
+            "type": "string"
+          },
+          "version": {
+            "description": "The version identifier of the release.",
+            "title": "Version",
+            "type": "string"
+          },
+          "versionInfo": {
+            "$ref": "#/$defs/VersionInfo",
+            "description": "Metadata about the version including package name, raw version, description, and build hash.",
+            "title": "Version Info"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "status",
+          "shortVersion",
+          "dateCreated",
+          "data",
+          "newGroups",
+          "commitCount",
+          "deployCount",
+          "authors",
+          "projects"
+        ],
+        "title": "Release",
+        "type": "object"
+      },
+      "User": {
+        "description": "User information including profile details and authentication settings.",
+        "properties": {
+          "avatar": {
+            "description": "Avatar information.",
+            "title": "Avatar"
+          },
+          "avatarUrl": {
+            "description": "URL to user's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "dateJoined": {
+            "description": "When the user joined.",
+            "title": "Date Joined",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "emails": {
+            "description": "List of user email addresses.",
+            "title": "Emails"
+          },
+          "experiments": {
+            "description": "User experiments configuration.",
+            "title": "Experiments"
+          },
+          "has2fa": {
+            "description": "Whether two-factor authentication is enabled.",
+            "title": "Has2Fa",
+            "type": "boolean"
+          },
+          "hasPasswordAuth": {
+            "description": "Whether the user has password authentication enabled.",
+            "title": "Has Password Auth",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "User ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isActive": {
+            "description": "Whether the user account is active.",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "isManaged": {
+            "description": "Whether the user is managed by an external system.",
+            "title": "Is Managed",
+            "type": "boolean"
+          },
+          "isStaff": {
+            "description": "Whether the user is staff.",
+            "title": "Is Staff",
+            "type": "boolean"
+          },
+          "isSuperuser": {
+            "description": "Whether the user has superuser privileges.",
+            "title": "Is Superuser",
+            "type": "boolean"
+          },
+          "lastActive": {
+            "description": "Last activity timestamp.",
+            "title": "Last Active",
+            "type": "string"
+          },
+          "lastLogin": {
+            "description": "Last login timestamp.",
+            "title": "Last Login",
+            "type": "string"
+          },
+          "name": {
+            "description": "User's full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "User",
+        "type": "object"
+      },
+      "VersionInfo": {
+        "description": "Metadata about the version including package name, raw version, description, and build hash.",
+        "properties": {
+          "buildHash": {
+            "description": "Build hash identifier.",
+            "title": "Build Hash",
+            "type": "string"
+          },
+          "description": {
+            "description": "Version description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "package": {
+            "description": "Package name.",
+            "title": "Package",
+            "type": "string"
+          },
+          "version": {
+            "description": "Raw version information.",
+            "title": "Version"
+          }
+        },
+        "title": "VersionInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListOrganizationReleasesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

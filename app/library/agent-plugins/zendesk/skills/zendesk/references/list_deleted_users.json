@@ -1,0 +1,210 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list deleted users in Zendesk via the Users API. Use when you need to retrieve information about users that have been deleted from the system. This is a read-only operation.",
+  "inputSchema": {
+    "description": "Request parameters for listing deleted Zendesk users.",
+    "properties": {
+      "page": {
+        "description": "Pagination parameter. Supports both traditional offset and cursor-based pagination: traditional uses `?page=2` (integer page number); cursor uses `?page[size]=50&page[after]=cursor` (deepObject with size, after, before). These are mutually exclusive.",
+        "examples": ["2"],
+        "title": "Page",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Number of records to return per page. Default and maximum values vary by endpoint.",
+        "examples": [50],
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort": {
+        "description": "Field to sort results by. Prefix with `-` for descending order. When used with cursor pagination, this determines the cursor ordering.",
+        "examples": ["name", "-created_at"],
+        "title": "Sort",
+        "type": "string"
+      }
+    },
+    "title": "ListDeletedUsersRequest",
+    "type": "object"
+  },
+  "name": "list_deleted_users",
+  "outputSchema": {
+    "$defs": {
+      "DeletedUser": {
+        "description": "Deleted user object from Zendesk API.",
+        "properties": {
+          "active": {
+            "description": "True if the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Creation timestamp in ISO 8601",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Primary email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique ID for the user",
+            "title": "Id",
+            "type": "integer"
+          },
+          "locale": {
+            "description": "User locale BCP-47 string",
+            "title": "Locale",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Locale identifier",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Full name of the user",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "Default organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "phone": {
+            "description": "Phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "photo": {
+            "$ref": "#/$defs/DeletedUserPhoto",
+            "description": "User photo object",
+            "title": "Photo"
+          },
+          "role": {
+            "description": "User role (end-user, agent, admin)",
+            "title": "Role",
+            "type": "string"
+          },
+          "shared_phone_number": {
+            "description": "True if phone number is shared",
+            "title": "Shared Phone Number",
+            "type": "boolean"
+          },
+          "time_zone": {
+            "description": "User time zone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp in ISO 8601",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "url", "name", "created_at", "updated_at", "active"],
+        "title": "DeletedUser",
+        "type": "object"
+      },
+      "DeletedUserPhoto": {
+        "description": "Photo object for deleted user.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type (e.g., image/png)",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL where the photo can be downloaded",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "True if attachment is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Photo filename",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Photo attachment ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "True if inline attachment",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "mapped_content_url": {
+            "description": "Mapped URL for the photo",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "API URL to access photo details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "DeletedUserPhoto",
+        "type": "object"
+      },
+      "ListDeletedUsersResponse": {
+        "description": "Response containing list of deleted Zendesk users.",
+        "properties": {
+          "deleted_users": {
+            "description": "List of deleted users returned by the API",
+            "items": {
+              "$ref": "#/$defs/DeletedUser"
+            },
+            "title": "Deleted Users",
+            "type": "array"
+          }
+        },
+        "required": ["deleted_users"],
+        "title": "ListDeletedUsersResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListDeletedUsersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

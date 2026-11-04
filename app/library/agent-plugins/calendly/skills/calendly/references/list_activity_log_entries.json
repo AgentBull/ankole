@@ -1,0 +1,320 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of activity log entries for a specified Calendly organization (requires an active Enterprise subscription), supporting filtering, sorting, and pagination.",
+  "inputSchema": {
+    "description": "Request schema for `ListActivityLogEntries`",
+    "properties": {
+      "action": {
+        "description": "Filters entries by the specific action performed (e.g., 'user.created', 'event_type.updated'). Provide a list of action strings.",
+        "examples": ["[\"user.created\", \"event_type.updated\"]", "[\"group.deleted\"]", "[\"user.invited\"]"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Action",
+        "type": "array"
+      },
+      "actor": {
+        "description": "Filters activity log entries by the users who performed the actions. Provide a list of user URIs.",
+        "examples": [
+          "[\"https://api.calendly.com/users/BBBBBBBBBBBBBBBB\"]",
+          "[\"https://api.calendly.com/users/CCCCCCCCCCCCCCCCCC\", \"https://api.calendly.com/users/DDDDDDDDDDDDDDDD\"]"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "title": "Actor",
+        "type": "array"
+      },
+      "count": {
+        "default": 20,
+        "description": "The maximum number of activity log entries to return per page.",
+        "examples": ["10", "50", "100"],
+        "title": "Count",
+        "type": "integer"
+      },
+      "max_occurred_at": {
+        "description": "Timestamp in ISO 8601 UTC format (e.g., '2020-01-02T03:04:05.678Z'). Filters entries to include only those that occurred at or before this time.",
+        "examples": ["2023-12-31T23:59:59.999Z", "2024-07-15T18:00:00.000Z"],
+        "title": "Max Occurred At",
+        "type": "string"
+      },
+      "min_occurred_at": {
+        "description": "Timestamp in ISO 8601 UTC format (e.g., '2020-01-02T03:04:05.678Z'). Filters entries to include only those that occurred at or after this time.",
+        "examples": ["2023-01-01T00:00:00.000Z", "2024-07-15T10:30:00Z"],
+        "title": "Min Occurred At",
+        "type": "string"
+      },
+      "namespace": {
+        "description": "Filters entries by their category or domain (namespace). Provide a list of namespace strings. Common examples include 'user_management' or 'event_type_management'.",
+        "examples": [
+          "[\"user_management\", \"event_type_management\"]",
+          "[\"team_management\"]",
+          "[\"webhook_subscription_management\"]"
+        ],
+        "items": {
+          "type": "string"
+        },
+        "title": "Namespace",
+        "type": "array"
+      },
+      "organization": {
+        "description": "URI of the Calendly organization for which to retrieve activity log entries.",
+        "examples": ["https://api.calendly.com/organizations/AAAAAAAAAAAAAAAA"],
+        "title": "Organization",
+        "type": "string"
+      },
+      "page_token": {
+        "description": "Token for pagination, used to fetch the next page of results if the collection spans multiple pages.",
+        "examples": ["NEXT_PAGE_TOKEN_FROM_PREVIOUS_RESPONSE"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "search_term": {
+        "description": "Filters entries based on the search term. Supported operators: `|` (OR, e.g., `user.created | group.created`), `+` (AND, e.g., `user.created + user.invited`), `\" \"` (exact phrase, e.g., `\"John Doe\"`), `-` (exclude term, e.g., `user.created -admin`), `()` (precedence, e.g., `(user.created | user.invited) + team1`), and `*` (prefix search, e.g., `user.email_address:*@example.com`).",
+        "examples": [
+          "user.created",
+          "\"Jane Doe\"",
+          "event.created + \"Product Demo\"",
+          "(user.deleted | group.created) -auditor",
+          "user.email_address:*@company.com"
+        ],
+        "title": "Search Term",
+        "type": "string"
+      },
+      "sort": {
+        "default": ["occurred_at:desc"],
+        "description": "Specifies the sort order for the results. Provide a list of sort criteria strings, each in the format 'field:direction' (e.g., 'occurred_at:asc'). Valid fields and directions are defined by SortEnm.",
+        "examples": ["[\"occurred_at:desc\"]", "[\"action:asc\", \"actor.display_name:desc\"]", "[\"namespace:asc\"]"],
+        "items": {
+          "enum": [
+            "action:asc",
+            "action:desc",
+            "actor.display_name:asc",
+            "actor.display_name:desc",
+            "actor.uri:asc",
+            "actor.uri:desc",
+            "namespace:asc",
+            "namespace:desc",
+            "occurred_at:asc",
+            "occurred_at:desc"
+          ],
+          "title": "SortEnm",
+          "type": "string"
+        },
+        "title": "Sort",
+        "type": "array"
+      }
+    },
+    "required": ["organization"],
+    "title": "ListActivityLogEntriesRequest",
+    "type": "object"
+  },
+  "name": "list_activity_log_entries",
+  "outputSchema": {
+    "$defs": {
+      "ActivityLogEntry": {
+        "description": "Activity log entry object",
+        "properties": {
+          "action": {
+            "description": "The specific action performed (e.g., 'Add', 'created', 'updated', 'deleted')",
+            "title": "Action",
+            "type": "string"
+          },
+          "actor": {
+            "$ref": "#/$defs/Actor",
+            "title": "Actor"
+          },
+          "details": {
+            "additionalProperties": true,
+            "description": "Additional context-specific information about the activity. Structure varies depending on the action type",
+            "title": "Details",
+            "type": "object"
+          },
+          "fullyQualifiedName": {
+            "description": "Combined namespace and action in the format 'Namespace.Action' (e.g., 'User.Add')",
+            "title": "Fully Qualified Name",
+            "type": "string"
+          },
+          "namespace": {
+            "description": "The category or namespace of the activity (e.g., 'User', 'event_type', 'scheduling_link')",
+            "title": "Namespace",
+            "type": "string"
+          },
+          "occurredAt": {
+            "description": "Timestamp in ISO 8601 format indicating when the activity occurred (e.g., '2020-01-02T03:04:05.678Z')",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "organization": {
+            "description": "URI of the organization where the activity occurred",
+            "title": "Organization",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the activity log entry",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri",
+          "occurredAt",
+          "namespace",
+          "action",
+          "fullyQualifiedName",
+          "actor",
+          "details",
+          "organization"
+        ],
+        "title": "ActivityLogEntry",
+        "type": "object"
+      },
+      "Actor": {
+        "description": "Information about the user who performed the action",
+        "properties": {
+          "alternativeIdentifier": {
+            "description": "Alternative identifier for the actor, typically their email address",
+            "title": "Alternative Identifier",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Human-readable display name of the actor",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "group": {
+            "$ref": "#/$defs/ActorGroup",
+            "description": "Group information for the actor, if applicable",
+            "title": "Group"
+          },
+          "organization": {
+            "$ref": "#/$defs/ActorOrganization",
+            "description": "Organization information for the actor",
+            "title": "Organization"
+          },
+          "type": {
+            "description": "Type of actor, typically 'User'",
+            "title": "Type",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the user who performed the action",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "type", "displayName", "alternativeIdentifier"],
+        "title": "Actor",
+        "type": "object"
+      },
+      "ActorGroup": {
+        "description": "Group information for the actor",
+        "properties": {
+          "name": {
+            "description": "Name of the group",
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "description": "Role of the actor within the group (e.g., 'Admin', 'Member')",
+            "title": "Role",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference for the group",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "name", "role"],
+        "title": "ActorGroup",
+        "type": "object"
+      },
+      "ActorOrganization": {
+        "description": "Organization information for the actor",
+        "properties": {
+          "role": {
+            "description": "Role of the actor within the organization (e.g., 'Owner', 'Admin')",
+            "title": "Role",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference for the organization",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "role"],
+        "title": "ActorOrganization",
+        "type": "object"
+      },
+      "ListActivityLogEntriesResponse": {
+        "description": "Response schema for `ListActivityLogEntries`",
+        "properties": {
+          "collection": {
+            "description": "Array of activity log entry objects",
+            "items": {
+              "$ref": "#/$defs/ActivityLogEntry"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection", "pagination"],
+        "title": "ListActivityLogEntriesResponse",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination metadata for navigating through multiple pages of results",
+        "properties": {
+          "count": {
+            "description": "Number of activity log entries returned in the current page",
+            "title": "Count",
+            "type": "integer"
+          },
+          "nextPage": {
+            "description": "Full URL for the next page of results. Null if there are no more pages",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "nextPageToken": {
+            "description": "Cursor token for fetching the next page of results. Null if there are no more pages",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "previousPage": {
+            "description": "Full URL for the previous page of results. Null if on the first page",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "previousPageToken": {
+            "description": "Cursor token for fetching the previous page of results. Null if on the first page",
+            "title": "Previous Page Token",
+            "type": "string"
+          }
+        },
+        "required": ["count"],
+        "title": "Pagination",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListActivityLogEntriesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

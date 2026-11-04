@@ -1,0 +1,322 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve the details of an invoice item using its unique identifier. Use when you need to fetch information about a specific invoice item.",
+  "inputSchema": {
+    "description": "Request model for retrieving an invoice item.",
+    "properties": {
+      "expand": {
+        "description": "Specifies which fields in the response should be expanded. Available expandable fields include: discounts. Use dot notation for nested expansions (max depth: 4 levels).",
+        "examples": [["discounts"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Expand",
+        "type": "array"
+      },
+      "invoiceitem": {
+        "description": "The unique identifier for the invoice item (e.g., ii_1MtGUtLkdIwHu7ixBYwjAM00).",
+        "examples": ["ii_1ShVaoQvM72TjFrbPwisjkNH"],
+        "title": "Invoiceitem",
+        "type": "string"
+      }
+    },
+    "required": ["invoiceitem"],
+    "title": "GetInvoiceitemsInvoiceitemRequest",
+    "type": "object"
+  },
+  "name": "get_invoiceitems_invoiceitem",
+  "outputSchema": {
+    "$defs": {
+      "DiscountAmount": {
+        "description": "Discount amount details.",
+        "properties": {
+          "amount": {
+            "description": "Discount in cents.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "discount": {
+            "description": "Discount ID.",
+            "title": "Discount",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "discount"],
+        "title": "DiscountAmount",
+        "type": "object"
+      },
+      "GetInvoiceitemsInvoiceitemResponse": {
+        "description": "Response model for retrieving an invoice item.",
+        "properties": {
+          "amount": {
+            "description": "Total amount in cents (equals unit_amount * quantity).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO 4217 currency code in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "customer": {
+            "description": "Customer ID to be billed.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "customer_account": {
+            "description": "Account ID to be billed for this item.",
+            "title": "Customer Account",
+            "type": "string"
+          },
+          "date": {
+            "description": "Creation time in Unix epoch seconds.",
+            "title": "Date",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Arbitrary text label.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discountable": {
+            "description": "Whether discounts apply (always false for prorations).",
+            "title": "Discountable",
+            "type": "boolean"
+          },
+          "discounts": {
+            "description": "Discount identifiers applied to this item.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the invoice item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "Associated invoice ID.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "True for live mode, false for test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom key-value pairs.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "net_amount": {
+            "description": "Post-discount, pre-tax, pre-credit amount.",
+            "title": "Net Amount",
+            "type": "integer"
+          },
+          "object": {
+            "description": "Value is always 'invoiceitem'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "parent": {
+            "$ref": "#/$defs/Parent",
+            "description": "Source that generated this item.",
+            "title": "Parent"
+          },
+          "period": {
+            "$ref": "#/$defs/Period",
+            "title": "Period"
+          },
+          "pricing": {
+            "$ref": "#/$defs/Pricing",
+            "description": "Pricing details.",
+            "title": "Pricing"
+          },
+          "proration": {
+            "description": "True if automatically created from subscription plan changes.",
+            "title": "Proration",
+            "type": "boolean"
+          },
+          "proration_details": {
+            "$ref": "#/$defs/ProrationDetails",
+            "description": "Information for flexible billing mode prorations.",
+            "title": "Proration Details"
+          },
+          "quantity": {
+            "description": "Unit count for the item.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "tax_rates": {
+            "description": "Applied tax rates; overrides invoice defaults.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tax Rates",
+            "type": "array"
+          },
+          "test_clock": {
+            "description": "Associated test clock ID.",
+            "title": "Test Clock",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "Per-unit amount in cents.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Per-unit amount with up to 12 decimal places.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "currency",
+          "customer",
+          "date",
+          "discountable",
+          "livemode",
+          "period",
+          "proration",
+          "quantity"
+        ],
+        "title": "GetInvoiceitemsInvoiceitemResponse",
+        "type": "object"
+      },
+      "Parent": {
+        "description": "Source that generated this item.",
+        "properties": {
+          "subscription_details": {
+            "$ref": "#/$defs/SubscriptionDetails",
+            "description": "Subscription details if type is subscription_details.",
+            "title": "Subscription Details"
+          },
+          "type": {
+            "description": "Currently supports 'subscription_details'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "Parent",
+        "type": "object"
+      },
+      "Period": {
+        "description": "Time range for the invoice item.",
+        "properties": {
+          "end": {
+            "description": "Inclusive period end (Unix timestamp).",
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "description": "Inclusive period start (Unix timestamp).",
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "Period",
+        "type": "object"
+      },
+      "PriceDetails": {
+        "description": "Detailed price information.",
+        "properties": {
+          "price": {
+            "description": "Price ID.",
+            "title": "Price",
+            "type": "string"
+          },
+          "product": {
+            "description": "Product ID.",
+            "title": "Product",
+            "type": "string"
+          }
+        },
+        "required": ["price", "product"],
+        "title": "PriceDetails",
+        "type": "object"
+      },
+      "Pricing": {
+        "description": "Pricing details for the invoice item.",
+        "properties": {
+          "price_details": {
+            "$ref": "#/$defs/PriceDetails",
+            "description": "Detailed price information.",
+            "title": "Price Details"
+          },
+          "type": {
+            "description": "Type classification.",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount_decimal": {
+            "description": "Per-unit price with up to 12 decimal places.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "Pricing",
+        "type": "object"
+      },
+      "ProrationDetails": {
+        "description": "Information for flexible billing mode prorations.",
+        "properties": {
+          "discount_amounts": {
+            "description": "Applied discounts.",
+            "items": {
+              "$ref": "#/$defs/DiscountAmount"
+            },
+            "title": "Discount Amounts",
+            "type": "array"
+          }
+        },
+        "title": "ProrationDetails",
+        "type": "object"
+      },
+      "SubscriptionDetails": {
+        "description": "Subscription details within parent object.",
+        "properties": {
+          "subscription": {
+            "description": "Subscription ID.",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "subscription_item": {
+            "description": "Subscription item ID.",
+            "title": "Subscription Item",
+            "type": "string"
+          }
+        },
+        "required": ["subscription"],
+        "title": "SubscriptionDetails",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetInvoiceitemsInvoiceitemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

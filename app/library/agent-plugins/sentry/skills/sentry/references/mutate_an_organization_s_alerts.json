@@ -1,0 +1,219 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Bulk enable or disable alerts for an organization. Use when you need to activate or deactivate multiple alerts at once. This endpoint is in beta and may change in the future.",
+  "inputSchema": {
+    "description": "Request schema for bulk enabling or disabling alerts in a Sentry organization.",
+    "properties": {
+      "enabled": {
+        "description": "Whether to enable or disable the alerts. Set to true to enable alerts, false to disable them.",
+        "examples": [true, false],
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "id": {
+        "description": "The IDs of specific alerts to mutate. Provide one or more alert IDs to target specific alerts. If not provided, all matching alerts will be mutated.",
+        "examples": [[2104912], [2104912, 2330570]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Id",
+        "type": "array"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["my-organization", "mia-yd", "123456"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project": {
+        "description": "The IDs of projects to filter by. Use -1 to include all available projects. For example: [1234, 5678] or [-1].",
+        "examples": [[1234, 5678], [-1]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Project",
+        "type": "array"
+      },
+      "query": {
+        "description": "An optional search query for filtering alerts to mutate. Use this to narrow down which alerts should be enabled or disabled.",
+        "examples": ["is:active", "name:test"],
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "enabled"],
+    "title": "MutateAnOrganizationSAlertsRequest",
+    "type": "object"
+  },
+  "name": "mutate_an_organization_s_alerts",
+  "outputSchema": {
+    "$defs": {
+      "AlertActionFilter": {
+        "description": "Action filter configuration for an alert.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the action filter.",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "title": "AlertActionFilter",
+        "type": "object"
+      },
+      "AlertConfig": {
+        "description": "Configuration object for an alert.",
+        "properties": {},
+        "title": "AlertConfig",
+        "type": "object"
+      },
+      "AlertItem": {
+        "description": "Detailed information about a single alert in the organization.",
+        "properties": {
+          "actionFilters": {
+            "description": "List of action filters for the alert.",
+            "items": {
+              "$ref": "#/$defs/AlertActionFilter"
+            },
+            "title": "Action Filters",
+            "type": "array"
+          },
+          "config": {
+            "$ref": "#/$defs/AlertConfig",
+            "description": "Configuration object for the alert.",
+            "title": "Config"
+          },
+          "createdBy": {
+            "description": "User who created the alert.",
+            "title": "Created By",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the alert was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateUpdated": {
+            "description": "ISO 8601 timestamp when the alert was last updated.",
+            "title": "Date Updated",
+            "type": "string"
+          },
+          "detectorIds": {
+            "description": "List of detector IDs associated with the alert.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Detector Ids",
+            "type": "array"
+          },
+          "enabled": {
+            "description": "Whether the alert is currently enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "environment": {
+            "description": "Environment this alert applies to.",
+            "title": "Environment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the alert.",
+            "title": "Id",
+            "type": "string"
+          },
+          "lastTriggered": {
+            "description": "ISO 8601 timestamp when the alert was last triggered.",
+            "title": "Last Triggered",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the alert.",
+            "title": "Name",
+            "type": "string"
+          },
+          "organizationId": {
+            "description": "Organization ID this alert belongs to.",
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "triggers": {
+            "$ref": "#/$defs/AlertTrigger",
+            "description": "Trigger configuration for the alert.",
+            "title": "Triggers"
+          }
+        },
+        "required": ["id", "name", "organizationId", "enabled", "dateCreated", "dateUpdated"],
+        "title": "AlertItem",
+        "type": "object"
+      },
+      "AlertTrigger": {
+        "description": "Trigger configuration for an alert.",
+        "properties": {
+          "actions": {
+            "description": "Actions to perform when the trigger fires.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "conditions": {
+            "description": "Conditions that must be met for the trigger to fire.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier of the trigger.",
+            "title": "Id",
+            "type": "string"
+          },
+          "logicType": {
+            "description": "Type of logic for the trigger.",
+            "title": "Logic Type",
+            "type": "string"
+          },
+          "organizationId": {
+            "description": "Organization ID this trigger belongs to.",
+            "title": "Organization Id",
+            "type": "string"
+          }
+        },
+        "title": "AlertTrigger",
+        "type": "object"
+      },
+      "MutateAnOrganizationSAlertsResponse": {
+        "description": "Response schema containing the list of mutated alerts.",
+        "properties": {
+          "alerts": {
+            "description": "List of alerts that were mutated with their updated status.",
+            "items": {
+              "$ref": "#/$defs/AlertItem"
+            },
+            "title": "Alerts",
+            "type": "array"
+          }
+        },
+        "title": "MutateAnOrganizationSAlertsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/MutateAnOrganizationSAlertsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

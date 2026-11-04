@@ -1,0 +1,162 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves style usage analytics for a published Figma library. Returns data about how styles (colors, text styles, effects, grids) from the library are being used across your organization. Requires Enterprise plan and library_analytics:read scope. Group results by 'style' to see per-style metrics or by 'file' to see which files use the library's styles.",
+  "inputSchema": {
+    "description": "Request schema for `GetLibraryAnalyticsStyleUsageData`",
+    "properties": {
+      "cursor": {
+        "description": "Pagination cursor from a previous response's 'cursor' field. Omit to get the first page of results.",
+        "title": "Cursor",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "The unique file key of a published Figma library. Obtain this from the library URL (e.g., figma.com/file/FILE_KEY/...) or via the Get Team Styles endpoint. Note: This API is only available on Enterprise plans.",
+        "title": "File Key",
+        "type": "string"
+      },
+      "group_by": {
+        "description": "How to group the analytics data: 'style' returns usage stats per style, 'file' returns usage stats per file using the library.",
+        "enum": ["file", "style"],
+        "examples": ["style", "file"],
+        "title": "Group By",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "group_by"],
+    "title": "GetLibraryAnalyticsStyleUsageDataRequest",
+    "type": "object"
+  },
+  "name": "get_library_analytics_style_usage_data",
+  "outputSchema": {
+    "$defs": {
+      "GetLibraryAnalyticsStyleUsageDataResponse": {
+        "description": "Response schema for `GetLibraryAnalyticsStyleUsageData`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Contains the structured analytics data, pagination information, and the actual usage rows.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetLibraryAnalyticsStyleUsageDataResponse",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "cursor": {
+            "description": "The cursor to use for fetching the next page of data. This field is present only if 'next_page' is true.",
+            "title": "Cursor",
+            "type": "string"
+          },
+          "next_page": {
+            "description": "A boolean indicating whether more data is available for a subsequent request.",
+            "title": "Next Page",
+            "type": "boolean"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Row"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/Row1"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "An array of analytics data, with each object's structure depending on the 'group_by' parameter. If 'group_by' is 'style', items will conform to the 'Row' schema. If 'group_by' is 'file', items will conform to the 'Row1' schema.",
+            "title": "Rows"
+          }
+        },
+        "required": ["rows", "next_page"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Row": {
+        "description": "Analytics data when grouped by 'style'. Each row represents one style from the library.",
+        "properties": {
+          "files_using": {
+            "description": "Number of distinct files using this style.",
+            "title": "Files Using",
+            "type": "integer"
+          },
+          "style_key": {
+            "description": "Unique identifier for the style.",
+            "title": "Style Key",
+            "type": "string"
+          },
+          "style_name": {
+            "description": "Display name of the style.",
+            "title": "Style Name",
+            "type": "string"
+          },
+          "style_type": {
+            "description": "Type of style: FILL, TEXT, EFFECT, or GRID.",
+            "title": "Style Type",
+            "type": "string"
+          },
+          "teams_using": {
+            "description": "Number of distinct teams using this style.",
+            "title": "Teams Using",
+            "type": "integer"
+          },
+          "usages": {
+            "description": "Total instance count of this style across all files in the organization.",
+            "title": "Usages",
+            "type": "integer"
+          }
+        },
+        "required": ["style_key", "style_name", "style_type", "usages", "teams_using", "files_using"],
+        "title": "Row",
+        "type": "object"
+      },
+      "Row1": {
+        "description": "Analytics data when grouped by 'file'. Each row represents one file using the library.",
+        "properties": {
+          "file_name": {
+            "description": "Name of the file using styles from the library.",
+            "title": "File Name",
+            "type": "string"
+          },
+          "team_name": {
+            "description": "Name of the team that owns the file.",
+            "title": "Team Name",
+            "type": "string"
+          },
+          "usages": {
+            "description": "Total style instance count from the library within this file.",
+            "title": "Usages",
+            "type": "integer"
+          },
+          "workspace_name": {
+            "description": "Name of the workspace containing the file, if applicable.",
+            "title": "Workspace Name",
+            "type": "string"
+          }
+        },
+        "required": ["file_name", "team_name", "usages"],
+        "title": "Row1",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetLibraryAnalyticsStyleUsageDataResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

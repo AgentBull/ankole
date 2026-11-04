@@ -1,0 +1,191 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Send GA4 web-stream events using the Measurement Protocol and an API secret. A successful response indicates HTTP receipt, not that Google Analytics processed the events.",
+  "inputSchema": {
+    "description": "Request model for sending events to Google Analytics 4 via Measurement Protocol.",
+    "properties": {
+      "api_secret": {
+        "description": "Required. The API secret generated in the Google Analytics UI under Admin > Data Streams > Measurement Protocol API secrets. Used to authenticate requests.",
+        "examples": ["abcd1234xyz"],
+        "title": "Api Secret",
+        "type": "string"
+      },
+      "client_id": {
+        "description": "Required. A unique identifier for a user/client. This should be a UUID or similar unique string that identifies a specific user across sessions. Maximum 256 characters.",
+        "examples": ["test_client_123", "e7a5b5c9-6e1d-4a9b-9a2e-1f3d5e7a9b1c"],
+        "title": "Client Id",
+        "type": "string"
+      },
+      "consent": {
+        "additionalProperties": false,
+        "description": "Consent settings for Google Analytics 4.",
+        "examples": [
+          {
+            "ad_personalization": "DENIED",
+            "ad_user_data": "GRANTED"
+          }
+        ],
+        "properties": {
+          "ad_personalization": {
+            "description": "Consent status for ad personalization. Valid values: 'GRANTED', 'DENIED'",
+            "examples": ["DENIED"],
+            "title": "Ad Personalization",
+            "type": "string"
+          },
+          "ad_user_data": {
+            "description": "Consent status for ad user data. Valid values: 'GRANTED', 'DENIED'",
+            "examples": ["GRANTED"],
+            "title": "Ad User Data",
+            "type": "string"
+          }
+        },
+        "title": "Consent",
+        "type": "object"
+      },
+      "events": {
+        "description": "Required. Array of event objects to send. Maximum 25 events per request. Each event must have a 'name' and can optionally include 'params'.",
+        "examples": [
+          [
+            {
+              "name": "purchase",
+              "params": {
+                "currency": "USD",
+                "value": 42.5
+              }
+            }
+          ]
+        ],
+        "items": {
+          "description": "Event object for Google Analytics 4 Measurement Protocol.",
+          "properties": {
+            "name": {
+              "description": "Required. Name of the event. Can be up to 40 characters. Use recommended event names from GA4 documentation (e.g., 'purchase', 'login', 'sign_up', 'page_view') or custom event names.",
+              "examples": ["purchase", "login", "page_view"],
+              "title": "Name",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": true,
+              "description": "Optional. Event parameters as key-value pairs. Common parameters include 'currency', 'value', 'transaction_id', 'items', 'engagement_time_msec'. Can include custom parameters.",
+              "examples": [
+                {
+                  "currency": "USD",
+                  "transaction_id": "T12345",
+                  "value": 42.5
+                }
+              ],
+              "title": "Params",
+              "type": "object"
+            }
+          },
+          "required": ["name"],
+          "title": "Event",
+          "type": "object"
+        },
+        "title": "Events",
+        "type": "array"
+      },
+      "measurement_id": {
+        "description": "Required. The measurement ID for the web stream in the format G-XXXXXXX. This is found in the Google Analytics UI under Admin > Data Streams > Web Stream Details.",
+        "examples": ["G-XXXXXXXXXX"],
+        "title": "Measurement Id",
+        "type": "string"
+      },
+      "timestamp_micros": {
+        "description": "Optional. Unix timestamp in microseconds for when the event occurred. If not provided, the current time is used. Can be up to 72 hours in the past.",
+        "examples": [1234567890000000],
+        "title": "Timestamp Micros",
+        "type": "integer"
+      },
+      "user_id": {
+        "description": "Optional. A unique identifier for a logged-in user. This should be a non-PII identifier that you use internally to identify a user. Maximum 256 characters.",
+        "examples": ["user_12345"],
+        "title": "User Id",
+        "type": "string"
+      },
+      "user_properties": {
+        "additionalProperties": {
+          "additionalProperties": false,
+          "description": "User property for Google Analytics 4.",
+          "properties": {
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "description": "Value of the user property",
+              "title": "Value"
+            }
+          },
+          "required": ["value"],
+          "title": "UserProperty",
+          "type": "object"
+        },
+        "description": "Optional. User properties to set for this measurement. Each property must have a 'value' field. User properties persist across events.",
+        "examples": [
+          {
+            "subscription_tier": {
+              "value": "premium"
+            }
+          }
+        ],
+        "title": "User Properties",
+        "type": "object"
+      }
+    },
+    "required": ["measurement_id", "api_secret", "client_id", "events"],
+    "title": "SendEventsRequest",
+    "type": "object"
+  },
+  "name": "send_events",
+  "outputSchema": {
+    "$defs": {
+      "SendEventsResponse": {
+        "description": "Response model for send events action.\nThe API returns HTTP 204 No Content on success, so this model represents a successful response.",
+        "properties": {
+          "message": {
+            "default": "Events successfully sent to Google Analytics",
+            "description": "Success message",
+            "title": "Message",
+            "type": "string"
+          },
+          "status_code": {
+            "default": 204,
+            "description": "HTTP status code from the API response",
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "success": {
+            "default": true,
+            "description": "Indicates that the events were successfully sent to Google Analytics",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "SendEventsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SendEventsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

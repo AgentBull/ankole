@@ -1,0 +1,191 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list SKAdNetworkConversionValueSchema configurations for an iOS data stream. Use when you need to retrieve conversion value schemas for iOS app tracking. Maximum one schema per property is supported.",
+  "inputSchema": {
+    "description": "Request model for listing SKAdNetworkConversionValueSchema on a data stream.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of resources per response. Default: 50, Maximum: 200.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. Token from previous call for pagination to retrieve next page of results.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The DataStream resource to list schemas for. Format: properties/{property_id}/dataStreams/{dataStream}. Example: 'properties/123456789/dataStreams/1234567890'",
+        "examples": ["properties/123456789/dataStreams/1234567890"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListSKAdNetworkConversionValueSchemasRequest",
+    "type": "object"
+  },
+  "name": "list_sk_ad_network_conversion_value_schemas",
+  "outputSchema": {
+    "$defs": {
+      "ConversionValues": {
+        "description": "Defines a mapping from a set of conditions to a conversion value.",
+        "properties": {
+          "coarseValue": {
+            "description": "Coarse-grained value. Enum: LOW, MEDIUM, HIGH.",
+            "title": "Coarse Value",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "User-facing label (max 50 UTF-16 code units).",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "eventMappings": {
+            "description": "1-3 AND-connected event conditions.",
+            "items": {
+              "$ref": "#/$defs/EventMapping"
+            },
+            "title": "Event Mappings",
+            "type": "array"
+          },
+          "fineValue": {
+            "description": "First window only; range [0,63] inclusive.",
+            "title": "Fine Value",
+            "type": "integer"
+          },
+          "lockEnabled": {
+            "description": "Locks SDK to this value for current window when true.",
+            "title": "Lock Enabled",
+            "type": "boolean"
+          }
+        },
+        "title": "ConversionValues",
+        "type": "object"
+      },
+      "EventMapping": {
+        "description": "Defines conditions that must be met for a conversion value to be set.",
+        "properties": {
+          "eventName": {
+            "description": "Required. GA4 event name (max 40 UTF-16 code units).",
+            "title": "Event Name",
+            "type": "string"
+          },
+          "maxEventCount": {
+            "description": "Maximum occurrence threshold.",
+            "title": "Max Event Count",
+            "type": "integer"
+          },
+          "maxEventValue": {
+            "description": "Maximum revenue in property currency.",
+            "title": "Max Event Value",
+            "type": "number"
+          },
+          "minEventCount": {
+            "description": "Minimum occurrence threshold.",
+            "title": "Min Event Count",
+            "type": "integer"
+          },
+          "minEventValue": {
+            "description": "Minimum revenue in property currency.",
+            "title": "Min Event Value",
+            "type": "number"
+          }
+        },
+        "required": ["eventName"],
+        "title": "EventMapping",
+        "type": "object"
+      },
+      "ListSKAdNetworkConversionValueSchemasResponse": {
+        "description": "Response model for listing SKAdNetworkConversionValueSchema.",
+        "properties": {
+          "nextPageToken": {
+            "description": "Token for retrieving subsequent pages. Note: Currently never populated as only one schema is supported per dataStream.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "skadnetworkConversionValueSchemas": {
+            "description": "Array containing SKAdNetworkConversionValueSchema objects. Note: This will have at most one value as Google Analytics supports only one schema per dataStream.",
+            "items": {
+              "$ref": "#/$defs/SKAdNetworkConversionValueSchema"
+            },
+            "title": "Skadnetwork Conversion Value Schemas",
+            "type": "array"
+          }
+        },
+        "title": "ListSKAdNetworkConversionValueSchemasResponse",
+        "type": "object"
+      },
+      "PostbackWindow": {
+        "description": "Settings for a postback window.",
+        "properties": {
+          "conversionValues": {
+            "description": "Prioritized list (max 128 entries); first matching entry selected.",
+            "items": {
+              "$ref": "#/$defs/ConversionValues"
+            },
+            "title": "Conversion Values",
+            "type": "array"
+          },
+          "postbackWindowSettingsEnabled": {
+            "description": "Must be true for window one; determines if values apply.",
+            "title": "Postback Window Settings Enabled",
+            "type": "boolean"
+          }
+        },
+        "title": "PostbackWindow",
+        "type": "object"
+      },
+      "SKAdNetworkConversionValueSchema": {
+        "description": "Schema for SKAdNetworkConversionValueSchema resource.",
+        "properties": {
+          "applyConversionValues": {
+            "description": "When true, enables SDK conversion value setting and Ads export.",
+            "title": "Apply Conversion Values",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Resource identifier. Output-only. Format: properties/{property}/dataStreams/{dataStream}/sKAdNetworkConversionValueSchema",
+            "title": "Name",
+            "type": "string"
+          },
+          "postbackWindowOne": {
+            "$ref": "#/$defs/PostbackWindow",
+            "description": "Fine-grained conversion settings for first postback window.",
+            "title": "Postback Window One"
+          },
+          "postbackWindowThree": {
+            "$ref": "#/$defs/PostbackWindow",
+            "description": "Settings for third postback window.",
+            "title": "Postback Window Three"
+          },
+          "postbackWindowTwo": {
+            "$ref": "#/$defs/PostbackWindow",
+            "description": "Settings for second postback window.",
+            "title": "Postback Window Two"
+          }
+        },
+        "title": "SKAdNetworkConversionValueSchema",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListSKAdNetworkConversionValueSchemasResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently delete one checklist item from a Trello card.",
+  "inputSchema": {
+    "description": "Request schema for deleting a check item from a Trello card.",
+    "properties": {
+      "idCard": {
+        "description": "The card's 24-character hexadecimal Trello ID.",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "pattern": "^[0-9a-fA-F]{24}$",
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idCheckItem": {
+        "description": "The check item's 24-character hexadecimal Trello ID.",
+        "examples": ["5abbe4b7ddc1b351ef961415"],
+        "pattern": "^[0-9a-fA-F]{24}$",
+        "title": "Id Check Item",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "idCheckItem"],
+    "title": "DeleteCardCheckItemRequest",
+    "type": "object"
+  },
+  "name": "delete_card_check_item",
+  "outputSchema": {
+    "$defs": {
+      "DeleteCardCheckItemResponse": {
+        "description": "Response returned after Trello deletes the check item.",
+        "properties": {
+          "limits": {
+            "additionalProperties": true,
+            "description": "Rate-limit information returned by Trello; typically empty on successful deletion.",
+            "title": "Limits",
+            "type": "object"
+          }
+        },
+        "title": "DeleteCardCheckItemResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteCardCheckItemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

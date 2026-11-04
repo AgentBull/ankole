@@ -1,0 +1,371 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Search for Salesforce campaigns using multiple criteria like name, type, status, date range, or active status. Requires access to the Campaign object (Marketing User feature must be enabled in the org). For complex sorting (multi-field ORDER BY), use salesforce.run_soql_query instead.",
+  "inputSchema": {
+    "properties": {
+      "fields": {
+        "default": "Id,Name,Type,Status,StartDate,EndDate,IsActive,Description,BudgetedCost,ActualCost,NumberOfContacts,NumberOfLeads",
+        "description": "Comma-separated list of Campaign fields to retrieve.",
+        "examples": [
+          "Id,Name,Type,Status,StartDate,EndDate",
+          "Id,Name,Type,Status,StartDate,EndDate,IsActive,BudgetedCost,ActualCost"
+        ],
+        "human_parameter_description": "List the campaign details you want returned, separated by commas (for example: Id,Name,Status).",
+        "human_parameter_name": "Fields",
+        "title": "Fields",
+        "type": "string"
+      },
+      "is_active": {
+        "description": "Filter by active status. True for active campaigns, False for inactive.",
+        "human_parameter_description": "Choose whether to include only active campaigns, only inactive ones, or leave blank to include both.",
+        "human_parameter_name": "Active Status",
+        "title": "Is Active",
+        "type": "boolean"
+      },
+      "limit": {
+        "default": 50,
+        "description": "Maximum number of campaigns to return. Check totalSize in the response to determine if results are truncated; issue additional queries if needed.",
+        "human_parameter_description": "Set the maximum number of campaigns to return. Higher values show more results but may take longer.",
+        "human_parameter_name": "Limit",
+        "maximum": 2000,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "name": {
+        "description": "Search by campaign name. Supports partial matches. Combine with type, status, or date range filters to narrow results when names are non-unique.",
+        "examples": ["Summer Sale", "Product Launch", "Webinar"],
+        "human_parameter_description": "Enter part or all of the campaign name to find matching campaigns.",
+        "human_parameter_name": "Campaign Name",
+        "title": "Name",
+        "type": "string"
+      },
+      "start_date_from": {
+        "description": "Lower bound for StartDate (inclusive). Use YYYY-MM-DD.",
+        "examples": ["2024-01-01"],
+        "human_parameter_description": "Show campaigns that start on or after this date. Use the format YYYY-MM-DD.",
+        "human_parameter_name": "Start Date From",
+        "title": "Start Date From",
+        "type": "string"
+      },
+      "start_date_to": {
+        "description": "Upper bound for StartDate (inclusive). Use YYYY-MM-DD.",
+        "examples": ["2024-12-31"],
+        "human_parameter_description": "Show campaigns that start on or before this date. Use the format YYYY-MM-DD.",
+        "human_parameter_name": "Start Date To",
+        "title": "Start Date To",
+        "type": "string"
+      },
+      "status": {
+        "description": "Search by campaign status.",
+        "examples": ["Planned", "In Progress", "Completed", "Aborted"],
+        "human_parameter_description": "Select the campaign status you want to see, like Planned, In Progress, Completed, or Aborted.",
+        "human_parameter_name": "Campaign Status",
+        "title": "Status",
+        "type": "string"
+      },
+      "type": {
+        "description": "Search by campaign type.",
+        "examples": ["Email", "Webinar", "Trade Show", "Public Relations"],
+        "human_parameter_description": "Choose the type of campaign to filter by, such as Email, Webinar, or Trade Show.",
+        "human_parameter_name": "Campaign Type",
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "title": "SearchCampaignsRequest",
+    "type": "object"
+  },
+  "name": "search_campaigns",
+  "outputSchema": {
+    "$defs": {
+      "CampaignRecord": {
+        "additionalProperties": true,
+        "description": "A single Campaign record returned by the query.",
+        "properties": {
+          "IsDeleted": {
+            "description": "Indicates whether the campaign record has been moved to the Recycle Bin (soft deleted).",
+            "title": "Is Deleted",
+            "type": "boolean"
+          },
+          "NumberOfWonOpportunities": {
+            "description": "The number of opportunities in Closed Won stage associated with the campaign.",
+            "title": "Number Of Won Opportunities",
+            "type": "integer"
+          },
+          "HierarchyNumberOfConvertedLeads": {
+            "description": "The total number of converted leads for the campaign and all child campaigns in the hierarchy.",
+            "title": "Hierarchy Number Of Converted Leads",
+            "type": "integer"
+          },
+          "HierarchyNumberOfWonOpportunities": {
+            "description": "The total number of won opportunities for the campaign and all child campaigns in the hierarchy.",
+            "title": "Hierarchy Number Of Won Opportunities",
+            "type": "integer"
+          },
+          "HierarchyBudgetedCost": {
+            "description": "The total budgeted cost for the campaign and all child campaigns in the hierarchy.",
+            "title": "Hierarchy Budgeted Cost",
+            "type": "number"
+          },
+          "ExpectedRevenue": {
+            "description": "Expected revenue predicted from the campaign, calculated using opportunity probability and value.",
+            "title": "Expected Revenue",
+            "type": "number"
+          },
+          "HierarchyActualCost": {
+            "description": "The total actual cost for the campaign and all child campaigns in the hierarchy.",
+            "title": "Hierarchy Actual Cost",
+            "type": "number"
+          },
+          "attributes": {
+            "$ref": "#/$defs/CampaignRecordAttributes",
+            "description": "Metadata about the record including object type and URL.",
+            "title": "Attributes"
+          },
+          "NumberOfLeads": {
+            "description": "The number of leads associated with the campaign.",
+            "title": "Number Of Leads",
+            "type": "integer"
+          },
+          "NumberOfContacts": {
+            "description": "The number of contacts associated with the campaign.",
+            "title": "Number Of Contacts",
+            "type": "integer"
+          },
+          "Status": {
+            "description": "Indicates the campaign status such as Planned, In Progress, Completed, or Aborted.",
+            "title": "Status",
+            "type": "string"
+          },
+          "Description": {
+            "description": "A text field for describing the campaign's purpose and details.",
+            "title": "Description",
+            "type": "string"
+          },
+          "HierarchyAmountAllOpportunities": {
+            "description": "The total amount of all opportunities for the campaign and all child campaigns in the hierarchy.",
+            "title": "Hierarchy Amount All Opportunities",
+            "type": "number"
+          },
+          "CreatedDate": {
+            "description": "The date and time when the campaign record was created.",
+            "title": "Created Date",
+            "type": "string"
+          },
+          "OwnerId": {
+            "description": "The ID of the user who owns the campaign.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "BudgetedCost": {
+            "description": "The budgeted cost for the campaign.",
+            "title": "Budgeted Cost",
+            "type": "number"
+          },
+          "HierarchyAmountWonOpportunities": {
+            "description": "The total amount of won opportunities for the campaign and all child campaigns in the hierarchy.",
+            "title": "Hierarchy Amount Won Opportunities",
+            "type": "number"
+          },
+          "LastActivityDate": {
+            "description": "The date of the most recent activity (task or event) associated with the campaign.",
+            "title": "Last Activity Date",
+            "type": "string"
+          },
+          "ParentId": {
+            "description": "The ID of the parent campaign, used to create campaign hierarchies.",
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "IsActive": {
+            "description": "Indicates whether the campaign is currently active.",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "HierarchyNumberOfOpportunities": {
+            "description": "The total number of opportunities for the campaign and all child campaigns in the hierarchy.",
+            "title": "Hierarchy Number Of Opportunities",
+            "type": "integer"
+          },
+          "NumberOfOpportunities": {
+            "description": "The number of opportunities directly related to the campaign (where the campaign is set as the Primary Campaign Source). Calculated asynchronously with up to 10-minute delay.",
+            "title": "Number Of Opportunities",
+            "type": "integer"
+          },
+          "LastModifiedById": {
+            "description": "The ID of the user who last modified the campaign record.",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "NumberOfResponses": {
+            "description": "The number of campaign members who have responded to the campaign.",
+            "title": "Number Of Responses",
+            "type": "integer"
+          },
+          "ActualCost": {
+            "description": "The actual cost spent on the campaign.",
+            "title": "Actual Cost",
+            "type": "number"
+          },
+          "CreatedById": {
+            "description": "The ID of the user who created the campaign record.",
+            "title": "Created By Id",
+            "type": "string"
+          },
+          "NumberSent": {
+            "description": "The number of campaign communications or materials sent.",
+            "title": "Number Sent",
+            "type": "number"
+          },
+          "HierarchyNumberOfContacts": {
+            "description": "The total number of contacts for the campaign and all child campaigns in the hierarchy.",
+            "title": "Hierarchy Number Of Contacts",
+            "type": "integer"
+          },
+          "ExpectedResponse": {
+            "description": "The estimated number of responses expected from the campaign.",
+            "title": "Expected Response",
+            "type": "number"
+          },
+          "SystemModstamp": {
+            "description": "The date and time when the campaign record was last modified by a user or automated process. Always greater than or equal to LastModifiedDate.",
+            "title": "System Modstamp",
+            "type": "string"
+          },
+          "StartDate": {
+            "description": "The start date of the campaign.",
+            "title": "Start Date",
+            "type": "string"
+          },
+          "HierarchyNumberOfLeads": {
+            "description": "The total number of leads for the campaign and all child campaigns in the hierarchy.",
+            "title": "Hierarchy Number Of Leads",
+            "type": "integer"
+          },
+          "NumberOfConvertedLeads": {
+            "description": "The number of leads that have been converted to contacts through the campaign.",
+            "title": "Number Of Converted Leads",
+            "type": "integer"
+          },
+          "AmountWonOpportunities": {
+            "description": "The sum of the Amount field for opportunities in Closed Won stage associated with the campaign.",
+            "title": "Amount Won Opportunities",
+            "type": "number"
+          },
+          "Id": {
+            "description": "Unique identifier for the Campaign record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "HierarchyNumberOfResponses": {
+            "description": "The total number of responses for the campaign and all child campaigns in the hierarchy.",
+            "title": "Hierarchy Number Of Responses",
+            "type": "integer"
+          },
+          "Type": {
+            "description": "Categorizes the campaign type (e.g., email, trade show, webinar, direct mail).",
+            "title": "Type",
+            "type": "string"
+          },
+          "EndDate": {
+            "description": "The end date of the campaign.",
+            "title": "End Date",
+            "type": "string"
+          },
+          "AmountAllOpportunities": {
+            "description": "The sum of the Amount field for all opportunities associated with the campaign.",
+            "title": "Amount All Opportunities",
+            "type": "number"
+          },
+          "RecordTypeId": {
+            "description": "The ID of the record type assigned to the campaign.",
+            "title": "Record Type Id",
+            "type": "string"
+          },
+          "Name": {
+            "description": "The name of the campaign.",
+            "title": "Name",
+            "type": "string"
+          },
+          "HierarchyExpectedRevenue": {
+            "description": "The total expected revenue for the campaign and all child campaigns in the hierarchy.",
+            "title": "Hierarchy Expected Revenue",
+            "type": "number"
+          },
+          "LastModifiedDate": {
+            "description": "The date and time when the campaign record was last modified by a user.",
+            "title": "Last Modified Date",
+            "type": "string"
+          }
+        },
+        "required": ["attributes", "Id"],
+        "title": "CampaignRecord",
+        "type": "object"
+      },
+      "CampaignRecordAttributes": {
+        "description": "Metadata about the Campaign record.",
+        "properties": {
+          "type": {
+            "description": "The object type, typically 'Campaign'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL path to retrieve full details of this Campaign record.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "CampaignRecordAttributes",
+        "type": "object"
+      },
+      "SearchCampaignsResponse": {
+        "description": "Response from searching Salesforce campaigns.",
+        "properties": {
+          "done": {
+            "description": "Indicates whether the query is complete. When false, there are more results available and nextRecordsUrl will be provided.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "nextRecordsUrl": {
+            "description": "URL path to retrieve the next page of results. Only present when done is false and pagination is needed.",
+            "title": "Next Records Url",
+            "type": "string"
+          },
+          "records": {
+            "description": "Array containing the list of Campaign records returned by the query.",
+            "items": {
+              "$ref": "#/$defs/CampaignRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "totalSize": {
+            "description": "The total number of Campaign records returned by the query.",
+            "title": "Total Size",
+            "type": "integer"
+          }
+        },
+        "required": ["totalSize", "done", "records"],
+        "title": "SearchCampaignsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SearchCampaignsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

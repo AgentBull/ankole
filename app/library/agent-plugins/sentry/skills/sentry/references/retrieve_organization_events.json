@@ -1,0 +1,207 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves Discover event data for a Sentry organization. When a nonempty field list and sort are supplied, the tool adds the sort field to the list if missing; equation fields cannot be used for sorting, and the field list has a 20-item limit.",
+  "inputSchema": {
+    "description": "Request schema for `RetrieveOrganizationEvents`",
+    "properties": {
+      "end": {
+        "description": "The end timestamp for the query period, in ISO-8601 format (e.g., `2024-01-15T12:30:00Z`). This parameter is ignored if `statsPeriod` is provided.",
+        "examples": ["2024-01-15T12:30:00Z", "2023-12-01T00:00:00.000Z"],
+        "title": "End",
+        "type": "string"
+      },
+      "environment": {
+        "description": "A list of environment names to filter events by (e.g., `production`, `staging`).",
+        "examples": ["production", "staging", "development"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "field": {
+        "description": "Specifies the fields, functions, or equations to include in the query results (maximum 20 items). Each item can be: - A built-in key field (e.g., `id`, `title`, `timestamp`, `project`, `user.email`, `level`, `transaction`, `platform`). - A tag, using `tag[tagName]` format (e.g., `tag[browser.name]`). - A function in `function_name(parameters,...)` format (e.g., `count()`, `count_unique(user)`, `avg(transaction.duration)`). When a function is included, results are grouped by any non-aggregate fields. - An equation, prefixed with `equation|` (e.g., `equation|count_if(transaction.duration,greater,300) / count() * 100`). Note: The API automatically includes `id` and `project.name` fields in responses. If a `sort` parameter is provided, the base sort field will be automatically added to this list if not already present.",
+        "examples": [
+          ["id", "title", "timestamp"],
+          ["project", "count()"],
+          ["transaction", "count()", "avg(transaction.duration)"],
+          ["tag[browser.name]", "count_unique(user)"]
+        ],
+        "items": {
+          "type": "string"
+        },
+        "title": "Field",
+        "type": "array"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization for which to retrieve events.",
+        "examples": ["my-org-slug", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "The maximum number of event rows to return per page. Defaults to 50 if not specified. Maximum allowed value is 100.",
+        "examples": [10, 50, 100],
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "project": {
+        "description": "A list of project IDs (integers) to filter events by. Use `[-1]` to include all accessible projects. For example: `[123, 456]` or `[-1]`.",
+        "examples": [[123, 456], [-1], [4510810775093248]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Project",
+        "type": "array"
+      },
+      "query": {
+        "description": "A Sentry search query string to filter events. Example: `(transaction:foo AND release:abc) OR (transaction:[bar,baz] AND release:def)`. Refer to Sentry documentation for detailed search syntax.",
+        "examples": ["transaction:/api/users* level:error", "user.ip_address:127.0.0.1 AND !tag:internal"],
+        "title": "Query",
+        "type": "string"
+      },
+      "sort": {
+        "description": "The field by which to sort the query results. Prepend with `-` for descending order (e.g., `-timestamp`). **Important:** The sort field must be included in the `field` parameter list and cannot be an equation field.",
+        "examples": ["timestamp", "-timestamp", "-count()", "title"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "start": {
+        "description": "The start timestamp for the query period, in ISO-8601 format (e.g., `2024-01-01T10:00:00Z`). This parameter is ignored if `statsPeriod` is provided.",
+        "examples": ["2024-01-01T10:00:00Z", "2023-11-01T00:00:00.000Z"],
+        "title": "Start",
+        "type": "string"
+      },
+      "statsPeriod": {
+        "description": "The relative time period for the query (e.g., `24h`, `7d`, `30m`). This overrides `start` and `end` if provided. Valid suffixes: `d` (days), `h` (hours), `m` (minutes), `s` (seconds), `w` (weeks).",
+        "examples": ["24h", "7d", "30m", "1w"],
+        "title": "Stats Period",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "field"],
+    "title": "RetrieveOrganizationEventsRequest",
+    "type": "object"
+  },
+  "name": "retrieve_organization_events",
+  "outputSchema": {
+    "$defs": {
+      "EventMeta": {
+        "description": "Metadata about the response including field types, units, and query execution information.",
+        "properties": {
+          "accuracy": {
+            "additionalProperties": true,
+            "description": "Confidence metrics and accuracy information when sampling data.",
+            "title": "Accuracy",
+            "type": "object"
+          },
+          "bytesScanned": {
+            "description": "Number of bytes read during query execution.",
+            "title": "Bytes Scanned",
+            "type": "integer"
+          },
+          "dataScanned": {
+            "description": "Number of bytes processed during query execution.",
+            "title": "Data Scanned",
+            "type": "string"
+          },
+          "dataset": {
+            "description": "Identifier of the dataset used for the query (e.g., discover, transactions, errors).",
+            "title": "Dataset",
+            "type": "string"
+          },
+          "datasetReason": {
+            "description": "Explanation of why a particular dataset was selected for the query.",
+            "title": "Dataset Reason",
+            "type": "string"
+          },
+          "debugInfo": {
+            "additionalProperties": true,
+            "description": "Debug information included when the debug query parameter is provided.",
+            "title": "Debug Info",
+            "type": "object"
+          },
+          "discoverSplitDecision": {
+            "description": "Information about query routing decision in the Discover system.",
+            "title": "Discover Split Decision",
+            "type": "integer"
+          },
+          "fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Object mapping field names to their data types (e.g., string, number, integer, duration, etc.).",
+            "title": "Fields",
+            "type": "object"
+          },
+          "isMetricsData": {
+            "description": "Indicates whether the response data comes from metrics dataset.",
+            "title": "Is Metrics Data",
+            "type": "boolean"
+          },
+          "isMetricsExtractedData": {
+            "description": "Indicates whether the response data was extracted from metrics.",
+            "title": "Is Metrics Extracted Data",
+            "type": "boolean"
+          },
+          "tips": {
+            "additionalProperties": true,
+            "description": "Query hints and suggestions for optimizing the query or understanding the results.",
+            "title": "Tips",
+            "type": "object"
+          },
+          "units": {
+            "additionalProperties": true,
+            "description": "Object mapping field names to their unit information for measurement fields.",
+            "title": "Units",
+            "type": "object"
+          }
+        },
+        "required": ["fields"],
+        "title": "EventMeta",
+        "type": "object"
+      },
+      "RetrieveOrganizationEventsResponse": {
+        "description": "Response schema for `RetrieveOrganizationEvents`",
+        "properties": {
+          "data": {
+            "description": "Array of event objects containing dynamic fields based on the query's field parameter. Each event object contains the requested fields with values matching the event properties.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/$defs/EventMeta",
+            "title": "Meta"
+          },
+          "order": {
+            "additionalProperties": true,
+            "description": "Sort ordering information for multi-axis and top events queries.",
+            "title": "Order",
+            "type": "object"
+          }
+        },
+        "required": ["data", "meta"],
+        "title": "RetrieveOrganizationEventsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveOrganizationEventsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

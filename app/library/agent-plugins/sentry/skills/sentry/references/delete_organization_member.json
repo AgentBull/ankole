@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently removes a member from a Sentry organization, revoking their access to that organization and all its associated projects.",
+  "inputSchema": {
+    "description": "Request schema for removing a member from a Sentry organization.",
+    "properties": {
+      "member_id": {
+        "description": "The unique identifier (ID) of the member to be removed from the organization.",
+        "examples": ["98765", "member-id-123"],
+        "title": "Member Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or the human-readable slug of the Sentry organization from which the member will be removed.",
+        "examples": ["my-org-slug", "acme-corp", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "member_id"],
+    "title": "DeleteOrganizationMemberRequest",
+    "type": "object"
+  },
+  "name": "delete_organization_member",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationMemberResponse": {
+        "description": "Response schema for DELETE organization member endpoint. Success returns empty dict for 204 No Content.",
+        "properties": {},
+        "title": "DeleteOrganizationMemberResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

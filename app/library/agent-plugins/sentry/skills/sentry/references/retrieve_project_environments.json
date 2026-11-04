@@ -1,0 +1,89 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of environments for an existing project within a Sentry organization.",
+  "inputSchema": {
+    "description": "Request schema for `RetrieveProjectEnvironments`",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization to which the project belongs.",
+        "examples": ["my-organization", "acme-corp"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The ID or slug of the project for which environments are to be retrieved.",
+        "examples": ["my-project", "frontend-app"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      },
+      "visibility": {
+        "description": "Filters environments by their visibility status: `all`, `hidden`, or `visible`.",
+        "enum": ["all", "hidden", "visible"],
+        "examples": ["all", "hidden", "visible"],
+        "title": "VisibilityEnm",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "RetrieveProjectEnvironmentsRequest",
+    "type": "object"
+  },
+  "name": "retrieve_project_environments",
+  "outputSchema": {
+    "$defs": {
+      "EnvironmentItem": {
+        "description": "Schema for an individual environment",
+        "properties": {
+          "id": {
+            "description": "The unique identifier of the environment.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isHidden": {
+            "description": "Whether the environment is hidden from the default view.",
+            "title": "Is Hidden",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The name of the environment (e.g., 'production', 'staging', 'development').",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "isHidden"],
+        "title": "EnvironmentItem",
+        "type": "object"
+      },
+      "RetrieveProjectEnvironmentsResponse": {
+        "description": "Response schema for `RetrieveProjectEnvironments`",
+        "properties": {
+          "data": {
+            "description": "A list of environment objects associated with the project.",
+            "items": {
+              "$ref": "#/$defs/EnvironmentItem"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "RetrieveProjectEnvironmentsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveProjectEnvironmentsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

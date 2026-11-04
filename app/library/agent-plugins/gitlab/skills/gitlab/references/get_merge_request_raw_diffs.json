@@ -1,0 +1,60 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get raw diffs of files changed in a merge request. GitLab diff limits may truncate results.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Internal ID of the merge request.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid"],
+    "title": "GetMergeRequestRawDiffsRequest",
+    "type": "object"
+  },
+  "name": "get_merge_request_raw_diffs",
+  "outputSchema": {
+    "$defs": {
+      "GetMergeRequestRawDiffsResponse": {
+        "properties": {
+          "content": {
+            "description": "Raw merge request diff text, which may be empty.",
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": ["content"],
+        "title": "GetMergeRequestRawDiffsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMergeRequestRawDiffsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

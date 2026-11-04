@@ -1,0 +1,50 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Bulk delete specified Zendesk views. This action is irreversible and returns a success indicator when the deletion succeeds.",
+  "inputSchema": {
+    "properties": {
+      "ids": {
+        "description": "Comma-separated list of Zendesk view IDs to delete",
+        "examples": ["1,2,3"],
+        "human_parameter_description": "A comma-separated list of view IDs you want to delete. Example: 1,2,3. You can find view IDs from a list Views action or in the view's URL.",
+        "human_parameter_name": "View IDs",
+        "title": "Ids",
+        "type": "string"
+      }
+    },
+    "required": ["ids"],
+    "title": "DeleteManyViewsRequest",
+    "type": "object"
+  },
+  "name": "delete_many_views",
+  "outputSchema": {
+    "$defs": {
+      "DeleteManyViewsResponse": {
+        "properties": {
+          "success": {
+            "description": "Indicates whether the view deletion was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "DeleteManyViewsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteManyViewsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

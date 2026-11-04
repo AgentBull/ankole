@@ -1,0 +1,60 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Collect evidence for an existing release. Returns success, not a release object. See https://docs.gitlab.com/api/releases/#collect-release-evidence.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "tag_name": {
+        "description": "Git tag associated with the existing release.",
+        "title": "Tag Name",
+        "type": "string"
+      }
+    },
+    "required": ["id", "tag_name"],
+    "title": "GenerateReleaseEvidenceRequest",
+    "type": "object"
+  },
+  "name": "generate_release_evidence",
+  "outputSchema": {
+    "$defs": {
+      "GenerateReleaseEvidenceResponse": {
+        "properties": {
+          "success": {
+            "description": "Whether GitLab accepted evidence collection.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "GenerateReleaseEvidenceResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GenerateReleaseEvidenceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

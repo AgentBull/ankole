@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently removes a current member from a Trello board, revoking their access; this action is irreversible.",
+  "inputSchema": {
+    "description": "Request schema for `RemoveBoardMember`",
+    "properties": {
+      "idBoard": {
+        "description": "The ID of the board from which the member will be removed.",
+        "examples": ["655691104f69690912868c38", "5a994c40447e0f7b8b375583"],
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID of the member to remove from the board.",
+        "examples": ["507f1f77bcf86cd799439011", "4f4db5a7cca221855a000000"],
+        "title": "Id Member",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard", "idMember"],
+    "title": "RemoveBoardMemberRequest",
+    "type": "object"
+  },
+  "name": "remove_board_member",
+  "outputSchema": {
+    "$defs": {
+      "RemoveBoardMemberResponse": {
+        "description": "Response schema for `RemoveBoardMember`.\n\nEmpty response body. The endpoint returns HTTP 200 OK status on success with no response body content.\nSuccess is indicated by the status code alone.",
+        "properties": {},
+        "title": "RemoveBoardMemberResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RemoveBoardMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List supported actions for macros in Zendesk. Use when you need to discover what field modifications are available when creating or editing macros. This endpoint returns the available action fields that can be set in a macro (e.g., status, priority, assignee, etc.) along with their possible values. This is useful for validating macro configurations or building macro management interfaces. This action is read-only and idempotent.",
+  "inputSchema": {
+    "description": "Request parameters for listing Zendesk macro actions. This endpoint takes no parameters.",
+    "properties": {},
+    "title": "GetMacrosActionsRequest",
+    "type": "object"
+  },
+  "name": "get_macros_actions",
+  "outputSchema": {
+    "$defs": {
+      "GetMacrosActionsResponse": {
+        "description": "Response containing list of supported Zendesk macro actions.",
+        "properties": {
+          "actions": {
+            "description": "List of supported macro action definitions",
+            "items": {
+              "$ref": "#/$defs/MacroAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          }
+        },
+        "required": ["actions"],
+        "title": "GetMacrosActionsResponse",
+        "type": "object"
+      },
+      "MacroAction": {
+        "description": "Action object representing a supported macro action field and its possible values.",
+        "properties": {
+          "field": {
+            "description": "The name of the field that can be modified by the macro action",
+            "title": "Field",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "description": "The value that can be set for this field",
+            "title": "Value"
+          }
+        },
+        "title": "MacroAction",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMacrosActionsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

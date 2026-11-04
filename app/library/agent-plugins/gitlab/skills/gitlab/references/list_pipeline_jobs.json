@@ -1,0 +1,271 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a list of jobs for a specified pipeline within a project. Use this when you need to inspect the status or details of jobs associated with a particular CI/CD pipeline.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": [123, "yourgroup%2Fyourproject"],
+        "title": "Id"
+      },
+      "include_retried": {
+        "default": false,
+        "description": "Include retried jobs in the response. Defaults to false.",
+        "title": "Include Retried",
+        "type": "boolean"
+      },
+      "page": {
+        "description": "Page number for pagination (1-based).",
+        "examples": [1],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of items per page for pagination (max 100).",
+        "examples": [20],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "pipeline_id": {
+        "description": "The ID of the pipeline.",
+        "examples": [456],
+        "title": "Pipeline Id",
+        "type": "integer"
+      },
+      "scope": {
+        "anyOf": [
+          {
+            "enum": [
+              "canceled",
+              "canceling",
+              "created",
+              "failed",
+              "manual",
+              "pending",
+              "preparing",
+              "running",
+              "scheduled",
+              "skipped",
+              "success",
+              "waiting_for_resource"
+            ],
+            "type": "string"
+          },
+          {
+            "items": {
+              "enum": [
+                "canceled",
+                "canceling",
+                "created",
+                "failed",
+                "manual",
+                "pending",
+                "preparing",
+                "running",
+                "scheduled",
+                "skipped",
+                "success",
+                "waiting_for_resource"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "The scope of jobs to show. Can be a single status or a list of statuses. If not provided, all jobs are returned.",
+        "examples": ["running", ["success", "failed"]],
+        "title": "Scope"
+      }
+    },
+    "required": ["id", "pipeline_id"],
+    "title": "ListPipelineJobsRequest",
+    "type": "object"
+  },
+  "name": "list_pipeline_jobs",
+  "outputSchema": {
+    "$defs": {
+      "Job": {
+        "properties": {
+          "allow_failure": {
+            "title": "Allow Failure",
+            "type": "boolean"
+          },
+          "artifacts": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "artifacts_expire_at": {
+            "title": "Artifacts Expire At",
+            "type": "string"
+          },
+          "artifacts_file": {
+            "additionalProperties": true,
+            "title": "Artifacts File",
+            "type": "object"
+          },
+          "commit": {
+            "additionalProperties": true,
+            "title": "Commit",
+            "type": "object"
+          },
+          "coverage": {
+            "title": "Coverage",
+            "type": "number"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "duration": {
+            "title": "Duration",
+            "type": "number"
+          },
+          "finished_at": {
+            "title": "Finished At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pipeline": {
+            "additionalProperties": true,
+            "title": "Pipeline",
+            "type": "object"
+          },
+          "project": {
+            "additionalProperties": true,
+            "title": "Project",
+            "type": "object"
+          },
+          "queued_duration": {
+            "title": "Queued Duration",
+            "type": "number"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "runner": {
+            "additionalProperties": true,
+            "title": "Runner",
+            "type": "object"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "boolean"
+          },
+          "tag_list": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tag List",
+            "type": "array"
+          },
+          "user": {
+            "additionalProperties": true,
+            "title": "User",
+            "type": "object"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "status", "stage", "name", "ref", "tag", "allow_failure", "created_at", "web_url"],
+        "title": "Job",
+        "type": "object"
+      },
+      "ListPipelineJobsResponse": {
+        "properties": {
+          "jobs": {
+            "description": "A list of jobs for the specified pipeline.",
+            "items": {
+              "$ref": "#/$defs/Job"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number, if available.",
+            "title": "Next Page",
+            "type": "integer"
+          },
+          "page": {
+            "description": "Current page number.",
+            "title": "Page",
+            "type": "integer"
+          },
+          "per_page": {
+            "description": "Number of items per page.",
+            "title": "Per Page",
+            "type": "integer"
+          },
+          "prev_page": {
+            "description": "Previous page number, if available.",
+            "title": "Prev Page",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total number of items.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "description": "Total number of pages.",
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": ["jobs"],
+        "title": "ListPipelineJobsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListPipelineJobsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

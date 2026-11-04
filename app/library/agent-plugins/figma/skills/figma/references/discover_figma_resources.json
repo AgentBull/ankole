@@ -1,0 +1,214 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Discovers Figma identifiers from supported file, design, board, prototype, slides, team and project URLs, and can list team projects, project files or file nodes. Project and file listing failures may appear as empty results.",
+  "inputSchema": {
+    "description": "Request to discover Figma resources and extract IDs automatically.",
+    "properties": {
+      "figma_url": {
+        "description": "Full Figma URL to extract file_key, node_id, and team_id from. Works with any Figma URL format:\n• File: https://www.figma.com/file/ABC123/Design-Name\n• Design: https://www.figma.com/design/ABC123/Design-Name\n• Board: https://www.figma.com/board/ABC123/Board-Name\n• Prototype: https://www.figma.com/proto/ABC123/Prototype-Name\n• Slides: https://www.figma.com/slides/ABC123/Slide-Name\n• With node: https://www.figma.com/file/ABC123/Design?node-id=123:456\n• Team: https://www.figma.com/files/team/123456/Team-Name\nThis is the easiest way to get all IDs you need! Node IDs in URLs use hyphens (123-456) but Figma JSON uses colons (123:456) — convert format when passing to other tools. If extracted_ids.file_key returns null, parse it manually from the path segment after /file/, /design/, /board/, /proto/, or /slides/.",
+        "title": "Figma Url",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "File key to extract all node IDs from. Get this from file URL (figma.com/file/FILE_KEY/...) or from project files list. Returns hierarchical list of all nodes with IDs, names, types, and paths.",
+        "title": "File Key",
+        "type": "string"
+      },
+      "max_depth": {
+        "default": 2,
+        "description": "Maximum tree depth to traverse when discovering nodes. 2=pages+frames, 3=pages+frames+components, etc. Higher values find more nodes but take longer. Responses at depth 4+ or broad file_key traversal can exceed 20k tokens with significant latency; cap at 2–3 and target specific CANVAS or FRAME node IDs to limit response size.",
+        "title": "Max Depth",
+        "type": "integer"
+      },
+      "project_id": {
+        "description": "Project ID to list all files from. Get this from project URL or from team projects list. Returns files with keys, names, and thumbnails.",
+        "title": "Project Id",
+        "type": "string"
+      },
+      "team_id": {
+        "description": "Team ID to list all projects from. Get this from team URL: https://www.figma.com/files/team/YOUR_TEAM_ID/Team-Name. Returns list of projects with IDs and names. Cannot be inferred from user identity or figma.get_current_user; must come from a team URL or be provided directly.",
+        "title": "Team Id",
+        "type": "string"
+      }
+    },
+    "title": "DiscoverFigmaResourcesRequest",
+    "type": "object"
+  },
+  "name": "discover_figma_resources",
+  "outputSchema": {
+    "$defs": {
+      "DiscoverFigmaResourcesResponse": {
+        "description": "Complete response with all discovered Figma resources and next-step guidance.",
+        "properties": {
+          "errors": {
+            "default": [],
+            "description": "Error messages encountered during discovery (e.g., file not found, permission denied).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "extracted_ids": {
+            "$ref": "#/$defs/ExtractedIds",
+            "description": "IDs extracted from figma_url (if provided). Use these with other Figma actions.",
+            "title": "Extracted Ids"
+          },
+          "files": {
+            "default": [],
+            "description": "Files found in project (if project_id provided). Use file keys with other actions.",
+            "items": {
+              "$ref": "#/$defs/FileInfo"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "instructions": {
+            "default": [],
+            "description": "Step-by-step guidance on what to do next based on your input.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Instructions",
+            "type": "array"
+          },
+          "nodes": {
+            "default": [],
+            "description": "Nodes found in file (if file_key provided). Use node IDs for background detection, etc.",
+            "items": {
+              "$ref": "#/$defs/NodeInfo"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "projects": {
+            "default": [],
+            "description": "Projects found in team (if team_id provided). Use project IDs to get files.",
+            "items": {
+              "$ref": "#/$defs/ProjectInfo"
+            },
+            "title": "Projects",
+            "type": "array"
+          }
+        },
+        "title": "DiscoverFigmaResourcesResponse",
+        "type": "object"
+      },
+      "ExtractedIds": {
+        "description": "IDs automatically extracted from Figma URL.",
+        "properties": {
+          "file_key": {
+            "description": "Figma file key extracted from URL (use with other Figma actions)",
+            "title": "File Key",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Node ID extracted from URL, converted to API format (123:456 → 123-456)",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Project ID extracted from URL (use to list files in project)",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "team_id": {
+            "description": "Team ID extracted from URL (use to list projects)",
+            "title": "Team Id",
+            "type": "string"
+          }
+        },
+        "title": "ExtractedIds",
+        "type": "object"
+      },
+      "FileInfo": {
+        "description": "File information from project discovery.",
+        "properties": {
+          "key": {
+            "description": "File key (use with file_key parameter or other Figma actions)",
+            "title": "Key",
+            "type": "string"
+          },
+          "last_modified": {
+            "description": "Last modification timestamp",
+            "title": "Last Modified",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable file name",
+            "title": "Name",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "Preview thumbnail URL (may expire)",
+            "title": "Thumbnail Url",
+            "type": "string"
+          }
+        },
+        "required": ["key", "name", "last_modified"],
+        "title": "FileInfo",
+        "type": "object"
+      },
+      "NodeInfo": {
+        "description": "Node information from file discovery.",
+        "properties": {
+          "id": {
+            "description": "Node ID (use with target_node_ids or node_id parameters)",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable node name from Figma",
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "description": "Full hierarchical path (e.g., 'Page 1/Header/Logo')",
+            "title": "Path",
+            "type": "string"
+          },
+          "type": {
+            "description": "Node type (FRAME, COMPONENT, TEXT, etc.)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "type", "path"],
+        "title": "NodeInfo",
+        "type": "object"
+      },
+      "ProjectInfo": {
+        "description": "Project information from team discovery.",
+        "properties": {
+          "id": {
+            "description": "Project ID (use with project_id parameter)",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable project name",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "ProjectInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DiscoverFigmaResourcesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

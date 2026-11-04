@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to archive a CustomDimension on a property. Use when you need to remove a custom dimension from active use without permanently deleting it. Archived dimensions cannot be used in new reports.",
+  "inputSchema": {
+    "description": "Request model for archiving a CustomDimension on a property.",
+    "properties": {
+      "name": {
+        "description": "Required. The resource name of the CustomDimension to archive. Must be in the exact format: properties/{property_id}/customDimensions/{dimension_id} where property_id and dimension_id are numeric identifiers. IMPORTANT: Must start with 'properties/' prefix, contain '/customDimensions/' in the middle, have no trailing slashes, and no additional path segments. Valid example: 'properties/489591273/customDimensions/13661259421'. Invalid examples: '489591273/13661259421' (missing prefix), 'properties/489591273/customDimensions/13661259421/' (trailing slash), 'properties/489591273/customDimensions/13661259421/extra' (extra segments)",
+        "examples": ["properties/489591273/customDimensions/13661259421", "properties/1000/customDimensions/5678"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "ArchiveCustomDimensionRequest",
+    "type": "object"
+  },
+  "name": "archive_custom_dimension",
+  "outputSchema": {
+    "$defs": {
+      "ArchiveCustomDimensionResponse": {
+        "description": "Response model for ArchiveCustomDimension action.\nThe API returns an empty object on successful archival.",
+        "properties": {},
+        "title": "ArchiveCustomDimensionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ArchiveCustomDimensionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

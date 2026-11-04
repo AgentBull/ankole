@@ -1,0 +1,275 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Search for requests in Zendesk using query syntax. Use when you need to find customer requests across Zendesk using flexible search criteria such as status, priority, subject, or requester information. Returns paginated results with request details. This action is read-only and idempotent - searching for requests does not modify any data.",
+  "inputSchema": {
+    "description": "Request parameters for searching Zendesk requests.",
+    "properties": {
+      "page": {
+        "description": "Page number for pagination (starts at 1). Increment until results array is empty to retrieve all matching requests.",
+        "examples": [1],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of results per page (max 100).",
+        "examples": [25],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "query": {
+        "description": "The syntax and matching logic for the string is detailed in the Zendesk Support search reference. See Query basics in the Tickets API documentation. Examples: 'status:open', 'type:request', 'priority:high', 'subject:fire'",
+        "examples": ["status:open", "type:request priority:normal", "subject:printer", "requester_id:1462"],
+        "title": "Query",
+        "type": "string"
+      },
+      "sort_by": {
+        "description": "Field to sort results by. Options: 'updated_at', 'created_at', 'status', 'priority'. Defaults to sorting by relevance if not specified.",
+        "examples": ["updated_at", "created_at", "status"],
+        "title": "Sort By",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort order direction. Options: 'asc' (ascending) or 'desc' (descending). Defaults to 'desc' if not specified.",
+        "examples": ["desc", "asc"],
+        "title": "Sort Order",
+        "type": "string"
+      }
+    },
+    "title": "GetRequestsSearchRequest",
+    "type": "object"
+  },
+  "name": "get_requests_search",
+  "outputSchema": {
+    "$defs": {
+      "GetRequestsSearchResponse": {
+        "description": "Response from Zendesk requests search API.",
+        "properties": {
+          "count": {
+            "description": "Total number of requests matching the query",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for the next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "page": {
+            "description": "Current page number",
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_count": {
+            "description": "Total number of pages",
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "per_page": {
+            "description": "Number of results per page",
+            "title": "Per Page",
+            "type": "integer"
+          },
+          "previous_page": {
+            "description": "URL for the previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "requests": {
+            "description": "Array of requests matching the search query",
+            "items": {
+              "$ref": "#/$defs/ZendeskRequest"
+            },
+            "title": "Requests",
+            "type": "array"
+          },
+          "sort_by": {
+            "description": "Field used for sorting",
+            "title": "Sort By",
+            "type": "string"
+          },
+          "sort_order": {
+            "description": "Sort order direction",
+            "title": "Sort Order",
+            "type": "string"
+          }
+        },
+        "required": ["requests"],
+        "title": "GetRequestsSearchResponse",
+        "type": "object"
+      },
+      "RequestVia": {
+        "description": "Via object for request.",
+        "properties": {
+          "channel": {
+            "description": "The channel through which the request was created (e.g., 'web', 'email')",
+            "title": "Channel",
+            "type": "string"
+          }
+        },
+        "title": "RequestVia",
+        "type": "object"
+      },
+      "ZendeskRequest": {
+        "description": "Zendesk request object returned from search.",
+        "properties": {
+          "assignee_id": {
+            "description": "ID of the assigned agent",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "can_be_solved_by_me": {
+            "description": "Whether the current user can solve this request",
+            "title": "Can Be Solved By Me",
+            "type": "boolean"
+          },
+          "collaborator_ids": {
+            "description": "List of collaborator user IDs",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Timestamp when the request was created (ISO 8601)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "List of custom field values (key-value pairs)",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "custom_status_id": {
+            "description": "ID of the custom status",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Detailed description of the request",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "description": "Due date for the request (ISO 8601)",
+            "title": "Due At",
+            "type": "string"
+          },
+          "email_cc_ids": {
+            "description": "List of email CC user IDs",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Email Cc Ids",
+            "type": "array"
+          },
+          "followup_source_id": {
+            "description": "ID of the followup source ticket",
+            "title": "Followup Source Id",
+            "type": "integer"
+          },
+          "group_id": {
+            "description": "ID of the assigned group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique request ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_public": {
+            "description": "Whether the request is publicly visible",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "organization_id": {
+            "description": "ID of the requester's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Request priority (e.g., 'urgent', 'high', 'normal', 'low')",
+            "title": "Priority",
+            "type": "string"
+          },
+          "recipient": {
+            "description": "Email address of the recipient for this request",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "ID of the requester",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "solved": {
+            "description": "Whether the request has been solved",
+            "title": "Solved",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "Request status (e.g., 'new', 'open', 'pending', 'solved', 'closed')",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Request subject line",
+            "title": "Subject",
+            "type": "string"
+          },
+          "ticket_form_id": {
+            "description": "ID of the associated ticket form",
+            "title": "Ticket Form Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Request type (e.g., 'question', 'incident', 'problem', 'task')",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the request was last updated (ISO 8601)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL for the request",
+            "title": "Url",
+            "type": "string"
+          },
+          "via": {
+            "$ref": "#/$defs/RequestVia",
+            "description": "Object describing how the request was created",
+            "title": "Via"
+          }
+        },
+        "title": "ZendeskRequest",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRequestsSearchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

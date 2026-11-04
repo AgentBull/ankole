@@ -1,0 +1,260 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Moves an issue from one project to another in GitLab. The issue receives a new IID and project_id in the destination project. Use this action when you need to relocate an issue to a different project, such as when reorganizing work or transferring issues between team projects. If equivalent labels or milestones exist in the destination project, they are automatically assigned to the moved issue.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The global ID or URL-encoded path of the source project (e.g., '12345', 'my-group/my-project').",
+        "examples": ["12345", "my-group/my-project"],
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "The internal ID of the project's issue to move.",
+        "examples": [42],
+        "title": "Issue Iid",
+        "type": "integer"
+      },
+      "to_project_id": {
+        "description": "The ID of the destination project where the issue will be moved.",
+        "examples": [67890],
+        "title": "To Project Id",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid", "to_project_id"],
+    "title": "MoveIssueRequest",
+    "type": "object"
+  },
+  "name": "move_issue",
+  "outputSchema": {
+    "$defs": {
+      "MoveIssueResponse": {
+        "properties": {
+          "_links": {
+            "additionalProperties": true,
+            "description": "Links related to the issue.",
+            "title": " Links",
+            "type": "object"
+          },
+          "assignee": {
+            "additionalProperties": true,
+            "description": "The assignee of the issue (deprecated).",
+            "title": "Assignee",
+            "type": "object"
+          },
+          "assignees": {
+            "description": "List of assignees.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Assignees",
+            "type": "array"
+          },
+          "author": {
+            "additionalProperties": true,
+            "description": "The author of the issue.",
+            "title": "Author",
+            "type": "object"
+          },
+          "closed_at": {
+            "description": "Timestamp of when the issue was closed.",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "closed_by": {
+            "additionalProperties": true,
+            "description": "User who closed the issue.",
+            "title": "Closed By",
+            "type": "object"
+          },
+          "created_at": {
+            "description": "Timestamp of when the issue was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the issue.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "description": "Indicates if discussion on the issue is locked.",
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "downvotes": {
+            "description": "Number of downvotes.",
+            "title": "Downvotes",
+            "type": "integer"
+          },
+          "due_date": {
+            "description": "Due date of the issue.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "epic": {
+            "additionalProperties": true,
+            "description": "Epic associated with the issue.",
+            "title": "Epic",
+            "type": "object"
+          },
+          "health_status": {
+            "description": "Health status of the issue.",
+            "title": "Health Status",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the issue.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "The internal ID of the issue (updated after move).",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "List of labels assigned to the issue.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "merge_requests_count": {
+            "description": "Number of merge requests related to the issue.",
+            "title": "Merge Requests Count",
+            "type": "integer"
+          },
+          "milestone": {
+            "additionalProperties": true,
+            "description": "Milestone assigned to the issue.",
+            "title": "Milestone",
+            "type": "object"
+          },
+          "project_id": {
+            "description": "The ID of the destination project (updated after move).",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "references": {
+            "additionalProperties": true,
+            "description": "References related to the issue.",
+            "title": "References",
+            "type": "object"
+          },
+          "severity": {
+            "description": "Severity of the issue.",
+            "title": "Severity",
+            "type": "string"
+          },
+          "state": {
+            "description": "The state of the issue (e.g., opened, closed).",
+            "title": "State",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Indicates if the user is subscribed to the issue.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "task_completion_status": {
+            "additionalProperties": true,
+            "description": "Task completion status.",
+            "title": "Task Completion Status",
+            "type": "object"
+          },
+          "time_stats": {
+            "additionalProperties": true,
+            "description": "Time tracking statistics for the issue.",
+            "title": "Time Stats",
+            "type": "object"
+          },
+          "title": {
+            "description": "The title of the issue.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of the issue.",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp of when the issue was last updated.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "upvotes": {
+            "description": "Number of upvotes.",
+            "title": "Upvotes",
+            "type": "integer"
+          },
+          "user_notes_count": {
+            "description": "Number of user notes on the issue.",
+            "title": "User Notes Count",
+            "type": "integer"
+          },
+          "web_url": {
+            "description": "URL of the issue.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Weight of the issue.",
+            "title": "Weight",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "id",
+          "iid",
+          "title",
+          "state",
+          "assignees",
+          "type",
+          "labels",
+          "upvotes",
+          "downvotes",
+          "merge_requests_count",
+          "author",
+          "created_at",
+          "updated_at",
+          "subscribed",
+          "user_notes_count",
+          "web_url",
+          "references",
+          "time_stats",
+          "_links",
+          "task_completion_status"
+        ],
+        "title": "MoveIssueResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/MoveIssueResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

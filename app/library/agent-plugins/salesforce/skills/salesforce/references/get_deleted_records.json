@@ -1,0 +1,96 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List record IDs and deletion times for one Salesforce object and time window.",
+  "inputSchema": {
+    "properties": {
+      "end": {
+        "description": "End of the deletion window, as a timezone-aware ISO 8601 datetime. Converted to UTC; Salesforce ignores seconds.",
+        "examples": ["2026-10-26T00:00:00Z"],
+        "format": "date-time",
+        "title": "End",
+        "type": "string"
+      },
+      "sobject": {
+        "description": "API name of the Salesforce object whose deleted records to list.",
+        "examples": ["Account", "Contact", "Merchandise__c"],
+        "minLength": 1,
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+        "title": "Sobject",
+        "type": "string"
+      },
+      "start": {
+        "description": "Start of the deletion window, as a timezone-aware ISO 8601 datetime. Converted to UTC; Salesforce ignores seconds. Must precede end. Results are available for at most the previous 15 days.",
+        "examples": ["2026-10-25T00:00:00Z"],
+        "format": "date-time",
+        "title": "Start",
+        "type": "string"
+      }
+    },
+    "required": ["sobject", "start", "end"],
+    "title": "GetDeletedRecordsRequest",
+    "type": "object"
+  },
+  "name": "get_deleted_records",
+  "outputSchema": {
+    "$defs": {
+      "DeletedRecord": {
+        "additionalProperties": true,
+        "properties": {
+          "deletedDate": {
+            "description": "UTC ISO 8601 timestamp when the record was deleted.",
+            "title": "Deleted Date",
+            "type": "string"
+          },
+          "id": {
+            "description": "Salesforce ID of the deleted record.",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": ["id", "deletedDate"],
+        "title": "DeletedRecord",
+        "type": "object"
+      },
+      "GetDeletedRecordsResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "deletedRecords": {
+            "description": "Accessible records deleted in the requested time window.",
+            "items": {
+              "$ref": "#/$defs/DeletedRecord"
+            },
+            "title": "Deleted Records",
+            "type": "array"
+          },
+          "earliestDateAvailable": {
+            "description": "UTC ISO 8601 timestamp of the last physically deleted object.",
+            "title": "Earliest Date Available",
+            "type": "string"
+          },
+          "latestDateCovered": {
+            "description": "UTC ISO 8601 timestamp of the last date covered by this result.",
+            "title": "Latest Date Covered",
+            "type": "string"
+          }
+        },
+        "required": ["deletedRecords", "earliestDateAvailable", "latestDateCovered"],
+        "title": "GetDeletedRecordsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetDeletedRecordsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

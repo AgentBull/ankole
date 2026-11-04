@@ -1,0 +1,456 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves Trello boards to which a specific member has been invited but has not yet joined.",
+  "inputSchema": {
+    "description": "Request schema for `GetMembersBoardsInvitedByIdMember`",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Board fields to return: 'all' or a comma-separated list (e.g., name,url). Valid fields: closed, dateLastActivity, dateLastView, desc, descData, idOrganization, invitations, invited, labelNames, memberships, name, pinned, powerUps, prefs, shortLink, shortUrl, starred, subscribed, url.",
+        "examples": ["all", "name,url,shortUrl", "name,desc,idOrganization"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idMember": {
+        "default": "me",
+        "description": "The ID or username of the Trello member whose pending board invitations are to be retrieved. Use 'me' to refer to the authenticated user. Defaults to 'me' if not provided.",
+        "examples": ["me", "johndoe123", "65f1c4a9b0e8a1a0b3c4d5e6"],
+        "title": "Id Member",
+        "type": "string"
+      }
+    },
+    "title": "GetMembersBoardsInvitedByIdMemberRequest",
+    "type": "object"
+  },
+  "name": "get_members_boards_invited_by_id_member",
+  "outputSchema": {
+    "$defs": {
+      "BackgroundImageScaled": {
+        "description": "Scaled background image version with dimensions",
+        "properties": {
+          "height": {
+            "description": "Height of the scaled image in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL to the scaled image",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Width of the scaled image in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "BackgroundImageScaled",
+        "type": "object"
+      },
+      "Board": {
+        "description": "Board object representing a Trello board",
+        "properties": {
+          "closed": {
+            "description": "Whether the board is archived/closed",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "dateLastActivity": {
+            "description": "Timestamp of the most recent activity on the board (ISO 8601 date format)",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "dateLastView": {
+            "description": "Timestamp when the member last viewed the board (ISO 8601 date format)",
+            "title": "Date Last View",
+            "type": "string"
+          },
+          "desc": {
+            "description": "Board description text (deprecated field)",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "description": "Custom emoji data for descriptions, null if not used",
+            "title": "Desc Data",
+            "type": "string"
+          },
+          "enterpriseOwned": {
+            "description": "Whether the board is owned by an enterprise account",
+            "title": "Enterprise Owned",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The unique identifier for the board (24-character hex string)",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "ID of the member who created the board",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "idOrganization": {
+            "description": "ID of the parent organization/workspace, if applicable",
+            "title": "Id Organization",
+            "type": "string"
+          },
+          "idTags": {
+            "description": "Associated tag identifiers",
+            "title": "Id Tags",
+            "type": "string"
+          },
+          "labelNames": {
+            "$ref": "#/$defs/LabelNames",
+            "description": "Custom label names mapped to color keys",
+            "title": "Label Names"
+          },
+          "limits": {
+            "$ref": "#/$defs/BoardLimits",
+            "description": "Usage limits and constraints for the board",
+            "title": "Limits"
+          },
+          "memberships": {
+            "description": "Array of membership objects representing board members",
+            "items": {
+              "$ref": "#/$defs/BoardMembership"
+            },
+            "title": "Memberships",
+            "type": "array"
+          },
+          "name": {
+            "description": "The name of the board",
+            "title": "Name",
+            "type": "string"
+          },
+          "pinned": {
+            "description": "Whether the board is pinned on the member's board list",
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "powerUps": {
+            "description": "List of enabled Power-Ups on the board",
+            "title": "Power Ups",
+            "type": "string"
+          },
+          "prefs": {
+            "$ref": "#/$defs/BoardPrefs",
+            "description": "Board preferences and settings",
+            "title": "Prefs"
+          },
+          "shortLink": {
+            "description": "Short identifier for the board used in URLs",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "Shortened URL to the board",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "starred": {
+            "description": "Whether the current user has starred this board",
+            "title": "Starred",
+            "type": "boolean"
+          },
+          "subscribed": {
+            "description": "Whether the member is subscribed to board notifications",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "Full persistent URL to the board",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "closed", "idMemberCreator", "url", "shortUrl", "shortLink"],
+        "title": "Board",
+        "type": "object"
+      },
+      "BoardLimits": {
+        "description": "Usage limits and constraints for the board",
+        "properties": {
+          "attachments": {
+            "additionalProperties": true,
+            "description": "Attachment limits per board",
+            "title": "Attachments",
+            "type": "object"
+          },
+          "boards": {
+            "additionalProperties": true,
+            "description": "Board-level limits",
+            "title": "Boards",
+            "type": "object"
+          },
+          "cards": {
+            "additionalProperties": true,
+            "description": "Card limits including openPerBoard and totalPerBoard with status, disableAt, and warnAt thresholds",
+            "title": "Cards",
+            "type": "object"
+          },
+          "checklists": {
+            "additionalProperties": true,
+            "description": "Checklist limits per board",
+            "title": "Checklists",
+            "type": "object"
+          },
+          "customFields": {
+            "additionalProperties": true,
+            "description": "Custom field limits (typically 48 per board)",
+            "title": "Custom Fields",
+            "type": "object"
+          },
+          "labels": {
+            "additionalProperties": true,
+            "description": "Label limits (typically 950 per board)",
+            "title": "Labels",
+            "type": "object"
+          },
+          "lists": {
+            "additionalProperties": true,
+            "description": "List limits including openPerBoard and totalPerBoard",
+            "title": "Lists",
+            "type": "object"
+          }
+        },
+        "title": "BoardLimits",
+        "type": "object"
+      },
+      "BoardMembership": {
+        "description": "Membership object representing a board member",
+        "properties": {
+          "deactivated": {
+            "description": "Whether the membership is deactivated",
+            "title": "Deactivated",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the membership",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "memberType": {
+            "description": "Role of the member on the board (e.g., 'admin', 'normal')",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "unconfirmed": {
+            "description": "Whether the membership is unconfirmed",
+            "title": "Unconfirmed",
+            "type": "boolean"
+          }
+        },
+        "title": "BoardMembership",
+        "type": "object"
+      },
+      "BoardPrefs": {
+        "description": "Board preferences and settings",
+        "properties": {
+          "background": {
+            "description": "Background identifier (color or image ID)",
+            "title": "Background",
+            "type": "string"
+          },
+          "backgroundBottomColor": {
+            "description": "Hex color value for background bottom gradient",
+            "title": "Background Bottom Color",
+            "type": "string"
+          },
+          "backgroundBrightness": {
+            "description": "Background brightness level ('light' or 'dark')",
+            "title": "Background Brightness",
+            "type": "string"
+          },
+          "backgroundImage": {
+            "description": "Full URL to the background image if set",
+            "title": "Background Image",
+            "type": "string"
+          },
+          "backgroundImageScaled": {
+            "description": "Array of scaled background image versions with different dimensions",
+            "items": {
+              "$ref": "#/$defs/BackgroundImageScaled"
+            },
+            "title": "Background Image Scaled",
+            "type": "array"
+          },
+          "backgroundTile": {
+            "description": "Whether the background image is tiled",
+            "title": "Background Tile",
+            "type": "boolean"
+          },
+          "backgroundTopColor": {
+            "description": "Hex color value for background top gradient",
+            "title": "Background Top Color",
+            "type": "string"
+          },
+          "calendarFeedEnabled": {
+            "description": "Whether calendar feed integration is enabled",
+            "title": "Calendar Feed Enabled",
+            "type": "boolean"
+          },
+          "canBeOrg": {
+            "description": "Whether the board can be organization-visible",
+            "title": "Can Be Org",
+            "type": "boolean"
+          },
+          "canBePrivate": {
+            "description": "Whether the board can be made private",
+            "title": "Can Be Private",
+            "type": "boolean"
+          },
+          "canBePublic": {
+            "description": "Whether the board can be made public",
+            "title": "Can Be Public",
+            "type": "boolean"
+          },
+          "canInvite": {
+            "description": "Whether the current user can invite others to the board",
+            "title": "Can Invite",
+            "type": "boolean"
+          },
+          "cardAging": {
+            "description": "Card appearance aging mode (e.g., 'regular', 'pirate')",
+            "title": "Card Aging",
+            "type": "string"
+          },
+          "cardCovers": {
+            "description": "Whether card covers (attachment images) are displayed",
+            "title": "Card Covers",
+            "type": "boolean"
+          },
+          "comments": {
+            "description": "Who can comment on cards (e.g., 'members', 'observers', 'org', 'public')",
+            "title": "Comments",
+            "type": "string"
+          },
+          "hideVotes": {
+            "description": "Whether voting results are hidden",
+            "title": "Hide Votes",
+            "type": "boolean"
+          },
+          "invitations": {
+            "description": "Who can send invitations (e.g., 'members', 'admins')",
+            "title": "Invitations",
+            "type": "string"
+          },
+          "isTemplate": {
+            "description": "Whether the board is a template",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "permissionLevel": {
+            "description": "Access control setting (e.g., 'private', 'org', 'public')",
+            "title": "Permission Level",
+            "type": "string"
+          },
+          "selfJoin": {
+            "description": "Whether members can join the board without an invitation",
+            "title": "Self Join",
+            "type": "boolean"
+          },
+          "voting": {
+            "description": "Voting feature status ('disabled' or other voting modes)",
+            "title": "Voting",
+            "type": "string"
+          }
+        },
+        "title": "BoardPrefs",
+        "type": "object"
+      },
+      "GetMembersBoardsInvitedByIdMemberResponse": {
+        "description": "Response schema for `GetMembersBoardsInvitedByIdMember`",
+        "properties": {
+          "boards": {
+            "description": "Array of Board objects representing boards the member has been invited to",
+            "items": {
+              "$ref": "#/$defs/Board"
+            },
+            "title": "Boards",
+            "type": "array"
+          }
+        },
+        "required": ["boards"],
+        "title": "GetMembersBoardsInvitedByIdMemberResponse",
+        "type": "object"
+      },
+      "LabelNames": {
+        "description": "Custom label names mapped to color keys",
+        "properties": {
+          "black": {
+            "description": "Custom name for black label",
+            "title": "Black",
+            "type": "string"
+          },
+          "blue": {
+            "description": "Custom name for blue label",
+            "title": "Blue",
+            "type": "string"
+          },
+          "green": {
+            "description": "Custom name for green label",
+            "title": "Green",
+            "type": "string"
+          },
+          "lime": {
+            "description": "Custom name for lime label",
+            "title": "Lime",
+            "type": "string"
+          },
+          "orange": {
+            "description": "Custom name for orange label",
+            "title": "Orange",
+            "type": "string"
+          },
+          "pink": {
+            "description": "Custom name for pink label",
+            "title": "Pink",
+            "type": "string"
+          },
+          "purple": {
+            "description": "Custom name for purple label",
+            "title": "Purple",
+            "type": "string"
+          },
+          "red": {
+            "description": "Custom name for red label",
+            "title": "Red",
+            "type": "string"
+          },
+          "sky": {
+            "description": "Custom name for sky blue label",
+            "title": "Sky",
+            "type": "string"
+          },
+          "yellow": {
+            "description": "Custom name for yellow label",
+            "title": "Yellow",
+            "type": "string"
+          }
+        },
+        "title": "LabelNames",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMembersBoardsInvitedByIdMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

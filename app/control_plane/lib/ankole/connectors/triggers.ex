@@ -34,15 +34,26 @@ defmodule Ankole.Connectors.Triggers do
     with :ok <- Store.member(actor) do
       actor = unwrap(actor)
 
-      query =
+      {query, owned} =
         if Ankole.AuthZ.pod_admin?(actor.uid) do
-          Ash.Query.new(Trigger)
+          {Ash.Query.new(Trigger), nil}
         else
-          ids = actor.uid |> Ankole.Principals.authority_uid() |> Accounts.owned_ids()
-          Ash.Query.filter(Trigger, connected_account_id in ^ids)
+          accounts = actor.uid |> Ankole.Principals.authority_uid() |> Accounts.owned_summaries()
+          ids = Map.keys(accounts)
+          {Ash.Query.filter(Trigger, connected_account_id in ^ids), accounts}
         end
 
-      {:ok, query |> Ankole.Ash.read!() |> Enum.map(&public/1)}
+      triggers = Ankole.Ash.read!(query)
+
+      accounts =
+        owned ||
+          triggers
+          |> Enum.map(& &1.connected_account_id)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.uniq()
+          |> Accounts.summaries()
+
+      {:ok, Enum.map(triggers, &public(&1, accounts[&1.connected_account_id]))}
     end
   end
 
@@ -50,10 +61,16 @@ defmodule Ankole.Connectors.Triggers do
     attrs = Ankole.Attrs.normalize_external_attrs(attrs)
 
     with :ok <- Store.member(actor),
-         {:ok, config} <- Store.get_auth_config(attrs["auth_config_id"]),
+         {:ok, config} <- Store.get_auth_config(attrs["auth_config_id"] || attrs["connection"]),
          {:ok, adapter} <- Registry.adapter(config.plugin_id),
          true <- function_exported?(adapter, :reconcile_trigger, 4),
-         {:ok, account_id} <- trigger_account(config, attrs["connected_account_id"]),
+         {:ok, account_id} <-
+           trigger_account(
+             config,
+             attrs["connected_account_id"],
+             unwrap(actor),
+             attrs["trigger_type"]
+           ),
          :ok <- account_for_config(account_id, config.id),
          :ok <- authorize_selected_account(actor, account_id),
          :ok <- require_grant(actor, config, adapter, attrs["trigger_type"], account_id),
@@ -61,7 +78,8 @@ defmodule Ankole.Connectors.Triggers do
          true <- is_binary(attrs["trigger_type"]) and is_binary(attrs["scope_key"]) do
       id = Ankole.Kernel.gen_uuid_v7()
 
-      with {:ok, sealed} <-
+      with {:ok, config} <- Store.materialize(config, unwrap(actor).uid),
+           {:ok, sealed} <-
              Credentials.seal(
                %{"webhook_secret" => Ankole.Authn.SecretDigest.token()},
                "connector_trigger",
@@ -145,6 +163,29 @@ defmodule Ankole.Connectors.Triggers do
     end
   end
 
+  def reauthorize_account_in_tx(account_id) do
+    Repo.require_transaction!("reauthorize connector subscriptions")
+
+    Trigger
+    |> Ash.Query.filter(connected_account_id == ^account_id and status == "degraded")
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!(lock_identity: {:rows, "connector_triggers", :id})
+    |> Enum.each(fn row ->
+      {:ok, _} =
+        Ankole.Ash.update(row, :update, %{
+          status: if(deleting?(row), do: "deleting", else: "provisioning"),
+          last_error: nil,
+          lease_expires_at: nil
+        })
+
+      {:ok, _} =
+        Oban.insert(Ankole.Connectors.Jobs.ReconcileTrigger.new(%{"trigger_id" => row.id}))
+    end)
+
+    :ok
+  end
+
   defp require_retry_grant(actor, trigger) do
     if deleting?(trigger) do
       :ok
@@ -173,20 +214,56 @@ defmodule Ankole.Connectors.Triggers do
          definition when not is_nil(definition) <-
            Enum.find(Map.get(declaration, :trigger_types, []), &(&1.id == type)),
          {:ok, account} <- Accounts.get_by_id(account_id) do
-      require_personal_grant(unwrap(actor), config, adapter, definition, account)
+      require_account_grant(unwrap(actor), config, adapter, definition, account)
     else
       nil -> {:error, :unsupported_connector_trigger}
       error -> error
     end
   end
 
-  defp require_personal_grant(
+  defp require_account_grant(
+         actor,
+         config,
+         adapter,
+         definition,
+         %{subject_kind: "human"} = account
+       ) do
+    check_personal_grant(actor, config, adapter, definition, account)
+  end
+
+  defp require_account_grant(
          actor,
          config,
          adapter,
          %{requires_personal_account: true} = definition,
          account
        ) do
+    check_personal_grant(actor, config, adapter, definition, account)
+  end
+
+  defp require_account_grant(
+         _actor,
+         %{auth_scheme: "oauth2"} = config,
+         adapter,
+         definition,
+         %{subject_kind: "app"} = account
+       ) do
+    required = Map.get(definition, :oauth_scopes, [])
+
+    if Accounts.valid?(account) &&
+         scopes_satisfied?(adapter, required, account.granted_scopes, config) do
+      :ok
+    else
+      OAuth.consent_required(config.slug, Enum.uniq(account.granted_scopes ++ required), %{
+        "subject_kind" => "app",
+        "trigger_type" => definition.id
+      })
+    end
+  end
+
+  defp require_account_grant(_actor, _config, _adapter, _definition, _account), do: :ok
+
+  defp check_personal_grant(actor, config, adapter, definition, account) do
     required = Map.get(definition, :oauth_scopes, [])
 
     owner =
@@ -196,7 +273,7 @@ defmodule Ankole.Connectors.Triggers do
 
     with {:ok, %{type: :human, status: :active}} <- Ankole.Principals.get_principal(owner) do
       if account && account.subject_kind == "human" && Accounts.valid?(account) &&
-           adapter.scopes_satisfied?(required, account.granted_scopes, config) do
+           scopes_satisfied?(adapter, required, account.granted_scopes, config) do
         :ok
       else
         personal_consent(actor, config, definition, required, owner)
@@ -206,7 +283,11 @@ defmodule Ankole.Connectors.Triggers do
     end
   end
 
-  defp require_personal_grant(_actor, _config, _adapter, _definition, _account), do: :ok
+  defp scopes_satisfied?(adapter, required, granted, config) do
+    if function_exported?(adapter, :scopes_satisfied?, 3),
+      do: adapter.scopes_satisfied?(required, granted, config),
+      else: Enum.all?(required, &(&1 in granted))
+  end
 
   defp personal_consent(actor, config, definition, required, owner) do
     {:error, details} =
@@ -229,6 +310,26 @@ defmodule Ankole.Connectors.Triggers do
     end
   end
 
+  def receive_cloud_status(id, status, last_error) do
+    Repo.transact_top_level(fn ->
+      row =
+        Trigger
+        |> Ash.Query.filter(id == ^id)
+        |> Ash.Query.lock(:for_update)
+        |> Ankole.Ash.read_one!(lock_identity: {"connector_triggers", [id]})
+
+      case row do
+        nil ->
+          {:error, :not_found}
+
+        row ->
+          if deleting?(row),
+            do: {:ok, row},
+            else: Ankole.Ash.update(row, :update, %{status: status, last_error: last_error})
+      end
+    end)
+  end
+
   def get_ingress(id) do
     with {:ok, trigger} <- get(id),
          true <- trigger.status in ["active", "provisioning"] and active_account?(trigger),
@@ -249,7 +350,26 @@ defmodule Ankole.Connectors.Triggers do
   defp unwrap(%Ankole.AuthZ.Actor{principal: actor}), do: actor
   defp unwrap(actor), do: actor
   defp authorize_selected_account(_actor, nil), do: :ok
-  defp authorize_selected_account(actor, id), do: authorize_account(actor, id)
+
+  defp authorize_selected_account(actor, id) do
+    actor = unwrap(actor)
+
+    with :ok <- Store.member(actor), {:ok, account} <- Accounts.get_by_id(id) do
+      case account do
+        %{subject_kind: "human", owner_principal_uid: owner} ->
+          if owner == Ankole.Principals.authority_uid(actor.uid),
+            do: :ok,
+            else: {:error, :forbidden}
+
+        %{subject_kind: "app"} ->
+          Store.admin(actor)
+
+        _ ->
+          {:error, :connection_account_not_found}
+      end
+    end
+  end
+
   defp authorize_account(actor, nil), do: Store.admin(actor)
 
   defp authorize_account(actor, id) do
@@ -275,12 +395,14 @@ defmodule Ankole.Connectors.Triggers do
       end
 
     with {:ok, trigger} <- result,
-         true <- trigger.status != "deleting",
-         do: authorize(actor, trigger),
-         else: (
-           false -> {:error, :connector_trigger_inactive}
-           error -> error
-         )
+         true <- trigger.status != "deleting" do
+      if is_nil(trigger.connected_account_id),
+        do: Store.admin(unwrap(actor)),
+        else: authorize_selected_account(actor, trigger.connected_account_id)
+    else
+      false -> {:error, :connector_trigger_inactive}
+      error -> error
+    end
   end
 
   def source_access(actor, "connector://" <> suffix) do
@@ -368,7 +490,7 @@ defmodule Ankole.Connectors.Triggers do
         is_nil(row) ->
           {:error, :not_found}
 
-        row.status == "degraded" ->
+        row.status == "degraded" and active_account?(row) ->
           {:error, :connector_trigger_degraded}
 
         row.lease_expires_at && DateTime.compare(row.lease_expires_at, DateTime.utc_now()) == :gt ->
@@ -399,6 +521,16 @@ defmodule Ankole.Connectors.Triggers do
         {:error, :connector_trigger_changed}
       end
     end)
+    |> case do
+      {:ok, {:retry, reason}} -> {:error, reason}
+      result -> result
+    end
+  end
+
+  defp finish_reconciliation(row, _previous_desired, _desired, {:error, %{code: code} = reason})
+       when code in ["connector_trigger_busy", "connector_refresh_in_progress"] do
+    with {:ok, _} <- Ankole.Ash.update(row, :update, %{lease_expires_at: nil}),
+         do: {:ok, {:retry, reason}}
   end
 
   defp finish_reconciliation(row, previous_desired, desired, result) do
@@ -437,7 +569,7 @@ defmodule Ankole.Connectors.Triggers do
     reason
     |> Ankole.Attrs.normalize_external_attrs()
     |> Map.take(
-      ~w(code message details status upstream_code retryable retryAfterSeconds request_sent)
+      ~w(code message details status upstream_code retryable retryAfterSeconds request_sent callback_url external_subscription_id)
     )
     |> Map.put_new("code", "subscription_reconciliation_failed")
   end
@@ -475,15 +607,39 @@ defmodule Ankole.Connectors.Triggers do
     end
   end
 
-  defp trigger_account(%{auth_scheme: "oauth2"} = config, nil) do
+  defp trigger_account(%{auth_scheme: scheme} = config, nil, actor, type)
+       when scheme in ["oauth2", "personal_token", "api_token"] do
     case Accounts.application_account(config) do
-      {:ok, nil} -> {:error, :connection_account_required}
-      {:ok, account} -> {:ok, account.id}
-      error -> error
+      {:ok, nil} ->
+        missing_trigger_account(config, actor, type)
+
+      {:ok, account} ->
+        {:ok, account.id}
+
+      error ->
+        error
     end
   end
 
-  defp trigger_account(_config, id), do: {:ok, id}
+  defp trigger_account(_config, id, _actor, _type), do: {:ok, id}
+
+  defp missing_trigger_account(config, actor, type) do
+    with {:ok, declaration} <-
+           Ankole.Plugins.Registry.fetch_adapter("connectors.connector", config.plugin_id),
+         definition when not is_nil(definition) <-
+           Enum.find(declaration[:trigger_types] || [], &(&1.id == type)),
+         true <- Map.get(definition, :supports_personal_account, false) do
+      personal_consent(
+        actor,
+        config,
+        definition,
+        Map.get(definition, :oauth_scopes, []),
+        Ankole.Principals.authority_uid(actor.uid)
+      )
+    else
+      _ -> {:error, :connection_account_required}
+    end
+  end
 
   defp account_for_config(nil, _), do: :ok
 
@@ -501,22 +657,29 @@ defmodule Ankole.Connectors.Triggers do
     end
   end
 
-  def public(row),
-    do:
-      row
-      |> Map.from_struct()
-      |> Map.take([
-        :id,
-        :auth_config_id,
-        :connected_account_id,
-        :plugin_id,
-        :trigger_type,
-        :scope_key,
-        :config,
-        :external_subscription_id,
-        :status,
-        :last_error,
-        :updated_at
-      ])
-      |> Map.put(:config_ref, "connector-trigger://" <> row.id)
+  def public(row) do
+    {:ok, account} = Accounts.get_by_id(row.connected_account_id)
+    public(row, account)
+  end
+
+  defp public(row, account) do
+    row
+    |> Map.from_struct()
+    |> Map.take([
+      :id,
+      :auth_config_id,
+      :connected_account_id,
+      :plugin_id,
+      :trigger_type,
+      :scope_key,
+      :config,
+      :external_subscription_id,
+      :status,
+      :last_error,
+      :updated_at
+    ])
+    |> Map.put(:config_ref, "connector-trigger://" <> row.id)
+    |> Map.put(:owner_principal_uid, if(account, do: account.owner_principal_uid))
+    |> Map.put(:connected_account_status, if(account, do: account.status))
+  end
 end

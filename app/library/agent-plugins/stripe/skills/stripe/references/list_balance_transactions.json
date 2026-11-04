@@ -1,0 +1,265 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists a page of balance transactions for the connected Stripe account. Supports filtering by date range, currency, type, payout, or source, as well as cursor-based pagination.",
+  "inputSchema": {
+    "description": "Request model for listing balance transactions with optional filtering and pagination.",
+    "properties": {
+      "created": {
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "description": "Only return transactions that were created during the given date interval. Use Unix timestamps as keys: 'gt', 'gte', 'lt', 'lte'.",
+        "examples": [
+          {
+            "gte": 1609459200,
+            "lte": 1640995200
+          }
+        ],
+        "title": "Created",
+        "type": "object"
+      },
+      "currency": {
+        "description": "Only return transactions in a certain currency. Three-letter ISO 4217 currency code, in lowercase.",
+        "examples": ["usd", "eur", "gbp"],
+        "title": "Currency",
+        "type": "string"
+      },
+      "ending_before": {
+        "description": "A cursor for pagination. Returns only transactions created before this object ID.",
+        "examples": ["txn_12345"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "expand": {
+        "description": "Specifies which fields in the response should be expanded.",
+        "examples": [["data.source"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Expand",
+        "type": "array"
+      },
+      "limit": {
+        "description": "A limit on the number of objects to be returned. Limit can range between 1 and 100, and the default is 10.",
+        "examples": [10, 25, 100],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "payout": {
+        "description": "For automatic Stripe payouts only, only returns transactions that were paid out on the specified payout ID.",
+        "examples": ["po_12345"],
+        "title": "Payout",
+        "type": "string"
+      },
+      "source": {
+        "description": "Only returns transactions associated with the given object.",
+        "examples": ["ch_12345", "re_12345"],
+        "title": "Source",
+        "type": "string"
+      },
+      "starting_after": {
+        "description": "A cursor for pagination. Returns only transactions created after this object ID.",
+        "examples": ["txn_67890"],
+        "title": "Starting After",
+        "type": "string"
+      },
+      "type": {
+        "description": "Only returns transactions of the given type. One of: adjustment, advance, advance_funding, anticipation_repayment, application_fee, application_fee_refund, charge, climate_order_purchase, climate_order_refund, connect_collection_transfer, contribution, inbound_transfer, inbound_transfer_reversal, issuing_authorization_hold, issuing_authorization_release, issuing_dispute, issuing_transaction, obligation_outbound, obligation_reversal_inbound, payment, payment_failure_refund, payment_network_reserve_hold, payment_network_reserve_release, payment_refund, payment_reversal, payment_unreconciled, payout, payout_cancel, payout_failure, payout_minimum_balance_hold, payout_minimum_balance_release, refund, refund_failure, reserve_transaction, reserved_funds, reserve_hold, reserve_release, stripe_fee, stripe_fx_fee, stripe_balance_payment_debit, stripe_balance_payment_debit_reversal, tax_fee, topup, topup_reversal, transfer, transfer_cancel, transfer_failure, transfer_refund, or fee_credit_funding.",
+        "examples": ["charge", "refund", "payout", "transfer"],
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "title": "ListBalanceTransactionsRequest",
+    "type": "object"
+  },
+  "name": "list_balance_transactions",
+  "outputSchema": {
+    "$defs": {
+      "BalanceTransaction": {
+        "description": "A balance transaction representing funds moving through a Stripe account.",
+        "properties": {
+          "amount": {
+            "description": "Gross amount of the transaction in the smallest currency unit (e.g., cents). Positive for money coming in, negative for money going out.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "available_on": {
+            "description": "The date the transaction's net funds will become available in the Stripe balance.",
+            "title": "Available On",
+            "type": "integer"
+          },
+          "balance_type": {
+            "description": "The type of the balance. One of: 'issuing', 'payments', 'refund_and_dispute_prefunding'.",
+            "title": "Balance Type",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO 4217 currency code, in lowercase. Must be a supported currency.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the object. Often useful for displaying to users.",
+            "title": "Description",
+            "type": "string"
+          },
+          "exchange_rate": {
+            "description": "The exchange rate used to convert this transaction to another currency.",
+            "title": "Exchange Rate",
+            "type": "number"
+          },
+          "fee": {
+            "description": "Fees incurred in the smallest currency unit (e.g., cents) for the transaction. Always positive.",
+            "title": "Fee",
+            "type": "integer"
+          },
+          "fee_details": {
+            "description": "An array of fee details, describing the fees accrued for the transaction.",
+            "items": {
+              "$ref": "#/$defs/FeeDetail"
+            },
+            "title": "Fee Details",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the balance transaction.",
+            "title": "Id",
+            "type": "string"
+          },
+          "net": {
+            "description": "Net amount of the transaction in the smallest currency unit, representing the net proceeds.",
+            "title": "Net",
+            "type": "integer"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'balance_transaction'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "reporting_category": {
+            "description": "The category of the balance transaction. One of: adjustment, advance, advance_funding, anticipation_repayment, application_fee, application_fee_refund, charge, climate_order_purchase, climate_order_refund, connect_collection_transfer, contribution, inbound_transfer, inbound_transfer_reversal, issuing_authorization_hold, issuing_authorization_release, issuing_dispute, issuing_transaction, obligation_outbound, obligation_reversal_inbound, payment, payment_failure_refund, payment_network_reserve_hold, payment_network_reserve_release, payment_refund, payment_reversal, payment_unreconciled, payout, payout_cancel, payout_failure, payout_minimum_balance_hold, payout_minimum_balance_release, refund, refund_failure, reserve_transaction, reserved_funds, reserve_hold, reserve_release, stripe_fee, stripe_fx_fee, stripe_balance_payment_debit, stripe_balance_payment_debit_reversal, tax_fee, topup, topup_reversal, transfer, transfer_cancel, transfer_failure, transfer_refund, or fee_credit_funding.",
+            "title": "Reporting Category",
+            "type": "string"
+          },
+          "source": {
+            "description": "The ID of the Stripe object that created the balance transaction.",
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "description": "The status of the balance transaction. One of: 'available' or 'pending'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "description": "Transaction type. One of: adjustment, advance, advance_funding, anticipation_repayment, application_fee, application_fee_refund, charge, climate_order_purchase, climate_order_refund, connect_collection_transfer, contribution, inbound_transfer, inbound_transfer_reversal, issuing_authorization_hold, issuing_authorization_release, issuing_dispute, issuing_transaction, obligation_outbound, obligation_reversal_inbound, payment, payment_failure_refund, payment_network_reserve_hold, payment_network_reserve_release, payment_refund, payment_reversal, payment_unreconciled, payout, payout_cancel, payout_failure, payout_minimum_balance_hold, payout_minimum_balance_release, refund, refund_failure, reserve_transaction, reserved_funds, reserve_hold, reserve_release, stripe_fee, stripe_fx_fee, stripe_balance_payment_debit, stripe_balance_payment_debit_reversal, tax_fee, topup, topup_reversal, transfer, transfer_cancel, transfer_failure, transfer_refund, or fee_credit_funding.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "available_on",
+          "created",
+          "currency",
+          "fee",
+          "fee_details",
+          "net",
+          "reporting_category",
+          "status",
+          "type"
+        ],
+        "title": "BalanceTransaction",
+        "type": "object"
+      },
+      "FeeDetail": {
+        "description": "Itemized breakdown of a fee charged for a transaction.",
+        "properties": {
+          "amount": {
+            "description": "Fee amount in the smallest currency unit (e.g., cents).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "application": {
+            "description": "ID of the Connect application that earned the fee.",
+            "title": "Application",
+            "type": "string"
+          },
+          "currency": {
+            "description": "Three-letter ISO 4217 currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the object. Often useful for displaying to users.",
+            "title": "Description",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the fee (e.g., 'stripe_fee', 'application_fee').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "currency", "type"],
+        "title": "FeeDetail",
+        "type": "object"
+      },
+      "ListBalanceTransactionsResponse": {
+        "description": "Response model for listing balance transactions, containing pagination information and a list of transactions.",
+        "properties": {
+          "data": {
+            "description": "List of balance transactions ordered by created time descending.",
+            "items": {
+              "$ref": "#/$defs/BalanceTransaction"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "True if this list has another page of items after this one that can be fetched.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'list' for list responses.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL where this list can be accessed.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "ListBalanceTransactionsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListBalanceTransactionsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

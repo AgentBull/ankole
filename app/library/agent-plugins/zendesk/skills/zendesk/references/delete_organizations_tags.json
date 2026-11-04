@@ -1,0 +1,56 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Remove all tags from a Zendesk organization. Use when you need to clear organization tags as part of cleanup or reorganization tasks. This action is irreversible — the tags will be permanently removed from the organization and cannot be recovered once deleted.",
+  "inputSchema": {
+    "description": "Request parameters for removing organization tags.",
+    "properties": {
+      "organization_id": {
+        "description": "The ID of the organization whose tags will be removed",
+        "examples": [26925678097820],
+        "human_parameter_description": "The numeric ID of the Zendesk organization whose tags you want to delete. You can find this from a previous organization lookup or search result.",
+        "human_parameter_name": "Organization ID",
+        "minimum": 1,
+        "title": "Organization Id",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id"],
+    "title": "DeleteOrganizationsTagsRequest",
+    "type": "object"
+  },
+  "name": "delete_organizations_tags",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationsTagsResponse": {
+        "description": "Response containing the tags that were removed from the organization.",
+        "properties": {
+          "tags": {
+            "description": "An array of strings representing the tags that were removed from the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags"],
+        "title": "DeleteOrganizationsTagsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationsTagsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

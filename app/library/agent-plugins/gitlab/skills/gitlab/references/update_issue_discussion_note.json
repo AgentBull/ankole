@@ -1,0 +1,184 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update the content of an existing issue discussion note. See https://docs.gitlab.com/api/discussions/#update-an-issue-thread-note.",
+  "inputSchema": {
+    "properties": {
+      "body": {
+        "description": "Updated content of the note or reply.",
+        "title": "Body",
+        "type": "string"
+      },
+      "discussion_id": {
+        "description": "ID of the discussion thread.",
+        "title": "Discussion Id",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "Project-local IID of the issue.",
+        "title": "Issue Iid",
+        "type": "integer"
+      },
+      "note_id": {
+        "description": "ID of the thread note to update.",
+        "title": "Note Id",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid", "discussion_id", "note_id", "body"],
+    "title": "UpdateIssueDiscussionNoteRequest",
+    "type": "object"
+  },
+  "name": "update_issue_discussion_note",
+  "outputSchema": {
+    "$defs": {
+      "MergeRequestNoteAuthor": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Author's avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "User creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Author's email, when returned.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Author's user ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Author's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Author's username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Author's profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "MergeRequestNoteAuthor",
+        "type": "object"
+      },
+      "UpdateIssueDiscussionNoteResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "attachment": {
+            "description": "Attachment URL, when present.",
+            "title": "Attachment",
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/$defs/MergeRequestNoteAuthor",
+            "description": "Note author.",
+            "title": "Author"
+          },
+          "body": {
+            "description": "Content of the note.",
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Created note ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "noteable_id": {
+            "description": "Issue's global numeric ID as a precision-preserving decimal string.",
+            "title": "Noteable Id",
+            "type": "string"
+          },
+          "noteable_iid": {
+            "description": "Issue's project-local IID.",
+            "title": "Noteable Iid",
+            "type": "integer"
+          },
+          "noteable_type": {
+            "description": "Type of the note's resource.",
+            "title": "Noteable Type",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "resolvable": {
+            "description": "Whether the note can be resolved.",
+            "title": "Resolvable",
+            "type": "boolean"
+          },
+          "system": {
+            "description": "Whether this is a system note.",
+            "title": "System",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "Note type, such as DiscussionNote.",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "UpdateIssueDiscussionNoteResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateIssueDiscussionNoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

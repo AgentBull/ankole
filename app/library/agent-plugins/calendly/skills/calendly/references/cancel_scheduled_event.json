@@ -1,0 +1,71 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to cancel a scheduled Calendly event by creating a cancellation record. Use when you need to permanently cancel an existing, active event. The cancellation will trigger notifications to all invitees.",
+  "inputSchema": {
+    "description": "Request model for canceling a scheduled event.",
+    "properties": {
+      "event_uuid": {
+        "description": "The unique identifier (UUID) of the scheduled event to cancel. This can be extracted from the scheduled_events URI or event details.",
+        "examples": ["292ad908-a87b-497b-a067-4bdc3f0c8baf"],
+        "title": "Event Uuid",
+        "type": "string"
+      },
+      "reason": {
+        "description": "Optional text explanation for why the event is being canceled. This reason will be included in the cancellation notification sent to invitees.",
+        "examples": ["Testing the cancel event API endpoint for validation purposes"],
+        "title": "Reason",
+        "type": "string"
+      }
+    },
+    "required": ["event_uuid"],
+    "title": "CancelScheduledEventRequest",
+    "type": "object"
+  },
+  "name": "cancel_scheduled_event",
+  "outputSchema": {
+    "$defs": {
+      "CancelScheduledEventResponse": {
+        "description": "Response model containing the cancellation details.",
+        "properties": {
+          "canceled_by": {
+            "description": "Identifies who initiated the cancellation",
+            "title": "Canceled By",
+            "type": "string"
+          },
+          "canceler_type": {
+            "description": "Type of user who canceled the event",
+            "title": "Canceler Type",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "ISO 8601 timestamp of when the cancellation was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "reason": {
+            "description": "The cancellation reason provided, if any",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": ["canceled_by", "canceler_type", "created_at"],
+        "title": "CancelScheduledEventResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CancelScheduledEventResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,192 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Full PUT-style update that overwrites all calendar metadata fields; unspecified optional fields are cleared. Use googlecalendar.patch_calendar to update only a subset of fields. Mutates the underlying calendar resource (title, description, timeZone, etc.); use googlecalendar.calendar_list_update to change per-user display properties like color.",
+  "inputSchema": {
+    "properties": {
+      "calendarId": {
+        "description": "Calendar identifier. Use 'primary' to update the primary calendar of the currently logged in user, or provide a specific calendar ID (typically in email format like 'abc123@group.calendar.google.com'). To retrieve calendar IDs call the calendarList.list method. IMPORTANT: This is NOT the calendar's display name/title. NOTE: For better performance, prefer providing the actual calendar ID instead of 'primary', as the 'primary' alias requires an additional API call to resolve.",
+        "human_parameter_description": "The calendar you want to update. Use 'primary' to update your own main calendar, or provide a specific calendar ID from your calendar list. Using an actual calendar ID is faster than using 'primary'.",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "description": {
+        "description": "Description of the calendar. Optional.",
+        "human_parameter_description": "A brief note about what this calendar is for. This helps you and others understand its purpose.",
+        "human_parameter_name": "Calendar Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "location": {
+        "description": "Geographic location of the calendar as free-form text. Optional.",
+        "human_parameter_description": "The general place this calendar relates to (e.g., city, office, or region). It provides helpful context for events.",
+        "human_parameter_name": "Calendar Location",
+        "title": "Location",
+        "type": "string"
+      },
+      "summary": {
+        "description": "Title of the calendar. Must be a non-empty string; passing an empty string clears the calendar title.",
+        "human_parameter_description": "The new name that will appear for this calendar. Choose a clear, recognizable title.",
+        "human_parameter_name": "Calendar Title",
+        "title": "Summary",
+        "type": "string"
+      },
+      "timeZone": {
+        "description": "The time zone of the calendar. (Formatted as an IANA Time Zone Database name, e.g. \"Europe/Zurich\".) Optional.",
+        "human_parameter_description": "The time zone the calendar should use, such as 'Europe/Zurich'. Events will be shown in this time zone.",
+        "human_parameter_name": "Calendar Time Zone",
+        "title": "Time Zone",
+        "type": "string"
+      }
+    },
+    "required": ["calendarId", "summary"],
+    "title": "CalendarsUpdateRequest",
+    "type": "object"
+  },
+  "name": "calendars_update",
+  "outputSchema": {
+    "$defs": {
+      "CalendarEventLabel": {
+        "additionalProperties": false,
+        "properties": {
+          "backgroundColor": {
+            "description": "Background color assigned to the event label.",
+            "title": "Background Color",
+            "type": "string"
+          },
+          "id": {
+            "description": "Opaque identifier for a provider-defined event label.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Optional event-label name, limited by Google Calendar to 50 characters.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "backgroundColor"],
+        "title": "CalendarEventLabel",
+        "type": "object"
+      },
+      "CalendarLabelProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "eventLabels": {
+            "description": "Provider-defined event labels available on this calendar.",
+            "items": {
+              "$ref": "#/$defs/CalendarEventLabel"
+            },
+            "title": "Event Labels",
+            "type": "array"
+          }
+        },
+        "required": ["eventLabels"],
+        "title": "CalendarLabelProperties",
+        "type": "object"
+      },
+      "CalendarsUpdateResponse": {
+        "additionalProperties": false,
+        "description": "Calendar resource returned by Calendars.update.\n\nThe Calendars.update method returns a Calendar resource representing the updated calendar.",
+        "properties": {
+          "autoAcceptInvitations": {
+            "description": "Whether a resource calendar automatically accepts invitations.",
+            "title": "Auto Accept Invitations",
+            "type": "boolean"
+          },
+          "conferenceProperties": {
+            "$ref": "#/$defs/ConferenceProperties",
+            "description": "Conferencing properties for the calendar, specifying allowed conference solution types. Defines which conferencing solutions are allowed for events in this calendar.",
+            "title": "Conference Properties"
+          },
+          "dataOwner": {
+            "description": "Email address of the calendar's owner. Present when the calendar is owned by the authenticated user.",
+            "title": "Data Owner",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the calendar. Optional. Writable.",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_url": {
+            "description": "URL to view or manage this calendar in the Google Calendar web interface. Points to the calendar settings page if available.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the calendar resource for versioning and concurrency control.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identifier of the calendar. May be an email address (for primary calendars) or a group calendar ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "calendar#calendar",
+            "description": "Type of the resource. Always \"calendar#calendar\".",
+            "title": "Kind",
+            "type": "string"
+          },
+          "labelProperties": {
+            "$ref": "#/$defs/CalendarLabelProperties",
+            "description": "Provider-defined label metadata returned for calendars with event labels enabled.",
+            "title": "Label Properties"
+          },
+          "location": {
+            "description": "Geographic location of the calendar as free-form text. Optional. Writable.",
+            "title": "Location",
+            "type": "string"
+          },
+          "summary": {
+            "description": "Title of the calendar (human-readable name). Writable.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "The time zone of the calendar, formatted as an IANA Time Zone Database name (e.g., \"Europe/Zurich\", \"Asia/Kolkata\", \"America/Sao_Paulo\"). Optional. Writable.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "etag", "id", "summary"],
+        "title": "CalendarsUpdateResponse",
+        "type": "object"
+      },
+      "ConferenceProperties": {
+        "additionalProperties": false,
+        "description": "Conferencing properties for the calendar, specifying allowed conference solution types.\n\nMatches the Google Calendar API conferenceProperties object.\nDocs: Calendars.update response -> Calendar resource -> conferenceProperties",
+        "properties": {
+          "allowedConferenceSolutionTypes": {
+            "description": "List of supported conference solution types for this calendar.",
+            "items": {
+              "enum": ["eventHangout", "eventNamedHangout", "hangoutsMeet"],
+              "type": "string"
+            },
+            "title": "Allowed Conference Solution Types",
+            "type": "array"
+          }
+        },
+        "required": ["allowedConferenceSolutionTypes"],
+        "title": "ConferenceProperties",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CalendarsUpdateResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

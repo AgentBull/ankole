@@ -1,0 +1,153 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list EventCreateRules configured on a web data stream. Use when you need to retrieve event create rules for a specific GA4 property data stream.",
+  "inputSchema": {
+    "description": "Request model for listing EventCreateRules on a web data stream.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of event create rules to return. Default is 50, maximum allowed is 200.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous list call. Provide this to retrieve the next page of results.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. Resource name of the parent data stream. Format: properties/{propertyId}/dataStreams/{dataStreamId}.",
+        "examples": ["properties/489591273/dataStreams/456789"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "PropertiesDatastreamsEventcreaterulesListRequest",
+    "type": "object"
+  },
+  "name": "list_event_create_rules",
+  "outputSchema": {
+    "$defs": {
+      "EventCreateRule": {
+        "description": "Schema for an EventCreateRule resource.",
+        "properties": {
+          "destinationEvent": {
+            "description": "The name of the new event to be created. Must be under 40 characters, contain only letters, digits, or underscores, and start with a letter.",
+            "title": "Destination Event",
+            "type": "string"
+          },
+          "eventConditions": {
+            "description": "Required. Array of matching conditions (minimum 1, maximum 10) that must be satisfied on the source event for the rule to activate.",
+            "items": {
+              "$ref": "#/$defs/MatchingCondition"
+            },
+            "title": "Event Conditions",
+            "type": "array"
+          },
+          "name": {
+            "description": "Output only. Resource name of this event create rule. Format: properties/{property}/dataStreams/{dataStream}/eventCreateRules/{eventCreateRule}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "parameterMutations": {
+            "description": "Parameter mutations are applied to the event after the event is created. A maximum of 20 mutations can be applied.",
+            "items": {
+              "$ref": "#/$defs/ParameterMutation"
+            },
+            "title": "Parameter Mutations",
+            "type": "array"
+          },
+          "sourceCopyParameters": {
+            "description": "If true, the source event's parameters are copied to the new event. If false, or unset, no parameters are copied.",
+            "title": "Source Copy Parameters",
+            "type": "boolean"
+          }
+        },
+        "title": "EventCreateRule",
+        "type": "object"
+      },
+      "MatchingCondition": {
+        "description": "A condition that must be met for the rule to fire.",
+        "properties": {
+          "comparisonType": {
+            "description": "The type of comparison to be applied to the value.",
+            "title": "Comparison Type",
+            "type": "string"
+          },
+          "field": {
+            "description": "The name of the field that is compared against for the condition.",
+            "title": "Field",
+            "type": "string"
+          },
+          "negated": {
+            "description": "Whether to negate the comparison. If true, then the condition evaluates to true if the comparison evaluates to false.",
+            "title": "Negated",
+            "type": "boolean"
+          },
+          "value": {
+            "description": "The value that is compared against.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "MatchingCondition",
+        "type": "object"
+      },
+      "ParameterMutation": {
+        "description": "A modification to a parameter in an event.",
+        "properties": {
+          "parameter": {
+            "description": "The name of the parameter to mutate.",
+            "title": "Parameter",
+            "type": "string"
+          },
+          "parameterValue": {
+            "description": "The value to set the parameter to.",
+            "title": "Parameter Value",
+            "type": "string"
+          }
+        },
+        "title": "ParameterMutation",
+        "type": "object"
+      },
+      "PropertiesDatastreamsEventcreaterulesListResponse": {
+        "description": "Response model for listing EventCreateRules.",
+        "properties": {
+          "eventCreateRules": {
+            "description": "List of EventCreateRule resources. The order is arbitrary.",
+            "items": {
+              "$ref": "#/$defs/EventCreateRule"
+            },
+            "title": "Event Create Rules",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "A token to retrieve the next page of results. This field is omitted if no subsequent pages exist.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "PropertiesDatastreamsEventcreaterulesListResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/PropertiesDatastreamsEventcreaterulesListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

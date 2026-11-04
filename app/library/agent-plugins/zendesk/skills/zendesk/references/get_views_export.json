@@ -1,0 +1,85 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Request an export of a specified Zendesk view and return the response as a downloadable file, along with the view ID and content type.",
+  "inputSchema": {
+    "description": "Request parameters for exporting a Zendesk view as CSV.",
+    "properties": {
+      "view_id": {
+        "description": "The numeric ID of the view to export. You can find view IDs in the Zendesk admin panel under Views or by listing views via the API.",
+        "examples": [25],
+        "human_parameter_description": "The unique identifier of the view you want to export. You can find this ID in the Zendesk Views section of your admin panel.",
+        "human_parameter_name": "View ID",
+        "title": "View Id",
+        "type": "integer"
+      }
+    },
+    "required": ["view_id"],
+    "title": "GetViewsExportRequest",
+    "type": "object"
+  },
+  "name": "get_views_export",
+  "outputSchema": {
+    "$defs": {
+      "FileDownloadable": {
+        "file_downloadable": true,
+        "properties": {
+          "mimetype": {
+            "description": "Mime type of the file.",
+            "title": "Mimetype",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the file",
+            "title": "Name",
+            "type": "string"
+          },
+          "s3url": {
+            "description": "S3 URL of the downloaded file.",
+            "title": "S3Url",
+            "type": "string"
+          }
+        },
+        "required": ["name", "mimetype", "s3url"],
+        "title": "FileDownloadable",
+        "type": "object"
+      },
+      "GetViewsExportResponse": {
+        "description": "Response containing the exported view data as a CSV file.",
+        "properties": {
+          "content_type": {
+            "description": "The content type of the response (e.g., 'text/csv')",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "csv_content": {
+            "$ref": "#/$defs/FileDownloadable",
+            "description": "The CSV file content containing the exported view data. Use the .content attribute to access the raw bytes, or .path to get the temporary file path.",
+            "title": "Csv Content"
+          },
+          "view_id": {
+            "description": "The ID of the view that was exported",
+            "title": "View Id",
+            "type": "integer"
+          }
+        },
+        "required": ["csv_content", "view_id", "content_type"],
+        "title": "GetViewsExportResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetViewsExportResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

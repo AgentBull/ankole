@@ -1,0 +1,268 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create or update a Zendesk organization in a single operation. If an organization with the same external_id already exists, it is updated. Otherwise, a new organization is created. Use when you need to ensure an organization exists without checking for duplicates first. Note: For updates, you must specify the external_id to match the existing organization. Name is not available as a matching criteria.",
+  "inputSchema": {
+    "description": "Request model for creating or updating a Zendesk organization.",
+    "properties": {
+      "details": {
+        "description": "Any details about the organization, such as the address",
+        "examples": ["123 Main St, San Francisco, CA"],
+        "human_parameter_description": "Additional details or address information about the organization.",
+        "human_parameter_name": "Details",
+        "title": "Details",
+        "type": "string"
+      },
+      "domain_names": {
+        "description": "An array of domain names associated with this organization",
+        "examples": [["example.com", "test.com"]],
+        "human_parameter_description": "List of domain names associated with this organization for email routing.",
+        "human_parameter_name": "Domain Names",
+        "items": {
+          "type": "string"
+        },
+        "title": "Domain Names",
+        "type": "array"
+      },
+      "external_id": {
+        "description": "A unique external id to associate organizations to an external record. The id is case-insensitive (e.g., 'company1' and 'Company1' are considered the same). Use this for matching when updating an existing organization.",
+        "examples": ["ext_12345"],
+        "human_parameter_description": "An optional identifier from your external system (CRM, etc.) used to match organizations. Case-insensitive.",
+        "human_parameter_name": "External ID",
+        "title": "External Id",
+        "type": "string"
+      },
+      "group_id": {
+        "description": "New tickets from users in this organization are automatically put in this group",
+        "examples": [12345],
+        "human_parameter_description": "The ID of the group that new tickets from users in this organization will be assigned to.",
+        "human_parameter_name": "Group ID",
+        "minimum": 1,
+        "title": "Group Id",
+        "type": "integer"
+      },
+      "name": {
+        "description": "A unique name for the organization. Required when creating a new organization. Note: Name is not available as a matching criteria for updates - use external_id or id instead.",
+        "examples": ["Acme Corporation"],
+        "human_parameter_description": "The official name of the organization. This is required when creating a new organization. For updates, use external_id or id instead.",
+        "human_parameter_name": "Organization Name",
+        "title": "Name",
+        "type": "string"
+      },
+      "notes": {
+        "description": "Any notes you have about the organization",
+        "examples": ["Important enterprise customer"],
+        "human_parameter_description": "Internal notes about this organization.",
+        "human_parameter_name": "Notes",
+        "title": "Notes",
+        "type": "string"
+      },
+      "organization_fields": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": "Custom fields for this organization. See custom organization fields documentation for available field definitions.",
+        "human_parameter_description": "Custom field values for this organization (key-value pairs matching your custom field definitions).",
+        "human_parameter_name": "Organization Fields",
+        "title": "Organization Fields",
+        "type": "object"
+      },
+      "shared_comments": {
+        "description": "End users in this organization are able to comment on each other's tickets",
+        "examples": [true],
+        "human_parameter_description": "Whether end users can comment on each other's tickets.",
+        "human_parameter_name": "Shared Comments",
+        "title": "Shared Comments",
+        "type": "boolean"
+      },
+      "shared_tickets": {
+        "description": "End users in this organization are able to see each other's tickets",
+        "examples": [true],
+        "human_parameter_description": "Whether end users can see each other's tickets.",
+        "human_parameter_name": "Shared Tickets",
+        "title": "Shared Tickets",
+        "type": "boolean"
+      },
+      "tags": {
+        "description": "The tags of the organization",
+        "examples": [["enterprise", "vip"]],
+        "human_parameter_description": "List of tags to categorize this organization.",
+        "human_parameter_name": "Tags",
+        "items": {
+          "type": "string"
+        },
+        "title": "Tags",
+        "type": "array"
+      }
+    },
+    "required": ["name"],
+    "title": "CreateOrUpdateOrganizationRequest",
+    "type": "object"
+  },
+  "name": "create_or_update_organization",
+  "outputSchema": {
+    "$defs": {
+      "CreateOrUpdateOrganizationResponse": {
+        "description": "Response model containing the created or updated organization.",
+        "properties": {
+          "organization": {
+            "$ref": "#/$defs/OrganizationResponse",
+            "description": "The organization object",
+            "title": "Organization"
+          }
+        },
+        "required": ["organization"],
+        "title": "CreateOrUpdateOrganizationResponse",
+        "type": "object"
+      },
+      "OrganizationResponse": {
+        "description": "Response model for a Zendesk organization.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the organization was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "description": "Additional details about the organization",
+            "title": "Details",
+            "type": "string"
+          },
+          "domain_names": {
+            "description": "Associated domain names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Domain Names",
+            "type": "array"
+          },
+          "external_id": {
+            "description": "Unique external ID for external system association",
+            "title": "External Id",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "Auto-assignment group ID",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the organization",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the organization",
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Internal notes about the organization",
+            "title": "Notes",
+            "type": "string"
+          },
+          "organization_fields": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Custom field values",
+            "title": "Organization Fields",
+            "type": "object"
+          },
+          "shared_comments": {
+            "description": "Whether end users can comment on each other's tickets",
+            "title": "Shared Comments",
+            "type": "boolean"
+          },
+          "shared_tickets": {
+            "description": "Whether end users can see each other's tickets",
+            "title": "Shared Tickets",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "Organization tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "updated_at": {
+            "description": "Timestamp of last update",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the organization",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "url", "name", "created_at", "updated_at"],
+        "title": "OrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateOrUpdateOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

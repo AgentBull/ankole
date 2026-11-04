@@ -1,0 +1,50 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a macro in Zendesk. This action is irreversible — the macro will be permanently deleted and cannot be recovered once removed. Use when cleaning up obsolete macros or removing test data. **Note**: You might be restricted from deleting macros that are active or referenced by other rules.",
+  "inputSchema": {
+    "properties": {
+      "macro_id": {
+        "description": "The ID of the macro to delete",
+        "examples": [26923127755932],
+        "human_parameter_description": "The numeric ID of the Zendesk macro you want to delete. You can find this in the macro's URL or from a macros list.",
+        "human_parameter_name": "Macro ID",
+        "title": "Macro Id",
+        "type": "integer"
+      }
+    },
+    "required": ["macro_id"],
+    "title": "DeleteMacroRequest",
+    "type": "object"
+  },
+  "name": "delete_macro",
+  "outputSchema": {
+    "$defs": {
+      "DeleteMacroResponse": {
+        "properties": {
+          "success": {
+            "description": "Indicates whether the macro deletion was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "DeleteMacroResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteMacroResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

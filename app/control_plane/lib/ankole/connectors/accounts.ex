@@ -1,19 +1,37 @@
 defmodule Ankole.Connectors.Accounts do
   @moduledoc false
   require Ash.Query
-  alias Ankole.Connectors.{ConnectedAccount, Credentials, Store}
+  alias Ankole.Connectors.{ConnectedAccount, Credentials, Store, Trigger, Triggers}
   alias Ankole.Principals.WorkAccess
   alias Ankole.Repo
 
   def get_by_id(nil), do: {:ok, nil}
   def get_by_id(id), do: ConnectedAccount |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one()
 
-  def owned_ids(uid) do
+  def cloud_account_referenced?(id) do
+    ConnectedAccount
+    |> Ash.Query.filter(upstream_connection_id == ^id and status == "active")
+    |> Ash.Query.limit(1)
+    |> Ankole.Ash.read!()
+    |> Enum.any?()
+  end
+
+  def summaries(ids) do
+    ConnectedAccount
+    |> Ash.Query.filter(id in ^ids)
+    |> Ash.Query.select([:id, :owner_principal_uid, :status])
+    |> Ankole.Ash.read!()
+    |> Map.new(&{&1.id, &1})
+  end
+
+  def owned_ids(uid), do: uid |> owned_summaries() |> Map.keys()
+
+  def owned_summaries(uid) do
     ConnectedAccount
     |> Ash.Query.filter(owner_principal_uid == ^uid)
-    |> Ash.Query.select([:id])
+    |> Ash.Query.select([:id, :owner_principal_uid, :status])
     |> Ankole.Ash.read!()
-    |> Enum.map(& &1.id)
+    |> Map.new(&{&1.id, &1})
   end
 
   def sync_installation_in_tx(%{plugin_id: "github", auth_scheme: "github_app"} = config) do
@@ -50,6 +68,8 @@ defmodule Ankole.Connectors.Accounts do
 
   def sync_installation_in_tx(_config), do: :ok
 
+  def get_account(nil, _subject_kind, _account_key), do: {:ok, nil}
+
   def get_account(auth_config_id, subject_kind, account_key) do
     ConnectedAccount
     |> Ash.Query.filter(
@@ -59,17 +79,23 @@ defmodule Ankole.Connectors.Accounts do
     |> Ankole.Ash.read_one()
   end
 
-  def application_account(config, key \\ nil) do
+  def application_account(config, key \\ nil)
+  def application_account(%{id: nil}, _key), do: {:ok, nil}
+
+  def application_account(config, key) do
     key = key || config.public_metadata["installation_id"]
 
     accounts =
       ConnectedAccount
       |> Ash.Query.filter(
-        auth_config_id == ^config.id and subject_kind == "app" and status == "active"
+        auth_config_id == ^config.id and subject_kind == "app" and status in ["active", "expired"]
       )
       |> Ankole.Ash.read!()
 
-    case {key, accounts} do
+    active = Enum.filter(accounts, &(&1.status == "active"))
+    choices = if active == [], do: accounts, else: active
+
+    case {key, choices} do
       {nil, []} ->
         {:ok, nil}
 
@@ -97,16 +123,62 @@ defmodule Ankole.Connectors.Accounts do
     end
   end
 
-  def list_accounts(actor) do
+  def list_accounts(actor, scope \\ "mine") do
     with :ok <- Store.member(actor) do
       query =
-        if Ankole.AuthZ.pod_admin?(actor.uid),
-          do: Ash.Query.new(ConnectedAccount),
-          else: Ash.Query.filter(ConnectedAccount, owner_principal_uid == ^actor.uid)
+        case scope do
+          "mine" ->
+            Ash.Query.filter(
+              ConnectedAccount,
+              subject_kind == "human" and owner_principal_uid == ^actor.uid
+            )
+
+          "team" ->
+            Ash.Query.filter(ConnectedAccount, subject_kind == "app")
+        end
 
       {:ok, query |> Ankole.Ash.read!() |> Enum.map(&public/1)}
     end
   end
+
+  def connect_credentials(actor, attrs, kind) do
+    attrs = Ankole.Attrs.normalize_external_attrs(attrs)
+
+    with :ok <- Store.member(actor),
+         :ok <- authorize_credentials(actor, kind),
+         {:ok, config} <- Store.get_auth_config(attrs["connection"]),
+         {:ok, declaration} <-
+           Ankole.Plugins.Registry.fetch_adapter("connectors.connector", config.plugin_id),
+         true <- kind == "app" or Map.get(declaration, :personal_credentials, false),
+         true <- function_exported?(declaration.module, :validate_credentials, 2),
+         {:ok, tokens} <-
+           declaration.module.validate_credentials(config, attrs["credentials"] || %{}),
+         {:ok, config} <- Store.materialize(config, actor.uid) do
+      metadata = %{
+        external_subject_id: tokens["external_subject_id"],
+        public_metadata: tokens["public_metadata"] || %{},
+        granted_scopes: tokens["granted_scopes"] || []
+      }
+
+      if kind == "human" do
+        put_human_tokens(config.id, actor.uid, tokens, metadata)
+      else
+        Repo.transact_top_level(fn ->
+          with :ok <- Store.admin(actor),
+               %{status: "active"} = locked <- Store.lock(config.id),
+               do:
+                 put_tokens_in_tx(locked, "app", tokens["external_subject_id"], tokens, metadata)
+        end)
+      end
+    else
+      false -> {:error, :credential_binding_not_supported}
+      error -> error
+    end
+  end
+
+  defp authorize_credentials(%{type: :human}, "human"), do: :ok
+  defp authorize_credentials(actor, "app"), do: Store.admin(actor)
+  defp authorize_credentials(_, _), do: {:error, :human_authority_required}
 
   def disconnect_account(actor, id) do
     with :ok <- Store.member(actor) do
@@ -154,7 +226,7 @@ defmodule Ankole.Connectors.Accounts do
     existing = if existing, do: lock(existing.id)
     id = if existing, do: existing.id, else: Ankole.Kernel.gen_uuid_v7()
 
-    with {:ok, sealed} <- Credentials.seal(tokens, "connector_connected_account", id) do
+    with {:ok, sealed} <- seal_tokens(tokens, id) do
       attrs =
         Map.merge(
           %{
@@ -163,6 +235,7 @@ defmodule Ankole.Connectors.Accounts do
             subject_kind: kind,
             account_key: key,
             sealed_credentials: sealed,
+            upstream_connection_id: tokens["upstream_connection_id"],
             credentials_version: if(existing, do: existing.credentials_version + 1, else: 1),
             status: "active",
             refresh_lease_id: nil,
@@ -182,9 +255,17 @@ defmodule Ankole.Connectors.Accounts do
           ])
         )
 
-      if existing,
-        do: Ankole.Ash.update(existing, :update, attrs),
-        else: Ankole.Ash.create(ConnectedAccount, :create, Map.put(attrs, :id, id))
+      result =
+        if existing,
+          do: Ankole.Ash.update(existing, :update, attrs),
+          else: Ankole.Ash.create(ConnectedAccount, :create, Map.put(attrs, :id, id))
+
+      with {:ok, account} <- result, :ok <- enqueue_claim(account, existing) do
+        if existing && is_nil(account.upstream_connection_id),
+          do: Triggers.reauthorize_account_in_tx(account.id)
+
+        {:ok, account}
+      end
     end
   end
 
@@ -209,14 +290,55 @@ defmodule Ankole.Connectors.Accounts do
     :ok
   end
 
-  def revoke(account),
+  def revoke(account) do
+    with {:ok, updated} <-
+           Ankole.Ash.update(account, :update, %{
+             status: "revoked",
+             credentials_version: account.credentials_version + 1,
+             refresh_lease_id: nil,
+             refreshing_until: nil
+           }),
+         :ok <- enqueue_revoke(account) do
+      Trigger
+      |> Ash.Query.filter(connected_account_id == ^account.id)
+      |> Ankole.Ash.read!()
+      |> Enum.each(fn trigger ->
+        {:ok, _} =
+          Oban.insert(Ankole.Connectors.Jobs.ReconcileTrigger.new(%{"trigger_id" => trigger.id}))
+      end)
+
+      {:ok, updated}
+    end
+  end
+
+  defp seal_tokens(%{"upstream_connection_id" => id}, _account_id) when is_binary(id),
+    do: {:ok, nil}
+
+  defp seal_tokens(tokens, id), do: Credentials.seal(tokens, "connector_connected_account", id)
+
+  defp enqueue_claim(%{upstream_connection_id: nil}, _previous), do: :ok
+
+  defp enqueue_claim(account, previous) do
+    enqueue_cloud(%{
+      "operation" => "claim",
+      "local_account_id" => account.id,
+      "upstream_connection_id" => account.upstream_connection_id,
+      "previous_upstream_connection_id" => if(previous, do: previous.upstream_connection_id)
+    })
+  end
+
+  defp enqueue_revoke(%{upstream_connection_id: nil}), do: :ok
+
+  defp enqueue_revoke(account),
     do:
-      Ankole.Ash.update(account, :update, %{
-        status: "revoked",
-        credentials_version: account.credentials_version + 1,
-        refresh_lease_id: nil,
-        refreshing_until: nil
+      enqueue_cloud(%{
+        "operation" => "revoke",
+        "upstream_connection_id" => account.upstream_connection_id
       })
+
+  defp enqueue_cloud(args) do
+    with {:ok, _} <- Oban.insert(Ankole.Connectors.Jobs.CloudAccount.new(args)), do: :ok
+  end
 
   def lock(id),
     do:

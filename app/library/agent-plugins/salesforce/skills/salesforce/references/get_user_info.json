@@ -1,0 +1,386 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves information about the current user or a specific user in Salesforce.",
+  "inputSchema": {
+    "properties": {
+      "include_permissions": {
+        "default": false,
+        "description": "Whether to include user permissions in the response (requires additional API call). Requires elevated access; permission data is returned inside salesforce_user_details and may be partially masked based on the user's profile.",
+        "human_parameter_description": "Choose this if you also want profile, role, and permission-related details for the user. It may take slightly longer because it performs an extra lookup.",
+        "human_parameter_name": "Include Permissions",
+        "title": "Include Permissions",
+        "type": "boolean"
+      },
+      "user_id": {
+        "default": "",
+        "description": "The Salesforce User ID to retrieve information for. If not provided, returns current user info.",
+        "examples": ["005XXXXXXXXXXXXXXX", "005Wd000001E1BlIAK"],
+        "human_parameter_description": "The Salesforce User ID of the person you want details for. Leave this blank to get information about your own account.",
+        "human_parameter_name": "User ID",
+        "title": "User Id",
+        "type": "string"
+      }
+    },
+    "title": "GetUserInfoRequest",
+    "type": "object"
+  },
+  "name": "get_user_info",
+  "outputSchema": {
+    "$defs": {
+      "GetUserInfoResponse": {
+        "description": "Response containing comprehensive user information from Salesforce.",
+        "properties": {
+          "locale": {
+            "description": "User's locale setting.",
+            "title": "Locale",
+            "type": "string"
+          },
+          "push_service_type": {
+            "description": "Optional array of push notification provider types configured for the user.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Push Service Type",
+            "type": "array"
+          },
+          "username": {
+            "description": "The queried user's login name or email.",
+            "title": "Username",
+            "type": "string"
+          },
+          "mobile_phone": {
+            "description": "Mobile phone number from user settings.",
+            "title": "Mobile Phone",
+            "type": "string"
+          },
+          "mobile_policy": {
+            "additionalProperties": true,
+            "description": "Optional mobile application policy settings for the user.",
+            "title": "Mobile Policy",
+            "type": "object"
+          },
+          "updated_at": {
+            "description": "Timestamp of when the user information was last updated. Part of OpenID Connect standard claims.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "mobile_phone_verified": {
+            "description": "Whether the user has confirmed mobile phone validity.",
+            "title": "Mobile Phone Verified",
+            "type": "boolean"
+          },
+          "addr_city": {
+            "description": "City from user settings.",
+            "title": "Addr City",
+            "type": "string"
+          },
+          "urls": {
+            "$ref": "#/$defs/UserUrls",
+            "description": "Map of various API endpoint URLs available to the user.",
+            "title": "Urls"
+          },
+          "is_app_installed": {
+            "description": "Optional field indicating whether the connected app is installed for the user.",
+            "title": "Is App Installed",
+            "type": "boolean"
+          },
+          "sub": {
+            "description": "Subject identifier claim. The unique identifier for the user in OpenID Connect format.",
+            "title": "Sub",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "User's full display name.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/UserStatus",
+            "description": "Current Chatter status of the user.",
+            "title": "Status"
+          },
+          "custom_permissions": {
+            "additionalProperties": true,
+            "description": "Optional map of custom permissions enabled in the organization.",
+            "title": "Custom Permissions",
+            "type": "object"
+          },
+          "name": {
+            "description": "Full name of the user. Part of OpenID Connect standard claims.",
+            "title": "Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "given_name": {
+            "description": "User's given (first) name. Part of OpenID Connect standard claims.",
+            "title": "Given Name",
+            "type": "string"
+          },
+          "nick_name": {
+            "description": "Experience Cloud nickname of the user.",
+            "title": "Nick Name",
+            "type": "string"
+          },
+          "last_modified_date": {
+            "description": "ISO timestamp of when the user record was last modified.",
+            "title": "Last Modified Date",
+            "type": "string"
+          },
+          "utcOffset": {
+            "description": "UTC offset in milliseconds from user's timezone setting.",
+            "title": "Utc Offset",
+            "type": "integer"
+          },
+          "family_name": {
+            "description": "User's family (last) name. Part of OpenID Connect standard claims.",
+            "title": "Family Name",
+            "type": "string"
+          },
+          "custom_attributes": {
+            "additionalProperties": true,
+            "description": "Optional custom attributes configured for the organization.",
+            "title": "Custom Attributes",
+            "type": "object"
+          },
+          "zoneinfo": {
+            "description": "User's time zone. Part of OpenID Connect standard claims.",
+            "title": "Zoneinfo",
+            "type": "string"
+          },
+          "addr_country": {
+            "description": "Country from user settings.",
+            "title": "Addr Country",
+            "type": "string"
+          },
+          "preferred_username": {
+            "description": "The username by which the end-user wants to be referred to at the client application.",
+            "title": "Preferred Username",
+            "type": "string"
+          },
+          "photos": {
+            "$ref": "#/$defs/UserPhotos",
+            "description": "URLs to the user's profile pictures.",
+            "title": "Photos"
+          },
+          "email_verified": {
+            "description": "Indicates whether the queried user's email was verified by clicking a link.",
+            "title": "Email Verified",
+            "type": "boolean"
+          },
+          "picture": {
+            "description": "URL to user's profile picture. Part of OpenID Connect standard claims.",
+            "title": "Picture",
+            "type": "string"
+          },
+          "user_type": {
+            "description": "Classification of user (e.g., 'STANDARD').",
+            "title": "User Type",
+            "type": "string"
+          },
+          "asserted_user": {
+            "description": "Indicates whether the access token was issued for this identity.",
+            "title": "Asserted User",
+            "type": "boolean"
+          },
+          "language": {
+            "description": "User's language preference code.",
+            "title": "Language",
+            "type": "string"
+          },
+          "addr_state": {
+            "description": "State or province from user settings.",
+            "title": "Addr State",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "The queried user's unique Salesforce ID.",
+            "title": "User Id",
+            "type": "string"
+          },
+          "profile": {
+            "description": "URL to user's profile page. Part of OpenID Connect standard claims.",
+            "title": "Profile",
+            "type": "string"
+          },
+          "active": {
+            "description": "Whether the user account is active.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "timezone": {
+            "description": "Time zone from user settings.",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "addr_zip": {
+            "description": "Postal code from user settings.",
+            "title": "Addr Zip",
+            "type": "string"
+          },
+          "last_name": {
+            "description": "User's last name.",
+            "title": "Last Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identity URL, which is the same URL that was queried. Format: https://login.salesforce.com/id/{organization_id}/{user_id}",
+            "title": "Id",
+            "type": "string"
+          },
+          "salesforce_user_details": {
+            "additionalProperties": true,
+            "description": "Additional Salesforce user details including profile, role, and permission fields. Only populated when include_permissions is True.",
+            "title": "Salesforce User Details",
+            "type": "object"
+          },
+          "first_name": {
+            "description": "User's first name.",
+            "title": "First Name",
+            "type": "string"
+          },
+          "addr_street": {
+            "description": "Street address from user settings.",
+            "title": "Addr Street",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "ID of the user's Salesforce organization.",
+            "title": "Organization Id",
+            "type": "string"
+          }
+        },
+        "title": "GetUserInfoResponse",
+        "type": "object"
+      },
+      "UserPhotos": {
+        "description": "URLs to the user's profile pictures.",
+        "properties": {
+          "picture": {
+            "description": "URL to the full-size profile picture.",
+            "title": "Picture",
+            "type": "string"
+          },
+          "thumbnail": {
+            "description": "URL to the thumbnail-size profile picture.",
+            "title": "Thumbnail",
+            "type": "string"
+          }
+        },
+        "title": "UserPhotos",
+        "type": "object"
+      },
+      "UserStatus": {
+        "description": "Current Chatter status of the user.",
+        "properties": {
+          "body": {
+            "description": "The status message text content.",
+            "title": "Body",
+            "type": "string"
+          },
+          "createdDate": {
+            "description": "ISO timestamp when the status was created.",
+            "title": "Created Date",
+            "type": "string"
+          }
+        },
+        "title": "UserStatus",
+        "type": "object"
+      },
+      "UserUrls": {
+        "description": "Map of various API endpoint URLs available to the user.",
+        "properties": {
+          "enterprise": {
+            "description": "SOAP API enterprise WSDL endpoint URL.",
+            "title": "Enterprise",
+            "type": "string"
+          },
+          "feedElements": {
+            "description": "Chatter feed elements endpoint URL.",
+            "title": "Feed Elements",
+            "type": "string"
+          },
+          "feedItems": {
+            "description": "Chatter feed items endpoint URL.",
+            "title": "Feed Items",
+            "type": "string"
+          },
+          "feeds": {
+            "description": "Chatter feeds endpoint URL.",
+            "title": "Feeds",
+            "type": "string"
+          },
+          "groups": {
+            "description": "Groups endpoint URL.",
+            "title": "Groups",
+            "type": "string"
+          },
+          "metadata": {
+            "description": "SOAP API metadata endpoint URL.",
+            "title": "Metadata",
+            "type": "string"
+          },
+          "partner": {
+            "description": "SOAP API partner WSDL endpoint URL.",
+            "title": "Partner",
+            "type": "string"
+          },
+          "profile": {
+            "description": "User's Chatter profile URL.",
+            "title": "Profile",
+            "type": "string"
+          },
+          "query": {
+            "description": "SOQL query endpoint URL.",
+            "title": "Query",
+            "type": "string"
+          },
+          "recent": {
+            "description": "Recently viewed items endpoint URL.",
+            "title": "Recent",
+            "type": "string"
+          },
+          "rest": {
+            "description": "REST API endpoint URL.",
+            "title": "Rest",
+            "type": "string"
+          },
+          "search": {
+            "description": "Search API endpoint URL.",
+            "title": "Search",
+            "type": "string"
+          },
+          "sobjects": {
+            "description": "sObjects REST API endpoint URL.",
+            "title": "Sobjects",
+            "type": "string"
+          },
+          "users": {
+            "description": "Users endpoint URL.",
+            "title": "Users",
+            "type": "string"
+          }
+        },
+        "title": "UserUrls",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUserInfoResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

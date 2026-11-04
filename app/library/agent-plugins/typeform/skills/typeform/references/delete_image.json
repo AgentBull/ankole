@@ -1,0 +1,53 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to delete an image from your Typeform account. Use when you need to remove an image that is no longer needed. Returns a success status once the image has been deleted (204 No Content).",
+  "inputSchema": {
+    "properties": {
+      "image_id": {
+        "description": "The unique identifier for the image to remove",
+        "examples": ["zMTupVAd3fzt"],
+        "title": "Image Id",
+        "type": "string"
+      }
+    },
+    "required": ["image_id"],
+    "title": "DeleteImageRequest",
+    "type": "object"
+  },
+  "name": "delete_image",
+  "outputSchema": {
+    "$defs": {
+      "DeleteImageResponse": {
+        "properties": {
+          "message": {
+            "description": "Status message about the deletion",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the image was successfully deleted",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success", "message"],
+        "title": "DeleteImageResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteImageResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

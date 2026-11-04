@@ -1,0 +1,60 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a draft invoice. This action cannot be undone. Use when you need to remove a draft invoice. Finalized or subscription invoices must be voided instead.",
+  "inputSchema": {
+    "description": "Request model for deleting a draft invoice.",
+    "properties": {
+      "invoice": {
+        "description": "The identifier of the invoice to be deleted. Must start with 'in_' followed by alphanumeric characters. Only draft invoices can be deleted.",
+        "examples": ["in_1ShVYIQvM72TjFrbiYRXfNWJ", "in_1MtHbELkdIwHu7ixl4OzzPMv"],
+        "pattern": "^in_[a-zA-Z0-9]+$",
+        "title": "Invoice",
+        "type": "string"
+      }
+    },
+    "required": ["invoice"],
+    "title": "DeleteInvoiceRequest",
+    "type": "object"
+  },
+  "name": "delete_invoice",
+  "outputSchema": {
+    "$defs": {
+      "DeleteInvoiceResponse": {
+        "description": "Response model for a deleted invoice.",
+        "properties": {
+          "deleted": {
+            "description": "Always true for a successful deletion.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The identifier of the deleted invoice.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'invoice' for this endpoint.",
+            "title": "Object",
+            "type": "string"
+          }
+        },
+        "title": "DeleteInvoiceResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteInvoiceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

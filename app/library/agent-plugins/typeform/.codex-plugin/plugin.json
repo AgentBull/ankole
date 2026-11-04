@@ -1,0 +1,6 @@
+{
+  "name": "typeform",
+  "version": "1.0.0",
+  "description": "Use typeform tools and event subscriptions with Ankole connections.",
+  "skills": "./skills/"
+}

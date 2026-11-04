@@ -1,0 +1,393 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Moves all cards from a source Trello list to a destination list on a specified board. This moves the cards rather than copying them.",
+  "inputSchema": {
+    "description": "Request schema for `MoveAllListCards`",
+    "properties": {
+      "idBoard": {
+        "description": "The ID of the destination Trello board to which all cards from the source list will be moved. This parameter is required by Trello for this operation.",
+        "examples": ["5abbe4b7ddc1b351ef961415"],
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idList": {
+        "description": "The ID of the source Trello list from which all cards will be moved. This is used in the path parameter.",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id List",
+        "type": "string"
+      },
+      "idListDestination": {
+        "description": "The ID of the destination Trello list on the destination board to which all cards from the source list will be moved. This parameter is required by Trello for this operation.",
+        "examples": ["5abbe4b7ddc1b351ef961416"],
+        "title": "Id List Destination",
+        "type": "string"
+      }
+    },
+    "required": ["idList", "idBoard", "idListDestination"],
+    "title": "MoveAllListCardsRequest",
+    "type": "object"
+  },
+  "name": "move_all_list_cards",
+  "outputSchema": {
+    "$defs": {
+      "AttachmentsByType": {
+        "description": "Attachments categorized by type",
+        "properties": {
+          "trello": {
+            "$ref": "#/$defs/TrelloBoardAttachments",
+            "description": "Trello attachments",
+            "title": "Trello"
+          }
+        },
+        "title": "AttachmentsByType",
+        "type": "object"
+      },
+      "Card": {
+        "description": "Trello card object",
+        "properties": {
+          "url": {
+            "description": "Full URL to the card with name slug",
+            "title": "Url",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "8-character shortened ID",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "due": {
+            "description": "Due date for the card if one exists",
+            "title": "Due",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board this card belongs to",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Due date reminder setting",
+            "title": "Due Reminder",
+            "type": "integer"
+          },
+          "idChecklists": {
+            "description": "Array of checklist IDs on this card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Checklists",
+            "type": "array"
+          },
+          "idMembers": {
+            "description": "Array of member IDs assigned to this card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members",
+            "type": "array"
+          },
+          "manualCoverAttachment": {
+            "description": "Whether the cover attachment was manually selected",
+            "title": "Manual Cover Attachment",
+            "type": "boolean"
+          },
+          "idLabels": {
+            "description": "Array of label IDs attached to this card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Labels",
+            "type": "array"
+          },
+          "idAttachmentCover": {
+            "description": "ID of the attachment selected as the card cover",
+            "title": "Id Attachment Cover",
+            "type": "string"
+          },
+          "desc": {
+            "description": "The description of the card, up to 16384 characters",
+            "title": "Desc",
+            "type": "string"
+          },
+          "idMembersVoted": {
+            "description": "Array of member IDs who have voted on this card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members Voted",
+            "type": "array"
+          },
+          "name": {
+            "description": "The name/title of the card",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the card in the list",
+            "title": "Pos",
+            "type": "number"
+          },
+          "creationMethod": {
+            "description": "Method used to create the card",
+            "title": "Creation Method",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "Short URL without name slug",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Whether the user is subscribed to this card",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "dueComplete": {
+            "description": "Whether the due date has been marked complete",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "descData": {
+            "additionalProperties": true,
+            "description": "Custom emoji data if description contains custom emojis",
+            "title": "Desc Data",
+            "type": "object"
+          },
+          "checkItemStates": {
+            "description": "Array of check item states",
+            "items": {
+              "type": "string"
+            },
+            "title": "Check Item States",
+            "type": "array"
+          },
+          "address": {
+            "description": "Physical address associated with the card",
+            "title": "Address",
+            "type": "string"
+          },
+          "closed": {
+            "description": "Whether the card is archived/closed",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "dateLastActivity": {
+            "description": "Timestamp of the last activity on this card",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "cover": {
+            "$ref": "#/$defs/CardCover",
+            "description": "Cover image information",
+            "title": "Cover"
+          },
+          "limits": {
+            "additionalProperties": true,
+            "description": "Limits and restrictions for this card",
+            "title": "Limits",
+            "type": "object"
+          },
+          "idShort": {
+            "description": "Numeric ID unique to the board only",
+            "title": "Id Short",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Array of full label objects",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "locationName": {
+            "description": "Name of the location",
+            "title": "Location Name",
+            "type": "string"
+          },
+          "idList": {
+            "description": "The ID of the list this card is in",
+            "title": "Id List",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the card",
+            "title": "Id",
+            "type": "string"
+          },
+          "badges": {
+            "$ref": "#/$defs/CardBadges",
+            "description": "Badge information displayed on the card front",
+            "title": "Badges"
+          },
+          "coordinates": {
+            "description": "Geographic coordinates for the card location",
+            "title": "Coordinates",
+            "type": "string"
+          },
+          "cardRole": {
+            "description": "Role of the card (e.g., 'mirror' for mirrored cards)",
+            "title": "Card Role",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start date for the card if one exists",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "title": "Card",
+        "type": "object"
+      },
+      "CardBadges": {
+        "description": "Badge information displayed on the card front",
+        "properties": {
+          "attachments": {
+            "description": "Number of attachments on the card",
+            "title": "Attachments",
+            "type": "integer"
+          },
+          "attachmentsByType": {
+            "$ref": "#/$defs/AttachmentsByType",
+            "description": "Attachments categorized by type",
+            "title": "Attachments By Type"
+          },
+          "checkItems": {
+            "description": "Total number of checklist items",
+            "title": "Check Items",
+            "type": "integer"
+          },
+          "checkItemsChecked": {
+            "description": "Number of completed checklist items",
+            "title": "Check Items Checked",
+            "type": "integer"
+          },
+          "comments": {
+            "description": "Number of comments on the card",
+            "title": "Comments",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Whether the card has a description",
+            "title": "Description",
+            "type": "boolean"
+          },
+          "due": {
+            "description": "Due date badge information",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueComplete": {
+            "description": "Whether the due date is marked complete",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "fogbugz": {
+            "description": "FogBugz integration data",
+            "title": "Fogbugz",
+            "type": "string"
+          },
+          "location": {
+            "description": "Whether the card has a location",
+            "title": "Location",
+            "type": "boolean"
+          },
+          "start": {
+            "description": "Start date badge information",
+            "title": "Start",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Whether the viewing member is subscribed",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "viewingMemberVoted": {
+            "description": "Whether the viewing member has voted",
+            "title": "Viewing Member Voted",
+            "type": "boolean"
+          },
+          "votes": {
+            "description": "Number of votes on the card",
+            "title": "Votes",
+            "type": "integer"
+          }
+        },
+        "title": "CardBadges",
+        "type": "object"
+      },
+      "CardCover": {
+        "description": "Cover image information",
+        "properties": {
+          "brightness": {
+            "description": "Brightness of the cover (e.g., 'light', 'dark')",
+            "title": "Brightness",
+            "type": "string"
+          },
+          "color": {
+            "description": "Color of the cover",
+            "title": "Color",
+            "type": "string"
+          },
+          "idUploadedBackground": {
+            "description": "Whether a custom background was uploaded",
+            "title": "Id Uploaded Background",
+            "type": "boolean"
+          },
+          "isTemplate": {
+            "description": "Whether this is a template card",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "size": {
+            "description": "Size of the cover (e.g., 'normal')",
+            "title": "Size",
+            "type": "string"
+          }
+        },
+        "title": "CardCover",
+        "type": "object"
+      },
+      "MoveAllListCardsResponse": {
+        "description": "Response schema for `MoveAllListCards` - Array of Card objects that were moved to the destination list",
+        "items": {
+          "$ref": "#/$defs/Card"
+        },
+        "title": "MoveAllListCardsResponse",
+        "type": "array"
+      },
+      "TrelloBoardAttachments": {
+        "description": "Trello board attachments count",
+        "properties": {
+          "board": {
+            "description": "Number of Trello board attachments",
+            "title": "Board",
+            "type": "integer"
+          },
+          "card": {
+            "description": "Number of Trello card attachments",
+            "title": "Card",
+            "type": "integer"
+          }
+        },
+        "title": "TrelloBoardAttachments",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/MoveAllListCardsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

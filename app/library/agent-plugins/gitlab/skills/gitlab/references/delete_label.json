@@ -1,0 +1,73 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a label from a GitLab project by its ID or title. Use this action when you need to remove a label from a project permanently. This action is irreversible — the label cannot be recovered once deleted.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["123", "namespace/project-name"],
+        "title": "Id"
+      },
+      "label_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or title of the label to delete.",
+        "examples": ["1", "bug", "enhancement"],
+        "title": "Label Id"
+      }
+    },
+    "required": ["id", "label_id"],
+    "title": "DeleteLabelRequest",
+    "type": "object"
+  },
+  "name": "delete_label",
+  "outputSchema": {
+    "$defs": {
+      "DeleteLabelResponse": {
+        "properties": {
+          "message": {
+            "description": "A message indicating the status of the deletion.",
+            "title": "Message",
+            "type": "string"
+          },
+          "status_code": {
+            "description": "HTTP status code of the response.",
+            "title": "Status Code",
+            "type": "integer"
+          }
+        },
+        "required": ["status_code"],
+        "title": "DeleteLabelResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteLabelResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

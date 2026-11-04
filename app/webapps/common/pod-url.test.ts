@@ -3,6 +3,7 @@ import anyAscii from 'any-ascii'
 import vectors from '../../kernel/test/vectors/pod_url.json'
 import {
   installPageTransliteration,
+  localReturnPath,
   pageUrlSlug,
   podLocation,
   podPagePath,
@@ -28,6 +29,22 @@ type InvalidRouteVector = { path: string; query: Record<string, string> }
 
 beforeAll(() => {
   installPageTransliteration(anyAscii)
+})
+
+test('task return paths preserve local conversation state and exclude non-route intents', () => {
+  const origin = 'https://pod.ankole.test'
+  expect(localReturnPath('/conversations/abc?thread=1#latest', origin)).toBe('/conversations/abc?thread=1#latest')
+  expect(localReturnPath(`/pages/${short}?automation_job=42`, origin)).toBe(`/pages/${short}?automation_job=42`)
+  for (const value of [
+    null,
+    'figma',
+    'watch-design',
+    'https://elsewhere.test/task',
+    '//elsewhere.test',
+    '/\\elsewhere.test'
+  ]) {
+    expect(localReturnPath(value, origin)).toBeUndefined()
+  }
 })
 
 test('Pod browser paths use Crockford Base32 short UUIDs and optional Page title slugs without changing durable identity', () => {

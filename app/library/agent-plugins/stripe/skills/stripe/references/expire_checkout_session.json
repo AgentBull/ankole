@@ -1,0 +1,330 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to expire an active Stripe Checkout Session. Use when you need to prevent customers from completing an open checkout session.",
+  "inputSchema": {
+    "properties": {
+      "session_id": {
+        "description": "The ID of the checkout session to expire. Must be an active session with 'open' status.",
+        "examples": ["cs_test_a1K8UMdKglx6wXy8SMtWWLX5YhywfKT6QkslBoajhZeaZ1AAxvu980yYqr"],
+        "title": "Session Id",
+        "type": "string"
+      }
+    },
+    "required": ["session_id"],
+    "title": "ExpireCheckoutSessionRequest",
+    "type": "object"
+  },
+  "name": "expire_checkout_session",
+  "outputSchema": {
+    "$defs": {
+      "Address": {
+        "properties": {
+          "city": {
+            "description": "City, district, suburb, town, or village.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2).",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Address line 1 (e.g., street, PO Box, or company name).",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Address line 2 (e.g., apartment, suite, unit, or building).",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "ZIP or postal code.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State, county, province, or region.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "Address",
+        "type": "object"
+      },
+      "AutomaticTax": {
+        "properties": {
+          "enabled": {
+            "description": "Whether Stripe automatically computes tax on this session.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "The status of the most recent automated tax calculation for this session.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTax",
+        "type": "object"
+      },
+      "CustomerDetails": {
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "The customer's address.",
+            "title": "Address"
+          },
+          "email": {
+            "description": "The customer's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "The customer's full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "The customer's phone number.",
+            "title": "Phone",
+            "type": "string"
+          },
+          "tax_ids": {
+            "description": "The customer's tax IDs.",
+            "items": {
+              "$ref": "#/$defs/TaxId"
+            },
+            "title": "Tax Ids",
+            "type": "array"
+          }
+        },
+        "title": "CustomerDetails",
+        "type": "object"
+      },
+      "ExpireCheckoutSessionResponse": {
+        "properties": {
+          "allow_promotion_codes": {
+            "description": "Enables user redeemable promotion codes.",
+            "title": "Allow Promotion Codes",
+            "type": "boolean"
+          },
+          "amount_subtotal": {
+            "description": "Total of all items before discounts or taxes are applied.",
+            "title": "Amount Subtotal",
+            "type": "integer"
+          },
+          "amount_total": {
+            "description": "Total of all items after discounts and taxes are applied.",
+            "title": "Amount Total",
+            "type": "integer"
+          },
+          "automatic_tax": {
+            "$ref": "#/$defs/AutomaticTax",
+            "description": "Settings for automatic tax lookup for this session.",
+            "title": "Automatic Tax"
+          },
+          "cancel_url": {
+            "description": "The URL the customer will be directed to if they decide to cancel payment and return to your website.",
+            "title": "Cancel Url",
+            "type": "string"
+          },
+          "client_reference_id": {
+            "description": "A unique string to reference the Checkout Session.",
+            "title": "Client Reference Id",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "customer": {
+            "description": "The ID of the customer for this session.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "customer_details": {
+            "$ref": "#/$defs/CustomerDetails",
+            "description": "The customer details including the customer's tax exempt status and the customer's tax IDs.",
+            "title": "Customer Details"
+          },
+          "customer_email": {
+            "description": "If provided, this value will be used when the customer object is created.",
+            "title": "Customer Email",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "The timestamp at which the Checkout Session will expire.",
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the Checkout Session object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "The ID of the invoice created for this Checkout Session, if it is in subscription mode.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "locale": {
+            "description": "The IETF language tag of the locale Checkout is displayed in.",
+            "title": "Locale",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "mode": {
+            "description": "The mode of the Checkout Session. One of 'payment', 'setup', or 'subscription'.",
+            "title": "Mode",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'checkout.session'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "payment_intent": {
+            "description": "The ID of the PaymentIntent for Checkout Sessions in payment mode.",
+            "title": "Payment Intent",
+            "type": "string"
+          },
+          "payment_method_types": {
+            "description": "A list of the types of payment methods (e.g., 'card') this Checkout Session can accept.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Payment Method Types",
+            "type": "array"
+          },
+          "payment_status": {
+            "description": "The payment status of the Checkout Session. One of 'paid', 'unpaid', or 'no_payment_required'.",
+            "title": "Payment Status",
+            "type": "string"
+          },
+          "setup_intent": {
+            "description": "The ID of the SetupIntent for Checkout Sessions in setup mode.",
+            "title": "Setup Intent",
+            "type": "string"
+          },
+          "status": {
+            "description": "The status of the Checkout Session. Will be 'expired' after successful expiration.",
+            "title": "Status",
+            "type": "string"
+          },
+          "subscription": {
+            "description": "The ID of the subscription for Checkout Sessions in subscription mode.",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "success_url": {
+            "description": "The URL the customer will be directed to after the payment or subscription creation is successful.",
+            "title": "Success Url",
+            "type": "string"
+          },
+          "total_details": {
+            "$ref": "#/$defs/TotalDetails",
+            "description": "Tax and discount details for the computed total amount.",
+            "title": "Total Details"
+          },
+          "ui_mode": {
+            "description": "The UI mode of the Session. One of 'hosted', 'embedded', or 'custom'.",
+            "title": "Ui Mode",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL to the Checkout Session.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "livemode",
+          "mode",
+          "status",
+          "payment_status",
+          "expires_at",
+          "automatic_tax"
+        ],
+        "title": "ExpireCheckoutSessionResponse",
+        "type": "object"
+      },
+      "TaxId": {
+        "properties": {
+          "type": {
+            "description": "The type of the tax ID (e.g., 'eu_vat', 'us_ein', 'br_cpf').",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value of the tax ID.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "TaxId",
+        "type": "object"
+      },
+      "TotalDetails": {
+        "properties": {
+          "amount_discount": {
+            "description": "Total discount amount applied to the session.",
+            "title": "Amount Discount",
+            "type": "integer"
+          },
+          "amount_shipping": {
+            "description": "Total shipping amount.",
+            "title": "Amount Shipping",
+            "type": "integer"
+          },
+          "amount_tax": {
+            "description": "Total tax amount.",
+            "title": "Amount Tax",
+            "type": "integer"
+          }
+        },
+        "required": ["amount_discount", "amount_shipping", "amount_tax"],
+        "title": "TotalDetails",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ExpireCheckoutSessionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

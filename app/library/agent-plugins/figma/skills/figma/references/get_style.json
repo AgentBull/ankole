@@ -1,0 +1,184 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed metadata for a specific style in Figma using its unique style key.",
+  "inputSchema": {
+    "description": "Request schema for `GetStyle`",
+    "properties": {
+      "key": {
+        "description": "The unique identifier (key) of the style to retrieve. Style keys are 40-character hexadecimal hash strings obtained from the GET /v1/files/{file_key}/styles or GET /v1/teams/{team_id}/styles endpoints. This endpoint only works for styles published in a team library.",
+        "examples": ["fab4c1a7ca2a72b01100db66097790979f3655c4"],
+        "title": "Key",
+        "type": "string"
+      }
+    },
+    "required": ["key"],
+    "title": "GetStyleRequest",
+    "type": "object"
+  },
+  "name": "get_style",
+  "outputSchema": {
+    "$defs": {
+      "Error": {
+        "enum": [false],
+        "title": "Error",
+        "type": "boolean"
+      },
+      "GetStyleResponse": {
+        "description": "Response schema for `GetStyle`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "The main data payload of the response, encapsulating the style's status, error state, and metadata.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetStyleResponse",
+        "type": "object"
+      },
+      "Meta": {
+        "properties": {
+          "created_at": {
+            "description": "The date and time (in UTC ISO 8601 format) when the style was initially created.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "A textual description of the style, often provided by the person who published it.",
+            "title": "Description",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "The unique identifier of the Figma file where this style is defined.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "key": {
+            "description": "The unique identifier (key) of this style. A 40-character hexadecimal hash string.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "The human-readable name of the style as it appears in the Figma UI.",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Identifier of the specific node within the Figma file from which this style originates.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "sort_position": {
+            "description": "A user-defined string that can be used to order styles. Note that Figma itself might not use this field for internal sorting; it's often intended for client-side sorting logic.",
+            "title": "Sort Position",
+            "type": "string"
+          },
+          "style_type": {
+            "$ref": "#/$defs/StyleType",
+            "description": "Specifies the type of the style, such as FILL, TEXT, EFFECT, or GRID.",
+            "title": "Style Type"
+          },
+          "thumbnail_url": {
+            "description": "Optional URL for a thumbnail image preview of the style. This can be null if no thumbnail is available.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "The date and time (in UTC ISO 8601 format) when the style was last modified.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Information about the Figma user primarily associated with this style (e.g., its creator or last editor).",
+            "title": "User"
+          }
+        },
+        "required": [
+          "key",
+          "file_key",
+          "node_id",
+          "style_type",
+          "name",
+          "description",
+          "created_at",
+          "updated_at",
+          "user",
+          "sort_position"
+        ],
+        "title": "Meta",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "error": {
+            "$ref": "#/$defs/Error",
+            "description": "Boolean flag indicating if an error occurred. `false` (from the Error enum) signifies a successful request.",
+            "title": "Error"
+          },
+          "meta": {
+            "$ref": "#/$defs/Meta",
+            "description": "An object containing the detailed metadata properties for the requested style.",
+            "title": "Meta"
+          },
+          "status": {
+            "$ref": "#/$defs/Status",
+            "description": "HTTP status code of the API response. A value of 200 (from the Status enum) indicates success.",
+            "title": "Status"
+          }
+        },
+        "required": ["status", "error", "meta"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Status": {
+        "enum": [200],
+        "title": "Status",
+        "type": "integer"
+      },
+      "StyleType": {
+        "enum": ["FILL", "TEXT", "EFFECT", "GRID"],
+        "title": "StyleType",
+        "type": "string"
+      },
+      "User": {
+        "properties": {
+          "handle": {
+            "description": "The user's display name or handle in Figma.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique, stable identifier for the user within Figma.",
+            "title": "Id",
+            "type": "string"
+          },
+          "img_url": {
+            "description": "URL pointing to the user's profile image.",
+            "title": "Img Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "handle", "img_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetStyleResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

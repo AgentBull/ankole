@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a ticket in Zendesk, including its entire conversation history. This action is irreversible; always confirm the correct ticket_id before executing.",
+  "inputSchema": {
+    "properties": {
+      "ticket_id": {
+        "description": "ID of the ticket to delete",
+        "human_parameter_description": "The numeric ID of the Zendesk ticket you want to delete so we know exactly which ticket to remove. You can find this in the ticket's URL or from a ticket list.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "DeleteZendeskTicketRequest",
+    "type": "object"
+  },
+  "name": "delete_zendesk_ticket",
+  "outputSchema": {
+    "$defs": {
+      "DeleteZendeskTicketResponse": {
+        "properties": {
+          "success": {
+            "description": "Indicates whether the ticket deletion was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "DeleteZendeskTicketResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteZendeskTicketResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,220 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves the complete current balance details for the connected Stripe account.",
+  "inputSchema": {
+    "properties": {},
+    "title": "RetrieveBalanceRequest",
+    "type": "object"
+  },
+  "name": "retrieve_balance",
+  "outputSchema": {
+    "$defs": {
+      "BalanceAmount": {
+        "properties": {
+          "amount": {
+            "description": "Balance amount in the smallest currency unit (e.g., cents for USD).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO 4217 currency code in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "source_types": {
+            "$ref": "#/$defs/BalanceAmountBySourceType",
+            "description": "Breakdown of balance by payment source type.",
+            "title": "Source Types"
+          }
+        },
+        "required": ["amount", "currency"],
+        "title": "BalanceAmount",
+        "type": "object"
+      },
+      "BalanceAmountBySourceType": {
+        "properties": {
+          "bank_account": {
+            "description": "Amount coming from legacy US ACH payments.",
+            "title": "Bank Account",
+            "type": "integer"
+          },
+          "card": {
+            "description": "Amount coming from most payment methods, including cards as well as non-legacy bank debits.",
+            "title": "Card",
+            "type": "integer"
+          },
+          "fpx": {
+            "description": "Amount coming from FPX, a Malaysian payment method.",
+            "title": "Fpx",
+            "type": "integer"
+          }
+        },
+        "title": "BalanceAmountBySourceType",
+        "type": "object"
+      },
+      "BalanceAmountNet": {
+        "properties": {
+          "amount": {
+            "description": "Balance amount in the smallest currency unit (e.g., cents for USD).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO 4217 currency code in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "net_available": {
+            "description": "Breakdown of balance by destination.",
+            "items": {
+              "$ref": "#/$defs/BalanceNetAvailable"
+            },
+            "title": "Net Available",
+            "type": "array"
+          },
+          "source_types": {
+            "$ref": "#/$defs/BalanceAmountBySourceType",
+            "description": "Breakdown of balance by payment source type.",
+            "title": "Source Types"
+          }
+        },
+        "required": ["amount", "currency"],
+        "title": "BalanceAmountNet",
+        "type": "object"
+      },
+      "BalanceNetAvailable": {
+        "properties": {
+          "amount": {
+            "description": "Net balance amount after subtracting platform-set pricing fees, in the smallest currency unit.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "destination": {
+            "description": "External account ID for this net balance.",
+            "title": "Destination",
+            "type": "string"
+          },
+          "source_types": {
+            "$ref": "#/$defs/BalanceAmountBySourceType",
+            "description": "Breakdown of net balance by payment source type.",
+            "title": "Source Types"
+          }
+        },
+        "required": ["amount", "destination"],
+        "title": "BalanceNetAvailable",
+        "type": "object"
+      },
+      "IssuingBalance": {
+        "properties": {
+          "available": {
+            "description": "Funds that are available for use.",
+            "items": {
+              "$ref": "#/$defs/BalanceAmount"
+            },
+            "title": "Available",
+            "type": "array"
+          }
+        },
+        "required": ["available"],
+        "title": "IssuingBalance",
+        "type": "object"
+      },
+      "RefundAndDisputePrefunding": {
+        "properties": {
+          "available": {
+            "description": "Available funds within this category.",
+            "items": {
+              "$ref": "#/$defs/BalanceAmount"
+            },
+            "title": "Available",
+            "type": "array"
+          },
+          "pending": {
+            "description": "Funds that are pending within this category.",
+            "items": {
+              "$ref": "#/$defs/BalanceAmount"
+            },
+            "title": "Pending",
+            "type": "array"
+          }
+        },
+        "required": ["available", "pending"],
+        "title": "RefundAndDisputePrefunding",
+        "type": "object"
+      },
+      "RetrieveBalanceResponse": {
+        "properties": {
+          "available": {
+            "description": "Funds that are available to be transferred or paid out automatically by Stripe or explicitly via the Transfers API or Payouts API.",
+            "items": {
+              "$ref": "#/$defs/BalanceAmount"
+            },
+            "title": "Available",
+            "type": "array"
+          },
+          "connect_reserved": {
+            "description": "Funds held due to negative balances on connected Custom accounts.",
+            "items": {
+              "$ref": "#/$defs/BalanceAmount"
+            },
+            "title": "Connect Reserved",
+            "type": "array"
+          },
+          "instant_available": {
+            "description": "Funds that are eligible for Instant Payouts.",
+            "items": {
+              "$ref": "#/$defs/BalanceAmountNet"
+            },
+            "title": "Instant Available",
+            "type": "array"
+          },
+          "issuing": {
+            "$ref": "#/$defs/IssuingBalance",
+            "description": "Funds available for Issued Cards spending.",
+            "title": "Issuing"
+          },
+          "livemode": {
+            "description": "Indicates whether the object exists in live mode (true) or test mode (false).",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'balance' for balance objects.",
+            "title": "Object",
+            "type": "string"
+          },
+          "pending": {
+            "description": "Funds that are not yet available in the balance, due to the settlement or clearing process.",
+            "items": {
+              "$ref": "#/$defs/BalanceAmount"
+            },
+            "title": "Pending",
+            "type": "array"
+          },
+          "refund_and_dispute_prefunding": {
+            "$ref": "#/$defs/RefundAndDisputePrefunding",
+            "description": "Funds reserved for future refunds, disputes, or negative balance coverage.",
+            "title": "Refund And Dispute Prefunding"
+          }
+        },
+        "required": ["object", "livemode", "available", "pending"],
+        "title": "RetrieveBalanceResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveBalanceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

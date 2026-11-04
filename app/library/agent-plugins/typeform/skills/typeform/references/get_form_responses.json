@@ -1,0 +1,426 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve form responses from Typeform with filtering by date, pagination, search, and response type. Use when you need to get responses for a specific form including timestamps of when users landed on and submitted the form. Note: Recent responses may take up to 30 minutes to appear.",
+  "inputSchema": {
+    "properties": {
+      "after": {
+        "description": "Pagination token for responses after this point",
+        "title": "After",
+        "type": "string"
+      },
+      "answered_fields": {
+        "description": "Filter responses containing specified field IDs",
+        "items": {
+          "type": "string"
+        },
+        "title": "Answered Fields",
+        "type": "array"
+      },
+      "before": {
+        "description": "Pagination token for responses before this point",
+        "title": "Before",
+        "type": "string"
+      },
+      "excluded_response_ids": {
+        "description": "Comma-separated response IDs to exclude",
+        "title": "Excluded Response Ids",
+        "type": "string"
+      },
+      "fields": {
+        "description": "Limit displayed fields in answers section. Provide field IDs.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Fields",
+        "type": "array"
+      },
+      "form_id": {
+        "description": "Unique form identifier",
+        "examples": ["Y78g1cmS"],
+        "title": "Form Id",
+        "type": "string"
+      },
+      "included_response_ids": {
+        "description": "Comma-separated response IDs to include",
+        "title": "Included Response Ids",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Maximum responses per request (default: 25, max: 1000)",
+        "maximum": 1000,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "query": {
+        "description": "Search string matched against all response fields",
+        "title": "Query",
+        "type": "string"
+      },
+      "response_type": {
+        "description": "Filter by type: 'started', 'partial', or 'completed'. Can specify multiple values.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Response Type",
+        "type": "array"
+      },
+      "since": {
+        "description": "Filter responses from timestamp (ISO 8601 format like '2023-01-01T00:00:00Z' or Unix seconds)",
+        "title": "Since",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Sort format: {fieldID},{asc|desc}. Example: 'field_123,asc'",
+        "title": "Sort",
+        "type": "string"
+      },
+      "until": {
+        "description": "Filter responses until timestamp (ISO 8601 format like '2023-12-31T23:59:59Z' or Unix seconds)",
+        "title": "Until",
+        "type": "string"
+      }
+    },
+    "required": ["form_id"],
+    "title": "GetFormResponsesRequest",
+    "type": "object"
+  },
+  "name": "get_form_responses",
+  "outputSchema": {
+    "$defs": {
+      "Answer": {
+        "description": "Answer to a form field",
+        "properties": {
+          "boolean": {
+            "description": "Boolean answer",
+            "title": "Boolean",
+            "type": "boolean"
+          },
+          "choice": {
+            "$ref": "#/$defs/ChoiceAnswer",
+            "description": "Single choice answer",
+            "title": "Choice"
+          },
+          "choices": {
+            "$ref": "#/$defs/ChoicesAnswer",
+            "description": "Multiple choice answer",
+            "title": "Choices"
+          },
+          "date": {
+            "description": "Date answer",
+            "title": "Date",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email answer",
+            "title": "Email",
+            "type": "string"
+          },
+          "field": {
+            "$ref": "#/$defs/AnswerField",
+            "description": "Field information",
+            "title": "Field"
+          },
+          "file_url": {
+            "description": "File URL answer",
+            "title": "File Url",
+            "type": "string"
+          },
+          "multi_format": {
+            "additionalProperties": true,
+            "description": "Multi-format answer (audio/video)",
+            "title": "Multi Format",
+            "type": "object"
+          },
+          "number": {
+            "description": "Numeric answer",
+            "title": "Number",
+            "type": "number"
+          },
+          "payment": {
+            "additionalProperties": true,
+            "description": "Payment details",
+            "title": "Payment",
+            "type": "object"
+          },
+          "phone_number": {
+            "description": "Phone number answer",
+            "title": "Phone Number",
+            "type": "string"
+          },
+          "text": {
+            "description": "Text answer",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Answer type (text, email, number, boolean, date, choice, choices, file_url, url, payment, phone_number, multi_format)",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL answer",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["field", "type"],
+        "title": "Answer",
+        "type": "object"
+      },
+      "AnswerField": {
+        "description": "Field information in an answer",
+        "properties": {
+          "id": {
+            "description": "Field ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "ref": {
+            "description": "Field reference",
+            "title": "Ref",
+            "type": "string"
+          },
+          "type": {
+            "description": "Field type",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "type"],
+        "title": "AnswerField",
+        "type": "object"
+      },
+      "CalculatedResponse": {
+        "properties": {
+          "score": {
+            "description": "Calculated score",
+            "title": "Score",
+            "type": "number"
+          }
+        },
+        "title": "CalculatedResponse",
+        "type": "object"
+      },
+      "ChoiceAnswer": {
+        "description": "Single choice answer",
+        "properties": {
+          "id": {
+            "description": "Choice ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "description": "Choice label",
+            "title": "Label",
+            "type": "string"
+          },
+          "other": {
+            "description": "Custom text for 'Other' option",
+            "title": "Other",
+            "type": "string"
+          },
+          "ref": {
+            "description": "Choice reference",
+            "title": "Ref",
+            "type": "string"
+          }
+        },
+        "title": "ChoiceAnswer",
+        "type": "object"
+      },
+      "ChoicesAnswer": {
+        "description": "Multiple choice answer",
+        "properties": {
+          "ids": {
+            "description": "Selected choice IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Ids",
+            "type": "array"
+          },
+          "labels": {
+            "description": "Selected choice labels",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "other": {
+            "description": "Custom text for 'Other' option",
+            "title": "Other",
+            "type": "string"
+          },
+          "refs": {
+            "description": "Selected choice references",
+            "items": {
+              "type": "string"
+            },
+            "title": "Refs",
+            "type": "array"
+          }
+        },
+        "title": "ChoicesAnswer",
+        "type": "object"
+      },
+      "GetFormResponsesResponse": {
+        "properties": {
+          "items": {
+            "description": "List of form responses",
+            "items": {
+              "$ref": "#/$defs/ResponseItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page_count": {
+            "description": "Number of pages",
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "total_items": {
+            "description": "Total number of responses",
+            "title": "Total Items",
+            "type": "integer"
+          }
+        },
+        "title": "GetFormResponsesResponse",
+        "type": "object"
+      },
+      "ResponseItem": {
+        "properties": {
+          "answers": {
+            "description": "Array of answers provided in the response",
+            "items": {
+              "$ref": "#/$defs/Answer"
+            },
+            "title": "Answers",
+            "type": "array"
+          },
+          "calculated": {
+            "$ref": "#/$defs/CalculatedResponse",
+            "description": "Calculated values like score",
+            "title": "Calculated"
+          },
+          "hidden": {
+            "additionalProperties": true,
+            "description": "Hidden fields with dynamic keys and values",
+            "title": "Hidden",
+            "type": "object"
+          },
+          "landed_at": {
+            "description": "ISO 8601 timestamp when user landed on the form",
+            "title": "Landed At",
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/$defs/ResponseMetadata",
+            "description": "Response metadata",
+            "title": "Metadata"
+          },
+          "response_id": {
+            "description": "Unique response identifier",
+            "title": "Response Id",
+            "type": "string"
+          },
+          "submitted_at": {
+            "description": "ISO 8601 timestamp when user submitted the form",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "token": {
+            "description": "Response token",
+            "title": "Token",
+            "type": "string"
+          },
+          "variables": {
+            "description": "Form variables",
+            "items": {
+              "$ref": "#/$defs/Variable"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "title": "ResponseItem",
+        "type": "object"
+      },
+      "ResponseMetadata": {
+        "description": "Metadata about how the response was submitted",
+        "properties": {
+          "browser": {
+            "description": "Browser used",
+            "title": "Browser",
+            "type": "string"
+          },
+          "network_id": {
+            "description": "Network identifier",
+            "title": "Network Id",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Platform/OS used",
+            "title": "Platform",
+            "type": "string"
+          },
+          "referer": {
+            "description": "Referer URL",
+            "title": "Referer",
+            "type": "string"
+          },
+          "user_agent": {
+            "description": "User agent string",
+            "title": "User Agent",
+            "type": "string"
+          }
+        },
+        "title": "ResponseMetadata",
+        "type": "object"
+      },
+      "Variable": {
+        "description": "Form variable",
+        "properties": {
+          "key": {
+            "description": "Variable key",
+            "title": "Key",
+            "type": "string"
+          },
+          "number": {
+            "description": "Numeric value",
+            "title": "Number",
+            "type": "number"
+          },
+          "text": {
+            "description": "Text value",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Variable type (text or number)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["key", "type"],
+        "title": "Variable",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetFormResponsesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

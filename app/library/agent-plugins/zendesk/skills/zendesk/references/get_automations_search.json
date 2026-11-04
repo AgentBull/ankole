@@ -1,0 +1,227 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Search for Zendesk automations by their title. Use when you need to find automations in your Zendesk account by searching for keywords in their titles. Automations are business rules that automatically perform actions when certain conditions are met. This action supports filtering by active status and sorting results.",
+  "inputSchema": {
+    "description": "Request parameters for searching Zendesk automations.",
+    "properties": {
+      "active": {
+        "description": "Filter automations by active status. Set to true to return only active automations, or false to return only inactive automations. When not specified, returns both active and inactive automations.",
+        "examples": [true],
+        "human_parameter_description": "Choose whether to show only active automations, only inactive ones, or both. Useful for finding automations that are currently enabled or disabled.",
+        "human_parameter_name": "Active Status",
+        "title": "Active",
+        "type": "boolean"
+      },
+      "include": {
+        "description": "Sideload related data to include in the response. Currently supported: 'usage_24h' returns statistics about how many times each automation was triggered in the last 24 hours.",
+        "examples": ["usage_24h"],
+        "human_parameter_description": "Add extra information to the results, such as how many times each automation was triggered in the last 24 hours.",
+        "human_parameter_name": "Include Sideloads",
+        "title": "Include",
+        "type": "string"
+      },
+      "query": {
+        "description": "Query string used to find all automations with matching title. Case-insensitive partial match on automation titles.",
+        "examples": ["close", "notification"],
+        "human_parameter_description": "Enter keywords to search for automations by their title. The search matches partial titles case-insensitively.",
+        "human_parameter_name": "Search Query",
+        "title": "Query",
+        "type": "string"
+      },
+      "sort_by": {
+        "description": "Field to sort results by. Options: 'alphabetical' (sorts A-Z), 'created_at' (by creation date), 'updated_at' (by last modification), 'position' (by dashboard position). If unspecified, automations are sorted by relevance to the query.",
+        "enum": ["alphabetical", "created_at", "updated_at", "position"],
+        "examples": ["position", "updated_at"],
+        "human_parameter_description": "Choose how to order the search results: alphabetically by title, by when they were created, by when they were last updated, or by their position on the automations dashboard.",
+        "human_parameter_name": "Sort By",
+        "title": "Sort By",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort order direction. Options: 'asc' (ascending) or 'desc' (descending). Defaults to 'asc' for alphabetical and position sorts, 'desc' for created_at and updated_at sorts.",
+        "enum": ["asc", "desc"],
+        "examples": ["desc"],
+        "human_parameter_description": "Choose whether results appear in ascending order (A-Z, oldest first) or descending order (Z-A, newest first).",
+        "human_parameter_name": "Sort Order",
+        "title": "Sort Order",
+        "type": "string"
+      }
+    },
+    "required": ["query"],
+    "title": "GetAutomationsSearchRequest",
+    "type": "object"
+  },
+  "name": "get_automations_search",
+  "outputSchema": {
+    "$defs": {
+      "Automation": {
+        "description": "A Zendesk automation object.",
+        "properties": {
+          "actions": {
+            "description": "List of actions that execute when the automation triggers",
+            "items": {
+              "$ref": "#/$defs/AutomationAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "active": {
+            "description": "Whether the automation is currently active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "conditions": {
+            "$ref": "#/$defs/AutomationConditions",
+            "description": "Conditions that must be met for the automation to trigger",
+            "title": "Conditions"
+          },
+          "created_at": {
+            "description": "Timestamp when the automation was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether this is a default automation provided by Zendesk",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the automation",
+            "title": "Id",
+            "type": "integer"
+          },
+          "position": {
+            "description": "Position of the automation on the automations dashboard",
+            "title": "Position",
+            "type": "integer"
+          },
+          "raw_title": {
+            "description": "Original title before any HTML rendering",
+            "title": "Raw Title",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title/name of the automation",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the automation was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id", "title", "active", "default", "position"],
+        "title": "Automation",
+        "type": "object"
+      },
+      "AutomationAction": {
+        "description": "An action performed when an automation's conditions are met.",
+        "properties": {
+          "field": {
+            "description": "The field to be modified when the automation triggers (e.g., 'status', 'priority', 'assignee_id')",
+            "title": "Field",
+            "type": "string"
+          },
+          "value": {
+            "description": "The new value to set on the specified field when the automation triggers",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "AutomationAction",
+        "type": "object"
+      },
+      "AutomationCondition": {
+        "description": "A condition that must be met for the automation to trigger.",
+        "properties": {
+          "field": {
+            "description": "The field to check in the condition (e.g., 'status', 'priority', 'created_at')",
+            "title": "Field",
+            "type": "string"
+          },
+          "operator": {
+            "description": "The comparison operator (e.g., 'is', 'is_not', 'contains', 'less_than')",
+            "title": "Operator",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value to compare against in the condition",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "AutomationCondition",
+        "type": "object"
+      },
+      "AutomationConditions": {
+        "description": "Conditions that determine when an automation triggers.",
+        "properties": {
+          "all": {
+            "description": "All conditions that must be satisfied (AND logic)",
+            "items": {
+              "$ref": "#/$defs/AutomationCondition"
+            },
+            "title": "All",
+            "type": "array"
+          },
+          "any": {
+            "description": "Any condition that can be satisfied (OR logic)",
+            "items": {
+              "$ref": "#/$defs/AutomationCondition"
+            },
+            "title": "Any",
+            "type": "array"
+          }
+        },
+        "title": "AutomationConditions",
+        "type": "object"
+      },
+      "GetAutomationsSearchResponse": {
+        "description": "Response containing search results for Zendesk automations.",
+        "properties": {
+          "automations": {
+            "description": "List of automations matching the search query",
+            "items": {
+              "$ref": "#/$defs/Automation"
+            },
+            "title": "Automations",
+            "type": "array"
+          },
+          "count": {
+            "description": "Total number of automations matching the search criteria",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for the next page of results. Null if there are no more results.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for the previous page of results. Null if this is the first page.",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["automations", "count"],
+        "title": "GetAutomationsSearchResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetAutomationsSearchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

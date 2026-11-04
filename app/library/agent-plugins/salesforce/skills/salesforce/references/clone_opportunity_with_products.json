@@ -1,0 +1,124 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Clones a Salesforce opportunity, with optional name, close date, and stage changes, and optionally copies its product line items. The opportunity is created before products are copied, so a later failure can leave a partial clone.",
+  "inputSchema": {
+    "properties": {
+      "clone_products": {
+        "default": true,
+        "description": "Whether to clone the opportunity's products (line items). Set to false to clone only the opportunity.",
+        "human_parameter_description": "Decide whether to copy the opportunity's products (line items) into the clone. Turn this off to create just the opportunity without its products.",
+        "human_parameter_name": "Clone Products",
+        "title": "Clone Products",
+        "type": "boolean"
+      },
+      "close_date": {
+        "description": "Close date for the cloned opportunity in YYYY-MM-DD format. If not specified, uses original close date.",
+        "examples": ["2025-12-31", "2025-09-30"],
+        "human_parameter_description": "The expected close date for the new opportunity (YYYY-MM-DD). Leave empty to reuse the original close date.",
+        "human_parameter_name": "Close Date",
+        "title": "Close Date",
+        "type": "string"
+      },
+      "new_name": {
+        "default": "",
+        "description": "Name for the cloned opportunity. If not specified, will append 'Clone of' to original name.",
+        "examples": ["Q4 Renewal Opportunity", "Upsell Opportunity - Premium"],
+        "human_parameter_description": "The name you want to give the new, cloned opportunity. Leave blank to automatically use 'Clone of [original name]'.",
+        "human_parameter_name": "New Name",
+        "title": "New Name",
+        "type": "string"
+      },
+      "opportunity_id": {
+        "description": "The ID of the opportunity to clone.",
+        "examples": ["006XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique ID of the opportunity you want to clone. You can copy this from the opportunity's URL in Salesforce.",
+        "human_parameter_name": "Opportunity ID",
+        "title": "Opportunity Id",
+        "type": "string"
+      },
+      "stage_name": {
+        "default": "",
+        "description": "Stage for the cloned opportunity. If not specified, uses original stage.",
+        "examples": ["Prospecting", "Qualification", "Needs Analysis", "Proposal/Price Quote"],
+        "human_parameter_description": "The sales stage you want to set for the cloned opportunity. Leave blank to keep the same stage as the original.",
+        "human_parameter_name": "Stage Name",
+        "title": "Stage Name",
+        "type": "string"
+      }
+    },
+    "required": ["opportunity_id"],
+    "title": "CloneOpportunityWithProductsRequest",
+    "type": "object"
+  },
+  "name": "clone_opportunity_with_products",
+  "outputSchema": {
+    "$defs": {
+      "CloneOpportunityWithProductsResponse": {
+        "description": "Response from cloning an opportunity record via Salesforce REST API",
+        "properties": {
+          "errors": {
+            "description": "Array of error objects. Empty array if the operation was successful",
+            "items": {
+              "$ref": "#/$defs/SalesforceError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The Salesforce ID of the newly created opportunity record (18-character format)",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the create operation was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "success", "errors"],
+        "title": "CloneOpportunityWithProductsResponse",
+        "type": "object"
+      },
+      "SalesforceError": {
+        "description": "Represents an error returned by the Salesforce API",
+        "properties": {
+          "errorCode": {
+            "description": "Salesforce error code identifier (e.g., REQUIRED_FIELD_MISSING, INVALID_FIELD)",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Array of field names that caused the error",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable error message describing what went wrong",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["message", "errorCode"],
+        "title": "SalesforceError",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CloneOpportunityWithProductsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

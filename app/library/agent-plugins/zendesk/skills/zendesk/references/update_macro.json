@@ -1,0 +1,315 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update an existing Zendesk macro by ID. The title and actions are required and sent on every update; description, active status, and access restrictions can also be supplied.",
+  "inputSchema": {
+    "description": "Request parameters for updating a Zendesk macro.",
+    "properties": {
+      "actions": {
+        "description": "List of actions the macro will perform. Each action specifies a field to modify and the value to set.",
+        "examples": [
+          [
+            {
+              "field": "status",
+              "value": "solved"
+            },
+            {
+              "field": "priority",
+              "value": "normal"
+            }
+          ]
+        ],
+        "human_parameter_description": "What the macro does when applied (e.g., set status to solved, set priority to normal).",
+        "human_parameter_name": "Actions",
+        "items": {
+          "description": "A single action that the macro will perform.",
+          "properties": {
+            "field": {
+              "description": "The field to modify. Common fields: 'status', 'priority', 'assignee_id', 'group_id', 'tags', 'type'.",
+              "examples": ["status"],
+              "human_parameter_description": "The ticket field to change (e.g., status, priority, assignee_id, group_id).",
+              "human_parameter_name": "Action Field",
+              "title": "Field",
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The value to set for the field. Can be a string (e.g., 'solved', 'normal'), number, or boolean depending on the field type.",
+              "examples": ["solved"],
+              "human_parameter_description": "The new value for the field (e.g., 'solved' for status, 'normal' for priority).",
+              "human_parameter_name": "Action Value",
+              "title": "Value"
+            }
+          },
+          "required": ["field", "value"],
+          "title": "MacroActionItem",
+          "type": "object"
+        },
+        "title": "Actions",
+        "type": "array"
+      },
+      "active": {
+        "description": "Whether the macro should be displayed in the UI. Use false to hide the macro without deleting it.",
+        "examples": [true],
+        "human_parameter_description": "Set to true to show the macro or false to hide it.",
+        "human_parameter_name": "Active",
+        "title": "Active",
+        "type": "boolean"
+      },
+      "description": {
+        "description": "The description of the macro explaining what it does.",
+        "examples": ["Sets the ticket status to solved"],
+        "human_parameter_description": "Describe what the macro does.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "macro_id": {
+        "description": "The ID of the macro to update. You can find macro IDs from the List Macros action or from the macro URL in Zendesk admin.",
+        "examples": [26943113613852],
+        "human_parameter_description": "The unique ID of the Zendesk macro you want to update. This is a required path parameter.",
+        "human_parameter_name": "Macro ID",
+        "title": "Macro Id",
+        "type": "integer"
+      },
+      "restriction": {
+        "additionalProperties": false,
+        "description": "Who may access the macro. Null when everyone in the account can access it.",
+        "human_parameter_description": "Limit macro access to specific users or groups.",
+        "human_parameter_name": "Restriction",
+        "properties": {
+          "id": {
+            "description": "The ID of the user or group that has access",
+            "title": "Id",
+            "type": "integer"
+          },
+          "ids": {
+            "description": "Array of IDs that have access",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ids",
+            "type": "array"
+          },
+          "type": {
+            "description": "The type of restriction: 'User', 'Group', or null for everyone",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "MacroRestriction",
+        "type": "object"
+      },
+      "title": {
+        "description": "The title of the macro.",
+        "examples": ["Test Macro for Update"],
+        "human_parameter_description": "The name/title of the macro.",
+        "human_parameter_name": "Title",
+        "title": "Title",
+        "type": "string"
+      }
+    },
+    "required": ["macro_id", "title", "actions"],
+    "title": "UpdateMacroRequest",
+    "type": "object"
+  },
+  "name": "update_macro",
+  "outputSchema": {
+    "$defs": {
+      "MacroResponse": {
+        "description": "The macro object returned in the response.",
+        "properties": {
+          "actions": {
+            "description": "List of actions the macro performs",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "active": {
+            "description": "Whether the macro is active and displayed",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "app_installation": {
+            "description": "App installation ID",
+            "title": "App Installation",
+            "type": "string"
+          },
+          "categories": {
+            "description": "Categories for the macro",
+            "title": "Categories",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "ISO 8601 timestamp when the macro was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "If true, this is a default macro",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "The description of the macro",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Automatically assigned unique ID of the macro",
+            "title": "Id",
+            "type": "integer"
+          },
+          "permissions": {
+            "description": "Permission settings",
+            "title": "Permissions",
+            "type": "string"
+          },
+          "position": {
+            "description": "The position order of the macro",
+            "title": "Position",
+            "type": "integer"
+          },
+          "raw_title": {
+            "description": "The raw title before any localization",
+            "title": "Raw Title",
+            "type": "string"
+          },
+          "restriction": {
+            "additionalProperties": true,
+            "description": "Access restrictions for the macro",
+            "title": "Restriction",
+            "type": "object"
+          },
+          "title": {
+            "description": "The title/name of the macro",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "ISO 8601 timestamp when the macro was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to access the macro",
+            "title": "Url",
+            "type": "string"
+          },
+          "usage_1h": {
+            "description": "Usage count in the last hour",
+            "title": "Usage 1H",
+            "type": "integer"
+          },
+          "usage_24h": {
+            "description": "Usage count in the last 24 hours",
+            "title": "Usage 24H",
+            "type": "integer"
+          },
+          "usage_30d": {
+            "description": "Usage count in the last 30 days",
+            "title": "Usage 30D",
+            "type": "integer"
+          },
+          "usage_7d": {
+            "description": "Usage count in the last 7 days",
+            "title": "Usage 7D",
+            "type": "integer"
+          }
+        },
+        "title": "MacroResponse",
+        "type": "object"
+      },
+      "UpdateMacroResponse": {
+        "description": "Response from updating a Zendesk macro.",
+        "properties": {
+          "active": {
+            "description": "Whether the macro is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "ISO 8601 timestamp when the macro was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "If true, this is a default macro",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "macro": {
+            "$ref": "#/$defs/MacroResponse",
+            "description": "The updated macro object",
+            "title": "Macro"
+          },
+          "macro_id": {
+            "description": "ID of the updated macro",
+            "title": "Macro Id",
+            "type": "integer"
+          },
+          "macro_url": {
+            "description": "URL to view the macro in Zendesk admin",
+            "title": "Macro Url",
+            "type": "string"
+          },
+          "position": {
+            "description": "The position of the macro",
+            "title": "Position",
+            "type": "integer"
+          },
+          "success": {
+            "description": "Indicates whether the macro update was successful",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "The title of the updated macro",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "ISO 8601 timestamp when the macro was last updated",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["success"],
+        "title": "UpdateMacroResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateMacroResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

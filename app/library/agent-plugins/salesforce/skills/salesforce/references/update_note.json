@@ -1,0 +1,99 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing note in Salesforce with the specified changes. Only provided fields will be updated.",
+  "inputSchema": {
+    "properties": {
+      "body": {
+        "default": "",
+        "description": "Updated body/content of the note. Leave empty to keep unchanged.",
+        "examples": [
+          "Updated: Customer confirmed interest in premium plan. Sending contract next week.",
+          "Update: Customer called back and scheduled demo for Friday."
+        ],
+        "human_parameter_description": "The new content of the note. Leave blank to keep the existing text.",
+        "human_parameter_name": "Body",
+        "title": "Body",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Custom fields to update on the note. Keys should be the API names of custom fields (e.g., 'Custom_Field__c'). Values can be strings, numbers, booleans, or null.",
+        "examples": [
+          {
+            "Category__c": "Technical",
+            "Priority__c": "High"
+          },
+          {
+            "Follow_Up_Date__c": "2024-01-15",
+            "Reviewed__c": true
+          }
+        ],
+        "human_parameter_description": "A dictionary of custom field API names and their values to update. Use the field's API name (ending in __c) as the key.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "is_private": {
+        "description": "Updated privacy setting. Leave empty to keep unchanged.",
+        "human_parameter_description": "Choose whether the note should be private (visible only to the owner) or shared. Leave empty to keep the current setting.",
+        "human_parameter_name": "Privacy Setting",
+        "title": "Is Private",
+        "type": "boolean"
+      },
+      "note_id": {
+        "description": "The Salesforce ID of the note to update.",
+        "examples": ["002Wd000001UYbaIAG", "002XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique Salesforce ID of the note you want to update. You can copy it from the note's URL or from a previous search or list step.",
+        "human_parameter_name": "Note ID",
+        "title": "Note Id",
+        "type": "string"
+      },
+      "owner_id": {
+        "default": "",
+        "description": "Updated owner ID. Leave empty to keep unchanged.",
+        "examples": ["005XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce User ID of the person who should own the note after the update. Leave blank to keep the current owner.",
+        "human_parameter_name": "Owner ID",
+        "title": "Owner Id",
+        "type": "string"
+      },
+      "title": {
+        "default": "",
+        "description": "Updated title of the note. Leave empty to keep unchanged.",
+        "examples": ["Updated Meeting Notes", "Revised Call Summary", "URGENT: Follow-up Required"],
+        "human_parameter_description": "The new title for the note. Leave blank to keep the current title.",
+        "human_parameter_name": "Title",
+        "title": "Title",
+        "type": "string"
+      }
+    },
+    "required": ["note_id"],
+    "title": "UpdateNoteRequest",
+    "type": "object"
+  },
+  "name": "update_note",
+  "outputSchema": {
+    "$defs": {
+      "UpdateNoteResponse": {
+        "description": "Response for successful note update.\n\nHTTP 204 No Content - Salesforce returns empty body on successful update.\nError responses (4xx/5xx) are handled via raise_for_status().",
+        "properties": {},
+        "title": "UpdateNoteResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateNoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

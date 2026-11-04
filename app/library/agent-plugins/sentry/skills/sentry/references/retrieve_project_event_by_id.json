@@ -1,0 +1,415 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information for a specific Sentry event using its ID, organization identifier, and project identifier.",
+  "inputSchema": {
+    "description": "Defines the parameters required to retrieve a specific Sentry event by its ID.",
+    "properties": {
+      "event_id": {
+        "description": "The hexadecimal ID of the event to retrieve, as reported by the client.",
+        "examples": ["a1b2c3d4e5f67890a1b2c3d4e5f67890", "00000000000000000000000000000000"],
+        "title": "Event Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID or slug) of the Sentry organization to which the event belongs.",
+        "examples": ["sentry-org", "acme-corp"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The unique identifier (ID or slug) of the Sentry project to which the event belongs.",
+        "examples": ["my-project", "frontend-prod"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug", "event_id"],
+    "title": "RetrieveProjectEventByIdRequest",
+    "type": "object"
+  },
+  "name": "retrieve_project_event_by_id",
+  "outputSchema": {
+    "$defs": {
+      "Entry": {
+        "description": "Interface data entry containing breadcrumbs, exceptions, requests, messages, templates, or threads.",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "description": "Entry-specific data structure. For 'breadcrumbs': contains 'values' array with timestamp, message, category, level, type, data. For 'exception': contains 'values' array with type, value, module, stacktrace, mechanism. For 'request': contains url, method, headers, cookies, query_string, data, env. For 'message': contains formatted, message, params. For 'template': contains filename, lineno, context_line, pre_context, post_context. For 'threads': contains 'values' array with id, name, crashed, current, stacktrace.",
+            "title": "Data",
+            "type": "object"
+          },
+          "type": {
+            "description": "Entry type (e.g., 'breadcrumbs', 'exception', 'request', 'message', 'template', 'threads')",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "data"],
+        "title": "Entry",
+        "type": "object"
+      },
+      "Error": {
+        "description": "Normalization or processing error.",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "description": "Additional error data",
+            "title": "Data",
+            "type": "object"
+          },
+          "message": {
+            "description": "Error message",
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "description": "Error type",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["message", "type"],
+        "title": "Error",
+        "type": "object"
+      },
+      "Geo": {
+        "description": "Geographical location of the user or device.",
+        "properties": {
+          "city": {
+            "description": "Human readable city name",
+            "title": "City",
+            "type": "string"
+          },
+          "country_code": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2)",
+            "title": "Country Code",
+            "type": "string"
+          },
+          "region": {
+            "description": "Human readable region name or code",
+            "title": "Region",
+            "type": "string"
+          }
+        },
+        "title": "Geo",
+        "type": "object"
+      },
+      "RetrieveProjectEventByIdResponse": {
+        "description": "Contains the detailed information of the retrieved Sentry event.",
+        "properties": {
+          "breakdowns": {
+            "additionalProperties": true,
+            "description": "Performance breakdowns (for transaction events)",
+            "title": "Breakdowns",
+            "type": "object"
+          },
+          "entries": {
+            "description": "Interface data entries containing breadcrumbs, exceptions, requests, messages, templates, or threads",
+            "items": {
+              "$ref": "#/$defs/Entry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "fingerprints": {
+            "description": "Event grouping fingerprints",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fingerprints",
+            "type": "array"
+          },
+          "location": {
+            "description": "Source code location",
+            "title": "Location",
+            "type": "string"
+          },
+          "crashFile": {
+            "description": "Minidump/crash file reference",
+            "title": "Crash File",
+            "type": "string"
+          },
+          "groupingConfig": {
+            "additionalProperties": true,
+            "description": "Grouping configuration used",
+            "title": "Grouping Config",
+            "type": "object"
+          },
+          "culprit": {
+            "description": "Culprit code identifier",
+            "title": "Culprit",
+            "type": "string"
+          },
+          "projectID": {
+            "description": "Project identifier",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "errors": {
+            "description": "Normalization/processing errors",
+            "items": {
+              "$ref": "#/$defs/Error"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "dateCreated": {
+            "description": "Event creation timestamp (ISO 8601)",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "startTimestamp": {
+            "description": "Transaction start time (for transaction events)",
+            "title": "Start Timestamp",
+            "type": "string"
+          },
+          "size": {
+            "description": "Event size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "message": {
+            "description": "Event message content",
+            "title": "Message",
+            "type": "string"
+          },
+          "tags": {
+            "description": "Tagged key-value pairs for filtering and categorization",
+            "items": {
+              "$ref": "#/$defs/Tag"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "description": "Event type (e.g., 'error', 'transaction')",
+            "title": "Type",
+            "type": "string"
+          },
+          "previousEventID": {
+            "description": "Prior related event ID",
+            "title": "Previous Event Id",
+            "type": "string"
+          },
+          "measurements": {
+            "additionalProperties": true,
+            "description": "Performance measurements (for transaction events)",
+            "title": "Measurements",
+            "type": "object"
+          },
+          "sdk": {
+            "$ref": "#/$defs/SDK",
+            "description": "SDK information",
+            "title": "Sdk"
+          },
+          "dist": {
+            "description": "Distribution identifier for the release",
+            "title": "Dist",
+            "type": "string"
+          },
+          "contexts": {
+            "additionalProperties": true,
+            "description": "Additional context data including device, os, runtime, app, browser, gpu, trace, state, culture, cloud_resource, memory_info, threadpool_info, unity, replay, page, response, missing_instrumentation, and flags contexts",
+            "title": "Contexts",
+            "type": "object"
+          },
+          "packages": {
+            "additionalProperties": true,
+            "description": "Module/package information with version numbers",
+            "title": "Packages",
+            "type": "object"
+          },
+          "userReport": {
+            "additionalProperties": true,
+            "description": "User-submitted feedback",
+            "title": "User Report",
+            "type": "object"
+          },
+          "platform": {
+            "description": "Platform identifier (e.g., 'javascript', 'python')",
+            "title": "Platform",
+            "type": "string"
+          },
+          "nextEventID": {
+            "description": "Subsequent related event ID",
+            "title": "Next Event Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Event-specific metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "eventID": {
+            "description": "Hexadecimal string representing the event ID",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "id": {
+            "description": "Event identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "_meta": {
+            "additionalProperties": true,
+            "description": "Metadata about field sources",
+            "title": " Meta",
+            "type": "object"
+          },
+          "endTimestamp": {
+            "description": "Transaction end time (for transaction events)",
+            "title": "End Timestamp",
+            "type": "string"
+          },
+          "occurrence": {
+            "additionalProperties": true,
+            "description": "Occurrence information",
+            "title": "Occurrence",
+            "type": "object"
+          },
+          "groupID": {
+            "description": "Associated issue group identifier",
+            "title": "Group Id",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "User information",
+            "title": "User"
+          },
+          "title": {
+            "description": "Event title",
+            "title": "Title",
+            "type": "string"
+          },
+          "context": {
+            "additionalProperties": true,
+            "description": "Extra contextual data (maps to 'extra' field)",
+            "title": "Context",
+            "type": "object"
+          },
+          "dateReceived": {
+            "description": "When event was received by Sentry (ISO 8601)",
+            "title": "Date Received",
+            "type": "string"
+          }
+        },
+        "required": ["id", "eventID", "projectID", "title", "type", "platform", "dateCreated"],
+        "title": "RetrieveProjectEventByIdResponse",
+        "type": "object"
+      },
+      "SDK": {
+        "description": "SDK information for the event.",
+        "properties": {
+          "features": {
+            "description": "List of enabled SDK features",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "integrations": {
+            "description": "List of enabled integrations",
+            "items": {
+              "type": "string"
+            },
+            "title": "Integrations",
+            "type": "array"
+          },
+          "name": {
+            "description": "SDK name in format 'entity.ecosystem[.flavor]'",
+            "title": "Name",
+            "type": "string"
+          },
+          "packages": {
+            "description": "Packages installed as part of SDK or integrations",
+            "items": {},
+            "title": "Packages",
+            "type": "array"
+          },
+          "version": {
+            "description": "SDK version in Semantic Versioning format",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["name", "version"],
+        "title": "SDK",
+        "type": "object"
+      },
+      "Tag": {
+        "description": "Tagged key-value pair for filtering and categorization.",
+        "properties": {
+          "_meta": {
+            "additionalProperties": true,
+            "description": "Metadata about the tag",
+            "title": " Meta",
+            "type": "object"
+          },
+          "key": {
+            "description": "Tag key",
+            "title": "Key",
+            "type": "string"
+          },
+          "value": {
+            "description": "Tag value (max 200 characters)",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["key", "value"],
+        "title": "Tag",
+        "type": "object"
+      },
+      "User": {
+        "description": "User information associated with the event.",
+        "properties": {
+          "email": {
+            "description": "User email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "geo": {
+            "$ref": "#/$defs/Geo",
+            "description": "Geographical location of the user or device",
+            "title": "Geo"
+          },
+          "id": {
+            "description": "Application-specific internal identifier for the user",
+            "title": "Id",
+            "type": "string"
+          },
+          "ip_address": {
+            "description": "User's IP address",
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username, typically used as a better label than the internal id",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveProjectEventByIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

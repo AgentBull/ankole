@@ -1,0 +1,275 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve paginated line items for a payment link. Use when you need to get detailed product and service information including quantities, prices, discounts, and taxes for a specific payment link.",
+  "inputSchema": {
+    "description": "Request model for retrieving payment link line items.",
+    "properties": {
+      "ending_before": {
+        "description": "Cursor for backward pagination. A line item ID that defines your place in the list; returns results before this line item.",
+        "examples": ["li_9876543210"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "limit": {
+        "description": "A limit on the number of line items to return. Must be between 1 and 100. If not specified, the Stripe API defaults to 10.",
+        "examples": [10, 25, 100],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "payment_link": {
+        "description": "The unique identifier of the payment link to retrieve line items for.",
+        "examples": ["plink_1ShRWTQvM72TjFrbsSpal3mM"],
+        "title": "Payment Link",
+        "type": "string"
+      },
+      "starting_after": {
+        "description": "Cursor for forward pagination. A line item ID that defines your place in the list; returns results after this line item.",
+        "examples": ["li_1234567890"],
+        "title": "Starting After",
+        "type": "string"
+      }
+    },
+    "required": ["payment_link"],
+    "title": "GetPaymentLinksPaymentLinkLineItemsRequest",
+    "type": "object"
+  },
+  "name": "get_payment_links_payment_link_line_items",
+  "outputSchema": {
+    "$defs": {
+      "GetPaymentLinksPaymentLinkLineItemsResponse": {
+        "description": "Response model for retrieving payment link line items.",
+        "properties": {
+          "data": {
+            "description": "Array of line item objects.",
+            "items": {
+              "$ref": "#/$defs/LineItem"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Indicates whether additional results exist beyond this page.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'list' for list responses.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The API endpoint path for accessing this list of line items.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "GetPaymentLinksPaymentLinkLineItemsResponse",
+        "type": "object"
+      },
+      "LineItem": {
+        "description": "Line item object for payment links.",
+        "properties": {
+          "adjustable_quantity": {
+            "additionalProperties": true,
+            "description": "Configuration for allowing customers to adjust the quantity at checkout.",
+            "title": "Adjustable Quantity",
+            "type": "object"
+          },
+          "amount_discount": {
+            "description": "Discount amount in cents.",
+            "title": "Amount Discount",
+            "type": "integer"
+          },
+          "amount_subtotal": {
+            "description": "Subtotal before tax in cents.",
+            "title": "Amount Subtotal",
+            "type": "integer"
+          },
+          "amount_tax": {
+            "description": "Tax amount in cents.",
+            "title": "Amount Tax",
+            "type": "integer"
+          },
+          "amount_total": {
+            "description": "Final total amount in cents.",
+            "title": "Amount Total",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase (e.g., 'usd', 'eur', 'gbp').",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Human-readable description of the line item (product or service name).",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the line item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for storing additional information about the line item.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'item'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/$defs/LineItemPrice",
+            "description": "Associated price object with detailed pricing information.",
+            "title": "Price"
+          },
+          "quantity": {
+            "description": "Number of units.",
+            "title": "Quantity",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount_discount",
+          "amount_subtotal",
+          "amount_tax",
+          "amount_total",
+          "currency",
+          "description"
+        ],
+        "title": "LineItem",
+        "type": "object"
+      },
+      "LineItemPrice": {
+        "description": "Price object structure for line items.",
+        "properties": {
+          "active": {
+            "description": "Whether the price is currently available for purchase.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "billing_scheme": {
+            "description": "Describes how to compute the price per period. One of 'per_unit' or 'tiered'.",
+            "title": "Billing Scheme",
+            "type": "string"
+          },
+          "created": {
+            "description": "Unix timestamp (in seconds) of when the price was created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase (e.g., 'usd', 'eur', 'gbp').",
+            "title": "Currency",
+            "type": "string"
+          },
+          "custom_unit_amount": {
+            "additionalProperties": true,
+            "description": "Configuration for custom unit amounts.",
+            "title": "Custom Unit Amount",
+            "type": "object"
+          },
+          "id": {
+            "description": "Unique identifier for the price.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Whether the price exists in live mode (true) or test mode (false).",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "lookup_key": {
+            "description": "A lookup key used to retrieve prices dynamically.",
+            "title": "Lookup Key",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "nickname": {
+            "description": "A brief description of the price.",
+            "title": "Nickname",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "product": {
+            "description": "The ID of the product this price is for.",
+            "title": "Product",
+            "type": "string"
+          },
+          "recurring": {
+            "additionalProperties": true,
+            "description": "The recurring components of a price such as interval and interval_count.",
+            "title": "Recurring",
+            "type": "object"
+          },
+          "tax_behavior": {
+            "description": "Specifies whether the price is considered inclusive of taxes or exclusive of taxes. One of 'inclusive', 'exclusive', or 'unspecified'.",
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "tiers_mode": {
+            "description": "Defines if the tiering price should be graduated or volume-based.",
+            "title": "Tiers Mode",
+            "type": "string"
+          },
+          "transform_quantity": {
+            "additionalProperties": true,
+            "description": "Apply a transformation to the reported usage or set quantity before computing the amount billed.",
+            "title": "Transform Quantity",
+            "type": "object"
+          },
+          "type": {
+            "description": "One of 'one_time' or 'recurring'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "The unit amount in cents.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "The unit amount as a decimal string.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "title": "LineItemPrice",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetPaymentLinksPaymentLinkLineItemsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,308 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to update a theme's complete definition in Typeform. Use when you need to update all aspects of a theme including colors, fonts, and visual properties. This is a full update (PUT) operation that requires name, font, and colors to be provided. For partial updates, use PATCH instead.",
+  "inputSchema": {
+    "properties": {
+      "background": {
+        "additionalProperties": false,
+        "description": "Background settings for the theme",
+        "properties": {
+          "brightness": {
+            "description": "Brightness level from -1 to 1",
+            "examples": [0.5],
+            "maximum": 1,
+            "minimum": -1,
+            "title": "Brightness",
+            "type": "number"
+          },
+          "href": {
+            "description": "Background image URL",
+            "examples": ["https://images.typeform.com/images/abc123"],
+            "title": "Href",
+            "type": "string"
+          },
+          "layout": {
+            "description": "Background layout style: fullscreen, repeat, or no-repeat",
+            "examples": ["fullscreen"],
+            "title": "Layout",
+            "type": "string"
+          }
+        },
+        "title": "ThemeBackground",
+        "type": "object"
+      },
+      "colors": {
+        "additionalProperties": false,
+        "description": "Updated color palette with question, answer, button, and background colors",
+        "properties": {
+          "answer": {
+            "description": "Hexadecimal color code for answers",
+            "examples": ["#FF6B6B"],
+            "title": "Answer",
+            "type": "string"
+          },
+          "background": {
+            "description": "Hexadecimal color code for background",
+            "examples": ["#F5F5F5"],
+            "title": "Background",
+            "type": "string"
+          },
+          "button": {
+            "description": "Hexadecimal color code for buttons",
+            "examples": ["#FF6B6B"],
+            "title": "Button",
+            "type": "string"
+          },
+          "question": {
+            "description": "Hexadecimal color code for questions",
+            "examples": ["#333333"],
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": ["question", "answer", "button", "background"],
+        "title": "Colors",
+        "type": "object"
+      },
+      "fields": {
+        "additionalProperties": false,
+        "description": "Field settings for the theme",
+        "properties": {
+          "alignment": {
+            "description": "Field alignment: left or center",
+            "examples": ["left"],
+            "title": "Alignment",
+            "type": "string"
+          },
+          "font": {
+            "description": "Font family name",
+            "examples": ["Helvetica"],
+            "title": "Font",
+            "type": "string"
+          },
+          "font_size": {
+            "description": "Font size: small, medium, or large",
+            "examples": ["medium"],
+            "title": "Font Size",
+            "type": "string"
+          }
+        },
+        "title": "ThemeFields",
+        "type": "object"
+      },
+      "font": {
+        "description": "Font family for the theme (required for PUT requests)",
+        "examples": ["Helvetica", "Arial", "Georgia"],
+        "title": "Font",
+        "type": "string"
+      },
+      "has_transparent_button": {
+        "description": "Whether buttons should be transparent",
+        "examples": [false],
+        "title": "Has Transparent Button",
+        "type": "boolean"
+      },
+      "name": {
+        "description": "Updated theme name",
+        "examples": ["Updated Test Theme"],
+        "title": "Name",
+        "type": "string"
+      },
+      "rounded_corners": {
+        "description": "Border radius style: none, small, or large",
+        "examples": ["small"],
+        "title": "Rounded Corners",
+        "type": "string"
+      },
+      "screens": {
+        "additionalProperties": false,
+        "description": "Screen settings for the theme",
+        "properties": {
+          "alignment": {
+            "description": "Screen alignment: left or center",
+            "examples": ["center"],
+            "title": "Alignment",
+            "type": "string"
+          },
+          "font_size": {
+            "description": "Font size: small, medium, or large",
+            "examples": ["large"],
+            "title": "Font Size",
+            "type": "string"
+          }
+        },
+        "title": "ThemeScreens",
+        "type": "object"
+      },
+      "theme_id": {
+        "description": "Unique identifier for the theme to update",
+        "examples": ["Gym4Ntp6"],
+        "title": "Theme Id",
+        "type": "string"
+      }
+    },
+    "required": ["theme_id", "name", "font", "colors"],
+    "title": "UpdateThemeRequest",
+    "type": "object"
+  },
+  "name": "update_theme",
+  "outputSchema": {
+    "$defs": {
+      "UpdateThemeResponse": {
+        "properties": {
+          "background": {
+            "$ref": "#/$defs/UpdateThemeResponseBackground",
+            "description": "Background settings",
+            "title": "Background"
+          },
+          "colors": {
+            "$ref": "#/$defs/UpdateThemeResponseColors",
+            "description": "Color palette",
+            "title": "Colors"
+          },
+          "fields": {
+            "$ref": "#/$defs/UpdateThemeResponseFields",
+            "description": "Field settings",
+            "title": "Fields"
+          },
+          "has_transparent_button": {
+            "description": "Whether buttons are transparent",
+            "title": "Has Transparent Button",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier of the theme",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Theme name",
+            "title": "Name",
+            "type": "string"
+          },
+          "rounded_corners": {
+            "description": "Border radius style",
+            "title": "Rounded Corners",
+            "type": "string"
+          },
+          "screens": {
+            "$ref": "#/$defs/UpdateThemeResponseScreens",
+            "description": "Screen settings",
+            "title": "Screens"
+          },
+          "visibility": {
+            "description": "Theme visibility: public or private",
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "colors"],
+        "title": "UpdateThemeResponse",
+        "type": "object"
+      },
+      "UpdateThemeResponseBackground": {
+        "description": "Background settings in the response",
+        "properties": {
+          "brightness": {
+            "description": "Brightness level from -1 to 1",
+            "title": "Brightness",
+            "type": "number"
+          },
+          "href": {
+            "description": "Background image URL",
+            "title": "Href",
+            "type": "string"
+          },
+          "layout": {
+            "description": "Background layout style",
+            "title": "Layout",
+            "type": "string"
+          }
+        },
+        "title": "UpdateThemeResponseBackground",
+        "type": "object"
+      },
+      "UpdateThemeResponseColors": {
+        "description": "Color palette in the response",
+        "properties": {
+          "answer": {
+            "description": "Color code for answers",
+            "title": "Answer",
+            "type": "string"
+          },
+          "background": {
+            "description": "Color code for background",
+            "title": "Background",
+            "type": "string"
+          },
+          "button": {
+            "description": "Color code for buttons",
+            "title": "Button",
+            "type": "string"
+          },
+          "question": {
+            "description": "Color code for questions",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": ["question", "answer", "button", "background"],
+        "title": "UpdateThemeResponseColors",
+        "type": "object"
+      },
+      "UpdateThemeResponseFields": {
+        "description": "Field settings in the response",
+        "properties": {
+          "alignment": {
+            "description": "Field alignment",
+            "title": "Alignment",
+            "type": "string"
+          },
+          "font": {
+            "description": "Font family",
+            "title": "Font",
+            "type": "string"
+          },
+          "font_size": {
+            "description": "Font size",
+            "title": "Font Size",
+            "type": "string"
+          }
+        },
+        "title": "UpdateThemeResponseFields",
+        "type": "object"
+      },
+      "UpdateThemeResponseScreens": {
+        "description": "Screen settings in the response",
+        "properties": {
+          "alignment": {
+            "description": "Screen alignment",
+            "title": "Alignment",
+            "type": "string"
+          },
+          "font_size": {
+            "description": "Font size",
+            "title": "Font Size",
+            "type": "string"
+          }
+        },
+        "title": "UpdateThemeResponseScreens",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateThemeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

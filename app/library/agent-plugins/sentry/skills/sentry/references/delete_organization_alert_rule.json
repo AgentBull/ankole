@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a specified Sentry organization metric alert rule. An HTTP 202 response yields an empty result, indicating that the deletion request was accepted for processing.",
+  "inputSchema": {
+    "description": "Request parameters for deleting a metric alert rule from a Sentry organization.\n\nMetric alert rules monitor aggregated metrics over time (e.g., error rate, latency percentiles)\nand trigger notifications when thresholds are exceeded. This action permanently removes the\nspecified alert rule. Note: Metric alerts require a Business or Enterprise Sentry plan.",
+    "properties": {
+      "alert_rule_id": {
+        "description": "The numeric ID of the metric alert rule to delete. This ID can be obtained from the alert rule's URL in the Sentry UI (https://sentry.io/organizations/{org}/alerts/rules/details/{alert_rule_id}/) or by listing alert rules via the API. Note: Metric alert rules require a Business or Enterprise Sentry plan.",
+        "examples": [12345, 67890],
+        "title": "Alert Rule Id",
+        "type": "integer"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization. The organization slug is a URL-friendly name (e.g., 'my-organization'), while the ID is a numeric string. You can find this in your Sentry organization settings URL: https://sentry.io/settings/{organization_slug}/",
+        "examples": ["my-organization", "4508539392294912"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "alert_rule_id"],
+    "title": "DeleteOrganizationAlertRuleRequest",
+    "type": "object"
+  },
+  "name": "delete_organization_alert_rule",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationAlertRuleResponse": {
+        "description": "Empty response body. The DELETE organization alert rule endpoint returns HTTP 202 Accepted on successful deletion.\n\nThis means the alert rule was successfully deleted and there is no response body content.\nHTTP 202 indicates that the request has been accepted for processing.",
+        "properties": {},
+        "title": "DeleteOrganizationAlertRuleResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationAlertRuleResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

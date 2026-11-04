@@ -1,0 +1,155 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves the Trello board associated with a checklist ID. You can request all board fields or select specific fields.",
+  "inputSchema": {
+    "description": "Request to get the board for a specific Trello checklist.",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Comma-separated list of board fields to return (e.g., 'name,desc') or 'all'. Valid fields: closed, dateLastActivity, dateLastView, desc, descData, idOrganization, invitations, invited, labelNames, memberships, name, pinned, powerUps, prefs, shortLink, shortUrl, starred, subscribed, url.",
+        "examples": ["name,desc", "all", "idOrganization,name,prefs,url"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "ID of the Trello checklist.",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id Checklist",
+        "type": "string"
+      }
+    },
+    "required": ["idChecklist"],
+    "title": "GetChecklistsBoardByIdChecklistRequest",
+    "type": "object"
+  },
+  "name": "get_checklists_board_by_id_checklist",
+  "outputSchema": {
+    "$defs": {
+      "CheckItem": {
+        "description": "Individual check item within a checklist.",
+        "properties": {
+          "due": {
+            "description": "Due date in ISO 8601 format (e.g., 2021-02-12T07:00:00.000Z)",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Due date reminder in ISO 8601 format",
+            "title": "Due Reminder",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the check item",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "ID of the parent checklist",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member assigned to the check item",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name/text of the check item",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "additionalProperties": true,
+            "description": "Additional metadata about the check item name",
+            "title": "Name Data",
+            "type": "object"
+          },
+          "pos": {
+            "description": "Position of the check item within the checklist for ordering",
+            "title": "Pos",
+            "type": "number"
+          },
+          "state": {
+            "description": "Completion state of the check item (complete or incomplete)",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "state"],
+        "title": "CheckItem",
+        "type": "object"
+      },
+      "Checklist": {
+        "description": "Trello checklist object.",
+        "properties": {
+          "checkItems": {
+            "description": "Array of check items within the checklist",
+            "items": {
+              "$ref": "#/$defs/CheckItem"
+            },
+            "title": "Check Items",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier of the checklist",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "ID of the board the checklist belongs to",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "idCard": {
+            "description": "ID of the card the checklist is attached to",
+            "title": "Id Card",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the checklist",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the checklist for ordering",
+            "title": "Pos",
+            "type": "number"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "Checklist",
+        "type": "object"
+      },
+      "GetChecklistsBoardByIdChecklistResponse": {
+        "description": "Response containing array of checklist objects from the board.",
+        "properties": {
+          "checklists": {
+            "description": "Array of checklist objects from the board",
+            "items": {
+              "$ref": "#/$defs/Checklist"
+            },
+            "title": "Checklists",
+            "type": "array"
+          }
+        },
+        "required": ["checklists"],
+        "title": "GetChecklistsBoardByIdChecklistResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetChecklistsBoardByIdChecklistResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,348 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new account in Salesforce with the specified information. Returns the created Account's ID at `data.response_data.id`.",
+  "inputSchema": {
+    "properties": {
+      "account_source": {
+        "default": "",
+        "description": "Source of the account.",
+        "examples": [
+          "Advertisement",
+          "Employee Referral",
+          "External Referral",
+          "Partner",
+          "Public Relations",
+          "Seminar - Internal",
+          "Seminar - Partner",
+          "Trade Show",
+          "Web",
+          "Word of mouth",
+          "Other"
+        ],
+        "human_parameter_description": "How you first learned about or acquired this account (for example, Web or Referral). Useful for tracking lead sources.",
+        "human_parameter_name": "Account Source",
+        "title": "Account Source",
+        "type": "string"
+      },
+      "annual_revenue": {
+        "description": "Estimated annual revenue.",
+        "examples": [1000000, 5000000, 50000000],
+        "human_parameter_description": "Enter the company’s estimated yearly revenue. Use this to gauge account size and prioritize efforts.",
+        "human_parameter_name": "Annual Revenue",
+        "title": "Annual Revenue",
+        "type": "number"
+      },
+      "billing_city": {
+        "default": "",
+        "description": "Billing address city.",
+        "examples": ["San Francisco", "New York", "Chicago"],
+        "human_parameter_description": "City for the billing address.",
+        "human_parameter_name": "Billing City",
+        "title": "Billing City",
+        "type": "string"
+      },
+      "billing_country": {
+        "default": "",
+        "description": "Billing address country.",
+        "examples": ["USA", "United States", "Canada", "UK"],
+        "human_parameter_description": "Country for the billing address.",
+        "human_parameter_name": "Billing Country",
+        "title": "Billing Country",
+        "type": "string"
+      },
+      "billing_postal_code": {
+        "default": "",
+        "description": "Billing address postal/zip code.",
+        "examples": ["94105", "10001", "60601"],
+        "human_parameter_description": "Postal or ZIP code for the billing address.",
+        "human_parameter_name": "Billing Postal Code",
+        "title": "Billing Postal Code",
+        "type": "string"
+      },
+      "billing_state": {
+        "default": "",
+        "description": "Billing address state/province. For US/Canada addresses, use full state/province names (e.g., 'California', 'New York', 'Ontario') or abbreviations ('CA', 'NY') which are auto-converted. For other countries, leave empty unless you know the exact valid picklist value for your Salesforce org. WARNING: If State/Country Picklists are enabled in your org, only pre-configured values are accepted; arbitrary region names will be rejected with FIELD_INTEGRITY_EXCEPTION.",
+        "examples": ["California", "New York", "Ontario", "British Columbia"],
+        "human_parameter_description": "State or province for the billing address. For US/Canada, use full names like 'California' or 'New York' (abbreviations are auto-converted). For other countries, leave empty unless you know the exact valid picklist value configured in your Salesforce org.",
+        "human_parameter_name": "Billing State",
+        "title": "Billing State",
+        "type": "string"
+      },
+      "billing_street": {
+        "default": "",
+        "description": "Billing address street.",
+        "examples": ["123 Main St", "456 Enterprise Blvd Suite 200"],
+        "human_parameter_description": "Street address for billing. Use the exact address where invoices should be sent.",
+        "human_parameter_name": "Billing Street",
+        "title": "Billing Street",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Custom fields to set on the account. Use Salesforce API field names (e.g., 'Level__c', 'Languages__c'). Values can be strings, numbers, booleans, or null.",
+        "examples": [
+          {
+            "Languages__c": "English;Spanish",
+            "Level__c": "Primary"
+          },
+          {
+            "Custom_Rating__c": 5,
+            "Is_Active__c": true
+          }
+        ],
+        "human_parameter_description": "A dictionary of custom field values to set on the account. Use the Salesforce API names for custom fields (ending in __c). This allows setting organization-specific fields that aren't part of the standard Account object.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "description": {
+        "default": "",
+        "description": "Text description of the account.",
+        "examples": ["Leading provider of cloud solutions", "Fortune 500 company specializing in consumer goods"],
+        "human_parameter_description": "A short summary about the company or any context your team should know. Add details that will help sales or support.",
+        "human_parameter_name": "Account Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "fax": {
+        "default": "",
+        "description": "Fax number.",
+        "examples": ["(555) 123-4568", "+1-800-555-0124"],
+        "human_parameter_description": "The company’s fax number, if applicable.",
+        "human_parameter_name": "Fax Number",
+        "title": "Fax",
+        "type": "string"
+      },
+      "industry": {
+        "default": "",
+        "description": "Industry the account belongs to.",
+        "examples": [
+          "Agriculture",
+          "Banking",
+          "Biotechnology",
+          "Communications",
+          "Construction",
+          "Consulting",
+          "Education",
+          "Electronics",
+          "Energy",
+          "Engineering",
+          "Entertainment",
+          "Environmental",
+          "Finance",
+          "Food & Beverage",
+          "Government",
+          "Healthcare",
+          "Hospitality",
+          "Insurance",
+          "Machinery",
+          "Manufacturing",
+          "Media",
+          "Not For Profit",
+          "Recreation",
+          "Retail",
+          "Shipping",
+          "Technology",
+          "Telecommunications",
+          "Transportation",
+          "Utilities"
+        ],
+        "human_parameter_description": "Choose the industry the company operates in. This helps with segmentation and reporting.",
+        "human_parameter_name": "Industry",
+        "title": "Industry",
+        "type": "string"
+      },
+      "name": {
+        "description": "Account name (required field in Salesforce).",
+        "examples": ["Acme Corporation", "Global Enterprises Inc.", "Tech Innovations Ltd."],
+        "human_parameter_description": "The official name of the company or organization you want to create in Salesforce. This is required so people can find and recognize the account.",
+        "human_parameter_name": "Account Name",
+        "title": "Name",
+        "type": "string"
+      },
+      "number_of_employees": {
+        "description": "Number of employees.",
+        "examples": [50, 500, 5000],
+        "human_parameter_description": "How many people work at the company. Useful for sizing and targeting.",
+        "human_parameter_name": "Number of Employees",
+        "title": "Number Of Employees",
+        "type": "integer"
+      },
+      "parent_id": {
+        "default": "",
+        "description": "ID of the parent account if this is a subsidiary. Must be a valid Salesforce Account Id (15- or 18-character).",
+        "examples": ["001XXXXXXXXXXXXXXX", "001xx000003DGgPAAW"],
+        "human_parameter_description": "If this company is part of a larger organization, provide the parent account’s Salesforce ID. Use this to link subsidiaries to their parent company.",
+        "human_parameter_name": "Parent Account ID",
+        "title": "Parent Id",
+        "type": "string"
+      },
+      "phone": {
+        "default": "",
+        "description": "Main phone number.",
+        "examples": ["(555) 123-4567", "+1-800-555-0123"],
+        "human_parameter_description": "The main phone number for the company. Include country code if outside your region.",
+        "human_parameter_name": "Phone Number",
+        "title": "Phone",
+        "type": "string"
+      },
+      "shipping_city": {
+        "default": "",
+        "description": "Shipping address city.",
+        "examples": ["San Francisco", "New York", "Chicago"],
+        "human_parameter_description": "City for the shipping address.",
+        "human_parameter_name": "Shipping City",
+        "title": "Shipping City",
+        "type": "string"
+      },
+      "shipping_country": {
+        "default": "",
+        "description": "Shipping address country.",
+        "examples": ["USA", "United States", "Canada", "UK"],
+        "human_parameter_description": "Country for the shipping address.",
+        "human_parameter_name": "Shipping Country",
+        "title": "Shipping Country",
+        "type": "string"
+      },
+      "shipping_postal_code": {
+        "default": "",
+        "description": "Shipping address postal/zip code.",
+        "examples": ["94105", "10001", "60601"],
+        "human_parameter_description": "Postal or ZIP code for the shipping address.",
+        "human_parameter_name": "Shipping Postal Code",
+        "title": "Shipping Postal Code",
+        "type": "string"
+      },
+      "shipping_state": {
+        "default": "",
+        "description": "Shipping address state/province. For US/Canada addresses, use full state/province names (e.g., 'California', 'New York', 'Ontario') or abbreviations ('CA', 'NY') which are auto-converted. For other countries, leave empty unless you know the exact valid picklist value for your Salesforce org. WARNING: If State/Country Picklists are enabled in your org, only pre-configured values are accepted; arbitrary region names will be rejected with FIELD_INTEGRITY_EXCEPTION.",
+        "examples": ["California", "New York", "Ontario", "British Columbia"],
+        "human_parameter_description": "State or province for the shipping address. For US/Canada, use full names like 'California' or 'New York' (abbreviations are auto-converted). For other countries, leave empty unless you know the exact valid picklist value configured in your Salesforce org.",
+        "human_parameter_name": "Shipping State",
+        "title": "Shipping State",
+        "type": "string"
+      },
+      "shipping_street": {
+        "default": "",
+        "description": "Shipping address street.",
+        "examples": ["123 Main St", "456 Enterprise Blvd Suite 200"],
+        "human_parameter_description": "Street address for shipping. Use the location where goods or materials should be delivered.",
+        "human_parameter_name": "Shipping Street",
+        "title": "Shipping Street",
+        "type": "string"
+      },
+      "sic_desc": {
+        "default": "",
+        "description": "Standard Industrial Classification (SIC) description.",
+        "examples": ["Business Services", "Manufacturing"],
+        "human_parameter_description": "Brief description of the company's SIC category. Helps standardize industry classification.",
+        "human_parameter_name": "SIC Description",
+        "title": "Sic Desc",
+        "type": "string"
+      },
+      "type": {
+        "default": "",
+        "description": "Type of account.",
+        "examples": [
+          "Analyst",
+          "Competitor",
+          "Customer",
+          "Integrator",
+          "Investor",
+          "Partner",
+          "Press",
+          "Prospect",
+          "Reseller",
+          "Other"
+        ],
+        "human_parameter_description": "Select what kind of relationship this company has with you, like Customer, Partner, or Prospect. This helps categorize and report on the account.",
+        "human_parameter_name": "Account Type",
+        "title": "Type",
+        "type": "string"
+      },
+      "website": {
+        "default": "",
+        "description": "Company website URL.",
+        "examples": ["https://www.example.com", "www.company.com"],
+        "human_parameter_description": "The company’s website address. Helps teammates learn more about the business.",
+        "human_parameter_name": "Website URL",
+        "title": "Website",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "CreateAccountRequest",
+    "type": "object"
+  },
+  "name": "create_account",
+  "outputSchema": {
+    "$defs": {
+      "CreateAccountResponse": {
+        "description": "Response from Salesforce Account creation API.",
+        "properties": {
+          "errors": {
+            "description": "Array of error objects. Empty array when success is true. Contains error details when success is false.",
+            "items": {
+              "$ref": "#/$defs/SalesforceError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The unique Salesforce ID assigned to the newly created Account record. Only present when success is true.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the create operation was successful. Returns true if the Account was created successfully, false otherwise.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "CreateAccountResponse",
+        "type": "object"
+      },
+      "SalesforceError": {
+        "description": "Represents a Salesforce API error object.",
+        "properties": {
+          "errorCode": {
+            "description": "Machine-readable error code identifier (e.g., REQUIRED_FIELD_MISSING, MALFORMED_ID, INVALID_SESSION_ID).",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Array of field names where the error occurred. Present for field-level validation errors.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable description of the error that occurred.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["message"],
+        "title": "SalesforceError",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateAccountResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

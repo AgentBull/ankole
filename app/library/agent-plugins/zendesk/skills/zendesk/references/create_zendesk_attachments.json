@@ -1,0 +1,216 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Upload a file attachment to Zendesk for use in a ticket comment, returning attachment details and an upload token valid for 60 minutes. Use an uploaded file reference, data URL, or permitted local file URL.",
+  "inputSchema": {
+    "description": "Request model for uploading an attachment to Zendesk.",
+    "properties": {
+      "file": {
+        "additionalProperties": false,
+        "description": "The file to upload to Zendesk. The file name will be used for the attachment (for example, 'document.pdf' or 'error_log.txt').",
+        "human_parameter_description": "The file you want to upload. This can be a document, image, log file, or any other file type. The file name should match the attachment name you want in Zendesk. Provide an uploaded file or direct file URL.",
+        "human_parameter_name": "File",
+        "properties": {
+          "mimetype": {
+            "description": "The MIME type of the file",
+            "examples": [
+              "application/pdf",
+              "image/jpeg",
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ],
+            "title": "Mimetype",
+            "type": "string"
+          },
+          "name": {
+            "description": "The filename that will be used when uploading the file to the destination service",
+            "examples": ["document.pdf", "image.jpg", "report.docx"],
+            "title": "Name",
+            "type": "string"
+          },
+          "s3key": {
+            "description": "Uploaded file reference. If not provided, url must be provided.",
+            "examples": ["file-reference-from-previous-action"],
+            "title": "S3Key",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to a file (e.g., 'file:///path/to/file.txt' or 'https://example.com/file.pdf'). Used when an uploaded file reference is not available.",
+            "examples": ["file:///tmp/test.txt", "https://example.com/file.pdf"],
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["name", "mimetype"],
+        "title": "File",
+        "type": "object"
+      }
+    },
+    "required": ["file"],
+    "title": "CreateZendeskAttachmentsRequest",
+    "type": "object"
+  },
+  "name": "create_zendesk_attachments",
+  "outputSchema": {
+    "$defs": {
+      "CreateZendeskAttachmentsResponse": {
+        "description": "Response model for a Zendesk attachment upload.",
+        "properties": {
+          "contentType": {
+            "description": "The MIME type of the uploaded file (e.g., 'image/png', 'application/pdf').",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "contentUrl": {
+            "description": "URL to download the uploaded file.",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "If true, the attachment has been deleted.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "fileName": {
+            "description": "The name of the uploaded file.",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Height of the image in pixels. Only present for image attachments. Zendesk returns this as an integer; the union accepts strings for forward-compatibility.",
+            "title": "Height"
+          },
+          "id": {
+            "description": "Unique identifier for the uploaded attachment.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "If true, the attachment is inline (displayed within the content).",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malwareAccessOverride": {
+            "description": "If true, you can download an attachment flagged as malware.",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malwareScanResult": {
+            "description": "Result of malware scan. Possible values: 'malware_found', 'malware_not_found', 'failed_to_scan', 'not_scanned'.",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mappedContentUrl": {
+            "description": "Mapped content URL for the attachment.",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "Size of the uploaded file in bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "List of thumbnail objects for image attachments.",
+            "items": {
+              "$ref": "#/$defs/Thumbnail"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          },
+          "upload_expires_at": {
+            "description": "Expiration time for the upload token.",
+            "title": "Upload Expires At",
+            "type": "string"
+          },
+          "upload_token": {
+            "description": "Token to use when attaching the file to a ticket. Valid for 60 minutes.",
+            "title": "Upload Token",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL to access the attachment.",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Width of the image in pixels. Only present for image attachments. Zendesk returns this as an integer; the union accepts strings for forward-compatibility.",
+            "title": "Width"
+          }
+        },
+        "required": ["id", "fileName", "contentUrl", "contentType", "size", "url"],
+        "title": "CreateZendeskAttachmentsResponse",
+        "type": "object"
+      },
+      "Thumbnail": {
+        "description": "Thumbnail object for image attachments.",
+        "properties": {
+          "contentUrl": {
+            "description": "URL to download the thumbnail.",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Height of the thumbnail in pixels. Zendesk returns this as an integer; the union accepts strings for forward-compatibility.",
+            "title": "Height"
+          },
+          "inline": {
+            "description": "If true, thumbnail is inline.",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Width of the thumbnail in pixels. Zendesk returns this as an integer; the union accepts strings for forward-compatibility.",
+            "title": "Width"
+          }
+        },
+        "title": "Thumbnail",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateZendeskAttachmentsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

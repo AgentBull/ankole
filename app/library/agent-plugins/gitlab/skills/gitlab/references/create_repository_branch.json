@@ -1,0 +1,188 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a new branch in a project. Use when you need to create a new branch from an existing branch or a specific commit in a GitLab project.",
+  "inputSchema": {
+    "properties": {
+      "branch_name": {
+        "description": "The name of the new branch.",
+        "examples": ["new-feature-branch"],
+        "title": "Branch Name",
+        "type": "string"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["5", "group_name/project_name"],
+        "title": "Project Id"
+      },
+      "ref": {
+        "description": "The branch name or commit SHA to create the new branch from.",
+        "examples": ["main", "develop", "a1b2c3d4e5f6"],
+        "title": "Ref",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "branch_name", "ref"],
+    "title": "CreateRepositoryBranchRequest",
+    "type": "object"
+  },
+  "name": "create_repository_branch",
+  "outputSchema": {
+    "$defs": {
+      "Commit": {
+        "properties": {
+          "author_email": {
+            "description": "Commit author email",
+            "title": "Author Email",
+            "type": "string"
+          },
+          "author_name": {
+            "description": "Commit author name",
+            "title": "Author Name",
+            "type": "string"
+          },
+          "authored_date": {
+            "description": "Commit authored timestamp",
+            "title": "Authored Date",
+            "type": "string"
+          },
+          "committed_date": {
+            "description": "Commit timestamp",
+            "title": "Committed Date",
+            "type": "string"
+          },
+          "committer_email": {
+            "description": "Committer email",
+            "title": "Committer Email",
+            "type": "string"
+          },
+          "committer_name": {
+            "description": "Committer name",
+            "title": "Committer Name",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Commit creation timestamp",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Commit ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Commit message",
+            "title": "Message",
+            "type": "string"
+          },
+          "parent_ids": {
+            "description": "List of parent commit IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parent Ids",
+            "type": "array"
+          },
+          "short_id": {
+            "description": "Short commit ID",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Commit title",
+            "title": "Title",
+            "type": "string"
+          },
+          "trailers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Commit trailers",
+            "title": "Trailers",
+            "type": "object"
+          },
+          "web_url": {
+            "description": "URL to the commit on GitLab",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "Commit",
+        "type": "object"
+      },
+      "CreateRepositoryBranchResponse": {
+        "properties": {
+          "can_push": {
+            "description": "Indicates if the current user can push to this branch.",
+            "title": "Can Push",
+            "type": "boolean"
+          },
+          "commit": {
+            "$ref": "#/$defs/Commit",
+            "description": "Details of the commit the branch points to.",
+            "title": "Commit"
+          },
+          "default": {
+            "description": "Indicates if this is the default branch.",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "developers_can_merge": {
+            "description": "Indicates if developers can merge this branch.",
+            "title": "Developers Can Merge",
+            "type": "boolean"
+          },
+          "developers_can_push": {
+            "description": "Indicates if developers can push to this branch.",
+            "title": "Developers Can Push",
+            "type": "boolean"
+          },
+          "merged": {
+            "description": "Indicates if the branch has been merged.",
+            "title": "Merged",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The name of the branch.",
+            "title": "Name",
+            "type": "string"
+          },
+          "protected": {
+            "description": "Indicates if the branch is protected.",
+            "title": "Protected",
+            "type": "boolean"
+          },
+          "web_url": {
+            "description": "The URL to the branch on the GitLab web interface.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "CreateRepositoryBranchResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateRepositoryBranchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

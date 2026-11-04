@@ -1,0 +1,234 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list dimensions and metrics compatible with a GA4 report request. Use when you need to validate compatibility of chosen dimensions or metrics before running a report.",
+  "inputSchema": {
+    "description": "Request model for the checkCompatibility method.",
+    "properties": {
+      "compatibilityFilter": {
+        "description": "Compatibility status for dimensions or metrics per Google Analytics Data API v1beta.\nValid values: COMPATIBILITY_UNSPECIFIED, COMPATIBLE, INCOMPATIBLE.\nNote: Values like 'REPORT_COMPATIBLE' are NOT valid - use 'COMPATIBLE' instead.",
+        "enum": ["COMPATIBILITY_UNSPECIFIED", "COMPATIBLE", "INCOMPATIBLE"],
+        "title": "CompatibilityEnum",
+        "type": "string"
+      },
+      "dimensionFilter": {
+        "additionalProperties": true,
+        "description": "Optional. A FilterExpression for dimensions; must follow GA4 FilterExpression JSON schema.",
+        "title": "Dimension Filter",
+        "type": "object"
+      },
+      "dimensions": {
+        "description": "Optional. List of dimensions to check compatibility for.",
+        "items": {
+          "description": "Model for a dimension in a compatibility check request.",
+          "properties": {
+            "name": {
+              "description": "The GA4 API name of the dimension. MUST use exact API names from the official documentation at https://developers.google.com/analytics/devguides/reporting/data/v1/api-schema. Common valid dimension names include: User/Session: 'newVsReturning', 'firstSessionDate'. Time: 'date', 'dateHour', 'day', 'dayOfWeek', 'hour', 'month', 'week', 'year'. Geography: 'country', 'countryId', 'region', 'city', 'continent'. Technology: 'browser', 'operatingSystem', 'deviceCategory', 'platform', 'language', 'screenResolution'. Page/Content: 'pagePath', 'pageTitle', 'pageLocation', 'landingPage', 'hostName'. Traffic Source: 'source', 'medium', 'campaignName', 'defaultChannelGroup', 'manualSource', 'manualMedium' (NOTE: 'trafficSource' is NOT valid - use 'source' or 'medium' instead). Events: 'eventName', 'isKeyEvent'. E-commerce: 'itemId', 'itemName', 'itemBrand', 'itemCategory', 'currencyCode'. Custom dimensions use format 'customUser:parameter_name' or 'customEvent:parameter_name'.",
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          "required": ["name"],
+          "title": "Dimension",
+          "type": "object"
+        },
+        "title": "Dimensions",
+        "type": "array"
+      },
+      "metricFilter": {
+        "additionalProperties": true,
+        "description": "Optional. A FilterExpression for metrics; must follow GA4 FilterExpression JSON schema.",
+        "title": "Metric Filter",
+        "type": "object"
+      },
+      "metrics": {
+        "description": "Optional. List of metrics to check compatibility for. Maximum of 10 metrics allowed per request.",
+        "items": {
+          "description": "Model for a metric in a compatibility check request.",
+          "properties": {
+            "name": {
+              "description": "The GA4 API name of the metric. MUST use exact API names from the official documentation at https://developers.google.com/analytics/devguides/reporting/data/v1/api-schema. Common valid metric names: Users: 'activeUsers', 'totalUsers', 'newUsers'. Sessions: 'sessions', 'engagedSessions', 'bounceRate', 'engagementRate', 'averageSessionDuration'. Events: 'eventCount', 'eventCountPerUser', 'keyEvents', 'eventValue'. Page/Screen: 'screenPageViews', 'screenPageViewsPerSession'. E-commerce: 'purchaseRevenue', 'totalRevenue', 'transactions', 'itemRevenue'. Conversions: 'conversions', 'userConversionRate' (NOTE: 'conversionRate' is NOT valid - use 'sessionConversionRate' or 'userConversionRate' instead). Custom metrics use format 'customEvent:parameter_name'.",
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          "required": ["name"],
+          "title": "Metric",
+          "type": "object"
+        },
+        "maxItems": 10,
+        "title": "Metrics",
+        "type": "array"
+      },
+      "property": {
+        "description": "Required. GA4 property resource name. Format: properties/{property_id}.",
+        "examples": ["properties/1234"],
+        "pattern": "^properties/[^/]+$",
+        "title": "Property",
+        "type": "string"
+      }
+    },
+    "required": ["property"],
+    "title": "CheckCompatibilityRequest",
+    "type": "object"
+  },
+  "name": "check_compatibility",
+  "outputSchema": {
+    "$defs": {
+      "CheckCompatibilityResponse": {
+        "description": "Response model for the checkCompatibility method.",
+        "properties": {
+          "dimensionCompatibilities": {
+            "items": {
+              "$ref": "#/$defs/DimensionCompatibility"
+            },
+            "title": "Dimension Compatibilities",
+            "type": "array"
+          },
+          "metricCompatibilities": {
+            "items": {
+              "$ref": "#/$defs/MetricCompatibility"
+            },
+            "title": "Metric Compatibilities",
+            "type": "array"
+          }
+        },
+        "required": ["dimensionCompatibilities", "metricCompatibilities"],
+        "title": "CheckCompatibilityResponse",
+        "type": "object"
+      },
+      "CompatibilityEnum": {
+        "description": "Compatibility status for dimensions or metrics per Google Analytics Data API v1beta.\nValid values: COMPATIBILITY_UNSPECIFIED, COMPATIBLE, INCOMPATIBLE.\nNote: Values like 'REPORT_COMPATIBLE' are NOT valid - use 'COMPATIBLE' instead.",
+        "enum": ["COMPATIBILITY_UNSPECIFIED", "COMPATIBLE", "INCOMPATIBLE"],
+        "title": "CompatibilityEnum",
+        "type": "string"
+      },
+      "DimensionCompatibility": {
+        "properties": {
+          "compatibility": {
+            "$ref": "#/$defs/CompatibilityEnum",
+            "title": "Compatibility"
+          },
+          "dimensionMetadata": {
+            "$ref": "#/$defs/DimensionMetadata",
+            "title": "Dimension Metadata"
+          }
+        },
+        "required": ["dimensionMetadata", "compatibility"],
+        "title": "DimensionCompatibility",
+        "type": "object"
+      },
+      "DimensionMetadata": {
+        "properties": {
+          "apiName": {
+            "title": "Api Name",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "customDefinition": {
+            "title": "Custom Definition",
+            "type": "boolean"
+          },
+          "deprecatedApiNames": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deprecated Api Names",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "uiName": {
+            "title": "Ui Name",
+            "type": "string"
+          }
+        },
+        "required": ["apiName", "uiName"],
+        "title": "DimensionMetadata",
+        "type": "object"
+      },
+      "MetricCompatibility": {
+        "properties": {
+          "compatibility": {
+            "$ref": "#/$defs/CompatibilityEnum",
+            "title": "Compatibility"
+          },
+          "metricMetadata": {
+            "$ref": "#/$defs/MetricMetadata",
+            "title": "Metric Metadata"
+          }
+        },
+        "required": ["metricMetadata", "compatibility"],
+        "title": "MetricCompatibility",
+        "type": "object"
+      },
+      "MetricMetadata": {
+        "properties": {
+          "apiName": {
+            "title": "Api Name",
+            "type": "string"
+          },
+          "blockedReasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocked Reasons",
+            "type": "array"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "customDefinition": {
+            "title": "Custom Definition",
+            "type": "boolean"
+          },
+          "deprecatedApiNames": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deprecated Api Names",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "expression": {
+            "title": "Expression",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "uiName": {
+            "title": "Ui Name",
+            "type": "string"
+          }
+        },
+        "required": ["apiName", "uiName"],
+        "title": "MetricMetadata",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CheckCompatibilityResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

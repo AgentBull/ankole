@@ -1,0 +1,116 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list CustomMetrics on a property. Use when you need to retrieve all custom metrics configured for a given property.",
+  "inputSchema": {
+    "description": "Request model for listing CustomMetrics on a property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of resources to return. If unspecified, at most 50 resources will be returned. Maximum value is 200",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. Token from a previous ListCustomMetrics call for pagination to retrieve the next page of results",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. Property identifier in format 'properties/{propertyId}'. Example: 'properties/1234'",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "PropertiesCustommetricsListRequest",
+    "type": "object"
+  },
+  "name": "list_custom_metrics",
+  "outputSchema": {
+    "$defs": {
+      "CustomMetric": {
+        "description": "Schema for a CustomMetric resource.",
+        "properties": {
+          "description": {
+            "description": "Description for the custom metric. Max 150 characters",
+            "title": "Description",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Display name shown in Google Analytics UI. Max 82 characters",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "measurementUnit": {
+            "description": "Type of the metric's value. Values: MEASUREMENT_UNIT_UNSPECIFIED, STANDARD, CURRENCY, FEET, MILES, METERS, KILOMETERS, MILLISECONDS, SECONDS, MINUTES, HOURS",
+            "title": "Measurement Unit",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource identifier format 'properties/{propertyId}/customMetrics/{customMetricId}'",
+            "title": "Name",
+            "type": "string"
+          },
+          "parameterName": {
+            "description": "Immutable parameter name for this custom metric",
+            "title": "Parameter Name",
+            "type": "string"
+          },
+          "restrictedMetricType": {
+            "description": "Types of restricted data that this metric contains. Values: RESTRICTED_METRIC_TYPE_UNSPECIFIED, COST_DATA, REVENUE_DATA",
+            "items": {
+              "type": "string"
+            },
+            "title": "Restricted Metric Type",
+            "type": "array"
+          },
+          "scope": {
+            "description": "Scope of the custom metric. Values: METRIC_SCOPE_UNSPECIFIED, EVENT",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "title": "CustomMetric",
+        "type": "object"
+      },
+      "PropertiesCustommetricsListResponse": {
+        "description": "Response model for listing CustomMetrics.",
+        "properties": {
+          "customMetrics": {
+            "description": "Array of custom metric objects",
+            "items": {
+              "$ref": "#/$defs/CustomMetric"
+            },
+            "title": "Custom Metrics",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "Token for retrieving next page. Omitted if no more results available",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "PropertiesCustommetricsListResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/PropertiesCustommetricsListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

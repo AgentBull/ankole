@@ -110,6 +110,19 @@ export function podRouteID(value: string | undefined): string | undefined {
   return expandShortID(value) ?? (uuidShorten(value) ? value : undefined)
 }
 
+export function localReturnPath(value: string | null, origin: string): string | undefined {
+  if (value?.startsWith('/') && !value.startsWith('//')) {
+    try {
+      const url = new URL(value, origin)
+      if (url.origin === origin && !url.pathname.startsWith('//')) {
+        return url.pathname + url.search + url.hash
+      }
+    } catch {
+      // A non-path intent has no browser destination.
+    }
+  }
+}
+
 export function podPageRouteID(value: string | undefined): string | undefined {
   return value ? parsePageSegment(value)?.id : undefined
 }

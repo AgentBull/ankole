@@ -13,7 +13,7 @@ import {
   TableRow,
   toast
 } from '@ankole/uikit'
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -30,6 +30,7 @@ import type {
   WriteResult
 } from '@ankole/applet-sdk/types'
 import { fileURL } from './content-api'
+import { baseGridRowEstimate } from './base-row-size'
 import { Choice, ContentError } from './content-primitives'
 import { BaseCell, FieldEditorButton, FieldInput, FieldValue, fieldOptions, writableField } from './base-fields'
 import { fieldValue } from './state/table-query'
@@ -119,23 +120,29 @@ function GridView(props: ViewProps) {
       container.removeEventListener('focusout', focus)
     }
   }, [])
+  const recordIndex = useMemo(() => {
+    const index = new Map<string, number>()
+    props.records.forEach((record, position) => index.set(record.id, position))
+    return index
+  }, [props.records])
+  const estimatedRow = baseGridRowEstimate()
   const virtual = useVirtualizer({
     count: props.records.length,
     getScrollElement: () => scroll.current,
     getItemKey: index => props.records[index]!.id,
-    estimateSize: () => 48,
+    estimateSize: () => estimatedRow,
     overscan: 8,
     rangeExtractor: useCallback(
       range => {
         const pinned = pendingFocusID ? [...retained, pendingFocusID] : retained
-        return [
-          ...new Set([
-            ...defaultRangeExtractor(range),
-            ...pinned.map(id => props.records.findIndex(record => record.id === id)).filter(index => index >= 0)
-          ])
-        ].sort((a, b) => a - b)
+        const extra: number[] = []
+        for (const id of pinned) {
+          const position = recordIndex.get(id)
+          if (position !== undefined) extra.push(position)
+        }
+        return [...new Set([...defaultRangeExtractor(range), ...extra])].sort((left, right) => left - right)
       },
-      [pendingFocusID, retained, props.records]
+      [pendingFocusID, retained, recordIndex]
     )
   })
   useEffect(() => {
@@ -369,17 +376,19 @@ function RecordCard(
             </p>
           ))}
       </article>
-      <RecordDetailsDialog
-        open={open}
-        onOpenChange={setOpen}
-        record={props.record}
-        fields={props.fields}
-        pageID={props.pageID}
-        editable={props.editable}
-        pending={props.pending}
-        update={props.update}
-        remove={props.remove}
-      />
+      {open ? (
+        <RecordDetailsDialog
+          open
+          onOpenChange={setOpen}
+          record={props.record}
+          fields={props.fields}
+          pageID={props.pageID}
+          editable={props.editable}
+          pending={props.pending}
+          update={props.update}
+          remove={props.remove}
+        />
+      ) : null}
     </>
   )
 }

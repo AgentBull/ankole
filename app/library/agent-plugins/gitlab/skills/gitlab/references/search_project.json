@@ -1,0 +1,256 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Search resources and repository content within one GitLab project.",
+  "inputSchema": {
+    "properties": {
+      "author_username": {
+        "description": "Filter by author username for issues, merge_requests, and work_items scopes with advanced search. Premium and Ultimate only.",
+        "examples": ["alice"],
+        "title": "Author Username",
+        "type": "string"
+      },
+      "confidential": {
+        "description": "Filter by confidentiality for issues and work_items scopes; other scopes ignore this filter.",
+        "examples": [true],
+        "title": "Confidential",
+        "type": "boolean"
+      },
+      "exclude_author_username": {
+        "description": "Exclude results by author username for issues, merge_requests, and work_items with advanced search. Premium and Ultimate only.",
+        "examples": ["bot"],
+        "title": "Exclude Author Username",
+        "type": "string"
+      },
+      "exclude_source_branch": {
+        "description": "Exclude merge requests with this source branch. Applies only to merge_requests with advanced search on Premium and Ultimate tiers.",
+        "examples": ["wip"],
+        "title": "Exclude Source Branch",
+        "type": "string"
+      },
+      "exclude_target_branch": {
+        "description": "Exclude merge requests with this target branch. Applies only to merge_requests with advanced search on Premium and Ultimate tiers.",
+        "examples": ["legacy"],
+        "title": "Exclude Target Branch",
+        "type": "string"
+      },
+      "fields": {
+        "description": "Fields to search. Only title is supported, for issues and merge_requests scopes on Premium and Ultimate tiers.",
+        "examples": [["title"]],
+        "items": {
+          "const": "title",
+          "type": "string"
+        },
+        "title": "Fields",
+        "type": "array"
+      },
+      "label_name": {
+        "description": "Label names that every result must have. Accepts up to 30 names for issues, merge_requests, and work_items with advanced search. Premium and Ultimate only.",
+        "examples": [["bug", "backend"]],
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 30,
+        "title": "Label Name",
+        "type": "array"
+      },
+      "num_context_lines": {
+        "description": "Number of context lines around each match. Applies only to advanced and exact code search.",
+        "examples": [3],
+        "title": "Num Context Lines",
+        "type": "integer"
+      },
+      "order_by": {
+        "description": "Field used to order results. Title ordering is limited by scope and search type.",
+        "enum": ["created_at", "title"],
+        "examples": ["created_at"],
+        "title": "Order By",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number for offset pagination (1-based).",
+        "examples": [1],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of search results to return per page (1-100).",
+        "examples": [20],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The numeric ID or namespace/project path of the project. URL-encoding is handled automatically.",
+        "examples": [5, "namespace/project-name"],
+        "title": "Project Id"
+      },
+      "ref": {
+        "description": "Repository branch or tag to search. Valid only for blobs, commits, and wiki_blobs scopes; defaults to the project's default branch.",
+        "examples": ["main"],
+        "minLength": 1,
+        "title": "Ref",
+        "type": "string"
+      },
+      "regex": {
+        "description": "Whether exact code search uses regular expressions. Applies only to exact code search.",
+        "examples": [true],
+        "title": "Regex",
+        "type": "boolean"
+      },
+      "scope": {
+        "description": "Project resource type to search. Result fields vary by scope.",
+        "enum": [
+          "issues",
+          "work_items",
+          "merge_requests",
+          "milestones",
+          "users",
+          "wiki_blobs",
+          "commits",
+          "blobs",
+          "notes"
+        ],
+        "examples": ["blobs"],
+        "title": "Scope",
+        "type": "string"
+      },
+      "search": {
+        "description": "Term to search for in the selected project scope.",
+        "examples": ["installation"],
+        "minLength": 1,
+        "title": "Search",
+        "type": "string"
+      },
+      "search_type": {
+        "description": "Search backend to use: basic, advanced, or exact code search (zoekt).",
+        "enum": ["basic", "advanced", "zoekt"],
+        "examples": ["advanced"],
+        "title": "Search Type",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Sort direction for ordered results.",
+        "enum": ["asc", "desc"],
+        "examples": ["desc"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "source_branch": {
+        "description": "Filter by source branch. Applies only to merge_requests with advanced search on Premium and Ultimate tiers.",
+        "examples": ["feature/search"],
+        "title": "Source Branch",
+        "type": "string"
+      },
+      "state": {
+        "description": "Filter by state for issues, work_items, and merge_requests scopes; other scopes ignore this filter.",
+        "examples": ["opened"],
+        "title": "State",
+        "type": "string"
+      },
+      "target_branch": {
+        "description": "Filter by target branch. Applies only to merge_requests with advanced search on Premium and Ultimate tiers.",
+        "examples": ["main"],
+        "title": "Target Branch",
+        "type": "string"
+      },
+      "type": {
+        "description": "Work-item types to include. Applies only to the work_items scope.",
+        "examples": [["issue", "task"]],
+        "items": {
+          "enum": [
+            "issue",
+            "task",
+            "epic",
+            "incident",
+            "test_case",
+            "requirement",
+            "objective",
+            "key_result",
+            "ticket"
+          ],
+          "type": "string"
+        },
+        "title": "Type",
+        "type": "array"
+      }
+    },
+    "required": ["project_id", "scope", "search"],
+    "title": "SearchProjectRequest",
+    "type": "object"
+  },
+  "name": "search_project",
+  "outputSchema": {
+    "$defs": {
+      "SearchProjectResponse": {
+        "properties": {
+          "next_page": {
+            "description": "Next page number, when another page exists.",
+            "title": "Next Page",
+            "type": "integer"
+          },
+          "page": {
+            "description": "Current page number.",
+            "title": "Page",
+            "type": "integer"
+          },
+          "per_page": {
+            "description": "Number of results requested per page.",
+            "title": "Per Page",
+            "type": "integer"
+          },
+          "prev_page": {
+            "description": "Previous page number, when a previous page exists.",
+            "title": "Prev Page",
+            "type": "integer"
+          },
+          "results": {
+            "description": "Scope-dependent GitLab search result objects for this page.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "total": {
+            "description": "Total number of matching results, when supplied by GitLab.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "description": "Total number of result pages, when supplied by GitLab.",
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": ["results"],
+        "title": "SearchProjectResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SearchProjectResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

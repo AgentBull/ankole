@@ -1,0 +1,477 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a paginated list of line items for a specific invoice. Use when you need to see the individual charges, products, or services included in an invoice.",
+  "inputSchema": {
+    "properties": {
+      "ending_before": {
+        "description": "Cursor for backward pagination; a line item ID from a previous response that defines the end of the current page, used to fetch the preceding page.",
+        "examples": ["il_9876543210"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "invoice": {
+        "description": "The unique identifier of the invoice whose line items to retrieve (e.g., in_1NpHok2eZvKYlo2CyeiBref0).",
+        "examples": ["in_1ShVaXQvM72TjFrbu9MgZSua"],
+        "title": "Invoice",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of line items to return (1-100). Defaults to 10 if not specified.",
+        "examples": [25, 100],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "starting_after": {
+        "description": "Cursor for forward pagination; a line item ID from a previous response that defines the end of the current page, used to fetch the subsequent page.",
+        "examples": ["il_1234567890"],
+        "title": "Starting After",
+        "type": "string"
+      }
+    },
+    "required": ["invoice"],
+    "title": "GetInvoicesInvoiceLinesRequest",
+    "type": "object"
+  },
+  "name": "get_invoices_invoice_lines",
+  "outputSchema": {
+    "$defs": {
+      "DiscountAmount": {
+        "properties": {
+          "amount": {
+            "description": "The amount of discount in cents.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "discount": {
+            "description": "The discount identifier that was applied.",
+            "title": "Discount",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "discount"],
+        "title": "DiscountAmount",
+        "type": "object"
+      },
+      "GetInvoicesInvoiceLinesResponse": {
+        "properties": {
+          "data": {
+            "description": "Array of line item objects.",
+            "items": {
+              "$ref": "#/$defs/LineItem"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Indicates whether additional pages exist.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "Endpoint URL for retrieving these line items.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "GetInvoicesInvoiceLinesResponse",
+        "type": "object"
+      },
+      "InvoiceItemDetails": {
+        "properties": {
+          "invoice_item": {
+            "description": "The invoice item identifier.",
+            "title": "Invoice Item",
+            "type": "string"
+          },
+          "proration": {
+            "description": "Whether this is a proration.",
+            "title": "Proration",
+            "type": "boolean"
+          },
+          "proration_details": {
+            "$ref": "#/$defs/ProrationDetails",
+            "description": "Details about the proration if applicable.",
+            "title": "Proration Details"
+          },
+          "subscription": {
+            "description": "The subscription identifier.",
+            "title": "Subscription",
+            "type": "string"
+          }
+        },
+        "title": "InvoiceItemDetails",
+        "type": "object"
+      },
+      "LineItem": {
+        "properties": {
+          "amount": {
+            "description": "The amount in cents.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Custom text attached to the line item.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discount_amounts": {
+            "description": "Discount calculations per discount applied.",
+            "items": {
+              "$ref": "#/$defs/DiscountAmount"
+            },
+            "title": "Discount Amounts",
+            "type": "array"
+          },
+          "discountable": {
+            "description": "Whether discounts apply to this line item.",
+            "title": "Discountable",
+            "type": "boolean"
+          },
+          "discounts": {
+            "description": "Applied discount identifiers.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the line item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "The ID of the invoice containing this line item.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live mode status indicator.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value pairs for structured data storage.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'line_item'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "parent": {
+            "$ref": "#/$defs/Parent",
+            "description": "Originating parent object details.",
+            "title": "Parent"
+          },
+          "period": {
+            "$ref": "#/$defs/Period",
+            "description": "Coverage period for this line item.",
+            "title": "Period"
+          },
+          "pretax_credit_amounts": {
+            "description": "Applied pretax credits.",
+            "items": {
+              "$ref": "#/$defs/PretaxCreditAmount"
+            },
+            "title": "Pretax Credit Amounts",
+            "type": "array"
+          },
+          "pricing": {
+            "$ref": "#/$defs/Pricing",
+            "description": "Pricing structure details.",
+            "title": "Pricing"
+          },
+          "quantity": {
+            "description": "Item quantity for subscriptions or prorations.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "subtotal": {
+            "description": "The subtotal in cents before discounts or taxes.",
+            "title": "Subtotal",
+            "type": "integer"
+          },
+          "taxes": {
+            "description": "Applied tax information.",
+            "items": {
+              "$ref": "#/$defs/Tax"
+            },
+            "title": "Taxes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "currency",
+          "discountable",
+          "livemode",
+          "metadata",
+          "period",
+          "subtotal"
+        ],
+        "title": "LineItem",
+        "type": "object"
+      },
+      "Parent": {
+        "properties": {
+          "invoice_item_details": {
+            "$ref": "#/$defs/InvoiceItemDetails",
+            "description": "Invoice item details if type is invoice_item_details.",
+            "title": "Invoice Item Details"
+          },
+          "subscription_item_details": {
+            "$ref": "#/$defs/SubscriptionItemDetails",
+            "description": "Subscription item details if type is subscription_item_details.",
+            "title": "Subscription Item Details"
+          },
+          "type": {
+            "description": "The type of parent object (invoice_item_details or subscription_item_details).",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "Parent",
+        "type": "object"
+      },
+      "Period": {
+        "properties": {
+          "end": {
+            "description": "End of the coverage period as Unix timestamp.",
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "description": "Start of the coverage period as Unix timestamp.",
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "Period",
+        "type": "object"
+      },
+      "PretaxCreditAmount": {
+        "properties": {
+          "amount": {
+            "description": "The amount of pretax credit in cents.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "credit_balance_transaction": {
+            "description": "The credit balance transaction identifier.",
+            "title": "Credit Balance Transaction",
+            "type": "string"
+          },
+          "discount": {
+            "description": "The discount identifier.",
+            "title": "Discount",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of pretax credit.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "type"],
+        "title": "PretaxCreditAmount",
+        "type": "object"
+      },
+      "PriceDetails": {
+        "properties": {
+          "price": {
+            "description": "The price identifier.",
+            "title": "Price",
+            "type": "string"
+          },
+          "product": {
+            "description": "The product identifier.",
+            "title": "Product",
+            "type": "string"
+          }
+        },
+        "title": "PriceDetails",
+        "type": "object"
+      },
+      "Pricing": {
+        "properties": {
+          "price_details": {
+            "$ref": "#/$defs/PriceDetails",
+            "description": "Details about the price.",
+            "title": "Price Details"
+          },
+          "type": {
+            "description": "The pricing type.",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount_decimal": {
+            "description": "The unit amount in decimal format.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "Pricing",
+        "type": "object"
+      },
+      "ProrationDetails": {
+        "properties": {
+          "credited_items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Credited items details.",
+            "title": "Credited Items",
+            "type": "object"
+          }
+        },
+        "title": "ProrationDetails",
+        "type": "object"
+      },
+      "SubscriptionItemDetails": {
+        "properties": {
+          "invoice_item": {
+            "description": "The invoice item identifier.",
+            "title": "Invoice Item",
+            "type": "string"
+          },
+          "proration": {
+            "description": "Whether this is a proration.",
+            "title": "Proration",
+            "type": "boolean"
+          },
+          "proration_details": {
+            "$ref": "#/$defs/ProrationDetails",
+            "description": "Details about the proration if applicable.",
+            "title": "Proration Details"
+          },
+          "subscription": {
+            "description": "The subscription identifier.",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "subscription_item": {
+            "description": "The subscription item identifier.",
+            "title": "Subscription Item",
+            "type": "string"
+          }
+        },
+        "title": "SubscriptionItemDetails",
+        "type": "object"
+      },
+      "Tax": {
+        "properties": {
+          "amount": {
+            "description": "The amount of tax in cents.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "tax_behavior": {
+            "description": "The tax behavior (inclusive or exclusive).",
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "tax_rate_details": {
+            "$ref": "#/$defs/TaxRateDetails",
+            "description": "Details about the tax rate.",
+            "title": "Tax Rate Details"
+          },
+          "taxability_reason": {
+            "description": "The reason for taxability.",
+            "title": "Taxability Reason",
+            "type": "string"
+          },
+          "taxable_amount": {
+            "description": "The taxable amount in cents.",
+            "title": "Taxable Amount",
+            "type": "integer"
+          },
+          "type": {
+            "description": "The type of tax.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "type"],
+        "title": "Tax",
+        "type": "object"
+      },
+      "TaxRateDetails": {
+        "properties": {
+          "country": {
+            "description": "Two-letter country code.",
+            "title": "Country",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "The display name of the tax rate.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "inclusive": {
+            "description": "Whether the tax rate is inclusive or exclusive.",
+            "title": "Inclusive",
+            "type": "boolean"
+          },
+          "jurisdiction": {
+            "description": "The jurisdiction for the tax rate.",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "percentage": {
+            "description": "The percentage rate.",
+            "title": "Percentage",
+            "type": "number"
+          },
+          "state": {
+            "description": "The state for the tax rate.",
+            "title": "State",
+            "type": "string"
+          },
+          "tax_type": {
+            "description": "The type of tax.",
+            "title": "Tax Type",
+            "type": "string"
+          }
+        },
+        "required": ["display_name", "inclusive"],
+        "title": "TaxRateDetails",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetInvoicesInvoiceLinesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

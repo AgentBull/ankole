@@ -1,0 +1,86 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Returns the color definitions for calendars and events. Use when you need to retrieve the available color palette for styling calendars or events.",
+  "inputSchema": {
+    "description": "Request model for getting color definitions. No required parameters.",
+    "properties": {},
+    "title": "ColorsGetRequest",
+    "type": "object"
+  },
+  "name": "colors_get",
+  "outputSchema": {
+    "$defs": {
+      "ColorDefinition": {
+        "description": "Color definition with background and foreground colors.",
+        "properties": {
+          "background": {
+            "description": "Background color as hex code (e.g., '#ac725e').",
+            "title": "Background",
+            "type": "string"
+          },
+          "foreground": {
+            "description": "Foreground color for text overlay as hex code (e.g., '#ffffff').",
+            "title": "Foreground",
+            "type": "string"
+          }
+        },
+        "required": ["background", "foreground"],
+        "title": "ColorDefinition",
+        "type": "object"
+      },
+      "ColorsGetResponse": {
+        "description": "Response containing color definitions for calendars and events.",
+        "properties": {
+          "calendar": {
+            "additionalProperties": {
+              "$ref": "#/$defs/ColorDefinition"
+            },
+            "description": "Global palette mapping calendar color IDs to their definitions.",
+            "title": "Calendar",
+            "type": "object"
+          },
+          "display_url": {
+            "description": "URL to view this resource in the Google Calendar web UI.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "event": {
+            "additionalProperties": {
+              "$ref": "#/$defs/ColorDefinition"
+            },
+            "description": "Global palette mapping event color IDs to their definitions.",
+            "title": "Event",
+            "type": "object"
+          },
+          "kind": {
+            "description": "Resource type identifier, always 'calendar#colors'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "updated": {
+            "description": "Last modification timestamp in RFC3339 format.",
+            "title": "Updated",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "updated", "calendar", "event"],
+        "title": "ColorsGetResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ColorsGetResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves all tags that have been recorded for events within a Sentry project, along with statistical information for each tag. Use when you need to understand what tags are available in a project and their usage patterns. This provides an overview of tag distribution and helps identify commonly used tags for filtering and analysis.",
+  "inputSchema": {
+    "description": "Request schema for listing all tags for a Sentry project.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization.",
+        "examples": ["my-organization", "acme-corp"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry project.",
+        "examples": ["internal-project", "frontend-app"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "ListProjectTagsRequest",
+    "type": "object"
+  },
+  "name": "list_project_tags",
+  "outputSchema": {
+    "$defs": {
+      "ListProjectTagsResponse": {
+        "description": "Response schema containing a list of tags with statistics for a Sentry project.",
+        "properties": {
+          "tags": {
+            "description": "List of tags used in the project, each with associated statistics like unique value counts and total occurrences.",
+            "items": {
+              "$ref": "#/$defs/ProjectTag"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags"],
+        "title": "ListProjectTagsResponse",
+        "type": "object"
+      },
+      "ProjectTag": {
+        "additionalProperties": true,
+        "description": "Individual tag with statistics for a project.",
+        "properties": {
+          "key": {
+            "description": "The tag key identifier (e.g., 'browser', 'environment', 'release').",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable display name for the tag.",
+            "title": "Name",
+            "type": "string"
+          },
+          "uniqueValues": {
+            "description": "Number of unique values recorded for this tag across the project.",
+            "title": "Unique Values",
+            "type": "integer"
+          }
+        },
+        "required": ["key", "name", "uniqueValues"],
+        "title": "ProjectTag",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListProjectTagsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,1145 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a new subscription schedule for managing subscription changes over time. Use when you need to schedule future subscription modifications, phase transitions, or automate subscription lifecycle management.",
+  "inputSchema": {
+    "description": "Request model for creating a subscription schedule.",
+    "properties": {
+      "billing_mode": {
+        "additionalProperties": false,
+        "description": "Controls prorations and invoice calculation.",
+        "properties": {
+          "flexible": {
+            "additionalProperties": false,
+            "description": "Configuration for flexible billing mode.",
+            "properties": {
+              "proration_discounts": {
+                "description": "How proration discounts are displayed. Values: 'included' or 'itemized'",
+                "examples": ["included", "itemized"],
+                "title": "Proration Discounts",
+                "type": "string"
+              }
+            },
+            "required": ["proration_discounts"],
+            "title": "BillingModeFlexible",
+            "type": "object"
+          },
+          "type": {
+            "description": "Billing mode type. Values: 'classic' or 'flexible' (default: 'flexible')",
+            "examples": ["classic", "flexible"],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "BillingModeInput",
+        "type": "object"
+      },
+      "customer": {
+        "description": "Customer identifier for the schedule",
+        "examples": ["cus_TepYbUrq51DL85"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "customer_account": {
+        "description": "Account identifier for the schedule",
+        "title": "Customer Account",
+        "type": "string"
+      },
+      "default_settings": {
+        "additionalProperties": false,
+        "description": "Schedule-wide defaults.",
+        "properties": {
+          "application_fee_percent": {
+            "description": "Platform fee percentage (0-100)",
+            "title": "Application Fee Percent",
+            "type": "number"
+          },
+          "automatic_tax": {
+            "additionalProperties": false,
+            "description": "Automatic tax computation settings.",
+            "properties": {
+              "enabled": {
+                "description": "Whether Stripe automatically computes tax on this subscription",
+                "title": "Enabled",
+                "type": "boolean"
+              },
+              "liability": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Account responsible for tax liabilities if automatic tax is enabled",
+                "title": "Liability",
+                "type": "object"
+              }
+            },
+            "required": ["enabled"],
+            "title": "AutomaticTaxInput",
+            "type": "object"
+          },
+          "billing_cycle_anchor": {
+            "description": "Billing cycle anchor. Values: 'automatic' or 'phase_start'",
+            "examples": ["automatic", "phase_start"],
+            "title": "Billing Cycle Anchor",
+            "type": "string"
+          },
+          "billing_thresholds": {
+            "additionalProperties": false,
+            "description": "Invoice triggers and monetary amounts.",
+            "properties": {
+              "amount_gte": {
+                "description": "Monetary threshold (in smallest currency unit) to trigger billing",
+                "title": "Amount Gte",
+                "type": "integer"
+              },
+              "reset_billing_cycle_anchor": {
+                "description": "Reset the billing cycle anchor to the threshold bill date",
+                "title": "Reset Billing Cycle Anchor",
+                "type": "boolean"
+              }
+            },
+            "title": "BillingThresholdsInput",
+            "type": "object"
+          },
+          "collection_method": {
+            "description": "Collection method. Values: 'charge_automatically' or 'send_invoice'",
+            "examples": ["charge_automatically", "send_invoice"],
+            "title": "Collection Method",
+            "type": "string"
+          },
+          "default_payment_method": {
+            "description": "Payment method identifier",
+            "examples": ["pm_xxxxxxxxxxxxxx"],
+            "title": "Default Payment Method",
+            "type": "string"
+          },
+          "description": {
+            "description": "Customer-facing subscription explanation (max 500 chars)",
+            "title": "Description",
+            "type": "string"
+          },
+          "invoice_settings": {
+            "additionalProperties": false,
+            "description": "Tax IDs, payment terms, issuer details.",
+            "properties": {
+              "account_tax_ids": {
+                "description": "Tax IDs for invoices",
+                "examples": [["txr_xxxxxxxxxxxxxx"]],
+                "items": {
+                  "type": "string"
+                },
+                "title": "Account Tax Ids",
+                "type": "array"
+              },
+              "days_until_due": {
+                "description": "Days until payment due",
+                "title": "Days Until Due",
+                "type": "integer"
+              },
+              "issuer": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Invoice issuer account configuration",
+                "title": "Issuer",
+                "type": "object"
+              }
+            },
+            "title": "InvoiceSettingsInput",
+            "type": "object"
+          },
+          "on_behalf_of": {
+            "description": "Charging account identifier",
+            "examples": ["acct_xxxxxxxxxxxxxx"],
+            "title": "On Behalf Of",
+            "type": "string"
+          },
+          "transfer_data": {
+            "additionalProperties": false,
+            "description": "Connected account transfer configuration.",
+            "properties": {
+              "amount_percent": {
+                "description": "Transfer percentage (0-100)",
+                "title": "Amount Percent",
+                "type": "number"
+              },
+              "destination": {
+                "description": "Destination account ID",
+                "examples": ["acct_xxxxxxxxxxxxxx"],
+                "title": "Destination",
+                "type": "string"
+              }
+            },
+            "required": ["destination"],
+            "title": "TransferDataInput",
+            "type": "object"
+          }
+        },
+        "title": "DefaultSettingsInput",
+        "type": "object"
+      },
+      "end_behavior": {
+        "description": "End behavior. Values: 'release' (continue subscription) or 'cancel' (terminate)",
+        "examples": ["release", "cancel"],
+        "title": "End Behavior",
+        "type": "string"
+      },
+      "from_subscription": {
+        "description": "Migrate existing subscription to schedule",
+        "examples": ["sub_xxxxxxxxxxxxxx"],
+        "title": "From Subscription",
+        "type": "string"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Custom key-value data",
+        "title": "Metadata",
+        "type": "object"
+      },
+      "phases": {
+        "description": "Billing phase configurations",
+        "items": {
+          "description": "Billing phase configuration.",
+          "properties": {
+            "add_invoice_items": {
+              "description": "Additional invoice line items (max 20)",
+              "items": {
+                "description": "Additional invoice line item.",
+                "properties": {
+                  "discounts": {
+                    "description": "Discounts",
+                    "items": {
+                      "description": "Stackable discount specification.",
+                      "properties": {
+                        "coupon": {
+                          "description": "Coupon ID",
+                          "examples": ["coupon_xxxxxxxxxxxxxx"],
+                          "title": "Coupon",
+                          "type": "string"
+                        },
+                        "discount": {
+                          "description": "Discount ID",
+                          "title": "Discount",
+                          "type": "string"
+                        },
+                        "promotion_code": {
+                          "description": "Promotion code ID",
+                          "examples": ["promo_xxxxxxxxxxxxxx"],
+                          "title": "Promotion Code",
+                          "type": "string"
+                        }
+                      },
+                      "title": "PhaseDiscountInput",
+                      "type": "object"
+                    },
+                    "title": "Discounts",
+                    "type": "array"
+                  },
+                  "metadata": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Key-value pairs",
+                    "title": "Metadata",
+                    "type": "object"
+                  },
+                  "price": {
+                    "description": "Price ID",
+                    "examples": ["price_xxxxxxxxxxxxxx"],
+                    "title": "Price",
+                    "type": "string"
+                  },
+                  "quantity": {
+                    "description": "Quantity",
+                    "title": "Quantity",
+                    "type": "integer"
+                  },
+                  "tax_rates": {
+                    "description": "Tax rates",
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Tax Rates",
+                    "type": "array"
+                  }
+                },
+                "required": ["price"],
+                "title": "AddInvoiceItemInput",
+                "type": "object"
+              },
+              "title": "Add Invoice Items",
+              "type": "array"
+            },
+            "automatic_tax": {
+              "additionalProperties": false,
+              "description": "Automatic tax computation settings.",
+              "properties": {
+                "enabled": {
+                  "description": "Whether Stripe automatically computes tax on this subscription",
+                  "title": "Enabled",
+                  "type": "boolean"
+                },
+                "liability": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Account responsible for tax liabilities if automatic tax is enabled",
+                  "title": "Liability",
+                  "type": "object"
+                }
+              },
+              "required": ["enabled"],
+              "title": "AutomaticTaxInput",
+              "type": "object"
+            },
+            "billing_cycle_anchor": {
+              "description": "Phase-specific billing anchor. Values: 'automatic' or 'phase_start'",
+              "title": "Billing Cycle Anchor",
+              "type": "string"
+            },
+            "billing_thresholds": {
+              "additionalProperties": false,
+              "description": "Invoice triggers and monetary amounts.",
+              "properties": {
+                "amount_gte": {
+                  "description": "Monetary threshold (in smallest currency unit) to trigger billing",
+                  "title": "Amount Gte",
+                  "type": "integer"
+                },
+                "reset_billing_cycle_anchor": {
+                  "description": "Reset the billing cycle anchor to the threshold bill date",
+                  "title": "Reset Billing Cycle Anchor",
+                  "type": "boolean"
+                }
+              },
+              "title": "BillingThresholdsInput",
+              "type": "object"
+            },
+            "collection_method": {
+              "description": "Phase-specific collection method. Values: 'charge_automatically' or 'send_invoice'",
+              "title": "Collection Method",
+              "type": "string"
+            },
+            "currency": {
+              "description": "ISO 4217 currency code",
+              "examples": ["usd", "eur", "gbp"],
+              "title": "Currency",
+              "type": "string"
+            },
+            "default_payment_method": {
+              "description": "Phase-specific payment method",
+              "title": "Default Payment Method",
+              "type": "string"
+            },
+            "default_tax_rates": {
+              "description": "Phase-level tax rate defaults",
+              "items": {
+                "type": "string"
+              },
+              "title": "Default Tax Rates",
+              "type": "array"
+            },
+            "description": {
+              "description": "Phase-specific description",
+              "title": "Description",
+              "type": "string"
+            },
+            "discounts": {
+              "description": "Stackable discount specifications",
+              "items": {
+                "description": "Stackable discount specification.",
+                "properties": {
+                  "coupon": {
+                    "description": "Coupon ID",
+                    "examples": ["coupon_xxxxxxxxxxxxxx"],
+                    "title": "Coupon",
+                    "type": "string"
+                  },
+                  "discount": {
+                    "description": "Discount ID",
+                    "title": "Discount",
+                    "type": "string"
+                  },
+                  "promotion_code": {
+                    "description": "Promotion code ID",
+                    "examples": ["promo_xxxxxxxxxxxxxx"],
+                    "title": "Promotion Code",
+                    "type": "string"
+                  }
+                },
+                "title": "PhaseDiscountInput",
+                "type": "object"
+              },
+              "title": "Discounts",
+              "type": "array"
+            },
+            "end_date": {
+              "description": "Phase end time (Unix timestamp)",
+              "title": "End Date",
+              "type": "integer"
+            },
+            "invoice_settings": {
+              "additionalProperties": false,
+              "description": "Tax IDs, payment terms, issuer details.",
+              "properties": {
+                "account_tax_ids": {
+                  "description": "Tax IDs for invoices",
+                  "examples": [["txr_xxxxxxxxxxxxxx"]],
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Account Tax Ids",
+                  "type": "array"
+                },
+                "days_until_due": {
+                  "description": "Days until payment due",
+                  "title": "Days Until Due",
+                  "type": "integer"
+                },
+                "issuer": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Invoice issuer account configuration",
+                  "title": "Issuer",
+                  "type": "object"
+                }
+              },
+              "title": "InvoiceSettingsInput",
+              "type": "object"
+            },
+            "items": {
+              "description": "Subscription line items with pricing",
+              "items": {
+                "description": "Subscription line item with pricing.",
+                "properties": {
+                  "billing_thresholds": {
+                    "additionalProperties": {
+                      "type": "integer"
+                    },
+                    "description": "Usage-based thresholds",
+                    "title": "Billing Thresholds",
+                    "type": "object"
+                  },
+                  "discounts": {
+                    "description": "Item discounts",
+                    "items": {
+                      "description": "Stackable discount specification.",
+                      "properties": {
+                        "coupon": {
+                          "description": "Coupon ID",
+                          "examples": ["coupon_xxxxxxxxxxxxxx"],
+                          "title": "Coupon",
+                          "type": "string"
+                        },
+                        "discount": {
+                          "description": "Discount ID",
+                          "title": "Discount",
+                          "type": "string"
+                        },
+                        "promotion_code": {
+                          "description": "Promotion code ID",
+                          "examples": ["promo_xxxxxxxxxxxxxx"],
+                          "title": "Promotion Code",
+                          "type": "string"
+                        }
+                      },
+                      "title": "PhaseDiscountInput",
+                      "type": "object"
+                    },
+                    "title": "Discounts",
+                    "type": "array"
+                  },
+                  "metadata": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "Key-value pairs for this item",
+                    "title": "Metadata",
+                    "type": "object"
+                  },
+                  "price": {
+                    "description": "Price ID for the subscription item",
+                    "examples": ["price_1ShVuAQvM72TjFrbIPUjdtbY"],
+                    "title": "Price",
+                    "type": "string"
+                  },
+                  "quantity": {
+                    "description": "Quantity of the plan",
+                    "title": "Quantity",
+                    "type": "integer"
+                  },
+                  "tax_rates": {
+                    "description": "Item tax rates",
+                    "examples": [["txr_xxxxxxxxxxxxxx"]],
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Tax Rates",
+                    "type": "array"
+                  }
+                },
+                "required": ["price"],
+                "title": "PhaseItemInput",
+                "type": "object"
+              },
+              "title": "Items",
+              "type": "array"
+            },
+            "iterations": {
+              "description": "Number of times to repeat this phase",
+              "title": "Iterations",
+              "type": "integer"
+            },
+            "on_behalf_of": {
+              "description": "Phase-specific charge attribution",
+              "title": "On Behalf Of",
+              "type": "string"
+            },
+            "proration_behavior": {
+              "description": "Proration behavior. Values: 'create_prorations', 'always_invoice', or 'none'",
+              "examples": ["create_prorations", "always_invoice", "none"],
+              "title": "Proration Behavior",
+              "type": "string"
+            },
+            "transfer_data": {
+              "additionalProperties": false,
+              "description": "Connected account transfer configuration.",
+              "properties": {
+                "amount_percent": {
+                  "description": "Transfer percentage (0-100)",
+                  "title": "Amount Percent",
+                  "type": "number"
+                },
+                "destination": {
+                  "description": "Destination account ID",
+                  "examples": ["acct_xxxxxxxxxxxxxx"],
+                  "title": "Destination",
+                  "type": "string"
+                }
+              },
+              "required": ["destination"],
+              "title": "TransferDataInput",
+              "type": "object"
+            },
+            "trial": {
+              "description": "Zero-charge trial indicator",
+              "title": "Trial",
+              "type": "boolean"
+            },
+            "trial_end": {
+              "description": "Trial conclusion date (Unix timestamp)",
+              "title": "Trial End",
+              "type": "integer"
+            }
+          },
+          "required": ["items"],
+          "title": "PhaseInput",
+          "type": "object"
+        },
+        "title": "Phases",
+        "type": "array"
+      },
+      "start_date": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "Schedule start time; use 'now' for immediate start or Unix timestamp",
+        "examples": ["now", 1609459200],
+        "title": "Start Date"
+      }
+    },
+    "title": "CreateSubscriptionScheduleRequest",
+    "type": "object"
+  },
+  "name": "create_subscription_schedule",
+  "outputSchema": {
+    "$defs": {
+      "AddInvoiceItemResponse": {
+        "description": "Additional charges appended to invoices.",
+        "properties": {
+          "discounts": {
+            "description": "Discounts",
+            "items": {
+              "$ref": "#/$defs/PhaseDiscountResponse"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value pairs",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "period": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Associated period",
+            "title": "Period",
+            "type": "object"
+          },
+          "price": {
+            "description": "Price ID",
+            "title": "Price",
+            "type": "string"
+          },
+          "quantity": {
+            "description": "Quantity",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "tax_rates": {
+            "description": "Tax rates",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tax Rates",
+            "type": "array"
+          }
+        },
+        "required": ["price"],
+        "title": "AddInvoiceItemResponse",
+        "type": "object"
+      },
+      "AutomaticTaxResponse": {
+        "description": "Tax computation defaults.",
+        "properties": {
+          "disabled_reason": {
+            "description": "Reason for disabled tax computation",
+            "title": "Disabled Reason",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether Stripe automatically computes tax",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "liability": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Account liable for tax",
+            "title": "Liability",
+            "type": "object"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTaxResponse",
+        "type": "object"
+      },
+      "BillingModeResponse": {
+        "description": "Controls calculation methodology.",
+        "properties": {
+          "flexible": {
+            "$ref": "#/$defs/FlexibleBillingModeResponse",
+            "description": "Proration discount display rules",
+            "title": "Flexible"
+          },
+          "type": {
+            "description": "Billing mode type: 'classic' or 'flexible'",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Adoption time (Unix timestamp)",
+            "title": "Updated At",
+            "type": "integer"
+          }
+        },
+        "required": ["type"],
+        "title": "BillingModeResponse",
+        "type": "object"
+      },
+      "BillingThresholdsResponse": {
+        "description": "Invoice trigger amounts.",
+        "properties": {
+          "amount_gte": {
+            "description": "Monetary threshold in smallest currency unit",
+            "title": "Amount Gte",
+            "type": "integer"
+          },
+          "reset_billing_cycle_anchor": {
+            "description": "Whether to reset anchor",
+            "title": "Reset Billing Cycle Anchor",
+            "type": "boolean"
+          }
+        },
+        "title": "BillingThresholdsResponse",
+        "type": "object"
+      },
+      "CreateSubscriptionScheduleResponse": {
+        "description": "Subscription schedule object.",
+        "properties": {
+          "application": {
+            "description": "Connected app that created the schedule",
+            "title": "Application",
+            "type": "string"
+          },
+          "billing_mode": {
+            "$ref": "#/$defs/BillingModeResponse",
+            "description": "Controls calculation methodology",
+            "title": "Billing Mode"
+          },
+          "canceled_at": {
+            "description": "Cancellation time (Unix timestamp)",
+            "title": "Canceled At",
+            "type": "integer"
+          },
+          "completed_at": {
+            "description": "Completion time (Unix timestamp)",
+            "title": "Completed At",
+            "type": "integer"
+          },
+          "created": {
+            "description": "Creation time (Unix timestamp)",
+            "title": "Created",
+            "type": "integer"
+          },
+          "current_phase": {
+            "$ref": "#/$defs/CurrentPhaseResponse",
+            "description": "Active phase with start_date and end_date",
+            "title": "Current Phase"
+          },
+          "customer": {
+            "description": "Associated customer ID",
+            "title": "Customer",
+            "type": "string"
+          },
+          "customer_account": {
+            "description": "Account owner ID",
+            "title": "Customer Account",
+            "type": "string"
+          },
+          "default_settings": {
+            "$ref": "#/$defs/DefaultSettingsResponse",
+            "description": "Applied default configuration",
+            "title": "Default Settings"
+          },
+          "end_behavior": {
+            "description": "End behavior: 'release' (maintain subscription) or 'cancel' (terminate)",
+            "title": "End Behavior",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique schedule identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live or test mode indicator",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value pairs for custom data",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "Type indicator, always 'subscription_schedule'",
+            "title": "Object",
+            "type": "string"
+          },
+          "phases": {
+            "description": "Phase details",
+            "items": {
+              "$ref": "#/$defs/PhaseResponse"
+            },
+            "title": "Phases",
+            "type": "array"
+          },
+          "released_at": {
+            "description": "Release time (Unix timestamp)",
+            "title": "Released At",
+            "type": "integer"
+          },
+          "released_subscription": {
+            "description": "ID after schedule release",
+            "title": "Released Subscription",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current state: 'not_started', 'active', 'completed', 'released', or 'canceled'",
+            "title": "Status",
+            "type": "string"
+          },
+          "subscription": {
+            "description": "Managed subscription identifier",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "test_clock": {
+            "description": "Associated test clock ID",
+            "title": "Test Clock",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "status",
+          "livemode",
+          "created",
+          "customer",
+          "billing_mode",
+          "default_settings",
+          "end_behavior",
+          "phases"
+        ],
+        "title": "CreateSubscriptionScheduleResponse",
+        "type": "object"
+      },
+      "CurrentPhaseResponse": {
+        "description": "Active phase details.",
+        "properties": {
+          "end_date": {
+            "description": "Phase end time (Unix timestamp)",
+            "title": "End Date",
+            "type": "integer"
+          },
+          "start_date": {
+            "description": "Phase start time (Unix timestamp)",
+            "title": "Start Date",
+            "type": "integer"
+          }
+        },
+        "required": ["start_date", "end_date"],
+        "title": "CurrentPhaseResponse",
+        "type": "object"
+      },
+      "DefaultSettingsResponse": {
+        "description": "Applied default configuration.",
+        "properties": {
+          "application_fee_percent": {
+            "description": "App owner transfer percentage (0-100)",
+            "title": "Application Fee Percent",
+            "type": "number"
+          },
+          "automatic_tax": {
+            "$ref": "#/$defs/AutomaticTaxResponse",
+            "description": "Tax computation defaults",
+            "title": "Automatic Tax"
+          },
+          "billing_cycle_anchor": {
+            "description": "Billing cycle anchor: 'phase_start' or 'automatic'",
+            "title": "Billing Cycle Anchor",
+            "type": "string"
+          },
+          "billing_thresholds": {
+            "$ref": "#/$defs/BillingThresholdsResponse",
+            "description": "Invoice trigger amounts",
+            "title": "Billing Thresholds"
+          },
+          "collection_method": {
+            "description": "Collection method: 'charge_automatically' or 'send_invoice'",
+            "title": "Collection Method",
+            "type": "string"
+          },
+          "default_payment_method": {
+            "description": "Default payment method ID",
+            "title": "Default Payment Method",
+            "type": "string"
+          },
+          "description": {
+            "description": "Customer-facing description",
+            "title": "Description",
+            "type": "string"
+          },
+          "invoice_settings": {
+            "$ref": "#/$defs/InvoiceSettingsResponse",
+            "description": "Invoice configuration",
+            "title": "Invoice Settings"
+          },
+          "on_behalf_of": {
+            "description": "Charge attribution account",
+            "title": "On Behalf Of",
+            "type": "string"
+          },
+          "transfer_data": {
+            "$ref": "#/$defs/TransferDataResponse",
+            "description": "Transfer settings",
+            "title": "Transfer Data"
+          }
+        },
+        "title": "DefaultSettingsResponse",
+        "type": "object"
+      },
+      "FlexibleBillingModeResponse": {
+        "description": "Proration discount display rules.",
+        "properties": {
+          "proration_discounts": {
+            "description": "How proration discounts are displayed",
+            "title": "Proration Discounts",
+            "type": "string"
+          }
+        },
+        "required": ["proration_discounts"],
+        "title": "FlexibleBillingModeResponse",
+        "type": "object"
+      },
+      "InvoiceSettingsResponse": {
+        "description": "Tax IDs, payment terms, issuer account.",
+        "properties": {
+          "account_tax_ids": {
+            "description": "Tax IDs for invoices",
+            "items": {
+              "type": "string"
+            },
+            "title": "Account Tax Ids",
+            "type": "array"
+          },
+          "days_until_due": {
+            "description": "Days until payment due",
+            "title": "Days Until Due",
+            "type": "integer"
+          },
+          "issuer": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Invoice issuer account",
+            "title": "Issuer",
+            "type": "object"
+          }
+        },
+        "title": "InvoiceSettingsResponse",
+        "type": "object"
+      },
+      "PhaseDiscountResponse": {
+        "description": "Discount specification.",
+        "properties": {
+          "coupon": {
+            "description": "Coupon ID",
+            "title": "Coupon",
+            "type": "string"
+          },
+          "discount": {
+            "description": "Discount ID",
+            "title": "Discount",
+            "type": "string"
+          },
+          "promotion_code": {
+            "description": "Promotion code ID",
+            "title": "Promotion Code",
+            "type": "string"
+          }
+        },
+        "title": "PhaseDiscountResponse",
+        "type": "object"
+      },
+      "PhaseItemResponse": {
+        "description": "Subscription item with pricing, quantity, discounts, and tax rates.",
+        "properties": {
+          "billing_thresholds": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Usage-based thresholds",
+            "title": "Billing Thresholds",
+            "type": "object"
+          },
+          "discounts": {
+            "description": "Item discounts",
+            "items": {
+              "$ref": "#/$defs/PhaseDiscountResponse"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value pairs",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "price": {
+            "description": "Price ID",
+            "title": "Price",
+            "type": "string"
+          },
+          "quantity": {
+            "description": "Quantity of plan",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "tax_rates": {
+            "description": "Item tax rates",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tax Rates",
+            "type": "array"
+          }
+        },
+        "required": ["price"],
+        "title": "PhaseItemResponse",
+        "type": "object"
+      },
+      "PhaseResponse": {
+        "description": "Phase details.",
+        "properties": {
+          "add_invoice_items": {
+            "description": "Additional charges",
+            "items": {
+              "$ref": "#/$defs/AddInvoiceItemResponse"
+            },
+            "title": "Add Invoice Items",
+            "type": "array"
+          },
+          "automatic_tax": {
+            "$ref": "#/$defs/AutomaticTaxResponse",
+            "description": "Phase-specific tax settings",
+            "title": "Automatic Tax"
+          },
+          "billing_cycle_anchor": {
+            "description": "Phase-specific billing anchor",
+            "title": "Billing Cycle Anchor",
+            "type": "string"
+          },
+          "billing_thresholds": {
+            "$ref": "#/$defs/BillingThresholdsResponse",
+            "description": "Phase-specific invoice triggers",
+            "title": "Billing Thresholds"
+          },
+          "collection_method": {
+            "description": "Phase-specific collection method",
+            "title": "Collection Method",
+            "type": "string"
+          },
+          "currency": {
+            "description": "ISO 4217 currency code",
+            "title": "Currency",
+            "type": "string"
+          },
+          "default_payment_method": {
+            "description": "Phase-specific payment method",
+            "title": "Default Payment Method",
+            "type": "string"
+          },
+          "default_tax_rates": {
+            "description": "Phase-level tax rate defaults",
+            "items": {
+              "type": "string"
+            },
+            "title": "Default Tax Rates",
+            "type": "array"
+          },
+          "description": {
+            "description": "Phase-specific description",
+            "title": "Description",
+            "type": "string"
+          },
+          "discounts": {
+            "description": "Phase-level discounts",
+            "items": {
+              "$ref": "#/$defs/PhaseDiscountResponse"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "end_date": {
+            "description": "Phase end time (Unix timestamp)",
+            "title": "End Date",
+            "type": "integer"
+          },
+          "invoice_settings": {
+            "$ref": "#/$defs/InvoiceSettingsResponse",
+            "description": "Phase-specific invoice settings",
+            "title": "Invoice Settings"
+          },
+          "items": {
+            "description": "Subscription line items",
+            "items": {
+              "$ref": "#/$defs/PhaseItemResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Phase metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "on_behalf_of": {
+            "description": "Phase-specific charge attribution",
+            "title": "On Behalf Of",
+            "type": "string"
+          },
+          "proration_behavior": {
+            "description": "Proration behavior: 'create_prorations', 'none', or 'always_invoice'",
+            "title": "Proration Behavior",
+            "type": "string"
+          },
+          "start_date": {
+            "description": "Phase start time (Unix timestamp)",
+            "title": "Start Date",
+            "type": "integer"
+          },
+          "transfer_data": {
+            "$ref": "#/$defs/TransferDataResponse",
+            "description": "Phase-specific transfer configuration",
+            "title": "Transfer Data"
+          },
+          "trial_end": {
+            "description": "Trial period end (Unix timestamp)",
+            "title": "Trial End",
+            "type": "integer"
+          }
+        },
+        "required": ["start_date", "end_date", "currency", "items", "proration_behavior"],
+        "title": "PhaseResponse",
+        "type": "object"
+      },
+      "TransferDataResponse": {
+        "description": "Payment recipient account and percentage.",
+        "properties": {
+          "amount_percent": {
+            "description": "Transfer percentage (0-100)",
+            "title": "Amount Percent",
+            "type": "number"
+          },
+          "destination": {
+            "description": "Destination account ID",
+            "title": "Destination",
+            "type": "string"
+          }
+        },
+        "required": ["destination"],
+        "title": "TransferDataResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateSubscriptionScheduleResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

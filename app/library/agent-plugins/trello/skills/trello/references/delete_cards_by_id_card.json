@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes an archived Trello card specified by its `idCard`.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteCardsByIdCard`",
+    "properties": {
+      "idCard": {
+        "description": "The ID or shortLink of the card to be deleted. The card ID is a long alphanumeric string, while the shortLink is a shorter, unique identifier used in card URLs.",
+        "examples": ["65ff19b525489ce70992a058", "mHyThirty"],
+        "title": "Id Card",
+        "type": "string"
+      }
+    },
+    "required": ["idCard"],
+    "title": "DeleteCardsByIdCardRequest",
+    "type": "object"
+  },
+  "name": "delete_cards_by_id_card",
+  "outputSchema": {
+    "$defs": {
+      "DeleteCardsByIdCardResponse": {
+        "description": "Response schema for `DeleteCardsByIdCard`.\n\nEmpty response body. The DELETE operation returns HTTP 200 OK with no content\nupon successful deletion of the card. The official Trello OpenAPI specification\n(developer.atlassian.com/cloud/trello/swagger.v3.json) defines this endpoint as\nreturning 200 Success but does not specify a response body schema. This is\nconsistent with other DELETE operations in the Trello API.",
+        "properties": {},
+        "title": "DeleteCardsByIdCardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteCardsByIdCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

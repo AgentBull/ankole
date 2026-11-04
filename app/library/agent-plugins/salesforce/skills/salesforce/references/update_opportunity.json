@@ -1,0 +1,202 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing Salesforce opportunity with supplied standard or custom fields, omitting empty standard strings. The response can contain update results or structured Salesforce errors; a successful 204 response is represented by an empty result.",
+  "inputSchema": {
+    "properties": {
+      "account_id": {
+        "default": "",
+        "description": "Updated Account ID. Leave empty to keep unchanged.",
+        "examples": ["001XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce ID of the related account for this opportunity. Leave blank to keep the existing account.",
+        "human_parameter_name": "Account ID",
+        "title": "Account Id",
+        "type": "string"
+      },
+      "amount": {
+        "description": "Updated amount. Leave unset to keep unchanged. Negative values are passed through to Salesforce as-is.",
+        "examples": [75000, 150000, 500000],
+        "human_parameter_description": "The updated deal amount in your org's currency. Leave blank if you don't want to change it.",
+        "human_parameter_name": "Amount",
+        "title": "Amount",
+        "type": "number"
+      },
+      "close_date": {
+        "default": "",
+        "description": "Updated close date in YYYY-MM-DD format. Leave empty to keep unchanged.",
+        "examples": ["2024-12-31", "2025-03-15"],
+        "human_parameter_description": "The new expected close date for the deal (YYYY-MM-DD). Leave blank to keep the current date.",
+        "human_parameter_name": "Close Date",
+        "title": "Close Date",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values to update. Use the exact API name ending with '__c'. IMPORTANT for lookup/reference fields: Fields that reference other records (e.g., Contact__c, User__c, Account__c) require a valid 18-character Salesforce record ID (e.g., '003XXXXXXXXXXXXXXX' for Contact, '005XXXXXXXXXXXXXXX' for User), NOT descriptive names or text. Passing names like 'John Smith' instead of IDs will fail with MALFORMED_ID error. IMPORTANT for picklist fields: Restricted picklists only accept predefined values from the Salesforce org. Use salesforce.get_all_fields_for_object with object_name='Opportunity' to discover field types and valid values.",
+        "examples": [
+          {
+            "DeliveryInstallationStatus__c": "In progress"
+          },
+          {
+            "OrderNumber__c": "ORD-001",
+            "TrackingNumber__c": "12345"
+          },
+          {
+            "Primary_Contact__c": "003XXXXXXXXXXXXXXX"
+          }
+        ],
+        "human_parameter_description": "A dictionary of custom field API names and their values. Custom field names end with '__c'. For lookup/reference fields (fields referencing other records), you must provide a valid 18-character Salesforce record ID, not a name or description. For picklist fields, use exact values defined in Salesforce. Use SALESFORCE_GET_ALL_FIELDS_FOR_OBJECT to discover field types and valid options.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "description": {
+        "default": "",
+        "description": "Updated description. Leave empty to keep unchanged.",
+        "examples": ["Deal expanded to include additional services", "Budget approved by CFO"],
+        "human_parameter_description": "Any notes or details you want to update on the opportunity. Leave blank to keep the existing description.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "lead_source": {
+        "default": "",
+        "description": "Updated lead source. Leave empty to keep unchanged.",
+        "examples": ["Web", "Partner Referral", "Trade Show"],
+        "human_parameter_description": "Where the opportunity originated from (e.g., Web, Referral). Leave blank to keep the current lead source.",
+        "human_parameter_name": "Lead Source",
+        "title": "Lead Source",
+        "type": "string"
+      },
+      "name": {
+        "default": "",
+        "description": "Updated opportunity name. Leave empty to keep unchanged.",
+        "examples": ["Updated Deal Name", "Q1 Enterprise Contract"],
+        "human_parameter_description": "The new name you want to give this opportunity. Leave blank if you don't want to change it.",
+        "human_parameter_name": "Opportunity Name",
+        "title": "Name",
+        "type": "string"
+      },
+      "next_step": {
+        "default": "",
+        "description": "Updated next step. Leave empty to keep unchanged.",
+        "examples": ["Finalize contract", "Executive approval", "Technical review"],
+        "human_parameter_description": "What you plan to do next for this deal (e.g., schedule demo, send contract). Leave blank to keep the current next step.",
+        "human_parameter_name": "Next Step",
+        "title": "Next Step",
+        "type": "string"
+      },
+      "opportunity_id": {
+        "description": "The Salesforce ID of the opportunity to update. Multiple opportunities may share the same name — apply additional filters (stage, owner, account) or confirm with the user before updating to avoid modifying the wrong record. Use IDs from fresh search results; stale or manually constructed IDs may be invalid.",
+        "examples": ["006Wd000005FG3CIAW", "006XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce ID of the opportunity you want to update. You can copy this from the opportunity URL or a previous list/search.",
+        "human_parameter_name": "Opportunity ID",
+        "title": "Opportunity Id",
+        "type": "string"
+      },
+      "probability": {
+        "description": "Updated probability percentage (0-100). Leave unset to keep unchanged.",
+        "examples": [20, 50, 80, 95],
+        "human_parameter_description": "The updated likelihood of closing this deal as a percentage (0–100). Leave blank to keep the current probability.",
+        "human_parameter_name": "Probability",
+        "title": "Probability",
+        "type": "number"
+      },
+      "stage_name": {
+        "default": "",
+        "description": "Updated stage. Leave empty to keep unchanged. Must exactly match a stage defined in the org's current sales process; use salesforce.get_all_fields_for_object with object_name='Opportunity' to discover valid values.",
+        "examples": ["Qualification", "Negotiation/Review", "Closed Won"],
+        "human_parameter_description": "The stage you want to move the opportunity to (e.g., Qualification, Negotiation). Leave blank to keep the current stage.",
+        "human_parameter_name": "Stage Name",
+        "title": "Stage Name",
+        "type": "string"
+      },
+      "type": {
+        "default": "",
+        "description": "Updated opportunity type. Leave empty to keep unchanged.",
+        "examples": ["Existing Customer - Upgrade", "New Customer"],
+        "human_parameter_description": "The kind of opportunity (for example, New Customer or Upgrade). Leave blank to keep the current type.",
+        "human_parameter_name": "Type",
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["opportunity_id"],
+    "title": "UpdateOpportunityRequest",
+    "type": "object"
+  },
+  "name": "update_opportunity",
+  "outputSchema": {
+    "$defs": {
+      "UpdateOpportunityError": {
+        "description": "Error object returned when an update operation fails.",
+        "properties": {
+          "errorCode": {
+            "description": "Machine-readable error code identifier (e.g., MALFORMED_ID, INVALID_FIELD, REQUIRED_FIELD_MISSING, FIELD_CUSTOM_VALIDATION_EXCEPTION).",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Array of field names that caused the error. Only present when the error relates to specific fields.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable error message explaining what went wrong.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["message", "errorCode"],
+        "title": "UpdateOpportunityError",
+        "type": "object"
+      },
+      "UpdateOpportunityResponse": {
+        "description": "Response from updating an Opportunity record by ID using PATCH.\n\nAPI version 46.0 and later: Returns HTTP 200 OK with JSON response body containing id, success, errors, and created fields.\nAPI version 45.0 and earlier: Returns HTTP 204 No Content with empty response body on success.",
+        "properties": {
+          "created": {
+            "description": "Indicates whether a new record was created. Always false for PATCH updates since they modify existing records. Only returned in API v46.0 and later with HTTP 200 response.",
+            "title": "Created",
+            "type": "boolean"
+          },
+          "errors": {
+            "description": "Array of error objects. Empty array for successful updates. Only returned in API v46.0 and later with HTTP 200 response.",
+            "items": {
+              "$ref": "#/$defs/UpdateOpportunityError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The Salesforce record ID that was updated. Only returned in API v46.0 and later with HTTP 200 response.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the operation was successful. Only returned in API v46.0 and later with HTTP 200 response.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "UpdateOpportunityResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateOpportunityResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

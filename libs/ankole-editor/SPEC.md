@@ -484,7 +484,7 @@ The editing engine lives in `src/core` as a maintained fork of Wordgard within t
 
 ### 7.2 Import: page tree to editor document
 
-`pageDocument(tree)` normalizes `tree` with `N` and converts it into an editor document according to the table below. `replaceTree(state, tree)` builds an editor update that replaces the entire page.
+`pageDocument(tree)` normalizes `tree` with `N` on every call and converts it into an editor document according to the table below. Callers may edit a parsed tree before importing it; normalization depends on its current content. Internal source-loading paths use `normalizedPageDocument` directly when they own an unmodified parser result. `replaceTree(state, tree)` builds an editor update that replaces the entire page.
 
 | Element | Editor node |
 | --- | --- |

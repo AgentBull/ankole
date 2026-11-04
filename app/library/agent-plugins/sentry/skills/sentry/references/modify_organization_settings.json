@@ -1,0 +1,919 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates settings for a Sentry organization, such as name, slug, member roles, privacy, and integrations; if `avatarType` is 'upload', `avatar` (base64 image) is required.",
+  "inputSchema": {
+    "description": "Request schema for updating organization settings.",
+    "properties": {
+      "dataScrubberDefaults": {
+        "description": "Apply Sentry's default scrubbing rules (e.g., for passwords, credit cards) to event data for all projects.",
+        "title": "Data Scrubber Defaults",
+        "type": "boolean"
+      },
+      "dataScrubber": {
+        "description": "Enforce server-side data scrubbing for all projects based on defined rules.",
+        "title": "Data Scrubber",
+        "type": "boolean"
+      },
+      "hideAiFeatures": {
+        "description": "Hide AI-powered features in the Sentry UI for this organization.",
+        "title": "Hide Ai Features",
+        "type": "boolean"
+      },
+      "storeCrashReports": {
+        "description": "Number of native crash reports (e.g., Minidumps) to store per issue (0=Disabled, -1=Unlimited).",
+        "examples": ["0", "1", "5", "10", "20", "50", "100", "-1"],
+        "title": "Store Crash Reports",
+        "type": "integer"
+      },
+      "sensitiveFields": {
+        "description": "List of global field names whose values will be scrubbed from event data across all projects.",
+        "examples": [["credit_card_number", "social_security_number", "user_password"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Sensitive Fields",
+        "type": "array"
+      },
+      "avatarType": {
+        "description": "Type of organization avatar: 'letter_avatar' (initials) or 'upload' (custom image).",
+        "enum": ["letter_avatar", "upload"],
+        "title": "AvatartypeEnm",
+        "type": "string"
+      },
+      "codecovAccess": {
+        "description": "Enable Code Coverage Insights (Team plan or higher).",
+        "title": "Codecov Access",
+        "type": "boolean"
+      },
+      "allowSharedIssues": {
+        "description": "Enable sharing limited issue details with anonymous users (e.g., via public links).",
+        "title": "Allow Shared Issues",
+        "type": "boolean"
+      },
+      "slug": {
+        "description": "A new unique slug for the organization, used in URLs.",
+        "examples": ["new-org-slug", "acme-corp-prod"],
+        "title": "Slug",
+        "type": "string"
+      },
+      "defaultRole": {
+        "description": "Default role for new members when they join the organization.",
+        "enum": ["member", "admin", "manager", "owner"],
+        "title": "DefaultroleEnm",
+        "type": "string"
+      },
+      "safeFields": {
+        "description": "List of global field names exempt from data scrubbing, ensuring their values are preserved.",
+        "examples": [["user_id", "transaction_id", "correlation_id"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Safe Fields",
+        "type": "array"
+      },
+      "trustedRelays": {
+        "description": "List of local Relay configurations. Each is a dict with `name`, `publicKey`, `description`. Business/Enterprise plans. Warning: Overwrites existing configurations.",
+        "examples": [
+          "[{\"name\": \"my-relay\", \"publicKey\": \"eiwr9fdruw4erfh892qy4493reyf89ur34wefd90h\", \"description\": \"Configuration for my-relay.\"}]"
+        ],
+        "items": {
+          "description": "Represents a local Relay configuration with `name`, `publicKey`, and `description`. Used in a list for `trustedRelays`.",
+          "properties": {},
+          "title": "TrustedRelaysRequest",
+          "type": "object"
+        },
+        "title": "Trusted Relays",
+        "type": "array"
+      },
+      "scrubIPAddresses": {
+        "description": "Prevent storage of IP addresses for new events in this organization.",
+        "title": "Scrub Ip Addresses",
+        "type": "boolean"
+      },
+      "metricAlertsThreadFlag": {
+        "description": "Configure Sentry Slack integration to post Metric Alert replies in threads. Requires Slack integration.",
+        "title": "Metric Alerts Thread Flag",
+        "type": "boolean"
+      },
+      "relayPiiConfig": {
+        "description": "JSON string defining advanced, project-specific data scrubbing rules. Applies to new events and overwrites existing advanced configuration. Warning: Updating this field overwrites all existing advanced rules.",
+        "examples": [
+          "{\"rules\":{\"0\":{\"type\":\"creditcard\",\"redaction\":{\"method\":\"mask\"}},\"1\":{\"type\":\"anything\",\"redaction\":{\"method\":\"remove\"}}},\"applications\":{\"$message\":[\"0\"],\"extra.foo\":[\"1\"]}}"
+        ],
+        "title": "Relay Pii Config",
+        "type": "string"
+      },
+      "avatar": {
+        "description": "Base64 encoded image for the organization avatar; required if `avatarType` is 'upload'.",
+        "title": "Avatar",
+        "type": "string"
+      },
+      "name": {
+        "description": "A new name for the organization.",
+        "examples": ["New Organization Name", "Acme Corporation"],
+        "title": "Name",
+        "type": "string"
+      },
+      "attachmentsRole": {
+        "description": "Minimum role to download event attachments (e.g., crash reports, logs).",
+        "enum": ["member", "admin", "manager", "owner"],
+        "title": "AttachmentsroleEnm",
+        "type": "string"
+      },
+      "scrapeJavaScript": {
+        "description": "Allow Sentry to fetch missing JavaScript source context from public URLs if source maps are incomplete.",
+        "title": "Scrape Java Script",
+        "type": "boolean"
+      },
+      "githubPRBot": {
+        "description": "Allow Sentry to comment on recent GitHub PRs suspected of introducing new issues. Requires GitHub integration.",
+        "title": "Github Pr Bot",
+        "type": "boolean"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization.",
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "openMembership": {
+        "description": "Allow members to freely join any team without invitation or approval.",
+        "title": "Open Membership",
+        "type": "boolean"
+      },
+      "isEarlyAdopter": {
+        "description": "Opt the organization into new Sentry features before public release.",
+        "title": "Is Early Adopter",
+        "type": "boolean"
+      },
+      "githubNudgeInvite": {
+        "description": "Enable Sentry to detect GitHub committers not in Sentry org and suggest inviting them. Requires GitHub integration.",
+        "title": "Github Nudge Invite",
+        "type": "boolean"
+      },
+      "alertsMemberWrite": {
+        "description": "Grant members `alerts:write` scope for alert rule management.",
+        "title": "Alerts Member Write",
+        "type": "boolean"
+      },
+      "debugFilesRole": {
+        "description": "Minimum role to download debug files (e.g., ProGuard mappings, source maps).",
+        "enum": ["member", "admin", "manager", "owner"],
+        "title": "DebugfilesroleEnm",
+        "type": "string"
+      },
+      "eventsMemberAdmin": {
+        "description": "Grant members `event:admin` scope to delete events.",
+        "title": "Events Member Admin",
+        "type": "boolean"
+      },
+      "cancelDeletion": {
+        "description": "Cancel a pending deletion and restore the organization.",
+        "title": "Cancel Deletion",
+        "type": "boolean"
+      },
+      "allowJoinRequests": {
+        "description": "Allow users to request to join the organization; admins approve/deny.",
+        "title": "Allow Join Requests",
+        "type": "boolean"
+      },
+      "enhancedPrivacy": {
+        "description": "Activate enhanced privacy controls, limiting PII and source code display (e.g., in notifications).",
+        "title": "Enhanced Privacy",
+        "type": "boolean"
+      },
+      "require2FA": {
+        "description": "Enforce two-factor authentication (2FA) for all members.",
+        "title": "Require2 Fa",
+        "type": "boolean"
+      },
+      "issueAlertsThreadFlag": {
+        "description": "Configure Sentry Slack integration to post Issue Alert replies in threads. Requires Slack integration.",
+        "title": "Issue Alerts Thread Flag",
+        "type": "boolean"
+      },
+      "githubOpenPRBot": {
+        "description": "Allow Sentry to comment on open GitHub PRs with related error issues. Requires GitHub integration.",
+        "title": "Github Open Pr Bot",
+        "type": "boolean"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "ModifyOrganizationSettingsRequest",
+    "type": "object"
+  },
+  "name": "modify_organization_settings",
+  "outputSchema": {
+    "$defs": {
+      "Avatar": {
+        "description": "Avatar configuration for the organization.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar').",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the avatar image.",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "Avatar",
+        "type": "object"
+      },
+      "Links": {
+        "description": "URLs for organization access.",
+        "properties": {
+          "organizationUrl": {
+            "description": "Main organization dashboard URL.",
+            "title": "Organization Url",
+            "type": "string"
+          },
+          "regionUrl": {
+            "description": "Region-specific Sentry URL.",
+            "title": "Region Url",
+            "type": "string"
+          }
+        },
+        "required": ["organizationUrl", "regionUrl"],
+        "title": "Links",
+        "type": "object"
+      },
+      "ModifyOrganizationSettingsResponse": {
+        "description": "Response schema containing the complete updated organization details, including all settings, teams, features, and configuration.",
+        "properties": {
+          "dataScrubberDefaults": {
+            "description": "Whether default data scrubbing rules are applied.",
+            "title": "Data Scrubber Defaults",
+            "type": "boolean"
+          },
+          "dataScrubber": {
+            "description": "Whether server-side data scrubbing is enabled.",
+            "title": "Data Scrubber",
+            "type": "boolean"
+          },
+          "hideAiFeatures": {
+            "description": "Whether AI features are hidden from the UI.",
+            "title": "Hide Ai Features",
+            "type": "boolean"
+          },
+          "storeCrashReports": {
+            "description": "Number of native crash reports to store per issue (-1 for unlimited, 0 to disable).",
+            "title": "Store Crash Reports",
+            "type": "integer"
+          },
+          "sensitiveFields": {
+            "description": "List of additional field names to scrub.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Sensitive Fields",
+            "type": "array"
+          },
+          "onboardingTasks": {
+            "description": "List of onboarding tasks and their completion status.",
+            "items": {},
+            "title": "Onboarding Tasks",
+            "type": "array"
+          },
+          "access": {
+            "description": "List of permission scopes available to the current user.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "codecovAccess": {
+            "description": "Whether code coverage access is enabled.",
+            "title": "Codecov Access",
+            "type": "boolean"
+          },
+          "defaultSeerScannerAutomation": {
+            "description": "Whether Seer scanner automation is enabled by default.",
+            "title": "Default Seer Scanner Automation",
+            "type": "boolean"
+          },
+          "allowSharedIssues": {
+            "description": "Whether issues can be shared anonymously with external users.",
+            "title": "Allow Shared Issues",
+            "type": "boolean"
+          },
+          "enableSeerEnhancedAlerts": {
+            "description": "Whether Seer-enhanced alerts are enabled.",
+            "title": "Enable Seer Enhanced Alerts",
+            "type": "boolean"
+          },
+          "requiresSso": {
+            "description": "Whether SSO authentication is required for all members.",
+            "title": "Requires Sso",
+            "type": "boolean"
+          },
+          "ingestThroughTrustedRelaysOnly": {
+            "description": "Whether events are only ingested through trusted Relays.",
+            "title": "Ingest Through Trusted Relays Only",
+            "type": "boolean"
+          },
+          "requireEmailVerification": {
+            "description": "Whether email verification is required (deprecated).",
+            "title": "Require Email Verification",
+            "type": "boolean"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the organization was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly organization name.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "defaultRole": {
+            "description": "Default role assigned to new members (e.g., 'member').",
+            "title": "Default Role",
+            "type": "string"
+          },
+          "safeFields": {
+            "description": "List of field names to exclude from scrubbing.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Safe Fields",
+            "type": "array"
+          },
+          "allowSuperuserAccess": {
+            "description": "Whether superuser access is allowed for Sentry staff.",
+            "title": "Allow Superuser Access",
+            "type": "boolean"
+          },
+          "enablePrReviewTestGeneration": {
+            "description": "Whether PR review test generation is enabled.",
+            "title": "Enable Pr Review Test Generation",
+            "type": "boolean"
+          },
+          "hasAuthProvider": {
+            "description": "Whether the organization has an SSO authentication provider configured.",
+            "title": "Has Auth Provider",
+            "type": "boolean"
+          },
+          "gitlabPRBot": {
+            "description": "Whether GitLab PR commenting is enabled.",
+            "title": "Gitlab Pr Bot",
+            "type": "boolean"
+          },
+          "links": {
+            "$ref": "#/$defs/Links",
+            "title": "Links"
+          },
+          "trustedRelays": {
+            "description": "List of registered Relay configurations.",
+            "items": {
+              "$ref": "#/$defs/TrustedRelay"
+            },
+            "title": "Trusted Relays",
+            "type": "array"
+          },
+          "scrubIPAddresses": {
+            "description": "Whether IP addresses are prevented from being stored.",
+            "title": "Scrub Ip Addresses",
+            "type": "boolean"
+          },
+          "metricAlertsThreadFlag": {
+            "description": "Whether metric alert notifications are sent as Slack threads.",
+            "title": "Metric Alerts Thread Flag",
+            "type": "boolean"
+          },
+          "relayPiiConfig": {
+            "description": "Advanced data scrubbing rules in JSON format (nullable).",
+            "title": "Relay Pii Config",
+            "type": "string"
+          },
+          "avatar": {
+            "$ref": "#/$defs/Avatar",
+            "title": "Avatar"
+          },
+          "status": {
+            "$ref": "#/$defs/Status",
+            "title": "Status"
+          },
+          "name": {
+            "description": "Human-readable display name of the organization.",
+            "title": "Name",
+            "type": "string"
+          },
+          "attachmentsRole": {
+            "description": "Minimum role required to download event attachments.",
+            "title": "Attachments Role",
+            "type": "string"
+          },
+          "scrapeJavaScript": {
+            "description": "Whether JavaScript source scraping is enabled to fetch missing source context.",
+            "title": "Scrape Java Script",
+            "type": "boolean"
+          },
+          "githubPRBot": {
+            "description": "Whether GitHub PR commenting is enabled.",
+            "title": "Github Pr Bot",
+            "type": "boolean"
+          },
+          "hasGranularReplayPermissions": {
+            "description": "Whether granular replay permissions are enabled.",
+            "title": "Has Granular Replay Permissions",
+            "type": "boolean"
+          },
+          "autoOpenPrs": {
+            "description": "Whether PRs are automatically opened for fixes.",
+            "title": "Auto Open Prs",
+            "type": "boolean"
+          },
+          "orgRole": {
+            "description": "Current user's organization role.",
+            "title": "Org Role",
+            "type": "string"
+          },
+          "defaultCodeReviewTriggers": {
+            "description": "List of default triggers for code review.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Default Code Review Triggers",
+            "type": "array"
+          },
+          "allowBackgroundAgentDelegation": {
+            "description": "Whether background agent delegation is allowed.",
+            "title": "Allow Background Agent Delegation",
+            "type": "boolean"
+          },
+          "openMembership": {
+            "description": "Whether members can freely join any team.",
+            "title": "Open Membership",
+            "type": "boolean"
+          },
+          "streamlineOnly": {
+            "description": "Whether the organization is in streamline-only mode.",
+            "title": "Streamline Only",
+            "type": "boolean"
+          },
+          "isEarlyAdopter": {
+            "description": "Whether the organization has opted in to early access features.",
+            "title": "Is Early Adopter",
+            "type": "boolean"
+          },
+          "defaultAutofixAutomationTuning": {
+            "description": "Default tuning level for Autofix automation.",
+            "title": "Default Autofix Automation Tuning",
+            "type": "string"
+          },
+          "enabledConsolePlatforms": {
+            "description": "List of console platforms enabled for the organization.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Enabled Console Platforms",
+            "type": "array"
+          },
+          "aggregatedDataConsent": {
+            "description": "Whether consent for aggregated data usage has been given.",
+            "title": "Aggregated Data Consent",
+            "type": "boolean"
+          },
+          "githubNudgeInvite": {
+            "description": "Whether GitHub user detection and invitation nudging is enabled.",
+            "title": "Github Nudge Invite",
+            "type": "boolean"
+          },
+          "allowMemberInvite": {
+            "description": "Whether members can invite new users to the organization.",
+            "title": "Allow Member Invite",
+            "type": "boolean"
+          },
+          "desiredSampleRate": {
+            "description": "Desired sample rate for events.",
+            "title": "Desired Sample Rate",
+            "type": "number"
+          },
+          "alertsMemberWrite": {
+            "description": "Whether members can create and modify alert rules.",
+            "title": "Alerts Member Write",
+            "type": "boolean"
+          },
+          "isDynamicallySampled": {
+            "description": "Whether dynamic sampling is enabled for the organization.",
+            "title": "Is Dynamically Sampled",
+            "type": "boolean"
+          },
+          "isDefault": {
+            "description": "Whether this is the default organization for the user.",
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "debugFilesRole": {
+            "description": "Minimum role required to download debug files.",
+            "title": "Debug Files Role",
+            "type": "string"
+          },
+          "allowMemberProjectCreation": {
+            "description": "Whether members can create new projects.",
+            "title": "Allow Member Project Creation",
+            "type": "boolean"
+          },
+          "eventsMemberAdmin": {
+            "description": "Whether members can delete events and issues.",
+            "title": "Events Member Admin",
+            "type": "boolean"
+          },
+          "targetSampleRate": {
+            "description": "Target sample rate for dynamic sampling.",
+            "title": "Target Sample Rate",
+            "type": "number"
+          },
+          "teamRoleList": {
+            "description": "List of available team roles.",
+            "items": {
+              "$ref": "#/$defs/TeamRole"
+            },
+            "title": "Team Role List",
+            "type": "array"
+          },
+          "teams": {
+            "description": "List of teams in the organization (included with detailed serializer).",
+            "items": {},
+            "title": "Teams",
+            "type": "array"
+          },
+          "experiments": {
+            "additionalProperties": true,
+            "description": "Active experiments and their configurations.",
+            "title": "Experiments",
+            "type": "object"
+          },
+          "consoleSdkInviteQuota": {
+            "description": "Quota for console SDK invitations.",
+            "title": "Console Sdk Invite Quota",
+            "type": "integer"
+          },
+          "pendingAccessRequests": {
+            "description": "Number of pending access requests for the organization.",
+            "title": "Pending Access Requests",
+            "type": "integer"
+          },
+          "planSampleRate": {
+            "description": "Plan-based sample rate.",
+            "title": "Plan Sample Rate",
+            "type": "number"
+          },
+          "replayAccessMembers": {
+            "description": "List of member IDs with replay access.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Replay Access Members",
+            "type": "array"
+          },
+          "rollbackEnabled": {
+            "description": "Whether the rollback feature is enabled.",
+            "title": "Rollback Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier of the organization.",
+            "title": "Id",
+            "type": "string"
+          },
+          "projects": {
+            "description": "List of projects in the organization (included with detailed serializer).",
+            "items": {},
+            "title": "Projects",
+            "type": "array"
+          },
+          "genAIConsent": {
+            "description": "Whether consent for generative AI features has been given.",
+            "title": "Gen Ai Consent",
+            "type": "boolean"
+          },
+          "orgRoleList": {
+            "description": "List of available organization roles.",
+            "items": {
+              "$ref": "#/$defs/OrgRole"
+            },
+            "title": "Org Role List",
+            "type": "array"
+          },
+          "allowJoinRequests": {
+            "description": "Whether users can request to join the organization.",
+            "title": "Allow Join Requests",
+            "type": "boolean"
+          },
+          "enhancedPrivacy": {
+            "description": "Whether enhanced privacy mode is enabled to limit PII in notifications.",
+            "title": "Enhanced Privacy",
+            "type": "boolean"
+          },
+          "require2FA": {
+            "description": "Whether two-factor authentication is required for all members.",
+            "title": "Require2 Fa",
+            "type": "boolean"
+          },
+          "samplingMode": {
+            "description": "Sampling mode for the organization.",
+            "title": "Sampling Mode",
+            "type": "string"
+          },
+          "autoEnableCodeReview": {
+            "description": "Whether code review is automatically enabled for new projects.",
+            "title": "Auto Enable Code Review",
+            "type": "boolean"
+          },
+          "issueAlertsThreadFlag": {
+            "description": "Whether issue alert notifications are sent as Slack threads.",
+            "title": "Issue Alerts Thread Flag",
+            "type": "boolean"
+          },
+          "enableSeerCoding": {
+            "description": "Whether Seer coding assistance is enabled.",
+            "title": "Enable Seer Coding",
+            "type": "boolean"
+          },
+          "features": {
+            "description": "List of enabled feature flags for the organization.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "dateCreated",
+          "status",
+          "avatar",
+          "links",
+          "isEarlyAdopter",
+          "require2FA",
+          "requireEmailVerification",
+          "hasAuthProvider",
+          "allowMemberInvite",
+          "allowMemberProjectCreation",
+          "allowSuperuserAccess",
+          "isDefault",
+          "defaultRole",
+          "orgRoleList",
+          "teamRoleList",
+          "openMembership",
+          "allowSharedIssues",
+          "allowJoinRequests",
+          "enhancedPrivacy",
+          "dataScrubber",
+          "dataScrubberDefaults",
+          "sensitiveFields",
+          "safeFields",
+          "scrubIPAddresses",
+          "storeCrashReports",
+          "scrapeJavaScript",
+          "attachmentsRole",
+          "debugFilesRole",
+          "eventsMemberAdmin",
+          "alertsMemberWrite",
+          "trustedRelays",
+          "pendingAccessRequests",
+          "codecovAccess",
+          "hideAiFeatures",
+          "githubPRBot",
+          "githubNudgeInvite",
+          "gitlabPRBot",
+          "aggregatedDataConsent",
+          "genAIConsent",
+          "isDynamicallySampled",
+          "issueAlertsThreadFlag",
+          "metricAlertsThreadFlag",
+          "requiresSso",
+          "rollbackEnabled",
+          "streamlineOnly",
+          "defaultAutofixAutomationTuning",
+          "defaultSeerScannerAutomation",
+          "enablePrReviewTestGeneration",
+          "enableSeerEnhancedAlerts",
+          "enableSeerCoding",
+          "allowBackgroundAgentDelegation",
+          "autoEnableCodeReview",
+          "autoOpenPrs",
+          "defaultCodeReviewTriggers",
+          "hasGranularReplayPermissions",
+          "replayAccessMembers",
+          "enabledConsolePlatforms",
+          "consoleSdkInviteQuota"
+        ],
+        "title": "ModifyOrganizationSettingsResponse",
+        "type": "object"
+      },
+      "OrgRole": {
+        "description": "Organization role configuration.",
+        "properties": {
+          "allowed": {
+            "description": "Whether the role is available for assignment.",
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "desc": {
+            "description": "Description of the role.",
+            "title": "Desc",
+            "type": "string"
+          },
+          "id": {
+            "description": "Role identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isAllowed": {
+            "description": "Duplicate of allowed field.",
+            "title": "Is Allowed",
+            "type": "boolean"
+          },
+          "isGlobal": {
+            "description": "Duplicate of is_global field.",
+            "title": "Is Global",
+            "type": "boolean"
+          },
+          "isRetired": {
+            "description": "Whether the role is deprecated.",
+            "title": "Is Retired",
+            "type": "boolean"
+          },
+          "isTeamRolesAllowed": {
+            "description": "Whether team-level roles are allowed with this organization role.",
+            "title": "Is Team Roles Allowed",
+            "type": "boolean"
+          },
+          "is_global": {
+            "description": "Whether the role has global scope.",
+            "title": "Is Global",
+            "type": "boolean"
+          },
+          "minimumTeamRole": {
+            "description": "Minimum required team role when this organization role is assigned.",
+            "title": "Minimum Team Role",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the role.",
+            "title": "Name",
+            "type": "string"
+          },
+          "scopes": {
+            "description": "List of permission scopes granted by this role.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "desc",
+          "scopes",
+          "allowed",
+          "isAllowed",
+          "isRetired",
+          "is_global",
+          "isGlobal",
+          "isTeamRolesAllowed"
+        ],
+        "title": "OrgRole",
+        "type": "object"
+      },
+      "Status": {
+        "description": "Current status of the organization.",
+        "properties": {
+          "id": {
+            "description": "Status identifier (e.g., 'active').",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable status name.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "Status",
+        "type": "object"
+      },
+      "TeamRole": {
+        "description": "Team role configuration.",
+        "properties": {
+          "allowed": {
+            "description": "Whether the role is available for assignment.",
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "desc": {
+            "description": "Description of the role.",
+            "title": "Desc",
+            "type": "string"
+          },
+          "id": {
+            "description": "Role identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isAllowed": {
+            "description": "Duplicate of allowed field.",
+            "title": "Is Allowed",
+            "type": "boolean"
+          },
+          "isMinimumRoleFor": {
+            "description": "Identifier of the organization role for which this is the minimum team role.",
+            "title": "Is Minimum Role For",
+            "type": "string"
+          },
+          "isRetired": {
+            "description": "Whether the role is deprecated.",
+            "title": "Is Retired",
+            "type": "boolean"
+          },
+          "isTeamRolesAllowed": {
+            "description": "Whether team-level roles are allowed.",
+            "title": "Is Team Roles Allowed",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Display name of the role.",
+            "title": "Name",
+            "type": "string"
+          },
+          "scopes": {
+            "description": "List of permission scopes granted by this role.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": ["id", "name", "desc", "scopes", "allowed", "isAllowed", "isRetired", "isTeamRolesAllowed"],
+        "title": "TeamRole",
+        "type": "object"
+      },
+      "TrustedRelay": {
+        "description": "Trusted Relay configuration.",
+        "properties": {
+          "created": {
+            "description": "ISO 8601 timestamp when the Relay was created.",
+            "title": "Created",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the Relay.",
+            "title": "Description",
+            "type": "string"
+          },
+          "lastModified": {
+            "description": "ISO 8601 timestamp when the Relay was last modified.",
+            "title": "Last Modified",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the Relay.",
+            "title": "Name",
+            "type": "string"
+          },
+          "publicKey": {
+            "description": "Public key of the Relay.",
+            "title": "Public Key",
+            "type": "string"
+          }
+        },
+        "required": ["name", "publicKey"],
+        "title": "TrustedRelay",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ModifyOrganizationSettingsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

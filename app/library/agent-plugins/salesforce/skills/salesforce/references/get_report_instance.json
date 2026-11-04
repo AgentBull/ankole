@@ -1,0 +1,678 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Gets the results of a report instance created by running a report. Poll `attributes.status` until it equals 'Success' before parsing results. Response data is nested under `factMap` and `reportExtendedMetadata`; an empty `factMap` or zero rows is a valid successful result, not an error.",
+  "inputSchema": {
+    "properties": {
+      "instance_id": {
+        "description": "The report instance ID returned from running a report.",
+        "examples": ["0LGWd000000MWUIOA4", "0LGXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The specific run of the report whose results you want to fetch. This ID is returned when you run the report and create an instance.",
+        "human_parameter_name": "Instance ID",
+        "title": "Instance Id",
+        "type": "string"
+      },
+      "report_id": {
+        "description": "The Salesforce ID of the report.",
+        "examples": ["00OWd000001GtZ9MAK", "00OXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The ID of the report you ran and want results for. You can find this in the report’s URL in Salesforce when viewing the report.",
+        "human_parameter_name": "Report ID",
+        "title": "Report Id",
+        "type": "string"
+      }
+    },
+    "required": ["report_id", "instance_id"],
+    "title": "GetReportInstanceRequest",
+    "type": "object"
+  },
+  "name": "get_report_instance",
+  "outputSchema": {
+    "$defs": {
+      "AggregateValue": {
+        "description": "Summary calculation result.",
+        "properties": {
+          "label": {
+            "description": "Formatted display value of the aggregate (e.g., '$16,000.01', '42').",
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "description": "Actual numeric value of the aggregate calculation.",
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": ["label", "value"],
+        "title": "AggregateValue",
+        "type": "object"
+      },
+      "ChartConfiguration": {
+        "description": "Chart configuration for the report.",
+        "properties": {
+          "chartType": {
+            "description": "Type of chart (e.g., 'Pie', 'VerticalColumn', 'HorizontalBar').",
+            "title": "Chart Type",
+            "type": "string"
+          },
+          "groupings": {
+            "description": "Array of grouping specifications for the chart.",
+            "items": {},
+            "title": "Groupings",
+            "type": "array"
+          },
+          "hasLegend": {
+            "description": "Whether the chart displays a legend.",
+            "title": "Has Legend",
+            "type": "boolean"
+          },
+          "showChartValues": {
+            "description": "Whether the chart displays data values on the chart.",
+            "title": "Show Chart Values",
+            "type": "boolean"
+          },
+          "summaries": {
+            "description": "Array of summary values to display in the chart.",
+            "items": {},
+            "title": "Summaries",
+            "type": "array"
+          },
+          "summaryAxisLocations": {
+            "description": "Array specifying axis locations for summaries.",
+            "items": {},
+            "title": "Summary Axis Locations",
+            "type": "array"
+          },
+          "title": {
+            "description": "Title of the chart.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "ChartConfiguration",
+        "type": "object"
+      },
+      "ColumnMetadata": {
+        "description": "Metadata for a report column.",
+        "properties": {
+          "acrossGroupingContext": {
+            "description": "Context for across groupings in matrix reports.",
+            "title": "Across Grouping Context",
+            "type": "string"
+          },
+          "dataType": {
+            "description": "Data type of the field (e.g., 'string', 'int', 'currency', 'date', 'percent', 'picklist').",
+            "title": "Data Type",
+            "type": "string"
+          },
+          "downGroupingContext": {
+            "description": "Context for down groupings in matrix reports.",
+            "title": "Down Grouping Context",
+            "type": "string"
+          },
+          "groupingLevel": {
+            "description": "Numeric level of the grouping in the hierarchy (0-based).",
+            "title": "Grouping Level",
+            "type": "integer"
+          },
+          "label": {
+            "description": "Display label of the column.",
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": ["label", "dataType"],
+        "title": "ColumnMetadata",
+        "type": "object"
+      },
+      "DataCellValue": {
+        "description": "Individual field value for a report row cell.",
+        "properties": {
+          "label": {
+            "description": "Formatted display value of the cell (e.g., '$16,000.01', 'Customer Name', 'Q3-2015').",
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "description": "Actual data value. Can be string, number, null, or object for complex types like currency with amount and currency properties.",
+            "title": "Value"
+          }
+        },
+        "required": ["label"],
+        "title": "DataCellValue",
+        "type": "object"
+      },
+      "FactMapEntry": {
+        "description": "Report data for a specific grouping level.",
+        "properties": {
+          "aggregates": {
+            "description": "Array of summary calculation results for this grouping level.",
+            "items": {
+              "$ref": "#/$defs/AggregateValue"
+            },
+            "title": "Aggregates",
+            "type": "array"
+          },
+          "rows": {
+            "description": "Array of detailed record data. Only present when includeDetails is set to true in the request.",
+            "items": {
+              "$ref": "#/$defs/ReportRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "required": ["aggregates"],
+        "title": "FactMapEntry",
+        "type": "object"
+      },
+      "GetReportInstanceResponse": {
+        "description": "Report instance results including execution status, data, metadata, and extended column information.",
+        "properties": {
+          "allData": {
+            "description": "Indicates whether all data is included in the response.",
+            "title": "All Data",
+            "type": "boolean"
+          },
+          "attributes": {
+            "$ref": "#/$defs/ReportInstanceAttributes",
+            "title": "Attributes"
+          },
+          "factMap": {
+            "additionalProperties": {
+              "$ref": "#/$defs/FactMapEntry"
+            },
+            "description": "Contains the actual report data organized by grouping keys. Keys like 'T!T' (tabular data), '0!T', '1!T' etc. identify different grouping levels. Each key maps to an object with aggregates and optionally rows.",
+            "title": "Fact Map",
+            "type": "object"
+          },
+          "groupingsAcross": {
+            "$ref": "#/$defs/GroupingsContainer",
+            "description": "Contains column groupings for matrix reports.",
+            "title": "Groupings Across"
+          },
+          "groupingsDown": {
+            "$ref": "#/$defs/GroupingsContainer",
+            "description": "Contains row groupings for summary and matrix reports.",
+            "title": "Groupings Down"
+          },
+          "hasDetailRows": {
+            "description": "Whether the report has detail rows available. Detail rows are only included if includeDetails parameter is set to true.",
+            "title": "Has Detail Rows",
+            "type": "boolean"
+          },
+          "reportExtendedMetadata": {
+            "$ref": "#/$defs/ReportExtendedMetadata",
+            "title": "Report Extended Metadata"
+          },
+          "reportMetadata": {
+            "$ref": "#/$defs/ReportMetadata",
+            "title": "Report Metadata"
+          }
+        },
+        "required": [
+          "attributes",
+          "allData",
+          "hasDetailRows",
+          "factMap",
+          "groupingsDown",
+          "groupingsAcross",
+          "reportMetadata",
+          "reportExtendedMetadata"
+        ],
+        "title": "GetReportInstanceResponse",
+        "type": "object"
+      },
+      "GroupingConfiguration": {
+        "description": "Configuration for a grouping level in a report.",
+        "properties": {
+          "dateGranularity": {
+            "description": "Date granularity for date fields (e.g., 'None', 'Day', 'Week', 'Month', 'Quarter', 'Year').",
+            "title": "Date Granularity",
+            "type": "string"
+          },
+          "name": {
+            "description": "API name of the field used for grouping.",
+            "title": "Name",
+            "type": "string"
+          },
+          "sortAggregate": {
+            "description": "Aggregate field to sort by, or null to sort by grouping value.",
+            "title": "Sort Aggregate",
+            "type": "string"
+          },
+          "sortOrder": {
+            "description": "Sort direction for the grouping ('Asc' or 'Desc').",
+            "title": "Sort Order",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "title": "GroupingConfiguration",
+        "type": "object"
+      },
+      "GroupingItem": {
+        "description": "Grouping definition for rows or columns.",
+        "properties": {
+          "groupings": {
+            "description": "Nested array for multi-level grouping hierarchies.",
+            "items": {},
+            "title": "Groupings",
+            "type": "array"
+          },
+          "key": {
+            "description": "Numeric identifier for the grouping level (e.g., '0', '1', '2'). Used as reference in factMap keys.",
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "description": "Human-readable display name for the grouping.",
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "description": "The actual field value for this grouping. Can be null, string, or ID.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["key", "label"],
+        "title": "GroupingItem",
+        "type": "object"
+      },
+      "GroupingsContainer": {
+        "description": "Container for grouping definitions.",
+        "properties": {
+          "groupings": {
+            "description": "Array of grouping definitions.",
+            "items": {
+              "$ref": "#/$defs/GroupingItem"
+            },
+            "title": "Groupings",
+            "type": "array"
+          }
+        },
+        "required": ["groupings"],
+        "title": "GroupingsContainer",
+        "type": "object"
+      },
+      "ReportExtendedMetadata": {
+        "description": "Extended metadata about report columns including data types and labels.",
+        "properties": {
+          "aggregateColumnInfo": {
+            "additionalProperties": {
+              "$ref": "#/$defs/ColumnMetadata"
+            },
+            "description": "Map of aggregate column API names to their metadata. Keys are aggregate identifiers (e.g., 'RowCount', 's!AMOUNT').",
+            "title": "Aggregate Column Info",
+            "type": "object"
+          },
+          "detailColumnInfo": {
+            "additionalProperties": {
+              "$ref": "#/$defs/ColumnMetadata"
+            },
+            "description": "Map of detail column API names to their metadata. Keys are field API names (e.g., 'ACCOUNT.NAME', 'OPPORTUNITY_NAME').",
+            "title": "Detail Column Info",
+            "type": "object"
+          },
+          "groupingColumnInfo": {
+            "additionalProperties": {
+              "$ref": "#/$defs/ColumnMetadata"
+            },
+            "description": "Map of grouping column API names to their metadata. Keys are field API names used for grouping.",
+            "title": "Grouping Column Info",
+            "type": "object"
+          }
+        },
+        "title": "ReportExtendedMetadata",
+        "type": "object"
+      },
+      "ReportFilter": {
+        "description": "Filter condition applied to the report.",
+        "properties": {
+          "column": {
+            "description": "API name of the field to filter on.",
+            "title": "Column",
+            "type": "string"
+          },
+          "operator": {
+            "description": "Filter operator (e.g., 'equals', 'notEqual', 'lessThan', 'greaterThan', 'contains').",
+            "title": "Operator",
+            "type": "string"
+          },
+          "value": {
+            "description": "Filter value to compare against.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["column", "operator", "value"],
+        "title": "ReportFilter",
+        "type": "object"
+      },
+      "ReportInstanceAttributes": {
+        "description": "Metadata about the report instance including URLs, IDs, and status information.",
+        "properties": {
+          "completionDate": {
+            "description": "ISO 8601 timestamp when the report execution completed, or null if not yet complete.",
+            "title": "Completion Date",
+            "type": "string"
+          },
+          "describeUrl": {
+            "description": "API endpoint URL for retrieving report description and metadata.",
+            "title": "Describe Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the report instance.",
+            "title": "Id",
+            "type": "string"
+          },
+          "instancesUrl": {
+            "description": "API endpoint URL for listing report instances.",
+            "title": "Instances Url",
+            "type": "string"
+          },
+          "ownerId": {
+            "description": "Salesforce user ID who owns or requested the report.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "queryable": {
+            "description": "Boolean flag indicating if the instance is queryable.",
+            "title": "Queryable",
+            "type": "boolean"
+          },
+          "reportId": {
+            "description": "Unique identifier of the source report.",
+            "title": "Report Id",
+            "type": "string"
+          },
+          "reportName": {
+            "description": "Display name of the report.",
+            "title": "Report Name",
+            "type": "string"
+          },
+          "requestDate": {
+            "description": "ISO 8601 timestamp when the report was requested.",
+            "title": "Request Date",
+            "type": "string"
+          },
+          "status": {
+            "description": "Execution status of the report instance (e.g., 'New', 'Success', 'Running', 'Error').",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "description": "Object type, typically 'ReportInstance' or 'Report'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["reportId", "reportName", "type", "id", "ownerId", "status", "requestDate"],
+        "title": "ReportInstanceAttributes",
+        "type": "object"
+      },
+      "ReportMetadata": {
+        "description": "Report configuration including filters, groupings, aggregates, and display settings.",
+        "properties": {
+          "aggregates": {
+            "description": "Array of aggregate function names to apply (e.g., 'RowCount', 'Sum', 'Average').",
+            "items": {
+              "type": "string"
+            },
+            "title": "Aggregates",
+            "type": "array"
+          },
+          "chart": {
+            "$ref": "#/$defs/ChartConfiguration",
+            "description": "Chart configuration for the report. Null if no chart is configured.",
+            "title": "Chart"
+          },
+          "crossFilters": {
+            "description": "Array of cross-object filter configurations.",
+            "items": {},
+            "title": "Cross Filters",
+            "type": "array"
+          },
+          "currency": {
+            "description": "Currency code for the report if multi-currency is enabled.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the report.",
+            "title": "Description",
+            "type": "string"
+          },
+          "detailColumns": {
+            "description": "Array of field API names to display as detail columns in the report.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Detail Columns",
+            "type": "array"
+          },
+          "developerName": {
+            "description": "Developer/API name of the report.",
+            "title": "Developer Name",
+            "type": "string"
+          },
+          "division": {
+            "description": "Division filter value if divisions are enabled.",
+            "title": "Division",
+            "type": "string"
+          },
+          "folderId": {
+            "description": "ID of the folder containing the report.",
+            "title": "Folder Id",
+            "type": "string"
+          },
+          "groupingsAcross": {
+            "description": "Array of grouping configurations for column-level groupings in matrix reports.",
+            "items": {
+              "$ref": "#/$defs/GroupingConfiguration"
+            },
+            "title": "Groupings Across",
+            "type": "array"
+          },
+          "groupingsDown": {
+            "description": "Array of grouping configurations for row-level groupings.",
+            "items": {
+              "$ref": "#/$defs/GroupingConfiguration"
+            },
+            "title": "Groupings Down",
+            "type": "array"
+          },
+          "hasDetailRows": {
+            "description": "Whether detail rows are included in the report.",
+            "title": "Has Detail Rows",
+            "type": "boolean"
+          },
+          "hasRecordCount": {
+            "description": "Whether record count is included in the report.",
+            "title": "Has Record Count",
+            "type": "boolean"
+          },
+          "historicalSnapshotDates": {
+            "description": "Array of historical snapshot dates for historical trending reports.",
+            "items": {},
+            "title": "Historical Snapshot Dates",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier of the report.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the report.",
+            "title": "Name",
+            "type": "string"
+          },
+          "reportBooleanFilter": {
+            "description": "Boolean logic string for combining multiple filters (e.g., '1 AND 2 OR 3').",
+            "title": "Report Boolean Filter",
+            "type": "string"
+          },
+          "reportFilters": {
+            "description": "Array of filter conditions applied to the report. Maximum of 20 filters.",
+            "items": {
+              "$ref": "#/$defs/ReportFilter"
+            },
+            "title": "Report Filters",
+            "type": "array"
+          },
+          "reportFormat": {
+            "description": "Format of the report. Values: 'TABULAR', 'SUMMARY', 'MATRIX'.",
+            "title": "Report Format",
+            "type": "string"
+          },
+          "reportType": {
+            "$ref": "#/$defs/ReportType",
+            "title": "Report Type"
+          },
+          "scope": {
+            "description": "Scope of the report data (e.g., 'organization', 'user', 'team').",
+            "title": "Scope",
+            "type": "string"
+          },
+          "showGrandTotal": {
+            "description": "Whether to display grand total in the report.",
+            "title": "Show Grand Total",
+            "type": "boolean"
+          },
+          "showSubtotals": {
+            "description": "Whether to display subtotals for groupings.",
+            "title": "Show Subtotals",
+            "type": "boolean"
+          },
+          "sortBy": {
+            "description": "Array of sort specifications for report columns.",
+            "items": {
+              "$ref": "#/$defs/SortSpecification"
+            },
+            "title": "Sort By",
+            "type": "array"
+          },
+          "standardDateFilter": {
+            "$ref": "#/$defs/StandardDateFilter",
+            "description": "Date range filter configuration for date fields.",
+            "title": "Standard Date Filter"
+          },
+          "standardFilters": {
+            "description": "Array of standard filter configurations.",
+            "items": {},
+            "title": "Standard Filters",
+            "type": "array"
+          },
+          "supportsRoleHierarchy": {
+            "description": "Whether the report type supports role hierarchy filtering.",
+            "title": "Supports Role Hierarchy",
+            "type": "boolean"
+          },
+          "userOrHierarchyFilterId": {
+            "description": "ID for user or role hierarchy filter.",
+            "title": "User Or Hierarchy Filter Id",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "reportType", "reportFormat", "detailColumns"],
+        "title": "ReportMetadata",
+        "type": "object"
+      },
+      "ReportRow": {
+        "description": "Detailed record data row.",
+        "properties": {
+          "dataCells": {
+            "description": "Array of individual field values for each column in the report row.",
+            "items": {
+              "$ref": "#/$defs/DataCellValue"
+            },
+            "title": "Data Cells",
+            "type": "array"
+          }
+        },
+        "required": ["dataCells"],
+        "title": "ReportRow",
+        "type": "object"
+      },
+      "ReportType": {
+        "description": "Information about the report type.",
+        "properties": {
+          "label": {
+            "description": "Display label of the report type (e.g., 'Accounts', 'Opportunities').",
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "description": "API name of the report type (e.g., 'AccountList', 'Opportunity').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "label"],
+        "title": "ReportType",
+        "type": "object"
+      },
+      "SortSpecification": {
+        "description": "Sort specification for report columns.",
+        "properties": {
+          "sortColumn": {
+            "description": "API name of the field to sort by.",
+            "title": "Sort Column",
+            "type": "string"
+          },
+          "sortOrder": {
+            "description": "Sort direction: 'Asc' for ascending or 'Desc' for descending.",
+            "title": "Sort Order",
+            "type": "string"
+          }
+        },
+        "required": ["sortColumn", "sortOrder"],
+        "title": "SortSpecification",
+        "type": "object"
+      },
+      "StandardDateFilter": {
+        "description": "Date range filter configuration for date fields.",
+        "properties": {
+          "column": {
+            "description": "API name of the date field to filter (e.g., 'CREATED_DATE', 'CLOSE_DATE').",
+            "title": "Column",
+            "type": "string"
+          },
+          "durationValue": {
+            "description": "Duration value for the date filter (e.g., 'CUSTOM', 'LAST_N_DAYS').",
+            "title": "Duration Value",
+            "type": "string"
+          },
+          "endDate": {
+            "description": "End date for custom date range filter in ISO 8601 format or null.",
+            "title": "End Date",
+            "type": "string"
+          },
+          "startDate": {
+            "description": "Start date for custom date range filter in ISO 8601 format or null.",
+            "title": "Start Date",
+            "type": "string"
+          }
+        },
+        "required": ["column", "durationValue"],
+        "title": "StandardDateFilter",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetReportInstanceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

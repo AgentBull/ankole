@@ -178,6 +178,8 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/pod/query.ex:execute" => 2,
     "raw_sql:lib/ankole/advisory_lock.ex:lock" => 1,
     "raw_sql:lib/ankole/advisory_lock.ex:lock!" => 1,
+    # Site Provider retirement checks Agent profiles, configured defaults, and enabled
+    # OIDC Client aliases across tenants. Tenant-owned references include their tenant ID.
     "raw_sql:lib/ankole/ai_gateway/provider_configs.ex:provider_references" => 3,
     "raw_sql:lib/ankole/ai_gateway/response_chain.ex:chain_ids" => 1,
     "raw_sql:lib/ankole/ai_gateway/response_chain.ex:chain_metadata" => 1,

@@ -1,0 +1,61 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Delete an issue from a project permanently. Planner or Owner roles can delete any issue; other project members can delete issues they authored (GitLab 18.10+).",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded project path, including namespaces.",
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "The internal ID of the project's issue.",
+        "title": "Issue Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid"],
+    "title": "DeleteIssueRequest",
+    "type": "object"
+  },
+  "name": "delete_issue",
+  "outputSchema": {
+    "$defs": {
+      "DeleteIssueResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "success": {
+            "description": "True when GitLab returns an empty successful deletion response.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "DeleteIssueResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteIssueResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

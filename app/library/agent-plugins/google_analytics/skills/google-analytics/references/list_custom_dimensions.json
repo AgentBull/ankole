@@ -1,0 +1,108 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List Custom Dimensions",
+  "inputSchema": {
+    "description": "Request model for listing CustomDimensions on a property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. The maximum number of resources to return. If unspecified, at most 50 resources will be returned. The maximum value is 200",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous ListCustomDimensions call. Provide this to retrieve the subsequent page",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The property for which to list CustomDimensions. Format: properties/{property_id}",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "AnalyticsadminPropertiesCustomdimensionsListRequest",
+    "type": "object"
+  },
+  "name": "list_custom_dimensions",
+  "outputSchema": {
+    "$defs": {
+      "AnalyticsadminPropertiesCustomdimensionsListResponse": {
+        "description": "Response model for listing CustomDimensions.",
+        "properties": {
+          "customDimensions": {
+            "description": "Array of CustomDimension objects representing the listed custom dimensions",
+            "items": {
+              "$ref": "#/$defs/CustomDimension"
+            },
+            "title": "Custom Dimensions",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "Token for retrieving the next page of results. Empty if there are no more results",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "AnalyticsadminPropertiesCustomdimensionsListResponse",
+        "type": "object"
+      },
+      "CustomDimension": {
+        "description": "Schema for a CustomDimension resource.",
+        "properties": {
+          "description": {
+            "description": "Description of the dimension. Max 150 characters",
+            "title": "Description",
+            "type": "string"
+          },
+          "disallowAdsPersonalization": {
+            "description": "If true, marks dimension as NPA and excludes from ads personalization",
+            "title": "Disallow Ads Personalization",
+            "type": "boolean"
+          },
+          "displayName": {
+            "description": "Display name for this custom dimension in the Analytics UI. Max 82 characters",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource identifier. Format: properties/{property}/customDimensions/{customDimension}",
+            "title": "Name",
+            "type": "string"
+          },
+          "parameterName": {
+            "description": "Immutable tagging parameter name for this custom dimension",
+            "title": "Parameter Name",
+            "type": "string"
+          },
+          "scope": {
+            "description": "Dimension scope. Values: DIMENSION_SCOPE_UNSPECIFIED, EVENT, USER, ITEM",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "title": "CustomDimension",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AnalyticsadminPropertiesCustomdimensionsListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a Sentry cron monitor or, if `environment` is specified, only specific environments within that monitor.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteOrganizationMonitor`",
+    "properties": {
+      "environment": {
+        "description": "Optional list of environment names to delete; if omitted, the entire monitor (including all its environments) is deleted.",
+        "examples": ["production", "staging", "development"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "monitor_id_or_slug": {
+        "description": "The ID or slug of the Sentry cron monitor to be deleted.",
+        "examples": ["backup-job-monitor", "data-ingestion-cron"],
+        "title": "Monitor Id Or Slug",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the Sentry organization to which the monitor belongs.",
+        "examples": ["the-acme-corp", "sentry-org-slug"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "monitor_id_or_slug"],
+    "title": "DeleteOrganizationMonitorRequest",
+    "type": "object"
+  },
+  "name": "delete_organization_monitor",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationMonitorResponse": {
+        "description": "Response schema for `DeleteOrganizationMonitor`. Returns 202 Accepted with no response body.",
+        "properties": {},
+        "title": "DeleteOrganizationMonitorResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationMonitorResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

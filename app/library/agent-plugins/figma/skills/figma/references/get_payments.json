@@ -1,0 +1,154 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a user's payment information for a Figma plugin, widget, or Community file; the authenticated identity must own the resource.",
+  "inputSchema": {
+    "description": "Request schema for `GetPayments`",
+    "properties": {
+      "community_file_id": {
+        "description": "ID of the Community file. Obtain from its Community page URL (number after 'file/'). If `user_id` is provided, specify exactly one of `community_file_id`, `plugin_id`, or `widget_id`.",
+        "title": "Community File Id",
+        "type": "integer"
+      },
+      "plugin_id": {
+        "description": "ID of the plugin. Obtain from its manifest or Community page URL (number after 'plugin/'). If `user_id` is provided, specify exactly one of `community_file_id`, `plugin_id`, or `widget_id`.",
+        "title": "Plugin Id",
+        "type": "integer"
+      },
+      "plugin_payment_token": {
+        "description": "Short-lived auth token from `getPluginPaymentTokenAsync` (Figma Plugin Payments API). See Figma docs 'Calling the Payments REST API...'. If provided, `user_id` and resource IDs are typically not needed.",
+        "title": "Plugin Payment Token",
+        "type": "string"
+      },
+      "user_id": {
+        "description": "ID of the user whose payment information is sought. Obtain via OAuth2 with Figma REST API. Required if `plugin_payment_token` is not provided.",
+        "title": "User Id",
+        "type": "integer"
+      },
+      "widget_id": {
+        "description": "ID of the widget. Obtain from its manifest or Community page URL (number after 'widget/'). If `user_id` is provided, specify exactly one of `community_file_id`, `plugin_id`, or `widget_id`.",
+        "title": "Widget Id",
+        "type": "integer"
+      }
+    },
+    "title": "GetPaymentsRequest",
+    "type": "object"
+  },
+  "name": "get_payments",
+  "outputSchema": {
+    "$defs": {
+      "Error": {
+        "enum": [false],
+        "title": "Error",
+        "type": "boolean"
+      },
+      "GetPaymentsResponse": {
+        "description": "Response schema for `GetPayments`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Contains the detailed payment information for the user and resource, including status, error, and metadata.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetPaymentsResponse",
+        "type": "object"
+      },
+      "Meta": {
+        "properties": {
+          "date_of_purchase": {
+            "description": "The UTC ISO 8601 timestamp indicating when the user purchased the resource. No value is given if the user has never purchased the resource.\n  \nNote that a value will still be returned if the user had purchased the resource, but no longer has active access to it (e.g. purchase refunded, subscription ended).",
+            "format": "date-time",
+            "title": "Date Of Purchase",
+            "type": "string"
+          },
+          "payment_status": {
+            "$ref": "#/$defs/PaymentStatus",
+            "description": "An object describing the user's payment status.",
+            "title": "Payment Status"
+          },
+          "resource_id": {
+            "description": "ID of the queried plugin, widget, or Community file. Can be used for response validation.",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "resource_type": {
+            "$ref": "#/$defs/ResourceType",
+            "description": "The type of the resource.",
+            "title": "Resource Type"
+          },
+          "user_id": {
+            "description": "ID of the user whose payment information was queried. Can be used for response validation.",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": ["user_id", "resource_id", "resource_type", "payment_status"],
+        "title": "Meta",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "error": {
+            "$ref": "#/$defs/Error",
+            "description": "For successful requests, this value is always `false`.",
+            "title": "Error"
+          },
+          "meta": {
+            "$ref": "#/$defs/Meta",
+            "description": "An object describing a user's payment information for a plugin, widget, or Community file.",
+            "title": "Meta"
+          },
+          "status": {
+            "$ref": "#/$defs/Status",
+            "description": "The response status code.",
+            "title": "Status"
+          }
+        },
+        "required": ["status", "error", "meta"],
+        "title": "Model",
+        "type": "object"
+      },
+      "PaymentStatus": {
+        "properties": {
+          "type": {
+            "$ref": "#/$defs/Type",
+            "description": "The current payment status of the user on the resource, as a string enum:\n  \n- `UNPAID`: user has not paid for the resource\n- `PAID`: user has an active purchase on the resource\n- `TRIAL`: user is in the trial period for a subscription resource",
+            "title": "Type"
+          }
+        },
+        "title": "PaymentStatus",
+        "type": "object"
+      },
+      "ResourceType": {
+        "enum": ["PLUGIN", "WIDGET", "COMMUNITY_FILE"],
+        "title": "ResourceType",
+        "type": "string"
+      },
+      "Status": {
+        "enum": [200],
+        "title": "Status",
+        "type": "integer"
+      },
+      "Type": {
+        "enum": ["UNPAID", "PAID", "TRIAL"],
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetPaymentsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

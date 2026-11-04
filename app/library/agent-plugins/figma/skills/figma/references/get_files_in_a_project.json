@@ -1,0 +1,105 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists files in a Figma project, optionally including metadata for branches of main files. DEPRECATED: Figma recommends the folders endpoint GET /v2/folders/:folder_id/files instead; existing integrations are unaffected.",
+  "inputSchema": {
+    "description": "Defines the parameters needed to retrieve a list of files from a specified Figma project.",
+    "properties": {
+      "branch_data": {
+        "default": false,
+        "description": "If true, includes metadata for branches of main files.",
+        "examples": ["true", "false"],
+        "title": "Branch Data",
+        "type": "boolean"
+      },
+      "project_id": {
+        "description": "Identifier of the Figma project, typically found in its URL.",
+        "examples": ["PJ7b3k2N5"],
+        "title": "Project Id",
+        "type": "string"
+      }
+    },
+    "required": ["project_id"],
+    "title": "GetFilesInAProjectRequest",
+    "type": "object"
+  },
+  "name": "get_files_in_a_project",
+  "outputSchema": {
+    "$defs": {
+      "File": {
+        "properties": {
+          "key": {
+            "description": "Unique opaque identifier for the Figma file.",
+            "title": "Key",
+            "type": "string"
+          },
+          "last_modified": {
+            "description": "UTC timestamp (ISO 8601) of the last update to file content or metadata.",
+            "format": "date-time",
+            "title": "Last Modified",
+            "type": "string"
+          },
+          "name": {
+            "description": "The user-visible name of the Figma file.",
+            "title": "Name",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "A temporary URL to a thumbnail image of the file's last saved version. This URL may change or expire.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          }
+        },
+        "required": ["key", "name", "last_modified"],
+        "title": "File",
+        "type": "object"
+      },
+      "GetFilesInAProjectResponse": {
+        "description": "Represents the structure of the data returned, containing details about the project and its files.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Contains the project's details, including its name and a list of its associated files.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetFilesInAProjectResponse",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "files": {
+            "description": "`File` objects, each representing a file within the project.",
+            "items": {
+              "$ref": "#/$defs/File"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "name": {
+            "description": "The name of the Figma project.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["name", "files"],
+        "title": "Model",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetFilesInAProjectResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

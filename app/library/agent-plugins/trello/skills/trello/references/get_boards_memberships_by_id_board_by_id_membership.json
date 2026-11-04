@@ -1,0 +1,88 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a specific membership on a Trello board by its ID.",
+  "inputSchema": {
+    "description": "Request schema for `GetBoardsMembershipsByIdBoardByIdMembership`",
+    "properties": {
+      "idBoard": {
+        "description": "The ID of the Trello board.",
+        "examples": ["60d5ec9b864f8f001a25971c"],
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idMembership": {
+        "description": "The ID of the membership to retrieve.",
+        "examples": ["5f9a8b24a05f3e9952a0a41f"],
+        "title": "Id Membership",
+        "type": "string"
+      },
+      "member": {
+        "description": "Set to 'true' to return the full member object. If 'false' or not provided, Trello's default for member details (typically minimal) applies.",
+        "examples": ["true", "false"],
+        "title": "Member",
+        "type": "string"
+      },
+      "member_fields": {
+        "description": "Comma-separated list of member fields to return when 'member' is 'true' (e.g., 'avatarHash,fullName'), or 'all' for all fields. Valid fields: avatarHash, bio, bioData, confirmed, fullName, idPremOrgsAdmin, initials, memberType, products, status, url, username. Defaults to API behavior if not specified.",
+        "examples": ["all", "fullName,username", "avatarHash,initials,status"],
+        "title": "Member Fields",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard", "idMembership"],
+    "title": "GetBoardsMembershipsByIdBoardByIdMembershipRequest",
+    "type": "object"
+  },
+  "name": "get_boards_memberships_by_id_board_by_id_membership",
+  "outputSchema": {
+    "$defs": {
+      "GetBoardsMembershipsByIdBoardByIdMembershipResponse": {
+        "description": "Response schema for `GetBoardsMembershipsByIdBoardByIdMembership`",
+        "properties": {
+          "deactivated": {
+            "description": "Whether the membership has been deactivated",
+            "title": "Deactivated",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the membership",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "The member's ID associated with this membership",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "memberType": {
+            "description": "The member's role on the board (e.g., 'admin', 'normal')",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "unconfirmed": {
+            "description": "Whether the membership invitation is pending confirmation",
+            "title": "Unconfirmed",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "idMember", "memberType", "unconfirmed", "deactivated"],
+        "title": "GetBoardsMembershipsByIdBoardByIdMembershipResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBoardsMembershipsByIdBoardByIdMembershipResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

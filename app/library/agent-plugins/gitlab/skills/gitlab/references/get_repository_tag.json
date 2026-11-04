@@ -1,0 +1,193 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve one repository tag by name, including its commit and associated release.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "tag_name": {
+        "description": "Tag name, supplied without URL encoding.",
+        "title": "Tag Name",
+        "type": "string"
+      }
+    },
+    "required": ["id", "tag_name"],
+    "title": "GetRepositoryTagRequest",
+    "type": "object"
+  },
+  "name": "get_repository_tag",
+  "outputSchema": {
+    "$defs": {
+      "GetRepositoryTagResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "commit": {
+            "$ref": "#/$defs/TagCommit",
+            "description": "Commit associated with the tag.",
+            "title": "Commit"
+          },
+          "created_at": {
+            "description": "Tag creation timestamp in ISO 8601 format; null for lightweight tags.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "message": {
+            "description": "Annotation text; null for lightweight tags.",
+            "title": "Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "Tag name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "protected": {
+            "description": "Whether the tag is protected.",
+            "title": "Protected",
+            "type": "boolean"
+          },
+          "release": {
+            "$ref": "#/$defs/TagRelease",
+            "description": "Associated release, if any.",
+            "title": "Release"
+          },
+          "target": {
+            "description": "Tag object ID for annotated tags, or commit ID for lightweight tags.",
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": ["name", "target", "commit", "protected"],
+        "title": "GetRepositoryTagResponse",
+        "type": "object"
+      },
+      "TagCommit": {
+        "additionalProperties": true,
+        "properties": {
+          "author_email": {
+            "description": "Commit author's email address.",
+            "title": "Author Email",
+            "type": "string"
+          },
+          "author_name": {
+            "description": "Commit author's name.",
+            "title": "Author Name",
+            "type": "string"
+          },
+          "authored_date": {
+            "description": "Authorship timestamp in ISO 8601 format.",
+            "title": "Authored Date",
+            "type": "string"
+          },
+          "committed_date": {
+            "description": "Commit timestamp in ISO 8601 format.",
+            "title": "Committed Date",
+            "type": "string"
+          },
+          "committer_email": {
+            "description": "Committer's email address.",
+            "title": "Committer Email",
+            "type": "string"
+          },
+          "committer_name": {
+            "description": "Committer's name.",
+            "title": "Committer Name",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Commit creation timestamp in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Full commit SHA.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Full commit message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "parent_ids": {
+            "description": "Parent commit SHAs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parent Ids",
+            "type": "array"
+          },
+          "short_id": {
+            "description": "Short commit SHA.",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Commit title.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "short_id",
+          "title",
+          "created_at",
+          "parent_ids",
+          "message",
+          "author_name",
+          "author_email",
+          "authored_date",
+          "committer_name",
+          "committer_email",
+          "committed_date"
+        ],
+        "title": "TagCommit",
+        "type": "object"
+      },
+      "TagRelease": {
+        "additionalProperties": true,
+        "properties": {
+          "description": {
+            "description": "Release description, if present.",
+            "title": "Description",
+            "type": "string"
+          },
+          "tag_name": {
+            "description": "Release tag name.",
+            "title": "Tag Name",
+            "type": "string"
+          }
+        },
+        "required": ["tag_name"],
+        "title": "TagRelease",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRepositoryTagResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

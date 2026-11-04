@@ -1,0 +1,384 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to run a customized realtime report of Google Analytics event data. Use when you need realtime data (last 30-60 minutes) with dimensions and metrics for a GA4 property.",
+  "inputSchema": {
+    "description": "Request model for running a customized realtime report.\nAt least one dimension or metric must be specified.",
+    "properties": {
+      "dimensionFilter": {
+        "additionalProperties": true,
+        "description": "Filter to restrict data by dimension values. Structure: {'filter': {'fieldName': 'country', 'stringFilter': {'value': 'United States'}}} or use andGroup/orGroup/notExpression for complex filters.",
+        "title": "Dimension Filter",
+        "type": "object"
+      },
+      "dimensions": {
+        "description": "Dimensions to group by (max 9). At least one dimension or metric is required. Valid names: appVersion, audienceId, audienceName, city, cityId, country, countryId, deviceCategory, eventName, minutesAgo, platform, streamId, streamName, unifiedScreenName. Custom: 'customUser:param_name'.",
+        "examples": [
+          [
+            {
+              "name": "country"
+            },
+            {
+              "name": "city"
+            }
+          ]
+        ],
+        "items": {
+          "description": "Dimension configuration for realtime reports.",
+          "properties": {
+            "name": {
+              "description": "The dimension name. Valid realtime dimensions: appVersion, audienceId, audienceName, audienceResourceName, city, cityId, country, countryId, deviceCategory, eventName, minutesAgo, platform, streamId, streamName, unifiedScreenName. Custom dimensions use 'customUser:parameter_name'.",
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          "required": ["name"],
+          "title": "RealtimeDimension",
+          "type": "object"
+        },
+        "title": "Dimensions",
+        "type": "array"
+      },
+      "limit": {
+        "default": 10000,
+        "description": "Max rows to return (default 10000, max 250000).",
+        "examples": [50, 100, 1000],
+        "maximum": 250000,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "metricAggregations": {
+        "description": "Request aggregated metric values. Values: 'TOTAL', 'MINIMUM', 'MAXIMUM', 'COUNT'.",
+        "examples": [["TOTAL"], ["TOTAL", "MAXIMUM"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Metric Aggregations",
+        "type": "array"
+      },
+      "metricFilter": {
+        "additionalProperties": true,
+        "description": "Post-aggregation filter on metric values. Applied after row aggregation.",
+        "title": "Metric Filter",
+        "type": "object"
+      },
+      "metrics": {
+        "description": "Metrics to measure (max 10). At least one dimension or metric is required. Valid names: activeUsers, eventCount, keyEvents, screenPageViews.",
+        "examples": [
+          [
+            {
+              "name": "activeUsers"
+            },
+            {
+              "name": "screenPageViews"
+            }
+          ]
+        ],
+        "items": {
+          "description": "Metric configuration for realtime reports.",
+          "properties": {
+            "expression": {
+              "description": "Optional mathematical expression for a derived metric.",
+              "title": "Expression",
+              "type": "string"
+            },
+            "invisible": {
+              "description": "If true, the metric is excluded from the response but can be used in filters/ordering.",
+              "title": "Invisible",
+              "type": "boolean"
+            },
+            "name": {
+              "description": "The metric name. Valid realtime metrics: activeUsers, eventCount, keyEvents, screenPageViews.",
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          "required": ["name"],
+          "title": "RealtimeMetric",
+          "type": "object"
+        },
+        "title": "Metrics",
+        "type": "array"
+      },
+      "minuteRanges": {
+        "description": "Time ranges to report on. Default is last 30 minutes. Each range has startMinutesAgo (default 29) and endMinutesAgo (default 0).",
+        "examples": [
+          [
+            {
+              "endMinutesAgo": 0,
+              "name": "last_30_minutes",
+              "startMinutesAgo": 29
+            }
+          ]
+        ],
+        "items": {
+          "description": "Time range specification for realtime reports.",
+          "properties": {
+            "endMinutesAgo": {
+              "description": "End of the range in minutes ago (default 0 = now).",
+              "title": "End Minutes Ago",
+              "type": "integer"
+            },
+            "name": {
+              "description": "Optional name for this minute range.",
+              "title": "Name",
+              "type": "string"
+            },
+            "startMinutesAgo": {
+              "description": "Start of the range in minutes ago (default 29, max 30 for standard or 60 for GA 360).",
+              "title": "Start Minutes Ago",
+              "type": "integer"
+            }
+          },
+          "title": "MinuteRange",
+          "type": "object"
+        },
+        "title": "Minute Ranges",
+        "type": "array"
+      },
+      "orderBys": {
+        "description": "Sorting specification. Example: [{'metric': {'metricName': 'activeUsers'}, 'desc': true}] or [{'dimension': {'dimensionName': 'country'}}].",
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Order Bys",
+        "type": "array"
+      },
+      "property": {
+        "description": "Required. The GA4 property resource name. Format: properties/{property_id}. Get property IDs from GOOGLE_ANALYTICS_LIST_PROPERTIES.",
+        "examples": ["properties/123456789"],
+        "title": "Property",
+        "type": "string"
+      },
+      "returnPropertyQuota": {
+        "default": false,
+        "description": "If true, includes API quota usage info in the response.",
+        "title": "Return Property Quota",
+        "type": "boolean"
+      }
+    },
+    "required": ["property"],
+    "title": "RunRealtimeReportRequest",
+    "type": "object"
+  },
+  "name": "run_realtime_report",
+  "outputSchema": {
+    "$defs": {
+      "DimensionHeader": {
+        "description": "Column header for a dimension in the response.",
+        "properties": {
+          "name": {
+            "description": "The dimension name.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "DimensionHeader",
+        "type": "object"
+      },
+      "DimensionValue": {
+        "description": "A dimension value in a report row.",
+        "properties": {
+          "value": {
+            "description": "The dimension value.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "DimensionValue",
+        "type": "object"
+      },
+      "MetricHeader": {
+        "description": "Column header for a metric in the response.",
+        "properties": {
+          "name": {
+            "description": "The metric name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "The metric data type. Values: TYPE_INTEGER, TYPE_FLOAT, TYPE_SECONDS, TYPE_MILLISECONDS, TYPE_MINUTES, TYPE_HOURS, TYPE_STANDARD, TYPE_CURRENCY, TYPE_FEET, TYPE_MILES, TYPE_METERS, TYPE_KILOMETERS.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "MetricHeader",
+        "type": "object"
+      },
+      "MetricValue": {
+        "description": "A metric value in a report row.",
+        "properties": {
+          "value": {
+            "description": "The metric value as a string.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "MetricValue",
+        "type": "object"
+      },
+      "PropertyQuota": {
+        "description": "API quota status for the property.",
+        "properties": {
+          "concurrentRequests": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Concurrent request limit.",
+            "title": "Concurrent Requests"
+          },
+          "potentiallyThresholdedRequestsPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Threshold requests per hour quota.",
+            "title": "Potentially Thresholded Requests Per Hour"
+          },
+          "serverErrorsPerProjectPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Server error quota per project per hour.",
+            "title": "Server Errors Per Project Per Hour"
+          },
+          "tokensPerDay": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Daily token quota.",
+            "title": "Tokens Per Day"
+          },
+          "tokensPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Hourly token quota.",
+            "title": "Tokens Per Hour"
+          },
+          "tokensPerProjectPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Tokens per project per hour quota.",
+            "title": "Tokens Per Project Per Hour"
+          }
+        },
+        "title": "PropertyQuota",
+        "type": "object"
+      },
+      "QuotaStatus": {
+        "description": "Quota consumption status for a quota type.",
+        "properties": {
+          "consumed": {
+            "description": "Tokens consumed so far.",
+            "title": "Consumed",
+            "type": "integer"
+          },
+          "remaining": {
+            "description": "Tokens remaining.",
+            "title": "Remaining",
+            "type": "integer"
+          }
+        },
+        "title": "QuotaStatus",
+        "type": "object"
+      },
+      "ReportRow": {
+        "description": "A single data row in the report.",
+        "properties": {
+          "dimensionValues": {
+            "description": "Dimension values for this row.",
+            "items": {
+              "$ref": "#/$defs/DimensionValue"
+            },
+            "title": "Dimension Values",
+            "type": "array"
+          },
+          "metricValues": {
+            "description": "Metric values for this row.",
+            "items": {
+              "$ref": "#/$defs/MetricValue"
+            },
+            "title": "Metric Values",
+            "type": "array"
+          }
+        },
+        "title": "ReportRow",
+        "type": "object"
+      },
+      "RunRealtimeReportResponse": {
+        "description": "Response model for runRealtimeReport API.\nContains report data with dimension/metric headers, data rows, aggregations, and quota info.",
+        "properties": {
+          "dimensionHeaders": {
+            "description": "Column headers for dimensions in the report.",
+            "items": {
+              "$ref": "#/$defs/DimensionHeader"
+            },
+            "title": "Dimension Headers",
+            "type": "array"
+          },
+          "kind": {
+            "description": "Resource type identifier: 'analyticsData#runRealtimeReport'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "maximums": {
+            "description": "Maximum values if 'MAXIMUM' was requested in metricAggregations.",
+            "items": {
+              "$ref": "#/$defs/ReportRow"
+            },
+            "title": "Maximums",
+            "type": "array"
+          },
+          "metricHeaders": {
+            "description": "Column headers for metrics with name and data type.",
+            "items": {
+              "$ref": "#/$defs/MetricHeader"
+            },
+            "title": "Metric Headers",
+            "type": "array"
+          },
+          "minimums": {
+            "description": "Minimum values if 'MINIMUM' was requested in metricAggregations.",
+            "items": {
+              "$ref": "#/$defs/ReportRow"
+            },
+            "title": "Minimums",
+            "type": "array"
+          },
+          "propertyQuota": {
+            "$ref": "#/$defs/PropertyQuota",
+            "description": "API quota usage info. Only returned if returnPropertyQuota=true.",
+            "title": "Property Quota"
+          },
+          "rowCount": {
+            "description": "Total number of rows matching the query (may exceed returned rows if limit applied).",
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "rows": {
+            "description": "Data rows containing dimension and metric values.",
+            "items": {
+              "$ref": "#/$defs/ReportRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "totals": {
+            "description": "Aggregated totals if 'TOTAL' was requested in metricAggregations.",
+            "items": {
+              "$ref": "#/$defs/ReportRow"
+            },
+            "title": "Totals",
+            "type": "array"
+          }
+        },
+        "title": "RunRealtimeReportResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RunRealtimeReportResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

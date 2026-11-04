@@ -1,0 +1,247 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a single Audience configuration from a Google Analytics property. Use when you need detailed audience information including membership criteria and filter clauses.",
+  "inputSchema": {
+    "description": "Request model for retrieving a single Audience.",
+    "properties": {
+      "audienceId": {
+        "description": "Required. The audience identifier to retrieve. Provide the numeric audience ID (e.g., '11228260226').",
+        "examples": ["11228260226"],
+        "title": "Audience Id",
+        "type": "string"
+      },
+      "propertyId": {
+        "description": "Required. The Google Analytics property identifier. Can be provided as just the numeric ID (e.g., '123456789') or as full resource name (e.g., 'properties/123456789').",
+        "examples": ["123456789", "properties/123456789"],
+        "title": "Property Id",
+        "type": "string"
+      }
+    },
+    "required": ["propertyId", "audienceId"],
+    "title": "GetAudienceRequest",
+    "type": "object"
+  },
+  "name": "get_audience",
+  "outputSchema": {
+    "$defs": {
+      "AudienceEventTrigger": {
+        "description": "Event trigger configuration for an audience.",
+        "properties": {
+          "eventName": {
+            "description": "Event name to log when a user joins the audience.",
+            "title": "Event Name",
+            "type": "string"
+          },
+          "logCondition": {
+            "description": "Condition under which the event is logged.",
+            "enum": ["LOG_CONDITION_UNSPECIFIED", "AUDIENCE_JOINED", "AUDIENCE_MEMBERSHIP_RENEWED"],
+            "title": "Log Condition",
+            "type": "string"
+          }
+        },
+        "title": "AudienceEventTrigger",
+        "type": "object"
+      },
+      "AudienceFilterClause": {
+        "description": "Filter clause defining audience membership criteria.",
+        "properties": {
+          "clauseType": {
+            "description": "Type of clause (include or exclude).",
+            "enum": ["AUDIENCE_CLAUSE_TYPE_UNSPECIFIED", "INCLUDE", "EXCLUDE"],
+            "title": "Clause Type",
+            "type": "string"
+          },
+          "sequenceFilter": {
+            "$ref": "#/$defs/AudienceSequenceFilter",
+            "description": "Sequential multi-step filter.",
+            "title": "Sequence Filter"
+          },
+          "simpleFilter": {
+            "$ref": "#/$defs/AudienceSimpleFilter",
+            "description": "Single condition filter.",
+            "title": "Simple Filter"
+          }
+        },
+        "title": "AudienceFilterClause",
+        "type": "object"
+      },
+      "AudienceFilterExpression": {
+        "description": "Logical filter expression for audience membership.",
+        "properties": {
+          "andGroup": {
+            "$ref": "#/$defs/AudienceFilterExpressionList",
+            "description": "A list of expressions that must all be true (AND condition).",
+            "title": "And Group"
+          },
+          "dimensionOrMetricFilter": {
+            "additionalProperties": true,
+            "description": "A filter on a single dimension or metric.",
+            "title": "Dimension Or Metric Filter",
+            "type": "object"
+          },
+          "eventFilter": {
+            "additionalProperties": true,
+            "description": "A filter on events.",
+            "title": "Event Filter",
+            "type": "object"
+          },
+          "notExpression": {
+            "additionalProperties": true,
+            "description": "An expression that inverts the filter (NOT condition).",
+            "title": "Not Expression",
+            "type": "object"
+          },
+          "orGroup": {
+            "$ref": "#/$defs/AudienceFilterExpressionList",
+            "description": "A list of expressions where at least one must be true (OR condition).",
+            "title": "Or Group"
+          }
+        },
+        "title": "AudienceFilterExpression",
+        "type": "object"
+      },
+      "AudienceFilterExpressionList": {
+        "description": "A list of filter expressions.",
+        "properties": {
+          "filterExpressions": {
+            "description": "List of filter expressions.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Filter Expressions",
+            "type": "array"
+          }
+        },
+        "title": "AudienceFilterExpressionList",
+        "type": "object"
+      },
+      "AudienceSequenceFilter": {
+        "description": "Sequential filter for audience membership.",
+        "properties": {
+          "scope": {
+            "description": "Scope of the sequence filter evaluation.",
+            "enum": [
+              "AUDIENCE_FILTER_SCOPE_UNSPECIFIED",
+              "AUDIENCE_FILTER_SCOPE_WITHIN_SAME_EVENT",
+              "AUDIENCE_FILTER_SCOPE_WITHIN_SAME_SESSION",
+              "AUDIENCE_FILTER_SCOPE_ACROSS_ALL_SESSIONS"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "sequenceMaximumDuration": {
+            "description": "Maximum duration for the entire sequence.",
+            "title": "Sequence Maximum Duration",
+            "type": "string"
+          },
+          "sequenceSteps": {
+            "description": "Ordered list of sequence steps.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Sequence Steps",
+            "type": "array"
+          }
+        },
+        "title": "AudienceSequenceFilter",
+        "type": "object"
+      },
+      "AudienceSimpleFilter": {
+        "description": "Simple filter for audience membership.",
+        "properties": {
+          "filterExpression": {
+            "$ref": "#/$defs/AudienceFilterExpression",
+            "description": "Logical filter conditions.",
+            "title": "Filter Expression"
+          },
+          "scope": {
+            "description": "Scope of the filter evaluation.",
+            "enum": [
+              "AUDIENCE_FILTER_SCOPE_UNSPECIFIED",
+              "AUDIENCE_FILTER_SCOPE_WITHIN_SAME_EVENT",
+              "AUDIENCE_FILTER_SCOPE_WITHIN_SAME_SESSION",
+              "AUDIENCE_FILTER_SCOPE_ACROSS_ALL_SESSIONS"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "title": "AudienceSimpleFilter",
+        "type": "object"
+      },
+      "GetAudienceResponse": {
+        "description": "Response model for retrieving an Audience.",
+        "properties": {
+          "adsPersonalizationEnabled": {
+            "description": "Whether ads personalization is enabled for this audience.",
+            "title": "Ads Personalization Enabled",
+            "type": "boolean"
+          },
+          "createTime": {
+            "description": "Creation timestamp in RFC 3339 format.",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "description": {
+            "description": "Explanatory text about the audience.",
+            "title": "Description",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Display label for the audience.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "eventTrigger": {
+            "$ref": "#/$defs/AudienceEventTrigger",
+            "description": "Event logged when a user joins the audience.",
+            "title": "Event Trigger"
+          },
+          "exclusionDurationMode": {
+            "description": "Exclusion persistence mode.",
+            "enum": ["AUDIENCE_EXCLUSION_DURATION_MODE_UNSPECIFIED", "EXCLUDE_TEMPORARILY", "EXCLUDE_PERMANENTLY"],
+            "title": "Exclusion Duration Mode",
+            "type": "string"
+          },
+          "filterClauses": {
+            "description": "AND'ed filter conditions defining membership.",
+            "items": {
+              "$ref": "#/$defs/AudienceFilterClause"
+            },
+            "title": "Filter Clauses",
+            "type": "array"
+          },
+          "membershipDurationDays": {
+            "description": "Number of days a user remains in the audience. Maximum 540 days.",
+            "title": "Membership Duration Days",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Resource name of the audience in format properties/{propertyId}/audiences/{audienceId}.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["name", "displayName", "description", "membershipDurationDays"],
+        "title": "GetAudienceResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetAudienceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

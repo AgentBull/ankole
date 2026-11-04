@@ -1,0 +1,135 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetches a user's busy time intervals (internal and external calendar events) in ascending order for a period up to 7 days; keyset pagination is not supported.",
+  "inputSchema": {
+    "description": "Request schema for fetching a user's busy time intervals from Calendly.",
+    "properties": {
+      "end_time": {
+        "description": "The end of the time range for which to fetch busy times, in RFC3339 format (e.g., '2023-10-26T11:00:00Z'). Must be after start_time.",
+        "examples": ["2024-03-25T17:00:00Z"],
+        "title": "End Time",
+        "type": "string"
+      },
+      "start_time": {
+        "description": "The start of the time range for which to fetch busy times, in RFC3339 format (e.g., '2023-10-26T10:00:00Z').",
+        "examples": ["2024-03-25T08:00:00Z"],
+        "title": "Start Time",
+        "type": "string"
+      },
+      "user": {
+        "description": "The URI of the user whose busy times are being queried. This is typically the user's Calendly API URI.",
+        "examples": ["https://api.calendly.com/users/AAAAAAAAAAAAAAAA"],
+        "title": "User",
+        "type": "string"
+      }
+    },
+    "required": ["user", "start_time", "end_time"],
+    "title": "ListUserBusyTimesRequest",
+    "type": "object"
+  },
+  "name": "list_user_busy_times",
+  "outputSchema": {
+    "$defs": {
+      "BusyTimeSlot": {
+        "description": "Represents a single busy time slot for a user.",
+        "properties": {
+          "buffered_end_time": {
+            "description": "Extended end time that includes buffer time after the event in UTC ISO-8601 format. Present for Calendly events with configured buffer times.",
+            "title": "Buffered End Time",
+            "type": "string"
+          },
+          "buffered_start_time": {
+            "description": "Extended start time that includes buffer time before the event in UTC ISO-8601 format. Present for Calendly events with configured buffer times.",
+            "title": "Buffered Start Time",
+            "type": "string"
+          },
+          "end_time": {
+            "description": "End time of the busy period in UTC ISO-8601 format.",
+            "title": "End Time",
+            "type": "string"
+          },
+          "start_time": {
+            "description": "Start time of the busy period in UTC ISO-8601 format.",
+            "title": "Start Time",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type or source of the busy time slot. Possible values include 'calendly' for Calendly scheduled events and 'external' for events from connected external calendars.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["start_time", "end_time"],
+        "title": "BusyTimeSlot",
+        "type": "object"
+      },
+      "ListUserBusyTimesResponse": {
+        "description": "Response schema for `ListUserBusyTimes`, containing the user's busy intervals.",
+        "properties": {
+          "collection": {
+            "description": "List of busy time slots for the given user and date range.",
+            "items": {
+              "$ref": "#/$defs/BusyTimeSlot"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "description": "Pagination information for the collection response.",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection"],
+        "title": "ListUserBusyTimesResponse",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination information for the collection response.",
+        "properties": {
+          "count": {
+            "description": "Number of items in the current page.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL to fetch the next page of results. Null if there are no more pages.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "next_page_token": {
+            "description": "Token used for cursor-based pagination to fetch the next page.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL to fetch the previous page of results. Null if this is the first page.",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "previous_page_token": {
+            "description": "Token used for cursor-based pagination to fetch the previous page.",
+            "title": "Previous Page Token",
+            "type": "string"
+          }
+        },
+        "title": "Pagination",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListUserBusyTimesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

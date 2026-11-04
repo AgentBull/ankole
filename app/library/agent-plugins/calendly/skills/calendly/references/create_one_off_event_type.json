@@ -1,0 +1,436 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a temporary Calendly one-off event type for a host, with a duration and date setting for the meeting availability.",
+  "inputSchema": {
+    "description": "Request model for creating a one-off event type.",
+    "properties": {
+      "date_setting": {
+        "anyOf": [
+          {
+            "description": "Date range setting for events available within a specific date range.",
+            "properties": {
+              "end_date": {
+                "description": "End date for event availability in YYYY-MM-DD format",
+                "examples": ["2025-12-31", "2025-07-15"],
+                "format": "date",
+                "title": "End Date",
+                "type": "string"
+              },
+              "start_date": {
+                "description": "Start date for event availability in YYYY-MM-DD format",
+                "examples": ["2025-01-01", "2025-06-15"],
+                "format": "date",
+                "title": "Start Date",
+                "type": "string"
+              },
+              "type": {
+                "const": "date_range",
+                "description": "Must be 'date_range' for this setting type",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": ["type", "start_date", "end_date"],
+            "title": "DateRangeSetting",
+            "type": "object"
+          },
+          {
+            "description": "Date setting for events bookable within a specified number of days from today.",
+            "properties": {
+              "days": {
+                "description": "Number of days in the future that the event can be booked. Must be a positive integer.",
+                "examples": [7, 30, 60, 90],
+                "title": "Days",
+                "type": "integer"
+              },
+              "only_weekdays": {
+                "description": "Excludes weekends and only counts Monday - Friday. Required for days_in_future date_setting type.",
+                "title": "Only Weekdays",
+                "type": "boolean"
+              },
+              "type": {
+                "const": "days_in_future",
+                "description": "Must be 'days_in_future' for this setting type",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": ["type", "days", "only_weekdays"],
+            "title": "DaysInFutureSetting",
+            "type": "object"
+          },
+          {
+            "description": "Date setting for events with specific available time slots.",
+            "properties": {
+              "spots": {
+                "description": "List of specific available time slots. Each spot must contain 'start_time' and 'end_time' fields (not 'date' and 'time'). Both fields should be ISO 8601 datetime strings.",
+                "examples": [
+                  [
+                    {
+                      "end_time": "2025-06-25T11:00:00Z",
+                      "start_time": "2025-06-25T10:00:00Z"
+                    },
+                    {
+                      "end_time": "2025-06-26T15:00:00Z",
+                      "start_time": "2025-06-26T14:00:00Z"
+                    }
+                  ],
+                  [
+                    {
+                      "end_time": "2025-07-01T10:30:00Z",
+                      "start_time": "2025-07-01T09:30:00Z"
+                    },
+                    {
+                      "end_time": "2025-07-01T16:00:00Z",
+                      "start_time": "2025-07-01T15:00:00Z"
+                    }
+                  ]
+                ],
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Spots",
+                "type": "array"
+              },
+              "type": {
+                "const": "spots",
+                "description": "Must be 'spots' for this setting type",
+                "title": "Type",
+                "type": "string"
+              }
+            },
+            "required": ["type", "spots"],
+            "title": "SpotsSetting",
+            "type": "object"
+          }
+        ],
+        "description": "Date & time availability for this one-off event. Must be an object with a `type` key equal to ONE of: `'date_range'`, `'days_in_future'`, or `'spots'`.\n• `date_range` → include `start_date` & `end_date` (YYYY-MM-DD).\n• `days_in_future` → include `days` (int) and `only_weekdays` (bool).\n• `spots` → include `spots` – list of objects with `start_time` and `end_time` (ISO 8601 datetime strings).\nDo NOT use values like `'available_moving'` – that pertains to Shares, not one-off events.",
+        "examples": [
+          {
+            "days": 30,
+            "only_weekdays": false,
+            "type": "days_in_future"
+          },
+          {
+            "end_date": "2025-12-31",
+            "start_date": "2025-01-01",
+            "type": "date_range"
+          },
+          {
+            "spots": [
+              {
+                "end_time": "2025-06-25T11:00:00Z",
+                "start_time": "2025-06-25T10:00:00Z"
+              }
+            ],
+            "type": "spots"
+          }
+        ],
+        "title": "Date Setting"
+      },
+      "duration": {
+        "description": "Duration of the event in minutes. Note: Pass this as 'duration', not 'duration_minutes'.",
+        "title": "Duration",
+        "type": "integer"
+      },
+      "host": {
+        "description": "The URI of the user who will be the host of the one-off event (e.g., 'https://api.calendly.com/users/xxx')",
+        "title": "Host",
+        "type": "string"
+      },
+      "location": {
+        "additionalProperties": false,
+        "description": "Location configuration for the event.",
+        "examples": [
+          {
+            "kind": "zoom_conference"
+          },
+          {
+            "kind": "physical",
+            "location": "123 Main Street"
+          },
+          {
+            "kind": "ask_invitee"
+          },
+          {
+            "kind": "custom",
+            "location": "Conference Room A"
+          }
+        ],
+        "properties": {
+          "connected": {
+            "description": "Whether the location service is connected to the host's account. Required for conference-type locations like Zoom, Google Meet, etc.",
+            "examples": [true, false],
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "kind": {
+            "description": "Type of location for the event. Determines how the meeting will be conducted.",
+            "enum": [
+              "ask_invitee",
+              "custom",
+              "google_conference",
+              "gotomeeting_conference",
+              "inbound_call",
+              "microsoft_teams_conference",
+              "outbound_call",
+              "physical",
+              "webex_conference",
+              "zoom_conference"
+            ],
+            "examples": ["zoom_conference", "physical", "ask_invitee"],
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "description": "Location string required when kind is 'custom'. Must be a non-empty string.",
+            "title": "Location",
+            "type": "string"
+          }
+        },
+        "required": ["kind"],
+        "title": "Location",
+        "type": "object"
+      },
+      "name": {
+        "description": "Name of the one-off event type",
+        "title": "Name",
+        "type": "string"
+      },
+      "timezone": {
+        "default": "UTC",
+        "description": "IANA timezone identifier for the event scheduling. Determines how times are interpreted and displayed to invitees.",
+        "examples": ["America/New_York", "Europe/London", "Asia/Tokyo", "UTC"],
+        "title": "Timezone",
+        "type": "string"
+      }
+    },
+    "required": ["name", "host", "duration", "date_setting"],
+    "title": "CreateOneOffEventTypeRequest",
+    "type": "object"
+  },
+  "name": "create_one_off_event_type",
+  "outputSchema": {
+    "$defs": {
+      "CreateOneOffEventTypeResponse": {
+        "description": "Response model containing the created one-off event type.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/EventTypeResource",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "CreateOneOffEventTypeResponse",
+        "type": "object"
+      },
+      "CustomQuestion": {
+        "description": "Custom question for invitees.",
+        "properties": {
+          "answer_choices": {
+            "description": "Array of possible answer options for multiple choice questions. Null for open-ended questions.",
+            "items": {},
+            "title": "Answer Choices",
+            "type": "array"
+          },
+          "enabled": {
+            "description": "Indicates whether the question is currently active.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "include_other": {
+            "description": "Indicates whether an 'Other' option is available for multiple choice questions.",
+            "title": "Include Other",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The text of the custom question.",
+            "title": "Name",
+            "type": "string"
+          },
+          "position": {
+            "description": "The numerical order of the question on the booking form.",
+            "title": "Position",
+            "type": "integer"
+          },
+          "required": {
+            "description": "Indicates whether the invitee must answer this question.",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "The answer format type (e.g., 'string', 'phone_number', 'text', 'radio_buttons', 'checkboxes').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["name", "type", "position", "enabled", "required"],
+        "title": "CustomQuestion",
+        "type": "object"
+      },
+      "EventTypeResource": {
+        "description": "The created one-off event type resource object.",
+        "properties": {
+          "active": {
+            "description": "Indicates whether the event type is currently active and accepting bookings.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "admin_managed": {
+            "description": "Indicates whether the event type is managed by an organization administrator.",
+            "title": "Admin Managed",
+            "type": "boolean"
+          },
+          "booking_method": {
+            "description": "The method used for booking and scheduling management.",
+            "title": "Booking Method",
+            "type": "string"
+          },
+          "color": {
+            "description": "Hex RGB color value for display purposes (e.g., #fa12e4).",
+            "title": "Color",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the event type was created, in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_questions": {
+            "description": "Collection of custom questions to be asked during booking.",
+            "items": {
+              "$ref": "#/$defs/CustomQuestion"
+            },
+            "title": "Custom Questions",
+            "type": "array"
+          },
+          "description_html": {
+            "description": "The event description formatted with HTML.",
+            "title": "Description Html",
+            "type": "string"
+          },
+          "description_plain": {
+            "description": "The event description in plain text format.",
+            "title": "Description Plain",
+            "type": "string"
+          },
+          "duration": {
+            "description": "The length of the event in minutes.",
+            "title": "Duration",
+            "type": "integer"
+          },
+          "internal_note": {
+            "description": "Internal notes that are not visible to invitees.",
+            "title": "Internal Note",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The event type classification, typically 'solo' or 'group'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "The human-readable name of the event type.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pooling_type": {
+            "description": "The team pooling method if applicable: 'round_robin', 'collective', or null for non-pooled events.",
+            "title": "Pooling Type",
+            "type": "string"
+          },
+          "profile": {
+            "$ref": "#/$defs/Profile",
+            "description": "Profile information of the event type owner.",
+            "title": "Profile"
+          },
+          "scheduling_url": {
+            "description": "The full URL where invitees can schedule the event.",
+            "title": "Scheduling Url",
+            "type": "string"
+          },
+          "secret": {
+            "description": "Indicates whether the event type is hidden from the owner's public scheduling page.",
+            "title": "Secret",
+            "type": "boolean"
+          },
+          "slug": {
+            "description": "The unique URL-friendly identifier for the event type.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "type": {
+            "description": "The classification of the event type: 'StandardEventType' or 'AdhocEventType'. One-off events are typically 'AdhocEventType'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the event type was last modified, in ISO 8601 format.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the event type resource.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri",
+          "name",
+          "active",
+          "color",
+          "created_at",
+          "updated_at",
+          "duration",
+          "kind",
+          "profile",
+          "scheduling_url",
+          "secret",
+          "slug",
+          "type"
+        ],
+        "title": "EventTypeResource",
+        "type": "object"
+      },
+      "Profile": {
+        "description": "Profile information for the event type owner.",
+        "properties": {
+          "name": {
+            "description": "The name of the profile owner.",
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "description": "URI reference to the owner resource.",
+            "title": "Owner",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of profile, typically 'User'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "name", "owner"],
+        "title": "Profile",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateOneOffEventTypeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

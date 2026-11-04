@@ -1,0 +1,6 @@
+{
+  "name": "googlecalendar",
+  "version": "1.0.0",
+  "description": "Use googlecalendar tools and event subscriptions with Ankole connections.",
+  "skills": "./skills/"
+}

@@ -1,0 +1,298 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Forks a GitLab project to a specified namespace or the current user's namespace. Creates an independent copy of the project that maintains a relationship with the source. Use this action when you need to create a personal or team copy of a project for development, experimentation, or contribution workflows.",
+  "inputSchema": {
+    "properties": {
+      "description": {
+        "description": "The description for the forked project. If not specified, the description of the original project is used.",
+        "examples": ["A fork of the original project"],
+        "title": "Description",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project to fork.",
+        "examples": [42, "group/project"],
+        "title": "Id"
+      },
+      "mr_default_target_self": {
+        "description": "If true, merge requests in the forked project will target itself by default. If false, merge requests target the upstream (source) project. Defaults to false.",
+        "title": "Mr Default Target Self",
+        "type": "boolean"
+      },
+      "name": {
+        "description": "The name for the forked project. If not specified, the name of the original project is used.",
+        "examples": ["My Forked Project"],
+        "title": "Name",
+        "type": "string"
+      },
+      "namespace": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or path of the namespace where the forked project will be created. If not specified, defaults to the current user's namespace.",
+        "examples": [123, "my-group"],
+        "title": "Namespace"
+      },
+      "path": {
+        "description": "The path (URL-friendly name) for the forked project. If not specified, the path of the original project is used.",
+        "examples": ["my-forked-project"],
+        "title": "Path",
+        "type": "string"
+      },
+      "visibility": {
+        "description": "The visibility level of the forked project. If not specified, the visibility of the original project is used.",
+        "enum": ["private", "internal", "public"],
+        "examples": ["private"],
+        "title": "Visibility",
+        "type": "string"
+      }
+    },
+    "required": ["id"],
+    "title": "ForkProjectRequest",
+    "type": "object"
+  },
+  "name": "fork_project",
+  "outputSchema": {
+    "$defs": {
+      "ForkProjectResponse": {
+        "description": "The full project object as returned by GitLab after forking.",
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "avatar_url": {
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "container_registry_enabled": {
+            "title": "Container Registry Enabled",
+            "type": "boolean"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "creator_id": {
+            "title": "Creator Id",
+            "type": "integer"
+          },
+          "default_branch": {
+            "title": "Default Branch",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "forks_count": {
+            "title": "Forks Count",
+            "type": "integer"
+          },
+          "http_url_to_repo": {
+            "title": "Http Url To Repo",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "issues_enabled": {
+            "title": "Issues Enabled",
+            "type": "boolean"
+          },
+          "jobs_enabled": {
+            "title": "Jobs Enabled",
+            "type": "boolean"
+          },
+          "last_activity_at": {
+            "title": "Last Activity At",
+            "type": "string"
+          },
+          "merge_requests_enabled": {
+            "title": "Merge Requests Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "name_with_namespace": {
+            "title": "Name With Namespace",
+            "type": "string"
+          },
+          "namespace": {
+            "$ref": "#/$defs/ProjectNamespace",
+            "title": "Namespace"
+          },
+          "open_issues_count": {
+            "title": "Open Issues Count",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "path_with_namespace": {
+            "title": "Path With Namespace",
+            "type": "string"
+          },
+          "public_jobs": {
+            "title": "Public Jobs",
+            "type": "boolean"
+          },
+          "request_access_enabled": {
+            "title": "Request Access Enabled",
+            "type": "boolean"
+          },
+          "shared_runners_enabled": {
+            "title": "Shared Runners Enabled",
+            "type": "boolean"
+          },
+          "shared_with_groups": {
+            "items": {
+              "$ref": "#/$defs/SharedWithGroup"
+            },
+            "title": "Shared With Groups",
+            "type": "array"
+          },
+          "snippets_enabled": {
+            "title": "Snippets Enabled",
+            "type": "boolean"
+          },
+          "ssh_url_to_repo": {
+            "title": "Ssh Url To Repo",
+            "type": "string"
+          },
+          "star_count": {
+            "title": "Star Count",
+            "type": "integer"
+          },
+          "tag_list": {
+            "description": "Deprecated, use `topics` instead",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tag List",
+            "type": "array"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Topics",
+            "type": "array"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          },
+          "wiki_enabled": {
+            "title": "Wiki Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": ["id"],
+        "title": "ForkProjectResponse",
+        "type": "object"
+      },
+      "ProjectNamespace": {
+        "properties": {
+          "avatar_url": {
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "full_path": {
+            "title": "Full Path",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "title": "Parent Id",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "path", "kind"],
+        "title": "ProjectNamespace",
+        "type": "object"
+      },
+      "SharedWithGroup": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "group_access_level": {
+            "title": "Group Access Level",
+            "type": "integer"
+          },
+          "group_full_path": {
+            "title": "Group Full Path",
+            "type": "string"
+          },
+          "group_id": {
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "group_name": {
+            "title": "Group Name",
+            "type": "string"
+          }
+        },
+        "required": ["group_id", "group_name", "group_full_path", "group_access_level"],
+        "title": "SharedWithGroup",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ForkProjectResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

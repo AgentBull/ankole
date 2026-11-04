@@ -1,0 +1,262 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve custom messages for a Typeform including button labels, error messages, and UI text. Use when you need to get the current message configuration for a form.",
+  "inputSchema": {
+    "properties": {
+      "form_id": {
+        "description": "Unique form identifier found in the form URL",
+        "examples": ["CoZt0LNp", "Y78g1cmS"],
+        "title": "Form Id",
+        "type": "string"
+      }
+    },
+    "required": ["form_id"],
+    "title": "GetFormMessagesRequest",
+    "type": "object"
+  },
+  "name": "get_form_messages",
+  "outputSchema": {
+    "$defs": {
+      "Block": {
+        "properties": {
+          "shortText": {
+            "$ref": "#/$defs/BlockShortText",
+            "description": "Short text field configuration",
+            "title": "Short Text"
+          }
+        },
+        "title": "Block",
+        "type": "object"
+      },
+      "BlockShortText": {
+        "properties": {
+          "placeholder": {
+            "description": "Placeholder text for short text input fields",
+            "title": "Placeholder",
+            "type": "string"
+          }
+        },
+        "title": "BlockShortText",
+        "type": "object"
+      },
+      "GetFormMessagesResponse": {
+        "properties": {
+          "block": {
+            "$ref": "#/$defs/Block",
+            "description": "Block-level configuration messages",
+            "title": "Block"
+          },
+          "label": {
+            "$ref": "#/$defs/Label",
+            "description": "Label messages for form UI elements",
+            "title": "Label"
+          }
+        },
+        "title": "GetFormMessagesResponse",
+        "type": "object"
+      },
+      "Label": {
+        "properties": {
+          "button": {
+            "$ref": "#/$defs/LabelButton",
+            "description": "Button text messages",
+            "title": "Button"
+          },
+          "buttonHint": {
+            "$ref": "#/$defs/LabelButtonHint",
+            "description": "Button hint/tooltip messages",
+            "title": "Button Hint"
+          },
+          "buttonNoAnswer": {
+            "$ref": "#/$defs/LabelButtonNoAnswer",
+            "description": "No answer button messages",
+            "title": "Button No Answer"
+          },
+          "dropdown": {
+            "$ref": "#/$defs/LabelDropdown",
+            "description": "Dropdown field messages",
+            "title": "Dropdown"
+          },
+          "error": {
+            "$ref": "#/$defs/LabelError",
+            "description": "Error messages",
+            "title": "Error"
+          },
+          "no": {
+            "$ref": "#/$defs/LabelYesNo",
+            "description": "No option configuration",
+            "title": "No"
+          },
+          "other": {
+            "description": "Other answer option text",
+            "title": "Other",
+            "type": "string"
+          },
+          "progress": {
+            "$ref": "#/$defs/LabelProgress",
+            "description": "Progress indicator messages",
+            "title": "Progress"
+          },
+          "yes": {
+            "$ref": "#/$defs/LabelYesNo",
+            "description": "Yes option configuration",
+            "title": "Yes"
+          }
+        },
+        "title": "Label",
+        "type": "object"
+      },
+      "LabelButton": {
+        "properties": {
+          "default": {
+            "description": "Default button text",
+            "title": "Default",
+            "type": "string"
+          },
+          "submit": {
+            "description": "Submit button text",
+            "title": "Submit",
+            "type": "string"
+          },
+          "upload": {
+            "description": "File upload button text",
+            "title": "Upload",
+            "type": "string"
+          },
+          "uploadCoverDrop": {
+            "description": "File upload dragging action message",
+            "title": "Upload Cover Drop",
+            "type": "string"
+          },
+          "uploadCoverUpload": {
+            "description": "File upload processing message",
+            "title": "Upload Cover Upload",
+            "type": "string"
+          }
+        },
+        "title": "LabelButton",
+        "type": "object"
+      },
+      "LabelButtonHint": {
+        "properties": {
+          "default": {
+            "description": "Default tooltip button hint",
+            "title": "Default",
+            "type": "string"
+          },
+          "longtext": {
+            "description": "Tooltip button hint for long text blocks",
+            "title": "Longtext",
+            "type": "string"
+          }
+        },
+        "title": "LabelButtonHint",
+        "type": "object"
+      },
+      "LabelButtonNoAnswer": {
+        "properties": {
+          "default": {
+            "description": "Text for continue without answering button",
+            "title": "Default",
+            "type": "string"
+          }
+        },
+        "title": "LabelButtonNoAnswer",
+        "type": "object"
+      },
+      "LabelDropdown": {
+        "properties": {
+          "noSuggestions": {
+            "description": "No suggestions found for dropdown fields message",
+            "title": "No Suggestions",
+            "type": "string"
+          }
+        },
+        "title": "LabelDropdown",
+        "type": "object"
+      },
+      "LabelError": {
+        "properties": {
+          "minSelection": {
+            "description": "Incomplete fields error message",
+            "title": "Min Selection",
+            "type": "string"
+          },
+          "mustAccept": {
+            "description": "Private form error message",
+            "title": "Must Accept",
+            "type": "string"
+          },
+          "required": {
+            "description": "Required field error message",
+            "title": "Required",
+            "type": "string"
+          },
+          "requiredSelection": {
+            "description": "Required selection error message",
+            "title": "Required Selection",
+            "type": "string"
+          },
+          "uploadSize": {
+            "description": "File too big error message",
+            "title": "Upload Size",
+            "type": "string"
+          },
+          "urlNotValid": {
+            "description": "Invalid URL error message",
+            "title": "Url Not Valid",
+            "type": "string"
+          }
+        },
+        "title": "LabelError",
+        "type": "object"
+      },
+      "LabelProgress": {
+        "properties": {
+          "percent": {
+            "description": "Completion percentage message",
+            "title": "Percent",
+            "type": "string"
+          },
+          "proportion": {
+            "description": "Completion proportion message",
+            "title": "Proportion",
+            "type": "string"
+          }
+        },
+        "title": "LabelProgress",
+        "type": "object"
+      },
+      "LabelYesNo": {
+        "properties": {
+          "key": {
+            "description": "Keyboard shortcut key",
+            "title": "Key",
+            "type": "string"
+          },
+          "value": {
+            "description": "Display text value",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "LabelYesNo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetFormMessagesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

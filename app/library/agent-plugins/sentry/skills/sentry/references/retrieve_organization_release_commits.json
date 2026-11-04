@@ -1,0 +1,136 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of commits for a given release version in an existing Sentry organization, if the release exists.",
+  "inputSchema": {
+    "description": "Request schema for `RetrieveOrganizationReleaseCommits`",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization to which the release belongs.",
+        "examples": ["my-organization-slug", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "version": {
+        "description": "The version identifier of the release. This can be a version number, package name with version, or a commit hash.",
+        "examples": [
+          "1.2.3",
+          "my-app@1.0.0+build2",
+          "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+          "my-project-name@2.3.12"
+        ],
+        "title": "Version",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "version"],
+    "title": "RetrieveOrganizationReleaseCommitsRequest",
+    "type": "object"
+  },
+  "name": "retrieve_organization_release_commits",
+  "outputSchema": {
+    "$defs": {
+      "Commit": {
+        "description": "A commit associated with a release",
+        "properties": {
+          "author": {
+            "$ref": "#/$defs/CommitAuthor",
+            "description": "Information about the commit author",
+            "title": "Author"
+          },
+          "dateCreated": {
+            "description": "The timestamp when the commit was created (ISO 8601 format)",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "id": {
+            "description": "The commit hash/identifier (e.g., 'abc123def456')",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "The commit message text",
+            "title": "Message",
+            "type": "string"
+          },
+          "repository": {
+            "$ref": "#/$defs/CommitRepository",
+            "description": "Information about the repository containing this commit",
+            "title": "Repository"
+          }
+        },
+        "required": ["id"],
+        "title": "Commit",
+        "type": "object"
+      },
+      "CommitAuthor": {
+        "description": "Author information for a commit",
+        "properties": {
+          "email": {
+            "description": "The email address of the commit author",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the commit author",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "CommitAuthor",
+        "type": "object"
+      },
+      "CommitRepository": {
+        "description": "Repository information for a commit",
+        "properties": {
+          "id": {
+            "description": "The unique identifier of the repository",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the repository",
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "description": "The status of the repository (e.g., 'active')",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "CommitRepository",
+        "type": "object"
+      },
+      "RetrieveOrganizationReleaseCommitsResponse": {
+        "description": "Response schema for `RetrieveOrganizationReleaseCommits`",
+        "properties": {
+          "data": {
+            "description": "A list of commits associated with the specified release. Each commit includes the hash, message, creation date, author information, and repository details.",
+            "items": {
+              "$ref": "#/$defs/Commit"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "RetrieveOrganizationReleaseCommitsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveOrganizationReleaseCommitsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

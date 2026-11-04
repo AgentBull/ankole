@@ -1,0 +1,193 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List the files belonging to a package in a GitLab project.",
+  "inputSchema": {
+    "properties": {
+      "order_by": {
+        "description": "Field used to order files. GitLab defaults to id.",
+        "enum": ["id", "file_name", "created_at"],
+        "title": "Order By",
+        "type": "string"
+      },
+      "package_id": {
+        "description": "ID of the package whose files to list.",
+        "examples": [4],
+        "minimum": 1,
+        "title": "Package Id",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Page number for offset pagination (1-based).",
+        "examples": [1],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of package files to return per page (1-100).",
+        "examples": [20],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The numeric ID or namespace/project path of the project. URL-encoding is handled automatically.",
+        "examples": [5, "namespace/project-name"],
+        "title": "Project Id"
+      },
+      "sort": {
+        "description": "Sort direction. GitLab defaults to ascending order.",
+        "enum": ["asc", "desc"],
+        "title": "Sort",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "package_id"],
+    "title": "ListPackageFilesRequest",
+    "type": "object"
+  },
+  "name": "list_package_files",
+  "outputSchema": {
+    "$defs": {
+      "ListPackageFilesResponse": {
+        "properties": {
+          "next_page": {
+            "description": "Next offset page number, when available.",
+            "title": "Next Page",
+            "type": "integer"
+          },
+          "package_files": {
+            "description": "Package files on this page.",
+            "items": {
+              "$ref": "#/$defs/PackageFile"
+            },
+            "title": "Package Files",
+            "type": "array"
+          },
+          "page": {
+            "description": "Current offset page number.",
+            "title": "Page",
+            "type": "integer"
+          },
+          "per_page": {
+            "description": "Number of files requested per page.",
+            "title": "Per Page",
+            "type": "integer"
+          },
+          "prev_page": {
+            "description": "Previous offset page number, when available.",
+            "title": "Prev Page",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total number of files, when supplied by GitLab.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "description": "Total number of pages, when supplied by GitLab.",
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": ["package_files"],
+        "title": "ListPackageFilesResponse",
+        "type": "object"
+      },
+      "PackageFile": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the file was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "file_md5": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "MD5 checksum of the file, when GitLab calculates one.",
+            "title": "File Md5"
+          },
+          "file_name": {
+            "description": "Name of the package file.",
+            "title": "File Name",
+            "type": "string"
+          },
+          "file_sha1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-1 checksum of the file, when GitLab calculates one.",
+            "title": "File Sha1"
+          },
+          "file_sha256": {
+            "description": "SHA-256 checksum of the file.",
+            "title": "File Sha256",
+            "type": "string"
+          },
+          "id": {
+            "description": "ID of the package file.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "package_id": {
+            "description": "ID of the package containing the file.",
+            "title": "Package Id",
+            "type": "integer"
+          },
+          "pipelines": {
+            "description": "Pipelines associated with the file, when returned by GitLab.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Pipelines",
+            "type": "array"
+          },
+          "size": {
+            "description": "File size in bytes.",
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "package_id", "created_at", "file_name", "size", "file_md5", "file_sha1", "file_sha256"],
+        "title": "PackageFile",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListPackageFilesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

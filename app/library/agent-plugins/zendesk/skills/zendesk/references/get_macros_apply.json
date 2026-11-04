@@ -1,0 +1,146 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Show changes to a ticket that would result from applying a macro. Use when you need to preview what changes a macro would make to a ticket before actually applying it. This allows you to review the changes that would be applied, such as assignee changes, group reassignments, comments, or custom field updates. This action is read-only and idempotent — it does not actually modify the ticket.",
+  "inputSchema": {
+    "description": "Request parameters for showing changes a macro would make to a ticket.",
+    "properties": {
+      "macro_id": {
+        "description": "The ID of the macro to preview",
+        "examples": [25],
+        "human_parameter_description": "The ID of the macro you want to preview. You can find this ID in the macro URL or from a macro list.",
+        "human_parameter_name": "Macro ID",
+        "title": "Macro Id",
+        "type": "integer"
+      }
+    },
+    "required": ["macro_id"],
+    "title": "GetMacrosApplyRequest",
+    "type": "object"
+  },
+  "name": "get_macros_apply",
+  "outputSchema": {
+    "$defs": {
+      "GetMacrosApplyResponse": {
+        "description": "Response containing the changes the macro would make to a ticket.",
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/MacroApplyTicket",
+            "description": "Object containing the ticket changes that would be applied",
+            "title": "Result"
+          }
+        },
+        "title": "GetMacrosApplyResponse",
+        "type": "object"
+      },
+      "MacroApplyTicket": {
+        "description": "Ticket object showing the changes the macro would make.",
+        "properties": {
+          "assignee_id": {
+            "description": "Agent ID to assign the ticket to",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "comment": {
+            "$ref": "#/$defs/MacroApplyTicketComment",
+            "description": "Comment to be added to the ticket",
+            "title": "Comment"
+          },
+          "fields": {
+            "description": "Custom fields to be updated on the ticket",
+            "items": {
+              "$ref": "#/$defs/MacroApplyTicketField"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "group_id": {
+            "description": "Group ID to assign the ticket to",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Ticket identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL of the ticket",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "MacroApplyTicket",
+        "type": "object"
+      },
+      "MacroApplyTicketComment": {
+        "description": "Comment object that would be added to the ticket.",
+        "properties": {
+          "body": {
+            "description": "The body content of the comment",
+            "title": "Body",
+            "type": "string"
+          },
+          "html_body": {
+            "description": "The HTML formatted body of the comment",
+            "title": "Html Body",
+            "type": "string"
+          },
+          "public": {
+            "description": "Whether the comment is public",
+            "title": "Public",
+            "type": "boolean"
+          }
+        },
+        "title": "MacroApplyTicketComment",
+        "type": "object"
+      },
+      "MacroApplyTicketField": {
+        "description": "Individual field that would be changed on the ticket.",
+        "properties": {
+          "id": {
+            "description": "The ID of the field",
+            "title": "Id",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "description": "The value to set for the field",
+            "title": "Value"
+          }
+        },
+        "title": "MacroApplyTicketField",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMacrosApplyResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

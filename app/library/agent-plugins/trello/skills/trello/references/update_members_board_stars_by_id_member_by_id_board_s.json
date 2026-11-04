@@ -1,0 +1,75 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update Member Board Star",
+  "inputSchema": {
+    "description": "Request schema for `UpdateMembersBoardStarsByIdMemberByIdBoardStar`",
+    "properties": {
+      "idBoard": {
+        "description": "ID of the Trello board this star should point to; if provided, updates the star's reference.",
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idBoardStar": {
+        "description": "Unique ID of the board star to update (not the board ID it points to).",
+        "title": "Id Board Star",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "ID or username of the Trello member.",
+        "title": "Id Member",
+        "type": "string"
+      },
+      "pos": {
+        "description": "New position for the board star ('top', 'bottom', or a positive number string like '1' or '1024.5'). 'top' is first, 'bottom' is last.",
+        "examples": ["top", "bottom", "1", "1024.5", "16384"],
+        "title": "Pos",
+        "type": "string"
+      }
+    },
+    "required": ["idMember", "idBoardStar"],
+    "title": "UpdateMembersBoardStarsByIdMemberByIdBoardStarRequest",
+    "type": "object"
+  },
+  "name": "update_members_board_stars_by_id_member_by_id_board_s",
+  "outputSchema": {
+    "$defs": {
+      "UpdateMembersBoardStarsByIdMemberByIdBoardStarResponse": {
+        "description": "Response schema for `UpdateMembersBoardStarsByIdMemberByIdBoardStar`",
+        "properties": {
+          "id": {
+            "description": "The unique identifier for the board star",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board that is starred",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "pos": {
+            "description": "The position of the starred board, used for ordering starred boards",
+            "title": "Pos",
+            "type": "number"
+          }
+        },
+        "required": ["id", "idBoard", "pos"],
+        "title": "UpdateMembersBoardStarsByIdMemberByIdBoardStarResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateMembersBoardStarsByIdMemberByIdBoardStarResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

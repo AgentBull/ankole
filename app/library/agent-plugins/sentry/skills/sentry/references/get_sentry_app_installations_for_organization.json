@@ -1,0 +1,102 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of Sentry App installations for a given organization, which must exist.",
+  "inputSchema": {
+    "description": "Request schema for `GetSentryAppInstallationsForOrganization`",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization.",
+        "examples": ["the-interstellar-jurisdiction", "123456"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "GetSentryAppInstallationsForOrganizationRequest",
+    "type": "object"
+  },
+  "name": "get_sentry_app_installations_for_organization",
+  "outputSchema": {
+    "$defs": {
+      "GetSentryAppInstallationsForOrganizationResponse": {
+        "description": "Response schema for `GetSentryAppInstallationsForOrganization`",
+        "items": {
+          "$ref": "#/$defs/SentryAppInstallation"
+        },
+        "title": "GetSentryAppInstallationsForOrganizationResponse",
+        "type": "array"
+      },
+      "InstallationOrganization": {
+        "description": "Organization information",
+        "properties": {
+          "slug": {
+            "description": "Organization's short name/identifier",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["slug"],
+        "title": "InstallationOrganization",
+        "type": "object"
+      },
+      "SentryApp": {
+        "description": "The integration platform application",
+        "properties": {
+          "slug": {
+            "description": "URL-friendly identifier for the application",
+            "title": "Slug",
+            "type": "string"
+          },
+          "uuid": {
+            "description": "Unique identifier for the application",
+            "title": "Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["uuid", "slug"],
+        "title": "SentryApp",
+        "type": "object"
+      },
+      "SentryAppInstallation": {
+        "description": "A single Sentry app installation",
+        "properties": {
+          "app": {
+            "$ref": "#/$defs/SentryApp",
+            "title": "App"
+          },
+          "organization": {
+            "$ref": "#/$defs/InstallationOrganization",
+            "title": "Organization"
+          },
+          "status": {
+            "description": "Installation status (e.g., 'installed')",
+            "title": "Status",
+            "type": "string"
+          },
+          "uuid": {
+            "description": "Unique identifier for this installation",
+            "title": "Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["app", "organization", "uuid", "status"],
+        "title": "SentryAppInstallation",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetSentryAppInstallationsForOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

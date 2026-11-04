@@ -1,0 +1,124 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Adds a contact to a campaign by creating a CampaignMember record to track campaign engagement. Fails if the contact is already a member of the campaign; pre-check membership via SOQL before calling.",
+  "inputSchema": {
+    "properties": {
+      "campaign_id": {
+        "description": "The Salesforce ID of the campaign to add the contact to.",
+        "examples": ["701XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The specific campaign you want to add this contact to. Enter the campaign’s Salesforce ID (often starts with '701') so we know which campaign to update.",
+        "human_parameter_name": "Campaign ID",
+        "title": "Campaign Id",
+        "type": "string"
+      },
+      "contact_id": {
+        "description": "The Salesforce ID of the contact to add to the campaign.",
+        "examples": ["003XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The person you’re adding to the campaign. Enter the contact’s Salesforce ID (often starts with '003') for the person you want to include.",
+        "human_parameter_name": "Contact ID",
+        "title": "Contact Id",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values for CampaignMember. Custom field names typically end with '__c'.",
+        "examples": [
+          {
+            "Member_Source__c": "Webinar",
+            "VIP_Member__c": true
+          },
+          {
+            "External_Member_ID__c": "CM-5567"
+          }
+        ],
+        "human_parameter_description": "Provide any custom CampaignMember fields to set. Use the API field name (ending in '__c') as the key.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "status": {
+        "default": "Sent",
+        "description": "The status of the campaign member. Common values include 'Sent', 'Responded'. The available statuses depend on campaign configuration. Value must exactly match a configured CampaignMember Status for the campaign; arbitrary strings will fail. Query the campaign's CampaignMemberStatus records first if unsure of valid values.",
+        "examples": ["Sent", "Responded", "Registered", "Attended"],
+        "human_parameter_description": "How you want this contact to be marked in the campaign (for example, Sent or Responded). This sets their engagement status when they’re added.",
+        "human_parameter_name": "Status",
+        "title": "Status",
+        "type": "string"
+      }
+    },
+    "required": ["campaign_id", "contact_id"],
+    "title": "AddContactToCampaignRequest",
+    "type": "object"
+  },
+  "name": "add_contact_to_campaign",
+  "outputSchema": {
+    "$defs": {
+      "AddContactToCampaignResponse": {
+        "description": "Response from adding a contact to a campaign in Salesforce.",
+        "properties": {
+          "errors": {
+            "description": "An array of error objects. Empty array when the operation is successful. Contains error details if the operation failed.",
+            "items": {
+              "$ref": "#/$defs/ErrorDetail"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The 18-character Salesforce ID of the newly created CampaignMember record. This ID represents the junction object linking the Contact to the Campaign.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the CampaignMember creation was successful. Returns true if the record was created successfully, false otherwise.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "success", "errors"],
+        "title": "AddContactToCampaignResponse",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "description": "Error details from Salesforce API response.",
+        "properties": {
+          "errorCode": {
+            "description": "A specific error code identifier (e.g., MALFORMED_ID, INVALID_INPUT, FIELD_CUSTOM_VALIDATION_EXCEPTION).",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "An optional array containing the API names of fields where the error occurred. Present when validation rules or field-level errors occur.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "A human-readable error message describing what went wrong.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["message", "errorCode"],
+        "title": "ErrorDetail",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddContactToCampaignResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

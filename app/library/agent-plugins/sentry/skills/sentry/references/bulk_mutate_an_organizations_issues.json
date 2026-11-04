@@ -1,0 +1,397 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Bulk mutate various attributes on issues within an organization. Use when you need to update status, priority, assignment, or other attributes for multiple issues at once. Maximum of 1000 issues can be mutated, with a 100 issue limit per request.",
+  "inputSchema": {
+    "description": "Request schema for bulk mutating issues in a Sentry organization.",
+    "properties": {
+      "assignedTo": {
+        "description": "User or team to assign the issue to. Formats: <user_id>, user:<user_id>, <username>, <email>, team:<team_id>.",
+        "examples": ["user:12345", "team:67890", "john@example.com"],
+        "title": "Assigned To",
+        "type": "string"
+      },
+      "discard": {
+        "description": "Discard the issues.",
+        "title": "Discard",
+        "type": "boolean"
+      },
+      "environment": {
+        "description": "Environment names to filter issues by. Used to narrow down which issues to mutate.",
+        "examples": [["production"], ["staging", "development"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "hasSeen": {
+        "description": "Mark the issue as seen.",
+        "title": "Has Seen",
+        "type": "boolean"
+      },
+      "id": {
+        "description": "Issue IDs to mutate. For non-status updates, this parameter is required. For status updates, it can be omitted to update all matching issues.",
+        "examples": [[6942006846, 6942006836], [123456]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Id",
+        "type": "array"
+      },
+      "inbox": {
+        "description": "Mark issue as reviewed in inbox.",
+        "title": "Inbox",
+        "type": "boolean"
+      },
+      "isBookmarked": {
+        "description": "Bookmark or unbookmark the issue.",
+        "title": "Is Bookmarked",
+        "type": "boolean"
+      },
+      "isPublic": {
+        "description": "Make the issue public or private.",
+        "title": "Is Public",
+        "type": "boolean"
+      },
+      "isSubscribed": {
+        "description": "Subscribe or unsubscribe from issue notifications.",
+        "title": "Is Subscribed",
+        "type": "boolean"
+      },
+      "limit": {
+        "description": "Maximum number of issues to affect. Default: 100, Maximum: 100.",
+        "examples": [10, 50, 100],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "merge": {
+        "description": "Merge issues together. Requires multiple issue IDs.",
+        "title": "Merge",
+        "type": "boolean"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization containing the issues to mutate.",
+        "examples": ["example", "my-organization"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "priority": {
+        "description": "Priority level for the issue.",
+        "enum": ["low", "medium", "high"],
+        "examples": ["low", "medium", "high"],
+        "title": "Priority",
+        "type": "string"
+      },
+      "project": {
+        "description": "Project IDs to filter issues by. Use -1 to include all available projects.",
+        "examples": [[1, 2, 3], [-1]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Project",
+        "type": "array"
+      },
+      "query": {
+        "description": "Search query for filtering issues. Defaults to 'is:unresolved' if not specified. Only used when issue IDs are not provided.",
+        "examples": ["is:unresolved", "level:error", "assigned:me"],
+        "title": "Query",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Sort order for issues. Defaults to 'date'.",
+        "enum": ["date", "new", "trends", "freq", "user", "inbox"],
+        "examples": ["date", "freq", "new", "trends"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "status": {
+        "description": "New status for the issues.",
+        "enum": ["resolved", "unresolved", "ignored", "resolvedInNextRelease", "muted"],
+        "examples": ["resolved", "unresolved", "ignored"],
+        "title": "Status",
+        "type": "string"
+      },
+      "statusDetails": {
+        "additionalProperties": false,
+        "description": "Status details schema for issue resolution.",
+        "properties": {
+          "ignoreCount": {
+            "description": "Number of occurrences to ignore before escalating.",
+            "title": "Ignore Count",
+            "type": "integer"
+          },
+          "ignoreDuration": {
+            "description": "Duration in minutes to ignore the issue.",
+            "title": "Ignore Duration",
+            "type": "integer"
+          },
+          "ignoreUserCount": {
+            "description": "Number of unique users to ignore before escalating.",
+            "title": "Ignore User Count",
+            "type": "integer"
+          },
+          "ignoreUserWindow": {
+            "description": "Time window in minutes for ignoreUserCount. Maximum value: 10080.",
+            "title": "Ignore User Window",
+            "type": "integer"
+          },
+          "ignoreWindow": {
+            "description": "Time window in minutes for ignoreCount. Maximum value: 10080.",
+            "title": "Ignore Window",
+            "type": "integer"
+          },
+          "inCommit": {
+            "additionalProperties": true,
+            "description": "Commit information containing commit hash and repository details.",
+            "title": "In Commit",
+            "type": "object"
+          },
+          "inNextRelease": {
+            "description": "Whether the issue is resolved in the next release.",
+            "title": "In Next Release",
+            "type": "boolean"
+          },
+          "inRelease": {
+            "description": "The release version in which the issue is resolved.",
+            "title": "In Release",
+            "type": "string"
+          }
+        },
+        "title": "StatusDetails",
+        "type": "object"
+      },
+      "substatus": {
+        "description": "Issue substatus.",
+        "enum": [
+          "archived_until_escalating",
+          "archived_until_condition_met",
+          "archived_forever",
+          "escalating",
+          "ongoing",
+          "regressed",
+          "new"
+        ],
+        "examples": ["archived_until_escalating", "ongoing", "new"],
+        "title": "Substatus",
+        "type": "string"
+      },
+      "viewId": {
+        "description": "View ID to apply view's query and filters. Only used when issue IDs are not provided.",
+        "examples": ["all-issues", "custom-view-123"],
+        "title": "View Id",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "BulkMutateAnOrganizationsIssuesRequest",
+    "type": "object"
+  },
+  "name": "bulk_mutate_an_organizations_issues",
+  "outputSchema": {
+    "$defs": {
+      "AssignedToInfo": {
+        "description": "Assigned user or team information.",
+        "properties": {
+          "email": {
+            "description": "Assignee email (for users only).",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Assignee ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Assignee name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of assignee (user or team).",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "AssignedToInfo",
+        "type": "object"
+      },
+      "BulkMutateAnOrganizationsIssuesResponse": {
+        "description": "Response schema for bulk mutating issues in a Sentry organization.",
+        "properties": {
+          "assignedTo": {
+            "$ref": "#/$defs/AssignedToInfo",
+            "description": "Information about the assigned user or team.",
+            "title": "Assigned To"
+          },
+          "discard": {
+            "description": "Whether the issues were discarded.",
+            "title": "Discard",
+            "type": "boolean"
+          },
+          "hasSeen": {
+            "description": "Whether the issues were marked as seen.",
+            "title": "Has Seen",
+            "type": "boolean"
+          },
+          "inbox": {
+            "description": "Whether the issues were marked as reviewed in inbox.",
+            "title": "Inbox",
+            "type": "boolean"
+          },
+          "isBookmarked": {
+            "description": "Bookmark status of the issues.",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "isPublic": {
+            "description": "Public status of the issues.",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "isSubscribed": {
+            "description": "Subscription status for the issues.",
+            "title": "Is Subscribed",
+            "type": "boolean"
+          },
+          "merge": {
+            "$ref": "#/$defs/MergeInfo",
+            "description": "Merge information including parent and child issue IDs.",
+            "title": "Merge"
+          },
+          "priority": {
+            "description": "Priority level of the issues.",
+            "title": "Priority",
+            "type": "string"
+          },
+          "shareId": {
+            "description": "Share ID for the issues.",
+            "title": "Share Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the issues after mutation.",
+            "title": "Status",
+            "type": "string"
+          },
+          "statusDetails": {
+            "$ref": "#/$defs/StatusDetails",
+            "description": "Detailed status information including resolution details.",
+            "title": "Status Details"
+          },
+          "subscriptionDetails": {
+            "$ref": "#/$defs/SubscriptionDetails",
+            "description": "Subscription details including disabled status and reason.",
+            "title": "Subscription Details"
+          },
+          "substatus": {
+            "description": "Substatus of the issues.",
+            "title": "Substatus",
+            "type": "string"
+          }
+        },
+        "title": "BulkMutateAnOrganizationsIssuesResponse",
+        "type": "object"
+      },
+      "MergeInfo": {
+        "description": "Merge information schema.",
+        "properties": {
+          "children": {
+            "description": "Child issue IDs that were merged.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Children",
+            "type": "array"
+          },
+          "parent": {
+            "description": "Parent issue ID after merge.",
+            "title": "Parent",
+            "type": "string"
+          }
+        },
+        "title": "MergeInfo",
+        "type": "object"
+      },
+      "StatusDetails": {
+        "description": "Status details schema for issue resolution.",
+        "properties": {
+          "ignoreCount": {
+            "description": "Number of occurrences to ignore before escalating.",
+            "title": "Ignore Count",
+            "type": "integer"
+          },
+          "ignoreDuration": {
+            "description": "Duration in minutes to ignore the issue.",
+            "title": "Ignore Duration",
+            "type": "integer"
+          },
+          "ignoreUserCount": {
+            "description": "Number of unique users to ignore before escalating.",
+            "title": "Ignore User Count",
+            "type": "integer"
+          },
+          "ignoreUserWindow": {
+            "description": "Time window in minutes for ignoreUserCount. Maximum value: 10080.",
+            "title": "Ignore User Window",
+            "type": "integer"
+          },
+          "ignoreWindow": {
+            "description": "Time window in minutes for ignoreCount. Maximum value: 10080.",
+            "title": "Ignore Window",
+            "type": "integer"
+          },
+          "inCommit": {
+            "additionalProperties": true,
+            "description": "Commit information containing commit hash and repository details.",
+            "title": "In Commit",
+            "type": "object"
+          },
+          "inNextRelease": {
+            "description": "Whether the issue is resolved in the next release.",
+            "title": "In Next Release",
+            "type": "boolean"
+          },
+          "inRelease": {
+            "description": "The release version in which the issue is resolved.",
+            "title": "In Release",
+            "type": "string"
+          }
+        },
+        "title": "StatusDetails",
+        "type": "object"
+      },
+      "SubscriptionDetails": {
+        "description": "Subscription details schema.",
+        "properties": {
+          "disabled": {
+            "description": "Whether subscription is disabled.",
+            "title": "Disabled",
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "Reason for subscription status.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "SubscriptionDetails",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/BulkMutateAnOrganizationsIssuesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,371 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists leads from Salesforce using SOQL query, allowing flexible filtering, sorting, and field selection. Results are paginated; follow nextRecordsUrl in the response to retrieve subsequent pages — the first page may silently omit matching records beyond the page limit.",
+  "inputSchema": {
+    "properties": {
+      "query": {
+        "default": "SELECT Id, FirstName, LastName, Company, Title, Email, Phone, Status, LeadSource, Rating, Industry FROM Lead",
+        "description": "SOQL query to fetch leads. Use standard SOQL syntax to filter, sort, and limit results. Field API names must be exact (e.g., LeadSource, LastModifiedDate) — invalid names cause MALFORMED_QUERY errors. Date literals like TODAY use the org timezone; use explicit ranges (e.g., LastModifiedDate >= TODAY AND LastModifiedDate < TOMORROW) to avoid boundary misses. Filter null Email with WHERE Email != null when downstream steps require it. Narrow LastModifiedDate ranges to avoid row-limit truncation.",
+        "examples": [
+          "SELECT Id, FirstName, LastName, Company FROM Lead WHERE Status = 'New'",
+          "SELECT Id, Name, Email, Company FROM Lead ORDER BY CreatedDate DESC LIMIT 10",
+          "SELECT Id, Name, Rating FROM Lead WHERE Rating = 'Hot' AND Industry = 'Technology'"
+        ],
+        "human_parameter_description": "Enter the SOQL statement that defines which leads to retrieve and which fields to return. Use filters, sorting, and limits to narrow the results to exactly what you need.",
+        "human_parameter_name": "Lead Query",
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "title": "ListLeadsRequest",
+    "type": "object"
+  },
+  "name": "list_leads",
+  "outputSchema": {
+    "$defs": {
+      "LeadRecord": {
+        "additionalProperties": true,
+        "description": "Individual Lead record returned by the query.",
+        "properties": {
+          "Website": {
+            "description": "Website URL associated with the Lead's company.",
+            "title": "Website",
+            "type": "string"
+          },
+          "IsDeleted": {
+            "description": "Indicates whether the Lead has been moved to the Recycle Bin.",
+            "title": "Is Deleted",
+            "type": "boolean"
+          },
+          "Latitude": {
+            "description": "Latitude component of the Lead's geolocation.",
+            "title": "Latitude",
+            "type": "number"
+          },
+          "Country": {
+            "description": "Country of the Lead's address.",
+            "title": "Country",
+            "type": "string"
+          },
+          "IsConverted": {
+            "description": "Indicates whether the Lead has been converted to an Account, Contact, and optionally an Opportunity.",
+            "title": "Is Converted",
+            "type": "boolean"
+          },
+          "CleanStatus": {
+            "description": "Status of Data.com clean operation for the Lead.",
+            "title": "Clean Status",
+            "type": "string"
+          },
+          "Salutation": {
+            "description": "Honorific title for the Lead (e.g., Mr., Ms., Dr.).",
+            "title": "Salutation",
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/$defs/LeadRecordAttributes",
+            "description": "Metadata about the record.",
+            "title": "Attributes"
+          },
+          "Phone": {
+            "description": "Primary phone number of the Lead.",
+            "title": "Phone",
+            "type": "string"
+          },
+          "Jigsaw": {
+            "description": "Data.com key associated with the Lead.",
+            "title": "Jigsaw",
+            "type": "string"
+          },
+          "LeadSource": {
+            "description": "Picklist field indicating the source of the Lead (e.g., Web, Phone Inquiry, Partner Referral).",
+            "title": "Lead Source",
+            "type": "string"
+          },
+          "Status": {
+            "description": "Picklist field indicating the current status of the Lead (e.g., Open - Not Contacted, Working - Contacted, Qualified, Unqualified).",
+            "title": "Status",
+            "type": "string"
+          },
+          "Description": {
+            "description": "Detailed description or notes about the Lead (up to 32,000 characters).",
+            "title": "Description",
+            "type": "string"
+          },
+          "CreatedDate": {
+            "description": "Date and time when the Lead was created (ISO 8601 format).",
+            "title": "Created Date",
+            "type": "string"
+          },
+          "Company": {
+            "description": "Company or organization name of the Lead. Required field in Salesforce; becomes the Account name upon conversion.",
+            "title": "Company",
+            "type": "string"
+          },
+          "OwnerId": {
+            "description": "ID of the User or Queue that owns the Lead.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "ConvertedAccountId": {
+            "description": "ID of the Account created when the Lead was converted.",
+            "title": "Converted Account Id",
+            "type": "string"
+          },
+          "LastViewedDate": {
+            "description": "Date and time when the Lead was last viewed.",
+            "title": "Last Viewed Date",
+            "type": "string"
+          },
+          "Fax": {
+            "description": "Fax number of the Lead.",
+            "title": "Fax",
+            "type": "string"
+          },
+          "City": {
+            "description": "City of the Lead's address.",
+            "title": "City",
+            "type": "string"
+          },
+          "LastActivityDate": {
+            "description": "Date of the most recent activity (task or event) associated with the Lead.",
+            "title": "Last Activity Date",
+            "type": "string"
+          },
+          "IndividualId": {
+            "description": "ID of the Individual record associated with the Lead for data protection and privacy compliance.",
+            "title": "Individual Id",
+            "type": "string"
+          },
+          "AnnualRevenue": {
+            "description": "Annual revenue of the Lead's company.",
+            "title": "Annual Revenue",
+            "type": "number"
+          },
+          "LastModifiedById": {
+            "description": "ID of the User who last modified the Lead record.",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "MasterRecordId": {
+            "description": "If the Lead was merged with another Lead, this field contains the ID of the master record.",
+            "title": "Master Record Id",
+            "type": "string"
+          },
+          "ConvertedContactId": {
+            "description": "ID of the Contact created when the Lead was converted.",
+            "title": "Converted Contact Id",
+            "type": "string"
+          },
+          "Address": {
+            "additionalProperties": true,
+            "description": "Compound address field containing street, city, state, postal code, and country.",
+            "title": "Address",
+            "type": "object"
+          },
+          "CreatedById": {
+            "description": "ID of the User who created the Lead record.",
+            "title": "Created By Id",
+            "type": "string"
+          },
+          "ConvertedDate": {
+            "description": "Date when the Lead was converted (ISO 8601 format). Only populated if IsConverted is true.",
+            "title": "Converted Date",
+            "type": "string"
+          },
+          "LastReferencedDate": {
+            "description": "Date and time when the Lead was last referenced (viewed or linked).",
+            "title": "Last Referenced Date",
+            "type": "string"
+          },
+          "State": {
+            "description": "State or province of the Lead's address.",
+            "title": "State",
+            "type": "string"
+          },
+          "EmailBouncedDate": {
+            "description": "Date and time when email to the Lead bounced.",
+            "title": "Email Bounced Date",
+            "type": "string"
+          },
+          "SystemModstamp": {
+            "description": "System-generated timestamp when the record or any related record was last modified.",
+            "title": "System Modstamp",
+            "type": "string"
+          },
+          "JigsawContactId": {
+            "description": "Data.com contact ID.",
+            "title": "Jigsaw Contact Id",
+            "type": "string"
+          },
+          "Street": {
+            "description": "Street address of the Lead.",
+            "title": "Street",
+            "type": "string"
+          },
+          "GeocodeAccuracy": {
+            "description": "Accuracy level of the geocode for the Lead's address.",
+            "title": "Geocode Accuracy",
+            "type": "string"
+          },
+          "NumberOfEmployees": {
+            "description": "Number of employees at the Lead's company.",
+            "title": "Number Of Employees",
+            "type": "integer"
+          },
+          "IsUnreadByOwner": {
+            "description": "Indicates whether the Lead has been viewed by the owner.",
+            "title": "Is Unread By Owner",
+            "type": "boolean"
+          },
+          "ConvertedOpportunityId": {
+            "description": "ID of the Opportunity created when the Lead was converted (if applicable).",
+            "title": "Converted Opportunity Id",
+            "type": "string"
+          },
+          "Rating": {
+            "description": "Picklist field for rating the quality or priority of the Lead (e.g., Hot, Warm, Cold).",
+            "title": "Rating",
+            "type": "string"
+          },
+          "FirstName": {
+            "description": "First name of the Lead (up to 40 characters).",
+            "title": "First Name",
+            "type": "string"
+          },
+          "Id": {
+            "description": "Unique identifier for the Lead record (18-character Salesforce ID).",
+            "title": "Id",
+            "type": "string"
+          },
+          "PhotoUrl": {
+            "description": "URL to the photo associated with the Lead.",
+            "title": "Photo Url",
+            "type": "string"
+          },
+          "LastName": {
+            "description": "Last name of the Lead (up to 80 characters). This is a required field in Salesforce.",
+            "title": "Last Name",
+            "type": "string"
+          },
+          "Longitude": {
+            "description": "Longitude component of the Lead's geolocation.",
+            "title": "Longitude",
+            "type": "number"
+          },
+          "Email": {
+            "description": "Email address of the Lead.",
+            "title": "Email",
+            "type": "string"
+          },
+          "EmailBouncedReason": {
+            "description": "Reason why email to the Lead bounced.",
+            "title": "Email Bounced Reason",
+            "type": "string"
+          },
+          "CompanyDunsNumber": {
+            "description": "Dun & Bradstreet D-U-N-S Number for the Lead's company.",
+            "title": "Company Duns Number",
+            "type": "string"
+          },
+          "Name": {
+            "description": "Compound field combining FirstName and LastName. Read-only; cannot be directly written.",
+            "title": "Name",
+            "type": "string"
+          },
+          "PostalCode": {
+            "description": "Postal or ZIP code of the Lead's address.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "MobilePhone": {
+            "description": "Mobile phone number of the Lead.",
+            "title": "Mobile Phone",
+            "type": "string"
+          },
+          "Title": {
+            "description": "Job title or position of the Lead.",
+            "title": "Title",
+            "type": "string"
+          },
+          "Industry": {
+            "description": "Picklist field indicating the Lead's industry sector.",
+            "title": "Industry",
+            "type": "string"
+          },
+          "LastModifiedDate": {
+            "description": "Date and time when the Lead was last modified (ISO 8601 format).",
+            "title": "Last Modified Date",
+            "type": "string"
+          }
+        },
+        "required": ["attributes"],
+        "title": "LeadRecord",
+        "type": "object"
+      },
+      "LeadRecordAttributes": {
+        "description": "Metadata about the Lead record.",
+        "properties": {
+          "type": {
+            "description": "The sObject type, always 'Lead' for Lead records.",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The REST API endpoint URL for accessing this specific Lead record.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "LeadRecordAttributes",
+        "type": "object"
+      },
+      "ListLeadsResponse": {
+        "description": "Response from Salesforce Lead query containing pagination info and Lead records.",
+        "properties": {
+          "done": {
+            "description": "Indicates whether the query has returned all results. If false, there are more records available via nextRecordsUrl.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "nextRecordsUrl": {
+            "description": "URL path to retrieve the next batch of records. Present only when done is false, indicating pagination is needed.",
+            "title": "Next Records Url",
+            "type": "string"
+          },
+          "records": {
+            "description": "Array of Lead records returned by the query (maximum 2000 records per request).",
+            "items": {
+              "$ref": "#/$defs/LeadRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "totalSize": {
+            "description": "Total number of records that match the SOQL query criteria.",
+            "title": "Total Size",
+            "type": "integer"
+          }
+        },
+        "required": ["done", "totalSize", "records"],
+        "title": "ListLeadsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListLeadsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,353 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List tickets requested by a specified Zendesk user, with sorting and offset pagination. The page parameter is limited to pages 1–100.",
+  "inputSchema": {
+    "description": "Request parameters for getting tickets requested by a specific user.",
+    "properties": {
+      "page": {
+        "description": "Page number for offset pagination (1-100). Limited to first 100 pages or 10,000 records total.",
+        "examples": [1],
+        "human_parameter_description": "Which page of results you want to view. Start at 1 and increase to browse through more tickets.",
+        "human_parameter_name": "Page Number",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of tickets per page (max 100).",
+        "examples": [25],
+        "human_parameter_description": "How many tickets to show on each page. You can choose up to 100.",
+        "human_parameter_name": "Tickets Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort_by": {
+        "description": "Field to sort by: 'created_at', 'id', 'priority', 'status', 'updated_at'",
+        "enum": ["created_at", "id", "priority", "status", "updated_at"],
+        "examples": ["created_at"],
+        "human_parameter_description": "Pick the ticket field to sort results by.",
+        "human_parameter_name": "Sort By",
+        "title": "Sort By",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort order: 'asc' or 'desc'",
+        "enum": ["asc", "desc"],
+        "examples": ["desc"],
+        "human_parameter_description": "Choose ascending (asc) or descending (desc) sort direction.",
+        "human_parameter_name": "Sort Order",
+        "title": "Sort Order",
+        "type": "string"
+      },
+      "user_id": {
+        "description": "The numeric ID of the user whose requested tickets to retrieve. This is the user ID found in ticket payloads (requester_id, submitter_id, assignee_id, author_id) or from user listings.",
+        "examples": [35436],
+        "human_parameter_description": "The unique ID of the Zendesk user. Find this in ticket payloads (requester_id, submitter_id, assignee_id) or via ZENDESK_LIST_USERS.",
+        "human_parameter_name": "User ID",
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id"],
+    "title": "GetUsersRequestedTicketsRequest",
+    "type": "object"
+  },
+  "name": "get_users_requested_tickets",
+  "outputSchema": {
+    "$defs": {
+      "GetUsersRequestedTicketsResponse": {
+        "description": "Response containing tickets requested by the user.",
+        "properties": {
+          "count": {
+            "description": "Total number of tickets requested by the user",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "tickets": {
+            "description": "List of tickets requested by the user",
+            "items": {
+              "$ref": "#/$defs/UserRequestedTicket"
+            },
+            "title": "Tickets",
+            "type": "array"
+          }
+        },
+        "required": ["tickets"],
+        "title": "GetUsersRequestedTicketsResponse",
+        "type": "object"
+      },
+      "UserRequestedTicket": {
+        "description": "Ticket object returned in user requested tickets response.",
+        "properties": {
+          "assignee_id": {
+            "description": "ID of the assigned agent",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "collaborator_ids": {
+            "description": "IDs of collaborators on the ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Ticket creation timestamp",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "Custom field values",
+            "items": {
+              "$ref": "#/$defs/UserRequestedTicketCustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "custom_status_id": {
+            "description": "Custom status ID for the ticket",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Ticket description",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "description": "Ticket due date timestamp",
+            "title": "Due At",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External ID of the ticket",
+            "title": "External Id",
+            "type": "string"
+          },
+          "follower_ids": {
+            "description": "IDs of followers on the ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Follower Ids",
+            "type": "array"
+          },
+          "from_messaging_channel": {
+            "description": "Whether ticket originated from messaging channel",
+            "title": "From Messaging Channel",
+            "type": "boolean"
+          },
+          "generated_timestamp": {
+            "description": "Unix timestamp when ticket was generated",
+            "title": "Generated Timestamp",
+            "type": "integer"
+          },
+          "group_id": {
+            "description": "ID of the assigned group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "has_incidents": {
+            "description": "Whether ticket has associated incidents",
+            "title": "Has Incidents",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique ticket ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "ID of the ticket's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Ticket priority (urgent, high, normal, low)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "problem_id": {
+            "description": "Related problem ID if ticket is an incident",
+            "title": "Problem Id",
+            "type": "integer"
+          },
+          "raw_subject": {
+            "description": "Raw subject with dynamic content placeholders",
+            "title": "Raw Subject",
+            "type": "string"
+          },
+          "recipient": {
+            "description": "Email recipient for the ticket",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "ID of the user who requested the ticket",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "satisfaction_rating": {
+            "$ref": "#/$defs/UserRequestedTicketSatisfactionRating",
+            "description": "Customer satisfaction rating",
+            "title": "Satisfaction Rating"
+          },
+          "sharing_agreement_ids": {
+            "description": "IDs of sharing agreements",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sharing Agreement Ids",
+            "type": "array"
+          },
+          "status": {
+            "description": "Ticket status (new, open, pending, hold, solved, closed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Ticket subject",
+            "title": "Subject",
+            "type": "string"
+          },
+          "submitter_id": {
+            "description": "ID of the user who submitted the ticket",
+            "title": "Submitter Id",
+            "type": "integer"
+          },
+          "tags": {
+            "description": "List of ticket tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "description": "Ticket type (problem, incident, question, task)",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Ticket last update timestamp",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the ticket",
+            "title": "Url",
+            "type": "string"
+          },
+          "via": {
+            "$ref": "#/$defs/UserRequestedTicketVia",
+            "description": "Channel through which ticket was created",
+            "title": "Via"
+          }
+        },
+        "required": ["id"],
+        "title": "UserRequestedTicket",
+        "type": "object"
+      },
+      "UserRequestedTicketCustomField": {
+        "description": "Custom field value in ticket.",
+        "properties": {
+          "id": {
+            "description": "Custom field ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "Custom field value",
+            "title": "Value"
+          }
+        },
+        "title": "UserRequestedTicketCustomField",
+        "type": "object"
+      },
+      "UserRequestedTicketSatisfactionRating": {
+        "description": "Satisfaction rating for ticket.",
+        "properties": {
+          "comment": {
+            "description": "Optional satisfaction comment",
+            "title": "Comment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Satisfaction rating ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "score": {
+            "description": "Rating score (good, bad, or unoffered)",
+            "title": "Score",
+            "type": "string"
+          }
+        },
+        "title": "UserRequestedTicketSatisfactionRating",
+        "type": "object"
+      },
+      "UserRequestedTicketVia": {
+        "description": "Channel through which ticket was created.",
+        "properties": {
+          "channel": {
+            "description": "The channel (web, email, api, etc.)",
+            "title": "Channel",
+            "type": "string"
+          }
+        },
+        "title": "UserRequestedTicketVia",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUsersRequestedTicketsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

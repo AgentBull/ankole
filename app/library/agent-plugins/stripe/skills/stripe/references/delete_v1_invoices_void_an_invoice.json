@@ -1,0 +1,251 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to void a finalized Stripe invoice. Use when you need to permanently mark an invoice as void to prevent any further collection attempts. This action cannot be undone.",
+  "inputSchema": {
+    "description": "Request model for voiding an invoice.",
+    "properties": {
+      "invoice_id": {
+        "description": "The ID of the invoice to void. Must start with 'in_' followed by alphanumeric characters.",
+        "examples": ["in_1ShVaXQvM72TjFrbu9MgZSua"],
+        "pattern": "^in_[a-zA-Z0-9]+$",
+        "title": "Invoice Id",
+        "type": "string"
+      }
+    },
+    "required": ["invoice_id"],
+    "title": "DeleteV1InvoicesVoidAnInvoiceRequest",
+    "type": "object"
+  },
+  "name": "delete_v1_invoices_void_an_invoice",
+  "outputSchema": {
+    "$defs": {
+      "DeleteV1InvoicesVoidAnInvoiceResponse": {
+        "description": "Response model for a voided invoice.",
+        "properties": {
+          "amount_due": {
+            "description": "Final amount due in cents. Will be 0 for voided invoices.",
+            "title": "Amount Due",
+            "type": "integer"
+          },
+          "amount_paid": {
+            "description": "Amount that was paid in cents",
+            "title": "Amount Paid",
+            "type": "integer"
+          },
+          "amount_remaining": {
+            "description": "Amount remaining to be paid in cents. Will be 0 for voided invoices.",
+            "title": "Amount Remaining",
+            "type": "integer"
+          },
+          "attempted": {
+            "description": "Whether payment was attempted for this invoice",
+            "title": "Attempted",
+            "type": "boolean"
+          },
+          "auto_advance": {
+            "description": "Whether Stripe automatically finalizes the invoice",
+            "title": "Auto Advance",
+            "type": "boolean"
+          },
+          "billing_reason": {
+            "description": "Reason for invoice creation",
+            "title": "Billing Reason",
+            "type": "string"
+          },
+          "collection_method": {
+            "description": "How payment is collected, either 'charge_automatically' or 'send_invoice'",
+            "title": "Collection Method",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the invoice was created. Unix timestamp in seconds.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase",
+            "title": "Currency",
+            "type": "string"
+          },
+          "customer": {
+            "description": "ID of the customer this invoice belongs to",
+            "title": "Customer",
+            "type": "string"
+          },
+          "customer_email": {
+            "description": "Email address of the customer",
+            "title": "Customer Email",
+            "type": "string"
+          },
+          "customer_name": {
+            "description": "Name of the customer",
+            "title": "Customer Name",
+            "type": "string"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the invoice",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "The date on which payment for this invoice is due. Unix timestamp.",
+            "title": "Due Date",
+            "type": "integer"
+          },
+          "ending_balance": {
+            "description": "Customer's ending account balance after the invoice was finalized, in cents",
+            "title": "Ending Balance",
+            "type": "integer"
+          },
+          "hosted_invoice_url": {
+            "description": "URL for the hosted invoice page",
+            "title": "Hosted Invoice Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the invoice",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice_pdf": {
+            "description": "URL to download the invoice as a PDF",
+            "title": "Invoice Pdf",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "True if the object exists in live mode, false if in test mode",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for additional information",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "number": {
+            "description": "Unique sequential number identifying the invoice",
+            "title": "Number",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'invoice' for this endpoint.",
+            "title": "Object",
+            "type": "string"
+          },
+          "period_end": {
+            "description": "End of the usage period covered by the invoice. Unix timestamp.",
+            "title": "Period End",
+            "type": "integer"
+          },
+          "period_start": {
+            "description": "Start of the usage period covered by the invoice. Unix timestamp.",
+            "title": "Period Start",
+            "type": "integer"
+          },
+          "starting_balance": {
+            "description": "Customer's starting account balance before the invoice was finalized, in cents",
+            "title": "Starting Balance",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Invoice status. Will be 'void' for successfully voided invoices.",
+            "title": "Status",
+            "type": "string"
+          },
+          "status_transitions": {
+            "$ref": "#/$defs/StatusTransitions",
+            "description": "Timestamps tracking status changes of the invoice",
+            "title": "Status Transitions"
+          },
+          "subtotal": {
+            "description": "Total of all invoice item amounts before discounts or taxes, in cents",
+            "title": "Subtotal",
+            "type": "integer"
+          },
+          "subtotal_excluding_tax": {
+            "description": "Subtotal before discounts or taxes, excluding tax amounts, in cents",
+            "title": "Subtotal Excluding Tax",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total after discounts and taxes, in cents",
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_excluding_tax": {
+            "description": "Total after discounts but excluding tax amounts, in cents",
+            "title": "Total Excluding Tax",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "status",
+          "amount_due",
+          "amount_paid",
+          "amount_remaining",
+          "customer",
+          "created",
+          "currency",
+          "livemode",
+          "status_transitions",
+          "attempted",
+          "period_start",
+          "period_end",
+          "subtotal",
+          "total",
+          "starting_balance",
+          "collection_method",
+          "auto_advance"
+        ],
+        "title": "DeleteV1InvoicesVoidAnInvoiceResponse",
+        "type": "object"
+      },
+      "StatusTransitions": {
+        "description": "Timestamps of invoice status updates.",
+        "properties": {
+          "finalized_at": {
+            "description": "Timestamp when the invoice was finalized",
+            "title": "Finalized At",
+            "type": "integer"
+          },
+          "marked_uncollectible_at": {
+            "description": "Timestamp when the invoice was marked as uncollectible",
+            "title": "Marked Uncollectible At",
+            "type": "integer"
+          },
+          "paid_at": {
+            "description": "Timestamp when the invoice was paid",
+            "title": "Paid At",
+            "type": "integer"
+          },
+          "voided_at": {
+            "description": "Timestamp when the invoice was voided",
+            "title": "Voided At",
+            "type": "integer"
+          }
+        },
+        "title": "StatusTransitions",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteV1InvoicesVoidAnInvoiceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

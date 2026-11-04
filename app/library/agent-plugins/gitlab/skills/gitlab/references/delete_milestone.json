@@ -1,0 +1,66 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a project milestone by its ID. Use when you need to permanently remove a milestone from a project. This action is irreversible — the milestone cannot be recovered once deleted. Requires at minimum the Planner role for the project.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["123", "group_name/project_name"],
+        "title": "Id"
+      },
+      "milestone_id": {
+        "description": "The ID of the milestone to delete.",
+        "examples": [42],
+        "title": "Milestone Id",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "milestone_id"],
+    "title": "DeleteMilestoneRequest",
+    "type": "object"
+  },
+  "name": "delete_milestone",
+  "outputSchema": {
+    "$defs": {
+      "DeleteMilestoneResponse": {
+        "properties": {
+          "message": {
+            "description": "A message indicating the status of the deletion.",
+            "title": "Message",
+            "type": "string"
+          },
+          "status_code": {
+            "description": "HTTP status code of the response.",
+            "title": "Status Code",
+            "type": "integer"
+          }
+        },
+        "required": ["status_code"],
+        "title": "DeleteMilestoneResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteMilestoneResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

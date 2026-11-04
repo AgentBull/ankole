@@ -1,0 +1,44 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a campaign from Salesforce. This action cannot be undone.",
+  "inputSchema": {
+    "properties": {
+      "campaign_id": {
+        "description": "The Salesforce ID of the campaign to delete.",
+        "examples": ["701Wd00000BVUYAIA5", "701XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique Salesforce ID of the campaign you want to delete. You can copy it from the campaign's URL or from a previous search or list.",
+        "human_parameter_name": "Campaign ID",
+        "title": "Campaign Id",
+        "type": "string"
+      }
+    },
+    "required": ["campaign_id"],
+    "title": "DeleteCampaignRequest",
+    "type": "object"
+  },
+  "name": "delete_campaign",
+  "outputSchema": {
+    "$defs": {
+      "DeleteCampaignResponse": {
+        "description": "Response for successful campaign deletion.\n\nHTTP 204 No Content - Salesforce returns empty body on successful deletion.",
+        "properties": {},
+        "title": "DeleteCampaignResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteCampaignResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

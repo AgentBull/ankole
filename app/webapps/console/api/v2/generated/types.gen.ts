@@ -6007,16 +6007,17 @@ export type ListConnectorAuthConfigsResponses = {
       auth_scheme: string
       configured_credential_fields: Array<string>
       display_name: string
-      id: string
-      inserted_at: string
+      id?: string | null
+      inserted_at?: string | null
       is_default: boolean
+      mode: string
       plugin_id: string
       public_metadata: {
         [key: string]: unknown
       }
       slug: string
       status: string
-      updated_at: string
+      updated_at?: string | null
     }>
   }
 }
@@ -7198,6 +7199,10 @@ export type ListConnectorCatalogResponses = {
         label: string
       }> | null
       id: string
+      personal_credential_fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      personal_credentials: boolean
       plugin_id: string
       public_fields?: Array<{
         [key: string]: unknown

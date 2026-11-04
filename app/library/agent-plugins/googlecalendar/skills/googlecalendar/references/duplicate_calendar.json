@@ -1,0 +1,108 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new, empty Google Calendar with the specified title (summary). Newly created calendars default to UTC timezone; use googlecalendar.patch_calendar afterward to set the desired timeZone if needed.",
+  "inputSchema": {
+    "properties": {
+      "summary": {
+        "description": "Title for the new Google Calendar to be created. Required and must be a non-empty string.",
+        "examples": ["Project Alpha Tasks", "Marketing Team Q4", "Personal Appointments"],
+        "human_parameter_description": "The name you want to give the new calendar. Pick a clear title to help you recognize it later.",
+        "human_parameter_name": "Calendar Title",
+        "minLength": 1,
+        "title": "Summary",
+        "type": "string"
+      }
+    },
+    "required": ["summary"],
+    "title": "DuplicateCalendarRequest",
+    "type": "object"
+  },
+  "name": "duplicate_calendar",
+  "outputSchema": {
+    "$defs": {
+      "ConferenceProperties": {
+        "properties": {
+          "allowedConferenceSolutionTypes": {
+            "description": "The types of conference solutions supported for this calendar. Read-only. Possible values include: 'eventHangout', 'eventNamedHangout', 'hangoutsMeet'.",
+            "items": {
+              "enum": ["eventHangout", "eventNamedHangout", "hangoutsMeet"],
+              "type": "string"
+            },
+            "title": "Allowed Conference Solution Types",
+            "type": "array"
+          }
+        },
+        "required": ["allowedConferenceSolutionTypes"],
+        "title": "ConferenceProperties",
+        "type": "object"
+      },
+      "DuplicateCalendarResponse": {
+        "description": "Response is the Google Calendar API Calendar resource itself.\n\nPer non-negotiable response rules, we return the API resource directly\nwithout wrapping (removed prior 'calendar_data' wrapper).",
+        "properties": {
+          "conferenceProperties": {
+            "$ref": "#/$defs/ConferenceProperties",
+            "description": "Conferencing properties for this calendar. Read-only.",
+            "title": "Conference Properties"
+          },
+          "description": {
+            "description": "Description of the calendar. Optional.",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_url": {
+            "description": "Direct URL to the calendar's settings page in the Google Calendar web interface",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the resource. Used for caching and concurrency control. Read-only.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identifier of the calendar, typically an email-like value (e.g., the calendar's primary email address). Read-only.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of the resource. Always 'calendar#calendar'. Read-only.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "description": "Geographic location of the calendar as free-form text. Optional.",
+            "title": "Location",
+            "type": "string"
+          },
+          "summary": {
+            "description": "Title or display name of the calendar.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "The time zone of the calendar, specified as an IANA Time Zone Database name (e.g., 'Europe/Zurich', 'America/Denver', 'Asia/Kolkata'). Optional.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "etag", "id", "summary"],
+        "title": "DuplicateCalendarResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DuplicateCalendarResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

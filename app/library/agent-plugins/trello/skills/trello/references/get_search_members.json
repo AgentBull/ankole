@@ -1,0 +1,156 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Searches Trello members by name, username, or email, optionally scoped to a board or organization.",
+  "inputSchema": {
+    "description": "Request schema for `GetSearchMembers`",
+    "properties": {
+      "idBoard": {
+        "description": "Optional board ID to scope the search to members relevant to that board.",
+        "examples": ["60b8f7e5a3f3c1002b8f0b1a"],
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idOrganization": {
+        "description": "Optional organization/workspace ID to scope the search to that organization.",
+        "examples": ["5f0b8f7e5a3f3c1002b8f0b1b"],
+        "title": "Id Organization",
+        "type": "string"
+      },
+      "limit": {
+        "default": "8",
+        "description": "Maximum number of member records to return (string '1'-'20'). Default is 8.",
+        "examples": ["5", "10", "20"],
+        "title": "Limit",
+        "type": "string"
+      },
+      "onlyOrgMembers": {
+        "description": "When 'true' and idOrganization is provided, only return members of that organization. Values: 'true' or 'false'.",
+        "examples": ["true", "false"],
+        "title": "Only Org Members",
+        "type": "string"
+      },
+      "query": {
+        "description": "Search query for Trello members by name, username, or email (1-16384 characters).",
+        "examples": ["John Doe", "johndoe@example.com", "board_admin_user"],
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": ["query"],
+    "title": "GetSearchMembersRequest",
+    "type": "object"
+  },
+  "name": "get_search_members",
+  "outputSchema": {
+    "$defs": {
+      "GetSearchMembersResponse": {
+        "description": "Response schema for `GetSearchMembers`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/GetSearchMembersResponseData",
+            "description": "Response data containing the list of found Trello members.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetSearchMembersResponse",
+        "type": "object"
+      },
+      "GetSearchMembersResponseData": {
+        "additionalProperties": true,
+        "description": "Response data containing the list of found members.",
+        "properties": {
+          "details": {
+            "description": "List of Trello member objects matching the search query.",
+            "items": {
+              "$ref": "#/$defs/TrelloMember"
+            },
+            "title": "Details",
+            "type": "array"
+          }
+        },
+        "title": "GetSearchMembersResponseData",
+        "type": "object"
+      },
+      "TrelloMember": {
+        "additionalProperties": true,
+        "description": "Schema for a Trello member object returned by search.",
+        "properties": {
+          "active": {
+            "description": "Whether the member is currently active.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "avatarUrl": {
+            "description": "URL to the member's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "confirmed": {
+            "description": "Whether the member's email is confirmed.",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "dateLastActive": {
+            "description": "ISO 8601 timestamp of the member's last activity.",
+            "title": "Date Last Active",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Full display name of the member.",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the Trello member.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "List of board IDs the member belongs to.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idOrganizations": {
+            "description": "List of organization IDs the member belongs to.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Organizations",
+            "type": "array"
+          },
+          "initials": {
+            "description": "Member's initials displayed on cards.",
+            "title": "Initials",
+            "type": "string"
+          },
+          "username": {
+            "description": "Trello username of the member.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "TrelloMember",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetSearchMembersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

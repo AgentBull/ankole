@@ -1,0 +1,703 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Preview how a Zendesk macro would affect a ticket without actually applying it. Returns the ticket object as it would appear after the macro is applied, showing any changes to fields, comments, status, or other properties. Use this action to review macro changes before applying them to ensure the outcome is as expected.",
+  "inputSchema": {
+    "description": "Request model for applying a macro to preview ticket changes.",
+    "properties": {
+      "macro_id": {
+        "description": "The ID of the macro to apply.",
+        "examples": [26923127755548],
+        "human_parameter_description": "The ID of the macro you want to preview on the ticket.",
+        "human_parameter_name": "Macro ID",
+        "title": "Macro Id",
+        "type": "integer"
+      },
+      "ticket_id": {
+        "description": "The ID of the ticket to preview the macro on.",
+        "examples": [88],
+        "human_parameter_description": "The ID number of the Zendesk ticket you want to preview the macro on.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id", "macro_id"],
+    "title": "ApplyZendeskMacroRequest",
+    "type": "object"
+  },
+  "name": "apply_zendesk_macro",
+  "outputSchema": {
+    "$defs": {
+      "ApplyZendeskMacroResponse": {
+        "description": "Response model for the Zendesk macro apply preview action.",
+        "properties": {
+          "ticket": {
+            "$ref": "#/$defs/MacroTicket",
+            "description": "The ticket object as it would appear after applying the macro. Use this to preview how the ticket will look before actually applying the macro.",
+            "title": "Ticket"
+          }
+        },
+        "required": ["ticket"],
+        "title": "ApplyZendeskMacroResponse",
+        "type": "object"
+      },
+      "CustomField": {
+        "description": "Custom field for a ticket.",
+        "properties": {
+          "id": {
+            "description": "The ID of the custom field.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "The value of the custom field.",
+            "title": "Value"
+          }
+        },
+        "required": ["id"],
+        "title": "CustomField",
+        "type": "object"
+      },
+      "MacroAttachment": {
+        "description": "Attachment associated with a comment.",
+        "properties": {
+          "contentType": {
+            "description": "The content type of the image. Example value: image/png.",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "contentUrl": {
+            "description": "A full URL where the attachment image file can be downloaded.",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "If true, the attachment has been deleted.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "fileName": {
+            "description": "The name of the image file.",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The height of the image file in pixels. Zendesk returns this as an integer; the union accepts strings for forward-compatibility. Null if height is unknown.",
+            "title": "Height"
+          },
+          "id": {
+            "description": "Automatically assigned when created.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "If true, the attachment is excluded from the attachment list and URL can be referenced within ticket comment.",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malwareAccessOverride": {
+            "description": "If true, you can download an attachment flagged as malware.",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malwareScanResult": {
+            "description": "Result of malware scan. Possible values: malware_found, malware_not_found, failed_to_scan, not_scanned.",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mappedContentUrl": {
+            "description": "The URL the attachment image file has been mapped to.",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "The size of the image file in bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "An array of attachment objects. Note that photo thumbnails do not have thumbnails.",
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          },
+          "url": {
+            "description": "A URL to access the attachment details.",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The width of the image file in pixels. Zendesk returns this as an integer; the union accepts strings for forward-compatibility. Null if width is unknown.",
+            "title": "Width"
+          }
+        },
+        "title": "MacroAttachment",
+        "type": "object"
+      },
+      "MacroTicket": {
+        "description": "Ticket object as it would appear after applying the macro.",
+        "properties": {
+          "recipient": {
+            "description": "The original recipient e-mail address of the ticket.",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "url": {
+            "description": "The API url of this ticket.",
+            "title": "Url",
+            "type": "string"
+          },
+          "satisfactionRating": {
+            "$ref": "#/$defs/SatisfactionRating",
+            "description": "The satisfaction rating of the ticket, if it exists.",
+            "title": "Satisfaction Rating"
+          },
+          "updatedAt": {
+            "description": "When this record last got updated.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "customFields": {
+            "description": "Custom fields for the ticket.",
+            "items": {
+              "$ref": "#/$defs/CustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "forumTopicId": {
+            "description": "The topic in the Zendesk Web portal this ticket originated from, if any. Deprecated.",
+            "title": "Forum Topic Id",
+            "type": "integer"
+          },
+          "emailCcIds": {
+            "description": "The ids of agents or end users currently CC'ed on the ticket.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Email Cc Ids",
+            "type": "array"
+          },
+          "customStatusId": {
+            "description": "The custom ticket status id of the ticket.",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "comment": {
+            "$ref": "#/$defs/MacroTicketComment",
+            "description": "Comment that would be added by the macro.",
+            "title": "Comment"
+          },
+          "description": {
+            "description": "Read-only first comment on the ticket.",
+            "title": "Description",
+            "type": "string"
+          },
+          "tags": {
+            "description": "The array of tags applied to this ticket.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "status": {
+            "description": "The state of the ticket. Possible values: 'new', 'open', 'pending', 'hold', 'solved', or 'closed'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "priority": {
+            "description": "The urgency with which the ticket should be addressed. Possible values: 'urgent', 'high', 'normal', 'low'.",
+            "title": "Priority",
+            "type": "string"
+          },
+          "hasIncidents": {
+            "description": "Is true if a ticket is a problem type and has one or more incidents linked to it. Otherwise, the value is false.",
+            "title": "Has Incidents",
+            "type": "boolean"
+          },
+          "organizationId": {
+            "description": "The organization of the requester.",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "groupId": {
+            "description": "The group this ticket is assigned to.",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "assigneeId": {
+            "description": "The agent currently assigned to the ticket.",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "The type of this ticket. Possible values: 'problem', 'incident', 'question', or 'task'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "problemId": {
+            "description": "For tickets of type 'incident', the ID of the problem the incident is linked to.",
+            "title": "Problem Id",
+            "type": "integer"
+          },
+          "generatedTimestamp": {
+            "description": "Unix timestamp reflecting the most accurate time of last update.",
+            "title": "Generated Timestamp",
+            "type": "integer"
+          },
+          "createdAt": {
+            "description": "When this record was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "isPublic": {
+            "description": "Is true if any comments are public, false otherwise.",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "allowAttachments": {
+            "description": "Permission for agents to add attachments to a comment. Defaults to true.",
+            "title": "Allow Attachments",
+            "type": "boolean"
+          },
+          "submitterId": {
+            "description": "The user who submitted the ticket. The submitter always becomes the author of the first comment on the ticket.",
+            "title": "Submitter Id",
+            "type": "integer"
+          },
+          "dueAt": {
+            "description": "If this is a ticket of type 'task' it has a due date. Due date format uses ISO 8601 format.",
+            "title": "Due At",
+            "type": "string"
+          },
+          "assigneeEmail": {
+            "description": "Write-only. The email address of the agent to assign the ticket to.",
+            "title": "Assignee Email",
+            "type": "string"
+          },
+          "brandId": {
+            "description": "Enterprise only. The id of the brand this ticket is associated with.",
+            "title": "Brand Id",
+            "type": "integer"
+          },
+          "rawSubject": {
+            "description": "The dynamic content placeholder, if present, or the subject value, if not.",
+            "title": "Raw Subject",
+            "type": "string"
+          },
+          "followerIds": {
+            "description": "The ids of agents currently following the ticket.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Follower Ids",
+            "type": "array"
+          },
+          "externalId": {
+            "description": "An id you can use to link Zendesk Support tickets to local records.",
+            "title": "External Id",
+            "type": "string"
+          },
+          "allowChannelback": {
+            "description": "Is false if channelback is disabled, true otherwise.",
+            "title": "Allow Channelback",
+            "type": "boolean"
+          },
+          "followupIds": {
+            "description": "The ids of the followups created from this ticket.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Followup Ids",
+            "type": "array"
+          },
+          "subject": {
+            "description": "The value of the subject field for this ticket.",
+            "title": "Subject",
+            "type": "string"
+          },
+          "collaboratorIds": {
+            "description": "The ids of users currently CC'ed on the ticket.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "fromMessagingChannel": {
+            "description": "If true, the ticket's via type is a messaging channel.",
+            "title": "From Messaging Channel",
+            "type": "boolean"
+          },
+          "sharingAgreementIds": {
+            "description": "The ids of the sharing agreements used for this ticket.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sharing Agreement Ids",
+            "type": "array"
+          },
+          "id": {
+            "description": "Automatically assigned when the ticket is created.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "ticketFormId": {
+            "description": "Enterprise only. The id of the ticket form to render for the ticket.",
+            "title": "Ticket Form Id",
+            "type": "integer"
+          },
+          "requesterId": {
+            "description": "The user who requested this ticket.",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "fields": {
+            "description": "Ticket field values that would be changed by the macro.",
+            "items": {
+              "$ref": "#/$defs/MacroTicketField"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/$defs/Via",
+            "description": "This object explains how the ticket or event was created.",
+            "title": "Via"
+          }
+        },
+        "required": ["id"],
+        "title": "MacroTicket",
+        "type": "object"
+      },
+      "MacroTicketComment": {
+        "description": "Comment on the ticket.",
+        "properties": {
+          "attachments": {
+            "description": "List of attachments associated with the comment.",
+            "items": {
+              "$ref": "#/$defs/MacroAttachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "audit_id": {
+            "description": "The audit ID associated with the comment.",
+            "title": "Audit Id",
+            "type": "integer"
+          },
+          "author_id": {
+            "description": "The ID of the author of the comment.",
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "body": {
+            "description": "The body content of the comment.",
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "The timestamp when the comment was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "html_body": {
+            "description": "The HTML formatted body of the comment.",
+            "title": "Html Body",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the comment.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "plain_body": {
+            "description": "The plain text body of the comment.",
+            "title": "Plain Body",
+            "type": "string"
+          },
+          "public": {
+            "description": "Indicates if the comment is public.",
+            "title": "Public",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "The type of the comment.",
+            "title": "Type",
+            "type": "string"
+          },
+          "via": {
+            "$ref": "#/$defs/Via",
+            "description": "The method through which the comment was added.",
+            "title": "Via"
+          }
+        },
+        "title": "MacroTicketComment",
+        "type": "object"
+      },
+      "MacroTicketField": {
+        "description": "Field value on the ticket.",
+        "properties": {
+          "id": {
+            "description": "The ID of the field.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "The value of the field after macro application.",
+            "title": "Value"
+          }
+        },
+        "title": "MacroTicketField",
+        "type": "object"
+      },
+      "SatisfactionRating": {
+        "description": "Satisfaction rating for a ticket.",
+        "properties": {
+          "assignee_id": {
+            "description": "The id of agent assigned to at the time of rating.",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "comment": {
+            "description": "The comment received with this rating, if available.",
+            "title": "Comment",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "The time the satisfaction rating got created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "The id of group assigned to at the time of rating.",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Automatically assigned upon creation.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "The reason for a bad rating given by the requester.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "reason_id": {
+            "description": "The id of the reason for a bad rating.",
+            "title": "Reason Id",
+            "type": "integer"
+          },
+          "requester_id": {
+            "description": "The id of ticket requester submitting the rating.",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "score": {
+            "description": "The rating value. Possible values: 'offered', 'unoffered', 'good', 'bad'.",
+            "title": "Score",
+            "type": "string"
+          },
+          "ticket_id": {
+            "description": "The id of ticket being rated.",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "The time the satisfaction rating got updated.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "The API url of this rating.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "SatisfactionRating",
+        "type": "object"
+      },
+      "Via": {
+        "description": "Information about how the ticket or event was created.",
+        "properties": {
+          "channel": {
+            "description": "The channel through which the ticket was created. Examples: 'email', 'api', 'chat', 'web', 'mobile', 'twitter', 'facebook', 'trigger'.",
+            "title": "Channel",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/ViaSource",
+            "description": "Additional information about the source of the ticket.",
+            "title": "Source"
+          }
+        },
+        "title": "Via",
+        "type": "object"
+      },
+      "ViaSource": {
+        "description": "Source information for the via object.",
+        "properties": {
+          "from": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Information about the originator. Structure varies by channel type.",
+            "title": "From",
+            "type": "object"
+          },
+          "rel": {
+            "description": "The relationship type. Examples: 'trigger', 'merge'.",
+            "title": "Rel",
+            "type": "string"
+          },
+          "to": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Information about the destination. Structure varies by channel type.",
+            "title": "To",
+            "type": "object"
+          }
+        },
+        "title": "ViaSource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ApplyZendeskMacroResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

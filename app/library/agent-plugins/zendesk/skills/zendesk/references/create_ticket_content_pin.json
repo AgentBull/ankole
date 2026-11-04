@@ -1,0 +1,116 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a ticket content pin in Zendesk. Content pins allow you to attach helpful resources like Help Center articles or external content directly to tickets for easy reference. Use this action when you need to: - Attach a Help Center article to a ticket for context - Pin an external knowledge base article to a ticket - Add relevant documentation or resources to a support ticket",
+  "inputSchema": {
+    "description": "Request parameters for creating a ticket content pin in Zendesk.",
+    "properties": {
+      "content_id": {
+        "description": "The ID of the content to pin",
+        "examples": ["67890", "article_123"],
+        "human_parameter_description": "The unique identifier of the content to pin. This could be an article ID, external content ID, or other supported content type identifier.",
+        "human_parameter_name": "Content ID",
+        "title": "Content Id",
+        "type": "string"
+      },
+      "content_type": {
+        "description": "The type of content being pinned. Common values include 'article' for Help Center articles and 'external_content' for external resources.",
+        "examples": ["article", "external_content"],
+        "human_parameter_description": "The type of content to pin. Use 'article' for Help Center articles or 'external_content' for external resources.",
+        "human_parameter_name": "Content Type",
+        "title": "Content Type",
+        "type": "string"
+      },
+      "locale": {
+        "description": "The locale for the content pin. Required when content_type is 'external_content' — Zendesk rejects external-content pins with no locale ('External contents must have locale to be able to get pinned to tickets.'). Also required when pinning articles. Format: language + underscore + locale code (e.g., 'en-us', 'fr-ca').",
+        "examples": ["en-us", "fr-ca"],
+        "human_parameter_description": "The locale/language code for the content pin. Required for both Help Center articles and external content. Format: 'en-us', 'fr-ca', etc.",
+        "human_parameter_name": "Locale",
+        "title": "Locale",
+        "type": "string"
+      },
+      "ticket_id": {
+        "description": "The ID of the ticket to which the content pin will be added",
+        "examples": ["12345", "67890"],
+        "human_parameter_description": "The numeric ID of the ticket you want to pin content to. You can find the ticket ID from the ticket URL or by listing tickets.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "string"
+      }
+    },
+    "required": ["ticket_id", "content_id", "content_type"],
+    "title": "CreateTicketContentPinRequest",
+    "type": "object"
+  },
+  "name": "create_ticket_content_pin",
+  "outputSchema": {
+    "$defs": {
+      "CreateTicketContentPinResponse": {
+        "description": "Response from creating a ticket content pin in Zendesk.",
+        "properties": {
+          "account_id": {
+            "description": "The ID of the account that owns the content pin",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "content_id": {
+            "description": "The ID of the content that is pinned",
+            "title": "Content Id",
+            "type": "string"
+          },
+          "content_type": {
+            "description": "The type of content that is pinned. Example: external_content",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "The timestamp when the content pin was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier for the content pin",
+            "title": "Id",
+            "type": "string"
+          },
+          "locale": {
+            "description": "The locale of the content pin",
+            "title": "Locale",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the content pin creation was successful",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "ticket_id": {
+            "description": "The ID of the ticket associated with the content pin",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL to access the pinned content",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["success", "id", "ticket_id", "content_id", "content_type"],
+        "title": "CreateTicketContentPinResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateTicketContentPinResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

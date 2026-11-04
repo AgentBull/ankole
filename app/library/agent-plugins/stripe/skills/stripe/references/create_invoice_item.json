@@ -1,0 +1,587 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create an invoice item for draft invoices. Use when adding line items to customer invoices before finalization.",
+  "inputSchema": {
+    "description": "Request schema for creating a Stripe invoice item.",
+    "properties": {
+      "amount": {
+        "description": "Amount in cents to charge. Use negative values to reduce amount_due on invoice.",
+        "examples": [2500, -1000],
+        "title": "Amount",
+        "type": "integer"
+      },
+      "currency": {
+        "description": "Three-letter ISO currency code in lowercase. Must be a supported currency.",
+        "examples": ["usd", "eur", "gbp"],
+        "title": "Currency",
+        "type": "string"
+      },
+      "customer": {
+        "description": "Customer ID to bill for this item.",
+        "examples": ["cus_TepUhhYa8NiXEK"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "customer_account": {
+        "description": "Account ID representing the customer.",
+        "examples": ["acct_1234567890"],
+        "title": "Customer Account",
+        "type": "string"
+      },
+      "description": {
+        "description": "Arbitrary string displayed on the invoice.",
+        "examples": ["Test invoice item for API testing", "One-time setup fee"],
+        "title": "Description",
+        "type": "string"
+      },
+      "discountable": {
+        "description": "Controls whether discounts apply. Defaults to false for prorations/negative items.",
+        "examples": [true, false],
+        "title": "Discountable",
+        "type": "boolean"
+      },
+      "discounts": {
+        "description": "List of coupons and promotion codes to apply.",
+        "items": {
+          "description": "Discount to apply to the invoice item.",
+          "properties": {
+            "coupon": {
+              "description": "Coupon ID to apply.",
+              "examples": ["SUMMER25OFF"],
+              "title": "Coupon",
+              "type": "string"
+            },
+            "discount": {
+              "description": "Existing discount ID to apply.",
+              "examples": ["di_1234567890"],
+              "title": "Discount",
+              "type": "string"
+            },
+            "promotion_code": {
+              "description": "Promotion code ID to apply.",
+              "examples": ["promo_1234567890"],
+              "title": "Promotion Code",
+              "type": "string"
+            }
+          },
+          "title": "Discount",
+          "type": "object"
+        },
+        "title": "Discounts",
+        "type": "array"
+      },
+      "invoice": {
+        "description": "Existing draft invoice ID. Maximum 250 items per invoice.",
+        "examples": ["in_1234567890"],
+        "title": "Invoice",
+        "type": "string"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Key-value pairs for storing additional information.",
+        "examples": [
+          {
+            "item_type": "addon",
+            "order_id": "12345"
+          }
+        ],
+        "title": "Metadata",
+        "type": "object"
+      },
+      "period": {
+        "additionalProperties": false,
+        "description": "Period associated with the invoice item.",
+        "properties": {
+          "end": {
+            "description": "Period end timestamp (inclusive, must be >= start).",
+            "examples": [1681564800],
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "description": "Period start timestamp (inclusive).",
+            "examples": [1678886400],
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "Period",
+        "type": "object"
+      },
+      "price_data": {
+        "additionalProperties": false,
+        "description": "Data to generate a new Price object inline.",
+        "properties": {
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase.",
+            "examples": ["usd", "eur", "gbp"],
+            "title": "Currency",
+            "type": "string"
+          },
+          "product": {
+            "description": "Product ID for the price.",
+            "examples": ["prod_1234567890"],
+            "title": "Product",
+            "type": "string"
+          },
+          "tax_behavior": {
+            "description": "Tax behavior: exclusive, inclusive, or unspecified.",
+            "examples": ["exclusive", "inclusive", "unspecified"],
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "Unit amount in cents (must be >= 0). Use unit_amount_decimal for fractional amounts.",
+            "examples": [2500, 1000],
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Unit amount as decimal string (up to 12 decimal places). Alternative to unit_amount.",
+            "examples": ["25.50", "10.99"],
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["currency", "product"],
+        "title": "PriceData",
+        "type": "object"
+      },
+      "pricing": {
+        "additionalProperties": false,
+        "description": "Pricing information for the invoice item.",
+        "properties": {
+          "price": {
+            "description": "Price object ID.",
+            "examples": ["price_1234567890"],
+            "title": "Price",
+            "type": "string"
+          }
+        },
+        "title": "Pricing",
+        "type": "object"
+      },
+      "quantity": {
+        "description": "Non-negative quantity of units.",
+        "examples": [1, 5, 10],
+        "title": "Quantity",
+        "type": "integer"
+      },
+      "subscription": {
+        "description": "Subscription ID to add this item to.",
+        "examples": ["sub_1234567890"],
+        "title": "Subscription",
+        "type": "string"
+      },
+      "tax_behavior": {
+        "description": "Tax behavior: exclusive, inclusive, or unspecified. Recommended to set.",
+        "examples": ["exclusive", "inclusive", "unspecified"],
+        "title": "Tax Behavior",
+        "type": "string"
+      },
+      "tax_code": {
+        "description": "Tax code ID. Recommended to set for accurate tax calculation.",
+        "examples": ["txcd_10000000"],
+        "title": "Tax Code",
+        "type": "string"
+      },
+      "tax_rates": {
+        "description": "Tax rate IDs. Overrides invoice default tax rates.",
+        "examples": [["txr_1234567890", "txr_0987654321"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Tax Rates",
+        "type": "array"
+      },
+      "unit_amount_decimal": {
+        "description": "Decimal unit amount (up to 12 decimal places). Alternative to amount.",
+        "examples": ["25.50", "10.99"],
+        "title": "Unit Amount Decimal",
+        "type": "string"
+      }
+    },
+    "title": "CreateInvoiceItemRequest",
+    "type": "object"
+  },
+  "name": "create_invoice_item",
+  "outputSchema": {
+    "$defs": {
+      "CreateInvoiceItemResponse": {
+        "description": "Response from creating an invoice item.",
+        "properties": {
+          "amount": {
+            "description": "Amount in cents",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code",
+            "title": "Currency",
+            "type": "string"
+          },
+          "customer": {
+            "description": "Customer ID",
+            "title": "Customer",
+            "type": "string"
+          },
+          "customer_account": {
+            "description": "Account ID representing the customer",
+            "title": "Customer Account",
+            "type": "string"
+          },
+          "date": {
+            "description": "Creation timestamp",
+            "title": "Date",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Item description",
+            "title": "Description",
+            "type": "string"
+          },
+          "discountable": {
+            "description": "Whether discounts apply",
+            "title": "Discountable",
+            "type": "boolean"
+          },
+          "discounts": {
+            "description": "Applied discount IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the invoice item",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "Associated invoice ID",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live or test mode indicator",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom key-value pairs",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "net_amount": {
+            "description": "Amount after discounts in cents",
+            "title": "Net Amount",
+            "type": "integer"
+          },
+          "object": {
+            "description": "Always 'invoiceitem'",
+            "title": "Object",
+            "type": "string"
+          },
+          "parent": {
+            "$ref": "#/$defs/ParentObject",
+            "description": "Parent that generated item",
+            "title": "Parent"
+          },
+          "period": {
+            "$ref": "#/$defs/PeriodResponse",
+            "description": "Associated period",
+            "title": "Period"
+          },
+          "pricing": {
+            "$ref": "#/$defs/PricingResponse",
+            "description": "Pricing details",
+            "title": "Pricing"
+          },
+          "proration": {
+            "description": "Proration indicator",
+            "title": "Proration",
+            "type": "boolean"
+          },
+          "proration_details": {
+            "$ref": "#/$defs/ProrationDetails",
+            "description": "Proration information",
+            "title": "Proration Details"
+          },
+          "quantity": {
+            "description": "Unit quantity",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "tax_rates": {
+            "description": "Applied tax rates",
+            "items": {
+              "$ref": "#/$defs/TaxRate"
+            },
+            "title": "Tax Rates",
+            "type": "array"
+          },
+          "test_clock": {
+            "description": "Test clock reference",
+            "title": "Test Clock",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "currency",
+          "customer",
+          "date",
+          "discountable",
+          "livemode",
+          "period",
+          "proration",
+          "quantity"
+        ],
+        "title": "CreateInvoiceItemResponse",
+        "type": "object"
+      },
+      "ParentObject": {
+        "description": "Parent object that generated this item.",
+        "properties": {
+          "subscription_details": {
+            "$ref": "#/$defs/SubscriptionDetails",
+            "description": "Subscription details",
+            "title": "Subscription Details"
+          },
+          "type": {
+            "description": "Parent type",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "ParentObject",
+        "type": "object"
+      },
+      "PeriodResponse": {
+        "description": "Associated period for the invoice item.",
+        "properties": {
+          "end": {
+            "description": "Period end timestamp",
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "description": "Period start timestamp",
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "PeriodResponse",
+        "type": "object"
+      },
+      "PriceDetails": {
+        "description": "Price information details.",
+        "properties": {
+          "price": {
+            "description": "Price ID",
+            "title": "Price",
+            "type": "string"
+          },
+          "product": {
+            "description": "Product ID",
+            "title": "Product",
+            "type": "string"
+          }
+        },
+        "required": ["price", "product"],
+        "title": "PriceDetails",
+        "type": "object"
+      },
+      "PricingResponse": {
+        "description": "Pricing details for the invoice item.",
+        "properties": {
+          "price_details": {
+            "$ref": "#/$defs/PriceDetails",
+            "description": "Price information",
+            "title": "Price Details"
+          },
+          "type": {
+            "description": "Pricing type",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount_decimal": {
+            "description": "Decimal unit amount",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "PricingResponse",
+        "type": "object"
+      },
+      "ProrationDetails": {
+        "description": "Proration information.",
+        "properties": {
+          "discount_amounts": {
+            "description": "Discount amounts applied",
+            "items": {
+              "$ref": "#/$defs/ProrationDiscountAmount"
+            },
+            "title": "Discount Amounts",
+            "type": "array"
+          }
+        },
+        "title": "ProrationDetails",
+        "type": "object"
+      },
+      "ProrationDiscountAmount": {
+        "description": "Discount amount applied during proration.",
+        "properties": {
+          "amount": {
+            "description": "Discount in cents",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "discount": {
+            "description": "Discount ID",
+            "title": "Discount",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "discount"],
+        "title": "ProrationDiscountAmount",
+        "type": "object"
+      },
+      "SubscriptionDetails": {
+        "description": "Subscription details in parent object.",
+        "properties": {
+          "subscription": {
+            "description": "Subscription ID",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "subscription_item": {
+            "description": "Subscription item ID",
+            "title": "Subscription Item",
+            "type": "string"
+          }
+        },
+        "required": ["subscription"],
+        "title": "SubscriptionDetails",
+        "type": "object"
+      },
+      "TaxRate": {
+        "description": "Tax rate object.",
+        "properties": {
+          "active": {
+            "description": "Whether tax rate is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "country": {
+            "description": "Country code",
+            "title": "Country",
+            "type": "string"
+          },
+          "created": {
+            "description": "Creation timestamp",
+            "title": "Created",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Internal description",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "Customer-facing display name",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "effective_percentage": {
+            "description": "Actual rate percentage",
+            "title": "Effective Percentage",
+            "type": "number"
+          },
+          "id": {
+            "description": "Unique tax rate identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "inclusive": {
+            "description": "Whether tax is inclusive",
+            "title": "Inclusive",
+            "type": "boolean"
+          },
+          "jurisdiction": {
+            "description": "Jurisdiction",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "jurisdiction_level": {
+            "description": "Jurisdiction level",
+            "title": "Jurisdiction Level",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live or test mode",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "Always 'tax_rate'",
+            "title": "Object",
+            "type": "string"
+          },
+          "percentage": {
+            "description": "Tax rate percentage",
+            "title": "Percentage",
+            "type": "number"
+          },
+          "state": {
+            "description": "State code",
+            "title": "State",
+            "type": "string"
+          },
+          "tax_type": {
+            "description": "Tax type",
+            "title": "Tax Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "active", "created", "display_name", "inclusive", "livemode", "percentage"],
+        "title": "TaxRate",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateInvoiceItemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

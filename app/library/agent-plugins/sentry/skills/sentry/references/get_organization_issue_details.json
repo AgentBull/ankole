@@ -1,0 +1,701 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information for a specific issue within a Sentry organization. Accepts both numeric issue IDs (e.g., '7159174717') and short IDs displayed in the Sentry UI (e.g., 'PROJECT-123', 'SENTRY-4V'). Short IDs are automatically resolved to numeric IDs before fetching issue details.",
+  "inputSchema": {
+    "description": "Request schema for retrieving detailed information about a specific issue within an organization.",
+    "properties": {
+      "issue_id": {
+        "description": "The issue ID. Can be either a numeric ID (e.g., '7159174717') or a short ID displayed in the Sentry UI (e.g., 'PROJECT-123', 'SENTRY-4V'). Short IDs will be automatically resolved to numeric IDs.",
+        "examples": ["7159174717", "PROJECT-123", "SENTRY-4V"],
+        "title": "Issue Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or URL-friendly slug of the Sentry organization to which the issue belongs.",
+        "examples": ["my-organization-slug", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "issue_id"],
+    "title": "GetOrganizationIssueDetailsRequest",
+    "type": "object"
+  },
+  "name": "get_organization_issue_details",
+  "outputSchema": {
+    "$defs": {
+      "Activity": {
+        "description": "Activity record for an issue.",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "description": "Activity-specific data",
+            "title": "Data",
+            "type": "object"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when activity was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "id": {
+            "description": "Activity record identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "description": "Activity type (e.g., 'first_seen', 'note', 'assigned')",
+            "title": "Type",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "User who performed the activity (nullable)",
+            "title": "User"
+          }
+        },
+        "required": ["id", "type", "data", "dateCreated"],
+        "title": "Activity",
+        "type": "object"
+      },
+      "Annotation": {
+        "description": "Annotation object linking to external issue trackers.",
+        "properties": {
+          "displayName": {
+            "description": "Display name for the annotation",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL link to external resource",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "Annotation",
+        "type": "object"
+      },
+      "AssignedTo": {
+        "description": "Assignment details (nullable).",
+        "properties": {
+          "email": {
+            "description": "Email address of the assignee (for user type)",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identifier of the assignee",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the assignee",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of assignee (e.g., 'user', 'team')",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "name"],
+        "title": "AssignedTo",
+        "type": "object"
+      },
+      "GetOrganizationIssueDetailsResponse": {
+        "description": "Response schema containing the detailed information of the specified issue.",
+        "properties": {
+          "project": {
+            "$ref": "#/$defs/Project",
+            "description": "Project details",
+            "title": "Project"
+          },
+          "subscriptionDetails": {
+            "$ref": "#/$defs/SubscriptionDetails",
+            "description": "Subscription information (nullable)",
+            "title": "Subscription Details"
+          },
+          "lastSeen": {
+            "description": "ISO 8601 timestamp of last occurrence",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "hasSeen": {
+            "description": "Whether the current user has viewed this issue",
+            "title": "Has Seen",
+            "type": "boolean"
+          },
+          "activity": {
+            "description": "List of activity records for this issue",
+            "items": {
+              "$ref": "#/$defs/Activity"
+            },
+            "title": "Activity",
+            "type": "array"
+          },
+          "pluginIssues": {
+            "description": "Array of plugin-related issue objects",
+            "items": {},
+            "title": "Plugin Issues",
+            "type": "array"
+          },
+          "lastRelease": {
+            "$ref": "#/$defs/Release",
+            "description": "Most recent release where the issue appeared (nullable, same structure as firstRelease)",
+            "title": "Last Release"
+          },
+          "isBookmarked": {
+            "description": "Whether the current user has bookmarked this issue",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "culprit": {
+            "description": "Function/location where the error occurred (e.g., 'raven.scripts.runner in main')",
+            "title": "Culprit",
+            "type": "string"
+          },
+          "participants": {
+            "description": "List of users involved with this issue",
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Participants",
+            "type": "array"
+          },
+          "stats": {
+            "$ref": "#/$defs/Stats",
+            "description": "Time-series occurrence statistics",
+            "title": "Stats"
+          },
+          "logger": {
+            "description": "Logger name (nullable)",
+            "title": "Logger",
+            "type": "string"
+          },
+          "level": {
+            "description": "Severity level (e.g., 'error', 'warning', 'info')",
+            "title": "Level",
+            "type": "string"
+          },
+          "tags": {
+            "description": "Associated tags for filtering and categorization",
+            "items": {
+              "$ref": "#/$defs/Tag"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "annotations": {
+            "description": "Array of annotation objects linking to external issue trackers",
+            "items": {
+              "$ref": "#/$defs/Annotation"
+            },
+            "title": "Annotations",
+            "type": "array"
+          },
+          "isUnhandled": {
+            "description": "Whether the error was unhandled",
+            "title": "Is Unhandled",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "Issue status: 'resolved', 'unresolved', or 'ignored'",
+            "title": "Status",
+            "type": "string"
+          },
+          "numComments": {
+            "description": "Number of comments on the issue",
+            "title": "Num Comments",
+            "type": "integer"
+          },
+          "pluginContexts": {
+            "description": "Array of plugin context identifiers",
+            "items": {},
+            "title": "Plugin Contexts",
+            "type": "array"
+          },
+          "permalink": {
+            "description": "Full URL to the issue",
+            "title": "Permalink",
+            "type": "string"
+          },
+          "type": {
+            "description": "Issue type/category (e.g., 'default', 'error')",
+            "title": "Type",
+            "type": "string"
+          },
+          "assignedTo": {
+            "$ref": "#/$defs/AssignedTo",
+            "description": "Assignment details (nullable)",
+            "title": "Assigned To"
+          },
+          "shareId": {
+            "description": "Public share identifier for the issue (nullable)",
+            "title": "Share Id",
+            "type": "string"
+          },
+          "isPublic": {
+            "description": "Public visibility flag",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "count": {
+            "description": "Total occurrence count",
+            "title": "Count",
+            "type": "string"
+          },
+          "seenBy": {
+            "description": "List of users who have viewed this issue",
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Seen By",
+            "type": "array"
+          },
+          "firstSeen": {
+            "description": "ISO 8601 timestamp of first occurrence",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "userReportCount": {
+            "description": "Number of user-submitted reports for this issue",
+            "title": "User Report Count",
+            "type": "integer"
+          },
+          "pluginActions": {
+            "description": "Array of plugin action arrays for integration actions",
+            "items": {},
+            "title": "Plugin Actions",
+            "type": "array"
+          },
+          "platform": {
+            "description": "Technology platform (e.g., 'python', 'javascript')",
+            "title": "Platform",
+            "type": "string"
+          },
+          "isSubscribed": {
+            "description": "Whether the current user is subscribed to this issue",
+            "title": "Is Subscribed",
+            "type": "boolean"
+          },
+          "firstRelease": {
+            "$ref": "#/$defs/Release",
+            "description": "Initial release information when the issue first appeared (nullable)",
+            "title": "First Release"
+          },
+          "shortId": {
+            "description": "Human-readable issue ID (e.g., 'PUMP-STATION-1')",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "userCount": {
+            "description": "Number of unique users affected by this issue",
+            "title": "User Count",
+            "type": "integer"
+          },
+          "metadata": {
+            "$ref": "#/$defs/Metadata",
+            "description": "Error metadata with one of two schemas: {filename, type, value} OR {title}",
+            "title": "Metadata"
+          },
+          "id": {
+            "description": "Unique issue identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "statusDetails": {
+            "$ref": "#/$defs/StatusDetails",
+            "description": "Status-related metadata including resolution details",
+            "title": "Status Details"
+          },
+          "title": {
+            "description": "Issue title/message",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "shortId",
+          "title",
+          "culprit",
+          "permalink",
+          "level",
+          "status",
+          "statusDetails",
+          "isPublic",
+          "project",
+          "type",
+          "metadata",
+          "numComments",
+          "isBookmarked",
+          "isSubscribed",
+          "hasSeen",
+          "annotations",
+          "count",
+          "userCount",
+          "firstSeen",
+          "lastSeen",
+          "stats",
+          "activity",
+          "participants",
+          "seenBy",
+          "pluginActions",
+          "pluginContexts",
+          "pluginIssues",
+          "userReportCount",
+          "tags"
+        ],
+        "title": "GetOrganizationIssueDetailsResponse",
+        "type": "object"
+      },
+      "Metadata": {
+        "description": "Error metadata with one of two schemas: {filename, type, value} OR {title}.",
+        "properties": {
+          "filename": {
+            "description": "File where error occurred",
+            "title": "Filename",
+            "type": "string"
+          },
+          "title": {
+            "description": "Issue title description",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Error type (e.g., 'ForbiddenError')",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "Descriptive error value",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "Metadata",
+        "type": "object"
+      },
+      "Project": {
+        "description": "Project details.",
+        "properties": {
+          "id": {
+            "description": "Numeric string identifier of the project",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable project name",
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Project platform",
+            "title": "Platform",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly project identifier",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "slug"],
+        "title": "Project",
+        "type": "object"
+      },
+      "Release": {
+        "description": "Release information when the issue appeared.",
+        "properties": {
+          "authors": {
+            "description": "Array of authors who contributed to the release",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "commitCount": {
+            "description": "Number of commits in the release",
+            "title": "Commit Count",
+            "type": "integer"
+          },
+          "data": {
+            "additionalProperties": true,
+            "description": "Additional release data",
+            "title": "Data",
+            "type": "object"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when release was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateReleased": {
+            "description": "ISO 8601 timestamp when release was deployed",
+            "title": "Date Released",
+            "type": "string"
+          },
+          "deployCount": {
+            "description": "Number of deployments for this release",
+            "title": "Deploy Count",
+            "type": "integer"
+          },
+          "firstEvent": {
+            "description": "Timestamp of first event in this release",
+            "title": "First Event",
+            "type": "string"
+          },
+          "lastCommit": {
+            "additionalProperties": true,
+            "description": "Information about the last commit in the release",
+            "title": "Last Commit",
+            "type": "object"
+          },
+          "lastDeploy": {
+            "additionalProperties": true,
+            "description": "Information about the last deployment",
+            "title": "Last Deploy",
+            "type": "object"
+          },
+          "lastEvent": {
+            "description": "Timestamp of last event in this release",
+            "title": "Last Event",
+            "type": "string"
+          },
+          "newGroups": {
+            "description": "Number of new issue groups in this release",
+            "title": "New Groups",
+            "type": "integer"
+          },
+          "owner": {
+            "description": "Release owner",
+            "title": "Owner",
+            "type": "string"
+          },
+          "projects": {
+            "description": "Array of associated projects",
+            "items": {
+              "$ref": "#/$defs/ReleaseProject"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "ref": {
+            "description": "Git reference (branch/tag)",
+            "title": "Ref",
+            "type": "string"
+          },
+          "shortVersion": {
+            "description": "Shortened version identifier",
+            "title": "Short Version",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to the release",
+            "title": "Url",
+            "type": "string"
+          },
+          "version": {
+            "description": "Release version identifier",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["version", "dateCreated"],
+        "title": "Release",
+        "type": "object"
+      },
+      "ReleaseProject": {
+        "description": "Project information within a release.",
+        "properties": {
+          "name": {
+            "description": "Project name",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Project slug",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["name", "slug"],
+        "title": "ReleaseProject",
+        "type": "object"
+      },
+      "Stats": {
+        "description": "Time-series occurrence statistics.",
+        "properties": {
+          "24h": {
+            "description": "Array of [timestamp, count] pairs for last 24 hours",
+            "items": {
+              "items": {},
+              "type": "array"
+            },
+            "title": "24H",
+            "type": "array"
+          },
+          "30d": {
+            "description": "Array of [timestamp, count] pairs for last 30 days",
+            "items": {
+              "items": {},
+              "type": "array"
+            },
+            "title": "30D",
+            "type": "array"
+          }
+        },
+        "title": "Stats",
+        "type": "object"
+      },
+      "StatusDetails": {
+        "description": "Status-related metadata including resolution details.",
+        "properties": {
+          "ignoreCount": {
+            "description": "Maximum number of occurrences before an archived issue gets escalated",
+            "title": "Ignore Count",
+            "type": "integer"
+          },
+          "ignoreDuration": {
+            "description": "Duration in minutes that an archived issue should be ignored before escalation",
+            "title": "Ignore Duration",
+            "type": "integer"
+          },
+          "ignoreUserCount": {
+            "description": "Maximum number of users affected before an archived issue gets escalated",
+            "title": "Ignore User Count",
+            "type": "integer"
+          },
+          "ignoreUserWindow": {
+            "description": "Number of minutes that ignoreUserCount affected users will be ignored",
+            "title": "Ignore User Window",
+            "type": "integer"
+          },
+          "ignoreWindow": {
+            "description": "Number of minutes that ignoreCount occurrences will be ignored",
+            "title": "Ignore Window",
+            "type": "integer"
+          },
+          "inCommit": {
+            "additionalProperties": true,
+            "description": "Information about the resolution commit (repository and commit details)",
+            "title": "In Commit",
+            "type": "object"
+          },
+          "inNextRelease": {
+            "description": "True if the resolution will be in the next release",
+            "title": "In Next Release",
+            "type": "boolean"
+          },
+          "inRelease": {
+            "description": "The release that the resolution is in (e.g., 'latest')",
+            "title": "In Release",
+            "type": "string"
+          }
+        },
+        "title": "StatusDetails",
+        "type": "object"
+      },
+      "SubscriptionDetails": {
+        "description": "Subscription information (nullable).",
+        "properties": {
+          "disabled": {
+            "description": "Whether subscription is disabled",
+            "title": "Disabled",
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "Reason for subscription status",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "SubscriptionDetails",
+        "type": "object"
+      },
+      "Tag": {
+        "description": "Tag for filtering and categorization.",
+        "properties": {
+          "key": {
+            "description": "Tag key/identifier (e.g., 'browser', 'environment', 'level')",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name for the tag",
+            "title": "Name",
+            "type": "string"
+          },
+          "totalValues": {
+            "description": "Total count of all tag values",
+            "title": "Total Values",
+            "type": "integer"
+          },
+          "uniqueValues": {
+            "description": "Number of unique values for this tag",
+            "title": "Unique Values",
+            "type": "integer"
+          },
+          "value": {
+            "description": "Tag value",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["key"],
+        "title": "Tag",
+        "type": "object"
+      },
+      "User": {
+        "description": "User information.",
+        "properties": {
+          "avatarUrl": {
+            "description": "URL to user avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "email": {
+            "description": "User email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "User identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "User display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "username", "email"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationIssueDetailsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

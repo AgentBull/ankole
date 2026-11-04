@@ -1,0 +1,143 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list all audience exports for a property. Use when you need to find and reuse existing audience exports rather than creating new ones.",
+  "inputSchema": {
+    "description": "Request model for listing AudienceExports on a Google Analytics property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of audience exports to return. Default: 200, Maximum: 1000",
+        "examples": [200],
+        "maximum": 1000,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. Token from a previous response for pagination to retrieve the next page of results",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. Property identifier in format 'properties/{propertyId}'. Example: 'properties/489591273'",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListAudienceExportsRequest",
+    "type": "object"
+  },
+  "name": "list_audience_exports",
+  "outputSchema": {
+    "$defs": {
+      "AudienceDimension": {
+        "description": "Schema for an AudienceDimension included in the export.",
+        "properties": {
+          "dimensionName": {
+            "description": "API name of the dimension, e.g., 'country', 'city', 'deviceCategory'",
+            "title": "Dimension Name",
+            "type": "string"
+          }
+        },
+        "title": "AudienceDimension",
+        "type": "object"
+      },
+      "AudienceExport": {
+        "description": "Schema for an AudienceExport resource.",
+        "properties": {
+          "audience": {
+            "description": "Audience resource name format 'properties/{property}/audiences/{audience}'",
+            "title": "Audience",
+            "type": "string"
+          },
+          "audienceDisplayName": {
+            "description": "User-friendly name for the audience",
+            "title": "Audience Display Name",
+            "type": "string"
+          },
+          "beginCreatingTime": {
+            "description": "RFC3339 timestamp when creation began",
+            "title": "Begin Creating Time",
+            "type": "string"
+          },
+          "creationQuotaTokensCharged": {
+            "description": "Total quota tokens consumed during creation",
+            "title": "Creation Quota Tokens Charged",
+            "type": "integer"
+          },
+          "dimensions": {
+            "description": "Array of dimensions representing requested user attributes",
+            "items": {
+              "$ref": "#/$defs/AudienceDimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "errorMessage": {
+            "description": "Failure explanation if state is FAILED",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource identifier format 'properties/{property}/audienceExports/{audienceExport}'",
+            "title": "Name",
+            "type": "string"
+          },
+          "percentageCompleted": {
+            "description": "Creation progress as percentage (0-100)",
+            "title": "Percentage Completed",
+            "type": "number"
+          },
+          "rowCount": {
+            "description": "Total rows in the export result",
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Current status: STATE_UNSPECIFIED, CREATING, ACTIVE, or FAILED",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "AudienceExport",
+        "type": "object"
+      },
+      "ListAudienceExportsResponse": {
+        "description": "Response model for listing AudienceExports.",
+        "properties": {
+          "audienceExports": {
+            "description": "Collection of AudienceExport objects for the property",
+            "items": {
+              "$ref": "#/$defs/AudienceExport"
+            },
+            "title": "Audience Exports",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "Token for retrieving next page. Omitted if no more pages exist",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "ListAudienceExportsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListAudienceExportsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

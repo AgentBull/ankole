@@ -1,0 +1,182 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Queries busy intervals and calculates free gaps for specified calendars, without filtering by meeting duration; the range is limited to 89 days, and calendar errors produce empty free slots marked unreliable. Omitted start defaults to now, and omitted end to 23:59:59 on the applicable day in the specified timezone.",
+  "inputSchema": {
+    "properties": {
+      "calendar_expansion_max": {
+        "default": 50,
+        "description": "Maximum calendars for which FreeBusy information is provided. Must be between 1 and 50 (inclusive). Values exceeding 50 will be rejected.",
+        "human_parameter_description": "The maximum number of calendars to include in the free/busy check. Increase only if you're checking many calendars at once.",
+        "human_parameter_name": "Max Calendars",
+        "maximum": 50,
+        "minimum": 1,
+        "title": "Calendar Expansion Max",
+        "type": "integer"
+      },
+      "group_expansion_max": {
+        "default": 100,
+        "description": "Maximum calendar identifiers to return for a single group. Must be between 1 and 100 (inclusive). Values exceeding 100 will be rejected.",
+        "human_parameter_description": "The maximum number of calendars to expand when you provide a group address. Most users can keep the default.",
+        "human_parameter_name": "Max Groups",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Group Expansion Max",
+        "type": "integer"
+      },
+      "items": {
+        "default": ["primary"],
+        "description": "List of calendar identifiers to query for free/busy information. Pass as a simple list of strings, e.g., ['primary'] or ['primary', 'user@example.com']. Valid values include: 'primary' (authenticated user's main calendar), calendar IDs from the user's calendar list (typically ending in @group.calendar.google.com), or email addresses of users whose free/busy information you want to query. The FreeBusy API will return error information for any calendars that are not accessible or invalid in the response under the 'errors' key for each calendar. Calendars omitted from `items` or inaccessible are treated as free (not unknown), which can silently produce incorrect availability results.",
+        "examples": [["primary"], ["primary", "user@example.com"]],
+        "human_parameter_description": "Which calendars you want to check. Use 'primary' for your main calendar, or use calendar IDs from your calendar list.",
+        "human_parameter_name": "Calendar Items",
+        "items": {
+          "type": "string"
+        },
+        "title": "Items",
+        "type": "array"
+      },
+      "time_max": {
+        "description": "End datetime for the query interval. Accepts ISO, comma-separated, or simple datetime formats. If provided without an explicit timezone, it is interpreted in the specified `timezone`. If not provided, defaults to 23:59:59 of the day specified in `time_min` (if provided), otherwise defaults to 23:59:59 of the current day in the specified `timezone`. Maximum span between time_min and time_max is approximately 90 days per Google Calendar freeBusy API limit. `time_max` is exclusive; to cover a full day, set `time_max` to 00:00:00 of the following day in the target timezone rather than 23:59:59.",
+        "examples": ["2024-12-06T18:00:00Z", "2024,12,06,18,00,00", "2024-12-06 18:00:00"],
+        "human_parameter_description": "When to stop looking for availability. Leave this blank to use the end of the day (23:59:59) from your start time, or the current day if no start time is provided.",
+        "human_parameter_name": "End Time",
+        "title": "Time Max",
+        "type": "string"
+      },
+      "time_min": {
+        "description": "Start datetime for the query interval. Accepts ISO, comma-separated, or simple datetime formats. If provided without an explicit timezone, it is interpreted in the specified `timezone`. If not provided, defaults to the current timestamp in the specified `timezone` to ensure only future/bookable slots are returned. Maximum span between time_min and time_max is approximately 90 days per Google Calendar freeBusy API limit.",
+        "examples": ["2024-12-06T13:00:00Z", "2024,12,06,13,00,00", "2024-12-06 13:00:00"],
+        "human_parameter_description": "When to start looking for availability. Leave this blank to use the current time in your selected timezone.",
+        "human_parameter_name": "Start Time",
+        "title": "Time Min",
+        "type": "string"
+      },
+      "timezone": {
+        "default": "UTC",
+        "description": "IANA timezone identifier (e.g., 'America/New_York', 'Europe/London', 'Asia/Tokyo'). Determines how naive `time_min`/`time_max` are interpreted and the timezone used in the response for `timeMin`, `timeMax`, busy periods, and calculated free slots. Note: 'local' is not supported; use a specific IANA timezone name.",
+        "examples": ["UTC", "America/New_York", "Europe/Berlin"],
+        "human_parameter_description": "The time zone to interpret your dates and show results. Choose where you are (e.g., America/New_York or Europe/London) so times make sense to you.",
+        "human_parameter_name": "Timezone",
+        "title": "Timezone",
+        "type": "string"
+      }
+    },
+    "title": "FindFreeSlotsRequest",
+    "type": "object"
+  },
+  "name": "find_free_slots",
+  "outputSchema": {
+    "$defs": {
+      "BusyPeriod": {
+        "properties": {
+          "end": {
+            "description": "End timestamp of the busy period in ISO 8601 format.",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start timestamp of the busy period in ISO 8601 format.",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "BusyPeriod",
+        "type": "object"
+      },
+      "CalendarWindow": {
+        "properties": {
+          "busy": {
+            "description": "List of busy time ranges for the calendar within [timeMin, timeMax].",
+            "items": {
+              "$ref": "#/$defs/BusyPeriod"
+            },
+            "title": "Busy",
+            "type": "array"
+          },
+          "free": {
+            "description": "List of computed free time ranges (complement of busy periods) within [timeMin, timeMax].",
+            "items": {
+              "$ref": "#/$defs/FreePeriod"
+            },
+            "title": "Free",
+            "type": "array"
+          },
+          "is_reliable": {
+            "description": "Indicates whether the free/busy data for this calendar is reliable. Set to False when the calendar query encountered errors (e.g., notFound, forbidden), meaning the free/busy information may be incomplete or inaccurate. When False, the 'free' field will be empty even if no busy periods exist. Omitted (None) when no errors were encountered, indicating the data is reliable.",
+            "title": "Is Reliable",
+            "type": "boolean"
+          }
+        },
+        "title": "CalendarWindow",
+        "type": "object"
+      },
+      "FindFreeSlotsResponse": {
+        "properties": {
+          "calendars": {
+            "additionalProperties": {
+              "$ref": "#/$defs/CalendarWindow"
+            },
+            "description": "Map of calendar identifiers to their free/busy information within the requested window. Optional to accommodate observed responses where this key may be absent.",
+            "title": "Calendars",
+            "type": "object"
+          },
+          "display_url": {
+            "description": "URL to view this resource in Google Calendar web UI. None for computed queries with no persistent UI.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Resource type identifier. Always 'calendar#freeBusy' for free/busy queries.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "timeMax": {
+            "description": "Exclusive end of the query window in ISO 8601 format.",
+            "title": "Time Max",
+            "type": "string"
+          },
+          "timeMin": {
+            "description": "Inclusive start of the query window in ISO 8601 format.",
+            "title": "Time Min",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "timeMin", "timeMax"],
+        "title": "FindFreeSlotsResponse",
+        "type": "object"
+      },
+      "FreePeriod": {
+        "properties": {
+          "end": {
+            "description": "End timestamp of the free period in ISO 8601 format.",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start timestamp of the free period in ISO 8601 format.",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "FreePeriod",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/FindFreeSlotsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

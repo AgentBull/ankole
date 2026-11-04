@@ -1,0 +1,82 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Sets or updates the logo for a Trello organization; the provided image file must adhere to Trello's format and size restrictions.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateOrganizationLogo`",
+    "properties": {
+      "file": {
+        "additionalProperties": false,
+        "description": "The logo image file to upload. Supported formats: PNG, JPEG, GIF. Must be a valid image file.",
+        "file_uploadable": true,
+        "properties": {
+          "mimetype": {
+            "description": "The MIME type of the file",
+            "examples": [
+              "application/pdf",
+              "image/jpeg",
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ],
+            "title": "Mimetype",
+            "type": "string"
+          },
+          "name": {
+            "description": "The filename that will be used when uploading the file to the destination service",
+            "examples": ["document.pdf", "image.jpg", "report.docx"],
+            "title": "Name",
+            "type": "string"
+          },
+          "s3key": {
+            "description": "The S3 key of a publicly accessible file, typically returned from a previous download action that stored the file in S3. This key references an existing file that can be uploaded to another service.",
+            "examples": ["47563/gmail/GET_ATTACHMENT/response/12345"],
+            "title": "S3Key",
+            "type": "string"
+          }
+        },
+        "required": ["name", "mimetype", "s3key"],
+        "title": "FileUploadable",
+        "type": "object"
+      },
+      "idOrg": {
+        "description": "ID or unique name of the Trello organization.",
+        "examples": ["my-cool-organization", "654c5a9a24763113f94e8b78"],
+        "title": "Id Org",
+        "type": "string"
+      }
+    },
+    "required": ["idOrg", "file"],
+    "title": "UpdateOrganizationLogoRequest",
+    "type": "object"
+  },
+  "name": "update_organization_logo",
+  "outputSchema": {
+    "$defs": {
+      "UpdateOrganizationLogoResponse": {
+        "description": "Response schema for `UpdateOrganizationLogo` - Trello API returns only the organization ID after logo upload",
+        "properties": {
+          "id": {
+            "description": "The unique identifier of the organization",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "UpdateOrganizationLogoResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateOrganizationLogoResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

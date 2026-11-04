@@ -1,0 +1,560 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates a Sentry organization member's organization-level role and team roles. The request sends an empty team roles list by default when team roles are omitted.",
+  "inputSchema": {
+    "description": "Request schema for updating an organization member's roles.",
+    "properties": {
+      "member_id": {
+        "description": "The ID of the member whose roles are to be updated.",
+        "examples": ["102345", "9876"],
+        "title": "Member Id",
+        "type": "string"
+      },
+      "orgRole": {
+        "description": "Sets the member's new organization-level role (e.g., 'billing' for payments, 'member' for event access, 'manager' for project/team admin, 'owner' for full control). The 'admin' role is not assignable on Business/Enterprise plans; use `teamRoles` for granular admin tasks.",
+        "enum": ["billing", "member", "manager", "owner", "admin"],
+        "title": "OrgroleEnm",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization to which the member belongs.",
+        "examples": ["my-sentry-organization", "acme-corp"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "teamRoles": {
+        "default": [],
+        "description": "List of team role assignments (each object specifying `teamSlug` and `role`). This list completely replaces existing team roles. An empty list (default) removes the member from all teams. Team roles: `contributor` (views/acts on issues), `admin` (full team/project management).",
+        "items": {
+          "description": "Request schema for `TeamRoles`. Specifies a team and role assignment.",
+          "properties": {
+            "role": {
+              "description": "The team role to assign. `contributor` can view and act on issues; `admin` has full management access to the team's membership and projects.",
+              "enum": ["contributor", "admin"],
+              "examples": ["contributor", "admin"],
+              "title": "Role",
+              "type": "string"
+            },
+            "teamSlug": {
+              "description": "The slug identifier of the team to assign a role for.",
+              "examples": ["backend-team", "frontend-devs"],
+              "title": "Team Slug",
+              "type": "string"
+            }
+          },
+          "required": ["teamSlug", "role"],
+          "title": "TeamRolesRequest",
+          "type": "object"
+        },
+        "title": "Team Roles",
+        "type": "array"
+      }
+    },
+    "required": ["organization_id_or_slug", "member_id"],
+    "title": "UpdateOrganizationMemberRoleRequest",
+    "type": "object"
+  },
+  "name": "update_organization_member_role",
+  "outputSchema": {
+    "$defs": {
+      "Avatar": {
+        "description": "Avatar configuration object.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar', 'gravatar', 'upload').",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the uploaded avatar, if applicable.",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "Avatar",
+        "type": "object"
+      },
+      "MemberFlags": {
+        "description": "Object containing various status flags for the member.",
+        "properties": {
+          "idp:provisioned": {
+            "description": "Whether the member was provisioned through an identity provider.",
+            "title": "Idp:Provisioned",
+            "type": "boolean"
+          },
+          "idp:role-restricted": {
+            "description": "Whether the member's role is restricted by the identity provider.",
+            "title": "Idp:Role Restricted",
+            "type": "boolean"
+          },
+          "member-limit:restricted": {
+            "description": "Whether the member is restricted due to member limits.",
+            "title": "Member Limit:Restricted",
+            "type": "boolean"
+          },
+          "partnership:restricted": {
+            "description": "Whether the member is restricted due to partnership constraints.",
+            "title": "Partnership:Restricted",
+            "type": "boolean"
+          },
+          "sso:invalid": {
+            "description": "Whether the member's SSO link is invalid.",
+            "title": "Sso:Invalid",
+            "type": "boolean"
+          },
+          "sso:linked": {
+            "description": "Whether the member has linked their account via SSO.",
+            "title": "Sso:Linked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "idp:provisioned",
+          "idp:role-restricted",
+          "sso:linked",
+          "sso:invalid",
+          "member-limit:restricted",
+          "partnership:restricted"
+        ],
+        "title": "MemberFlags",
+        "type": "object"
+      },
+      "OrgRole": {
+        "description": "Organization role with permissions and metadata.",
+        "properties": {
+          "allowed": {
+            "description": "Whether this role is allowed for the member.",
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "desc": {
+            "description": "Description of the role's permissions and capabilities.",
+            "title": "Desc",
+            "type": "string"
+          },
+          "id": {
+            "description": "Role identifier (e.g., 'billing', 'member', 'manager', 'owner', 'admin').",
+            "title": "Id",
+            "type": "string"
+          },
+          "isAllowed": {
+            "description": "Whether this role can be assigned (duplicate of allowed).",
+            "title": "Is Allowed",
+            "type": "boolean"
+          },
+          "isGlobal": {
+            "description": "Whether this is a global role (camelCase variant).",
+            "title": "Is Global",
+            "type": "boolean"
+          },
+          "isRetired": {
+            "description": "Whether this role has been retired.",
+            "title": "Is Retired",
+            "type": "boolean"
+          },
+          "isTeamRolesAllowed": {
+            "description": "Whether team roles are allowed with this organization role.",
+            "title": "Is Team Roles Allowed",
+            "type": "boolean"
+          },
+          "is_global": {
+            "description": "Whether this is a global role.",
+            "title": "Is Global",
+            "type": "boolean"
+          },
+          "minimumTeamRole": {
+            "description": "Minimum team role required (e.g., 'contributor', 'admin').",
+            "title": "Minimum Team Role",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable role name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "scopes": {
+            "description": "List of permission scopes granted by this role.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": ["id", "name", "desc", "scopes", "allowed", "isAllowed", "isRetired"],
+        "title": "OrgRole",
+        "type": "object"
+      },
+      "TeamRole": {
+        "description": "Team role with permissions and metadata.",
+        "properties": {
+          "allowed": {
+            "description": "Whether this team role is allowed.",
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "desc": {
+            "description": "Description of the team role's permissions.",
+            "title": "Desc",
+            "type": "string"
+          },
+          "id": {
+            "description": "Team role identifier ('contributor' or 'admin').",
+            "title": "Id",
+            "type": "string"
+          },
+          "isAllowed": {
+            "description": "Whether this team role can be assigned.",
+            "title": "Is Allowed",
+            "type": "boolean"
+          },
+          "isMinimumRoleFor": {
+            "description": "Organization role for which this is the minimum team role, or null.",
+            "title": "Is Minimum Role For",
+            "type": "string"
+          },
+          "isRetired": {
+            "description": "Whether this team role has been retired.",
+            "title": "Is Retired",
+            "type": "boolean"
+          },
+          "isTeamRolesAllowed": {
+            "description": "Whether team roles are generally allowed.",
+            "title": "Is Team Roles Allowed",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Human-readable team role name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "scopes": {
+            "description": "List of permission scopes granted by this team role.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": ["id", "name", "desc", "scopes", "allowed", "isAllowed", "isRetired"],
+        "title": "TeamRole",
+        "type": "object"
+      },
+      "TeamRoleAssignment": {
+        "description": "Team role assignment for the member.",
+        "properties": {
+          "role": {
+            "description": "Team-level role. Options: 'contributor', 'admin', or null.",
+            "title": "Role",
+            "type": "string"
+          },
+          "teamSlug": {
+            "description": "Slug identifier of the team.",
+            "title": "Team Slug",
+            "type": "string"
+          }
+        },
+        "required": ["teamSlug"],
+        "title": "TeamRoleAssignment",
+        "type": "object"
+      },
+      "UpdateOrganizationMemberRoleResponse": {
+        "description": "Response schema for `UpdateOrganizationMemberRole` action, containing the updated member details.",
+        "properties": {
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the organization member was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address of the organization member.",
+            "title": "Email",
+            "type": "string"
+          },
+          "expired": {
+            "description": "Whether the member's invitation has expired.",
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "flags": {
+            "$ref": "#/$defs/MemberFlags",
+            "title": "Flags"
+          },
+          "id": {
+            "description": "Unique identifier for the organization member.",
+            "title": "Id",
+            "type": "string"
+          },
+          "inviteStatus": {
+            "description": "Status of the member's invitation. Options: 'approved', 'pending', etc.",
+            "title": "Invite Status",
+            "type": "string"
+          },
+          "invite_link": {
+            "description": "Invitation link for pending members, null for approved members.",
+            "title": "Invite Link",
+            "type": "string"
+          },
+          "inviterName": {
+            "description": "Email or name of the user who invited this member.",
+            "title": "Inviter Name",
+            "type": "string"
+          },
+          "isOnlyOwner": {
+            "description": "Whether this member is the sole owner of the organization.",
+            "title": "Is Only Owner",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Full name of the organization member.",
+            "title": "Name",
+            "type": "string"
+          },
+          "orgRole": {
+            "description": "Organization-level role identifier. Options: 'billing', 'member', 'manager', 'owner', 'admin' (retired for Business/Enterprise).",
+            "title": "Org Role",
+            "type": "string"
+          },
+          "orgRoleList": {
+            "description": "List of all available organization roles with their permissions and metadata.",
+            "items": {
+              "$ref": "#/$defs/OrgRole"
+            },
+            "title": "Org Role List",
+            "type": "array"
+          },
+          "pending": {
+            "description": "Whether the member's invitation is still pending.",
+            "title": "Pending",
+            "type": "boolean"
+          },
+          "role": {
+            "description": "Legacy role identifier for the member (deprecated, use orgRole instead).",
+            "title": "Role",
+            "type": "string"
+          },
+          "roleName": {
+            "description": "Human-readable name of the organization role.",
+            "title": "Role Name",
+            "type": "string"
+          },
+          "teamRoleList": {
+            "description": "List of all available team roles with their permissions and metadata.",
+            "items": {
+              "$ref": "#/$defs/TeamRole"
+            },
+            "title": "Team Role List",
+            "type": "array"
+          },
+          "teamRoles": {
+            "description": "List of team role assignments for the member.",
+            "items": {
+              "$ref": "#/$defs/TeamRoleAssignment"
+            },
+            "title": "Team Roles",
+            "type": "array"
+          },
+          "teams": {
+            "description": "List of team slugs that the member belongs to.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "title": "User"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "user",
+          "role",
+          "orgRole",
+          "roleName",
+          "pending",
+          "expired",
+          "flags",
+          "dateCreated",
+          "inviteStatus",
+          "teams",
+          "teamRoles",
+          "isOnlyOwner",
+          "orgRoleList",
+          "teamRoleList"
+        ],
+        "title": "UpdateOrganizationMemberRoleResponse",
+        "type": "object"
+      },
+      "User": {
+        "description": "User object containing detailed information about the user account.",
+        "properties": {
+          "authenticators": {
+            "description": "List of authenticators configured for the user.",
+            "items": {},
+            "title": "Authenticators",
+            "type": "array"
+          },
+          "avatar": {
+            "$ref": "#/$defs/Avatar",
+            "title": "Avatar"
+          },
+          "avatarUrl": {
+            "description": "URL to the user's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "canReset2fa": {
+            "description": "Whether two-factor authentication can be reset for this user.",
+            "title": "Can Reset2Fa",
+            "type": "boolean"
+          },
+          "dateJoined": {
+            "description": "ISO 8601 timestamp when the user joined Sentry.",
+            "title": "Date Joined",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address associated with the user account.",
+            "title": "Email",
+            "type": "string"
+          },
+          "emails": {
+            "description": "List of email addresses associated with the user.",
+            "items": {
+              "$ref": "#/$defs/UserEmail"
+            },
+            "title": "Emails",
+            "type": "array"
+          },
+          "experiments": {
+            "additionalProperties": true,
+            "description": "Object containing user's experiment flags.",
+            "title": "Experiments",
+            "type": "object"
+          },
+          "has2fa": {
+            "description": "Whether the user has two-factor authentication enabled.",
+            "title": "Has2Fa",
+            "type": "boolean"
+          },
+          "hasPasswordAuth": {
+            "description": "Whether the user has password authentication enabled.",
+            "title": "Has Password Auth",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isActive": {
+            "description": "Whether the user account is active.",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "isManaged": {
+            "description": "Whether the user is managed by an identity provider.",
+            "title": "Is Managed",
+            "type": "boolean"
+          },
+          "isStaff": {
+            "description": "Whether the user is a staff member.",
+            "title": "Is Staff",
+            "type": "boolean"
+          },
+          "isSuperuser": {
+            "description": "Whether the user has superuser privileges.",
+            "title": "Is Superuser",
+            "type": "boolean"
+          },
+          "lastActive": {
+            "description": "ISO 8601 timestamp of the user's last activity.",
+            "title": "Last Active",
+            "type": "string"
+          },
+          "lastLogin": {
+            "description": "ISO 8601 timestamp of the user's last login.",
+            "title": "Last Login",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the user.",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the user.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "username",
+          "email",
+          "avatarUrl",
+          "isActive",
+          "hasPasswordAuth",
+          "isManaged",
+          "dateJoined",
+          "lastLogin",
+          "has2fa",
+          "lastActive",
+          "isSuperuser",
+          "isStaff",
+          "experiments",
+          "emails",
+          "avatar",
+          "authenticators",
+          "canReset2fa"
+        ],
+        "title": "User",
+        "type": "object"
+      },
+      "UserEmail": {
+        "description": "Email address record for a user.",
+        "properties": {
+          "email": {
+            "description": "Email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the email record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_verified": {
+            "description": "Whether the email address has been verified.",
+            "title": "Is Verified",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "email", "is_verified"],
+        "title": "UserEmail",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateOrganizationMemberRoleResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

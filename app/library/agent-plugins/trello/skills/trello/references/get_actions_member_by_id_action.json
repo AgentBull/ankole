@@ -1,0 +1,216 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves the Trello member who was the subject of an action (not the creator). This endpoint returns information about the member who was acted upon in actions like: - addMemberToCard: Returns the member who was added to a card - removeMemberFromCard: Returns the member who was removed from a card - addMemberToBoard: Returns the member who was added to a board Note: For actions that don't involve a member as a subject (e.g., createCard, createBoard), this endpoint returns 404. Use /actions/{idAction}/memberCreator to get the action's creator instead.",
+  "inputSchema": {
+    "description": "Request schema for `GetActionsMemberByIdAction`",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "A comma-separated list of member fields to return, or 'all' for all fields. Valid fields include: avatarHash, avatarSource, bio, bioData, confirmed, email, fullName, gravatarHash, idBoards, idBoardsPinned, idOrganizations, idPremOrgsAdmin, initials, loginTypes, memberType, oneTimeMessagesDismissed, prefs, premiumFeatures, products, status, trophies, uploadedAvatarHash, url, username.",
+        "examples": ["all", "fullName,email,username", "initials,avatarHash"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idAction": {
+        "description": "The ID of the Trello action for which to retrieve the subject member. Note: This endpoint only works with actions that involve a member as the subject (e.g., addMemberToCard, removeMemberFromCard, addMemberToBoard). For actions without a member subject (e.g., createCard, createBoard), this will return 404.",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id Action",
+        "type": "string"
+      }
+    },
+    "required": ["idAction"],
+    "title": "GetActionsMemberByIdActionRequest",
+    "type": "object"
+  },
+  "name": "get_actions_member_by_id_action",
+  "outputSchema": {
+    "$defs": {
+      "GetActionsMemberByIdActionResponse": {
+        "description": "Response containing the member who was the subject of the action",
+        "properties": {
+          "activityBlocked": {
+            "description": "Indicates whether the member's activity is blocked",
+            "title": "Activity Blocked",
+            "type": "boolean"
+          },
+          "avatarHash": {
+            "description": "Hash string used to construct the avatar URL",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarSource": {
+            "description": "Source of the avatar (e.g., 'upload', 'gravatar', 'none')",
+            "title": "Avatar Source",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "Full URL to the member's avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "bio": {
+            "description": "Member's biography text",
+            "title": "Bio",
+            "type": "string"
+          },
+          "bioData": {
+            "additionalProperties": true,
+            "description": "Structured data containing emoji and other bio-related information",
+            "title": "Bio Data",
+            "type": "object"
+          },
+          "confirmed": {
+            "description": "Whether the member's account has been confirmed",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "Member's email address (only visible if you have permission)",
+            "title": "Email",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Member's full display name",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "gravatarHash": {
+            "description": "Hash for Gravatar avatar lookup",
+            "title": "Gravatar Hash",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "Array of board IDs the member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idBoardsPinned": {
+            "description": "Array of board IDs the member has pinned",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards Pinned",
+            "type": "array"
+          },
+          "idOrganizations": {
+            "description": "Array of organization IDs the member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Organizations",
+            "type": "array"
+          },
+          "idPremOrgsAdmin": {
+            "description": "Array of premium organization IDs where the member is an admin",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Prem Orgs Admin",
+            "type": "array"
+          },
+          "initials": {
+            "description": "Member's initials, typically derived from their name",
+            "title": "Initials",
+            "type": "string"
+          },
+          "loginTypes": {
+            "description": "Array of login methods available for the member (e.g., 'atlassian')",
+            "items": {
+              "type": "string"
+            },
+            "title": "Login Types",
+            "type": "array"
+          },
+          "memberType": {
+            "description": "Type of member (e.g., 'normal', 'ghost')",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "oneTimeMessagesDismissed": {
+            "description": "Array of one-time message IDs that have been dismissed",
+            "items": {
+              "type": "string"
+            },
+            "title": "One Time Messages Dismissed",
+            "type": "array"
+          },
+          "prefs": {
+            "additionalProperties": true,
+            "description": "Member's preferences and settings",
+            "title": "Prefs",
+            "type": "object"
+          },
+          "premiumFeatures": {
+            "description": "Array of premium features available to the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Premium Features",
+            "type": "array"
+          },
+          "products": {
+            "description": "Array of Trello products the member has access to",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "status": {
+            "description": "Current status of the member (e.g., 'disconnected', 'active')",
+            "title": "Status",
+            "type": "string"
+          },
+          "trophies": {
+            "description": "Array of trophies or achievements earned by the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Trophies",
+            "type": "array"
+          },
+          "uploadedAvatarHash": {
+            "description": "Hash of the uploaded avatar image",
+            "title": "Uploaded Avatar Hash",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to the member's Trello profile",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "Member's Trello username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "GetActionsMemberByIdActionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetActionsMemberByIdActionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

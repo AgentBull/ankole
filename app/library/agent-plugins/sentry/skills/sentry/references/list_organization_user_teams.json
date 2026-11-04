@@ -1,0 +1,172 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of all teams that the authenticated user has access to within the specified Sentry organization.",
+  "inputSchema": {
+    "description": "Lists all teams a user has access to within a specific Sentry organization.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (numeric ID like '4508539392294912') or URL-friendly slug (like 'my-organization') of the Sentry organization.",
+        "examples": ["my-organization-slug", "4508539392294912"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "ListOrganizationUserTeamsRequest",
+    "type": "object"
+  },
+  "name": "list_organization_user_teams",
+  "outputSchema": {
+    "$defs": {
+      "Avatar": {
+        "description": "Letter avatar representation for the team.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., letter_avatar).",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar image, or null if not available.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the avatar, or null if not set.",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "title": "Avatar",
+        "type": "object"
+      },
+      "ListOrganizationUserTeamsResponse": {
+        "description": "Array of teams the user has access to within the organization.",
+        "items": {
+          "$ref": "#/$defs/TeamMember"
+        },
+        "title": "ListOrganizationUserTeamsResponse",
+        "type": "array"
+      },
+      "TeamMember": {
+        "description": "Details of a team within the organization.",
+        "properties": {
+          "access": {
+            "description": "Array of permission scopes granted by the team role (e.g., team:read, project:read, event:read).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "avatar": {
+            "$ref": "#/$defs/Avatar",
+            "title": "Avatar"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the team was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "externalTeams": {
+            "description": "List of external team integrations (optional, may not be included in all responses).",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "External Teams",
+            "type": "array"
+          },
+          "flags": {
+            "additionalProperties": true,
+            "description": "Feature flags associated with the team (e.g., idp:provisioned).",
+            "title": "Flags",
+            "type": "object"
+          },
+          "hasAccess": {
+            "description": "Whether the user has access to this team.",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier of the team.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isMember": {
+            "description": "Whether the current user is a member of this team.",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "isPending": {
+            "description": "Whether the user's membership or access request is pending.",
+            "title": "Is Pending",
+            "type": "boolean"
+          },
+          "memberCount": {
+            "description": "Total number of active members in the team.",
+            "title": "Member Count",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Human-readable team name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization": {
+            "additionalProperties": true,
+            "description": "Parent organization details (optional, may not be included in all responses).",
+            "title": "Organization",
+            "type": "object"
+          },
+          "projects": {
+            "description": "List of projects associated with the team (optional, may not be included in all responses).",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "slug": {
+            "description": "URL-friendly team identifier.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "teamRole": {
+            "description": "The user's role within the team, or null if the user is not a member.",
+            "title": "Team Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "dateCreated",
+          "isMember",
+          "hasAccess",
+          "isPending",
+          "memberCount",
+          "avatar"
+        ],
+        "title": "TeamMember",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListOrganizationUserTeamsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

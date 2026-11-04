@@ -1,6 +1,6 @@
 defmodule Ankole.Connectors.Credentials do
   @moduledoc false
-  alias Ankole.Connectors.{Accounts, AppTokenCache, Store, TokenRefresher}
+  alias Ankole.Connectors.{Accounts, AppTokenCache, CloudProvider, Store, TokenRefresher}
 
   def seal(value, purpose, id),
     do:
@@ -14,6 +14,8 @@ defmodule Ankole.Connectors.Credentials do
            Ankole.SecretKeyBase.unseal(value, purpose, [Ankole.Repo.tenant_id!(), id]),
          do: Ankole.JSON.decode(json)
   end
+
+  def secret(%{mode: "cloud"}), do: {:ok, %{}}
 
   def secret(config), do: unseal(config.sealed_secret, "connector_auth_config", config.id)
 
@@ -39,15 +41,34 @@ defmodule Ankole.Connectors.Credentials do
     with {:ok, latest} <- Store.get_auth_config(config.id),
          {:ok, account} <- if(account, do: Accounts.get_by_id(account.id), else: {:ok, nil}),
          true <- is_nil(account) or Accounts.valid?(account) do
-      if account && account.sealed_credentials do
-        TokenRefresher.access_token(latest, account, adapter)
-      else
-        AppTokenCache.get(latest, account, adapter)
+      cond do
+        account && account.upstream_connection_id ->
+          with {:ok, tokens} <-
+                 CloudProvider.access_token(%{
+                   "upstream_connection_id" => account.upstream_connection_id
+                 }),
+               do: {:ok, tokens["access_token"]}
+
+        account && account.sealed_credentials ->
+          TokenRefresher.access_token(latest, account, adapter)
+
+        true ->
+          AppTokenCache.get(latest, account, adapter)
       end
     else
       false -> {:error, :oauth_reauthorization_required}
       error -> error
     end
+  end
+
+  def invalidate_access_token(_config, %{upstream_connection_id: id}, token) when is_binary(id) do
+    with {:ok, _} <-
+           CloudProvider.access_token(%{
+             "upstream_connection_id" => id,
+             "force_refresh" => true,
+             "rejected_access_token" => token
+           }),
+         do: :ok
   end
 
   def invalidate_access_token(config, %{sealed_credentials: credentials} = account, token)

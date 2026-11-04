@@ -1,0 +1,115 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Return GitLab repository file metadata without downloading file content.",
+  "inputSchema": {
+    "properties": {
+      "file_path": {
+        "description": "Repository-relative path to the file. URL-encoding is handled automatically.",
+        "examples": ["README.md", "src/main.py"],
+        "minLength": 1,
+        "title": "File Path",
+        "type": "string"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The numeric project ID or namespace/project path. URL-encoding is handled automatically.",
+        "examples": [5, "namespace/project-name"],
+        "title": "Project Id"
+      },
+      "ref": {
+        "description": "Branch, tag, commit SHA, or HEAD containing the file.",
+        "examples": ["main", "v1.0.0", "HEAD"],
+        "minLength": 1,
+        "title": "Ref",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "file_path", "ref"],
+    "title": "GetRepositoryFileMetadataRequest",
+    "type": "object"
+  },
+  "name": "get_repository_file_metadata",
+  "outputSchema": {
+    "$defs": {
+      "GetRepositoryFileMetadataResponse": {
+        "properties": {
+          "blob_id": {
+            "description": "Blob SHA of the file.",
+            "title": "Blob Id",
+            "type": "string"
+          },
+          "commit_id": {
+            "description": "Commit SHA for the requested file ref.",
+            "title": "Commit Id",
+            "type": "string"
+          },
+          "content_sha256": {
+            "description": "SHA256 hash of the file content. Omitted by some GitLab versions.",
+            "title": "Content Sha256",
+            "type": "string"
+          },
+          "encoding": {
+            "description": "Encoding used for the file content.",
+            "title": "Encoding",
+            "type": "string"
+          },
+          "execute_filemode": {
+            "description": "Whether the executable file mode is set. Omitted by some GitLab versions.",
+            "title": "Execute Filemode",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Name of the file.",
+            "title": "File Name",
+            "type": "string"
+          },
+          "file_path": {
+            "description": "Full repository-relative path to the file.",
+            "title": "File Path",
+            "type": "string"
+          },
+          "last_commit_id": {
+            "description": "SHA of the last commit that modified the file.",
+            "title": "Last Commit Id",
+            "type": "string"
+          },
+          "ref": {
+            "description": "Branch, tag, or commit ref used by GitLab.",
+            "title": "Ref",
+            "type": "string"
+          },
+          "size": {
+            "description": "Size of the raw Git blob in bytes.",
+            "minimum": 0,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": ["blob_id", "commit_id", "encoding", "file_name", "file_path", "last_commit_id", "ref", "size"],
+        "title": "GetRepositoryFileMetadataResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRepositoryFileMetadataResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -55,6 +55,25 @@ test('folding follows sibling heading levels, maps edits and never changes saved
   expect(editor.state.field(foldedHeadings).has(sections[2]!.pos + 4)).toBe(true)
 })
 
+test('folding reused containers keeps each occurrence within its own boundaries', () => {
+  const editor = open(parseXml('<page><blockquote><h1>A</h1><p>inside</p></blockquote><p>unrelated</p></page>'))
+  const quote = editor.state.doc.content[0]!
+  const end = editor.state.doc.length
+  editor.dispatch({ changes: { from: end, to: end, insert: [quote] } })
+  expect(editor.state.doc.content.at(-1)).toBe(quote)
+  expect(headingSections(editor.state.doc)).toEqual([
+    { pos: 1, from: 4, to: 12, text: 'A' },
+    { pos: 25, from: 28, to: 36, text: 'A' }
+  ])
+  const xml = printXml(readTree(editor))
+  editor.dispatch({ effects: toggleHeading.of(1) })
+  select(editor, quote.length + 1)
+  expect(editor.state.field(foldedHeadings).has(1)).toBe(true)
+  select(editor, 5)
+  expect(editor.state.field(foldedHeadings).has(1)).toBe(false)
+  expect(printXml(readTree(editor))).toBe(xml)
+})
+
 test('every block searches translated titles and multiple Chinese and English aliases', () => {
   const editor = open('')
   for (const query of ['图片', '媒体', 'media', 'picture', 'img', 'VIDEO']) {

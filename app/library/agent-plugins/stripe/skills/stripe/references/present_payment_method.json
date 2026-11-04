@@ -1,0 +1,220 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to present a payment method on a simulated terminal reader for testing purposes. Use when testing payment flows, simulating card acceptance, or validating terminal reader integrations in test mode.",
+  "inputSchema": {
+    "description": "Request model for presenting a payment method on a terminal reader.",
+    "properties": {
+      "amount_tip": {
+        "description": "Simulated on-reader tip amount in the smallest currency unit (e.g., 100 cents to represent $1.00).",
+        "examples": [500, 1000],
+        "title": "Amount Tip",
+        "type": "integer"
+      },
+      "card": {
+        "additionalProperties": false,
+        "description": "Simulated card payment data.",
+        "properties": {
+          "cvc": {
+            "description": "Card security code (CVV/CVC).",
+            "examples": ["123", "456"],
+            "title": "Cvc",
+            "type": "string"
+          },
+          "exp_month": {
+            "description": "Two-digit number representing the card's expiration month.",
+            "examples": [12, 1],
+            "title": "Exp Month",
+            "type": "integer"
+          },
+          "exp_year": {
+            "description": "Two- or four-digit number representing the card's expiration year.",
+            "examples": [2025, 25],
+            "title": "Exp Year",
+            "type": "integer"
+          },
+          "number": {
+            "description": "Card number without separators.",
+            "examples": ["4242424242424242", "5555555555554444"],
+            "title": "Number",
+            "type": "string"
+          }
+        },
+        "required": ["number", "exp_month", "exp_year"],
+        "title": "CardData",
+        "type": "object"
+      },
+      "card_present": {
+        "additionalProperties": false,
+        "description": "Simulated card_present payment data.",
+        "properties": {
+          "number": {
+            "description": "Card number without separators.",
+            "examples": ["4242424242424242"],
+            "title": "Number",
+            "type": "string"
+          }
+        },
+        "title": "CardPresentData",
+        "type": "object"
+      },
+      "interac_present": {
+        "additionalProperties": false,
+        "description": "Simulated Interac payment data.",
+        "properties": {
+          "number": {
+            "description": "Interac card number without separators.",
+            "examples": ["4506445006931933"],
+            "title": "Number",
+            "type": "string"
+          }
+        },
+        "title": "InteracPresentData",
+        "type": "object"
+      },
+      "reader_id": {
+        "description": "The unique identifier of the terminal reader to present the payment method on.",
+        "examples": ["tmr_GUdgOws6gw46M7", "tmr_1234567890"],
+        "title": "Reader Id",
+        "type": "string"
+      },
+      "type": {
+        "description": "Simulated payment type. Must be one of: 'card', 'card_present', or 'interac_present'.",
+        "enum": ["card", "card_present", "interac_present"],
+        "examples": ["card", "card_present"],
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["reader_id"],
+    "title": "PresentPaymentMethodRequest",
+    "type": "object"
+  },
+  "name": "present_payment_method",
+  "outputSchema": {
+    "$defs": {
+      "PresentPaymentMethodResponse": {
+        "description": "Response model for the Terminal reader object.",
+        "properties": {
+          "action": {
+            "$ref": "#/$defs/ReaderAction",
+            "description": "The most recent action performed by this reader, if any.",
+            "title": "Action"
+          },
+          "device_sw_version": {
+            "description": "The current software version running on the reader.",
+            "title": "Device Sw Version",
+            "type": "string"
+          },
+          "device_type": {
+            "description": "The physical device model (e.g., 'simulated_wisepos_e', 'stripe_m2').",
+            "title": "Device Type",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the reader object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "ip_address": {
+            "description": "The IP address of the reader device.",
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "label": {
+            "description": "A human-readable label for the reader.",
+            "title": "Label",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "description": "Timestamp of when the reader last connected to Stripe (Unix timestamp in seconds).",
+            "title": "Last Seen At",
+            "type": "integer"
+          },
+          "livemode": {
+            "description": "True if the reader is in live mode, false if in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "location": {
+            "description": "The ID of the Stripe Terminal location where this reader is registered.",
+            "title": "Location",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'terminal.reader'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "serial_number": {
+            "description": "The serial number of the device.",
+            "title": "Serial Number",
+            "type": "string"
+          },
+          "status": {
+            "description": "The reader's connection status (e.g., 'online', 'offline').",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "device_type", "label", "livemode", "metadata", "serial_number"],
+        "title": "PresentPaymentMethodResponse",
+        "type": "object"
+      },
+      "ReaderAction": {
+        "description": "Current action being performed on the reader.",
+        "properties": {
+          "failure_code": {
+            "description": "Machine-readable failure code if the action failed.",
+            "title": "Failure Code",
+            "type": "string"
+          },
+          "failure_message": {
+            "description": "Human-readable failure message if the action failed.",
+            "title": "Failure Message",
+            "type": "string"
+          },
+          "process_payment_intent": {
+            "additionalProperties": true,
+            "description": "Details about the payment intent being processed, if applicable.",
+            "title": "Process Payment Intent",
+            "type": "object"
+          },
+          "status": {
+            "description": "Current status of the operation (e.g., 'in_progress', 'succeeded', 'failed').",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of action being performed.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "ReaderAction",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/PresentPaymentMethodResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

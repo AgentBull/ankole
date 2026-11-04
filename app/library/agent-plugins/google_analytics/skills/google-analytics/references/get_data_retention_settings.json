@@ -1,0 +1,64 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve data retention configuration for a Google Analytics property. Use when you need to check event-level and user-level data retention durations and reset settings.",
+  "inputSchema": {
+    "description": "Request model for retrieving data retention settings for a property.",
+    "properties": {
+      "name": {
+        "description": "Required. The resource name of the data retention settings to retrieve. Must be in the exact format: properties/{property_id}/dataRetentionSettings where property_id is a numeric identifier. IMPORTANT: Must start with 'properties/' prefix, contain no forward slashes in the property_id, have no trailing slashes, and must end with '/dataRetentionSettings'. Valid example: 'properties/489591273/dataRetentionSettings'. Invalid examples: '489591273' (missing prefix), 'properties/489591273' (missing suffix), 'properties/489591273/dataRetentionSettings/' (trailing slash)",
+        "examples": ["properties/489591273/dataRetentionSettings", "properties/1000/dataRetentionSettings"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "GetDataRetentionSettingsRequest",
+    "type": "object"
+  },
+  "name": "get_data_retention_settings",
+  "outputSchema": {
+    "$defs": {
+      "GetDataRetentionSettingsResponse": {
+        "description": "Response model for GetDataRetentionSettings action.",
+        "properties": {
+          "eventDataRetention": {
+            "description": "Duration that event-level data is retained. Possible values: RETENTION_DURATION_UNSPECIFIED, TWO_MONTHS, FOURTEEN_MONTHS, TWENTY_SIX_MONTHS, THIRTY_EIGHT_MONTHS, FIFTY_MONTHS.",
+            "title": "Event Data Retention",
+            "type": "string"
+          },
+          "name": {
+            "description": "Output only. Resource name for this DataRetentionSettings resource. Format: properties/{property}/dataRetentionSettings.",
+            "title": "Name",
+            "type": "string"
+          },
+          "resetUserDataOnNewActivity": {
+            "description": "When true, retention period for user identifiers restarts with each new user event.",
+            "title": "Reset User Data On New Activity",
+            "type": "boolean"
+          },
+          "userDataRetention": {
+            "description": "Duration that user-level data is retained. Possible values: RETENTION_DURATION_UNSPECIFIED, TWO_MONTHS, FOURTEEN_MONTHS, TWENTY_SIX_MONTHS, THIRTY_EIGHT_MONTHS, FIFTY_MONTHS.",
+            "title": "User Data Retention",
+            "type": "string"
+          }
+        },
+        "title": "GetDataRetentionSettingsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetDataRetentionSettingsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

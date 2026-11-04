@@ -1,0 +1,254 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Execute up to 1000 event mutations (create/patch/delete) in one Google Calendar HTTP batch request with per-item status/results. Use this to materially reduce round-trips for bulk operations like migrations, cleanup, or large-scale updates.",
+  "inputSchema": {
+    "description": "Request schema for batch event operations.",
+    "properties": {
+      "fail_fast": {
+        "default": false,
+        "description": "If true, stop processing after the first batch containing any 4xx error (except 404 on DELETE). Default is false.",
+        "title": "Fail Fast",
+        "type": "boolean"
+      },
+      "operations": {
+        "description": "List of batch operations to execute. Maximum 1000 operations per request.",
+        "items": {
+          "description": "Single operation in a batch request.",
+          "properties": {
+            "body": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "items": {},
+                    "type": "array"
+                  }
+                ]
+              },
+              "description": "Request body containing event resource data. Required for POST and PATCH, omitted for DELETE.",
+              "examples": [
+                {
+                  "end": {
+                    "dateTime": "2025-01-16T11:00:00",
+                    "timeZone": "UTC"
+                  },
+                  "start": {
+                    "dateTime": "2025-01-16T10:00:00",
+                    "timeZone": "UTC"
+                  },
+                  "summary": "Team Meeting"
+                }
+              ],
+              "title": "Body",
+              "type": "object"
+            },
+            "calendar_id": {
+              "description": "Calendar identifier (email address or 'primary' for main calendar).",
+              "examples": ["primary", "user@example.com"],
+              "title": "Calendar Id",
+              "type": "string"
+            },
+            "event_id": {
+              "description": "Event identifier. Required for PATCH and DELETE operations, omitted for POST (create).",
+              "examples": ["abc123def456ghi789"],
+              "title": "Event Id",
+              "type": "string"
+            },
+            "method": {
+              "description": "HTTP method for this operation: POST (create event), PATCH (update event), or DELETE (remove event).",
+              "enum": ["POST", "PATCH", "DELETE"],
+              "examples": ["POST", "PATCH", "DELETE"],
+              "title": "Method",
+              "type": "string"
+            },
+            "op_id": {
+              "description": "Client-chosen identifier for this operation, used to correlate request with response.",
+              "examples": ["op1", "create_meeting_1", "delete_old_event"],
+              "title": "Op Id",
+              "type": "string"
+            },
+            "query_params": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "description": "Query parameters for the operation (e.g., sendUpdates, conferenceDataVersion, maxAttendees).",
+              "examples": [
+                {
+                  "conferenceDataVersion": 1,
+                  "sendUpdates": "all"
+                }
+              ],
+              "title": "Query Params",
+              "type": "object"
+            }
+          },
+          "required": ["op_id", "method", "calendar_id"],
+          "title": "BatchOperation",
+          "type": "object"
+        },
+        "maxItems": 1000,
+        "minItems": 1,
+        "title": "Operations",
+        "type": "array"
+      }
+    },
+    "required": ["operations"],
+    "title": "BatchEventsRequest",
+    "type": "object"
+  },
+  "name": "batch_events",
+  "outputSchema": {
+    "$defs": {
+      "BatchEventsResponse": {
+        "description": "Response schema for batch event operations.",
+        "properties": {
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Count of operations grouped by HTTP status code.",
+            "title": "By Status",
+            "type": "object"
+          },
+          "display_url": {
+            "description": "Collection-level display URL (None for batch operations).",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "failed": {
+            "description": "Total number of failed operations.",
+            "title": "Failed",
+            "type": "integer"
+          },
+          "results": {
+            "description": "Results for each operation in the same order as the request operations.",
+            "items": {
+              "$ref": "#/$defs/BatchOperationResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "succeeded": {
+            "description": "Total number of successful operations.",
+            "title": "Succeeded",
+            "type": "integer"
+          }
+        },
+        "required": ["results", "succeeded", "failed", "by_status"],
+        "title": "BatchEventsResponse",
+        "type": "object"
+      },
+      "BatchOperationResult": {
+        "description": "Result of a single batch operation.",
+        "properties": {
+          "display_url": {
+            "description": "URL to view this event in Google Calendar web UI (from API htmlLink field), or None if unavailable.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "error": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                }
+              ]
+            },
+            "description": "Error details if the operation failed (parsed JSON error response).",
+            "title": "Error",
+            "type": "object"
+          },
+          "event": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                }
+              ]
+            },
+            "description": "Event resource data for successful POST/PATCH operations. Omitted for DELETE or failed operations.",
+            "title": "Event",
+            "type": "object"
+          },
+          "http_status": {
+            "description": "HTTP status code for this operation (e.g., 200, 201, 204, 400, 404, 409).",
+            "title": "Http Status",
+            "type": "integer"
+          },
+          "op_id": {
+            "description": "Operation identifier matching the request op_id.",
+            "title": "Op Id",
+            "type": "string"
+          }
+        },
+        "required": ["op_id", "http_status"],
+        "title": "BatchOperationResult",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/BatchEventsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

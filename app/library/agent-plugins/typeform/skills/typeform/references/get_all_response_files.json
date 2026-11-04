@@ -1,0 +1,75 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a compressed archive containing all files that respondents uploaded for a specified form. Use when you need to download all file uploads from a Typeform form as a ZIP archive.",
+  "inputSchema": {
+    "properties": {
+      "form_id": {
+        "description": "Unique identifier of the form to download response files for",
+        "examples": ["CoZt0LNp"],
+        "title": "Form Id",
+        "type": "string"
+      }
+    },
+    "required": ["form_id"],
+    "title": "GetAllResponseFilesRequest",
+    "type": "object"
+  },
+  "name": "get_all_response_files",
+  "outputSchema": {
+    "$defs": {
+      "FileDownloadable": {
+        "file_downloadable": true,
+        "properties": {
+          "mimetype": {
+            "description": "Mime type of the file.",
+            "title": "Mimetype",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the file",
+            "title": "Name",
+            "type": "string"
+          },
+          "s3url": {
+            "description": "S3 URL of the downloaded file.",
+            "title": "S3Url",
+            "type": "string"
+          }
+        },
+        "required": ["name", "mimetype", "s3url"],
+        "title": "FileDownloadable",
+        "type": "object"
+      },
+      "GetAllResponseFilesResponse": {
+        "properties": {
+          "content": {
+            "$ref": "#/$defs/FileDownloadable",
+            "description": "ZIP archive containing all files uploaded by respondents for the specified form. None if no files are available.",
+            "title": "Content"
+          },
+          "message": {
+            "description": "Status message indicating the result of the request",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "title": "GetAllResponseFilesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetAllResponseFilesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

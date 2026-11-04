@@ -1,0 +1,86 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Delete a specified asset link from a release and return the deleted link. See https://docs.gitlab.com/api/releases/links/#delete-a-release-link.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "link_id": {
+        "description": "ID of the release asset link to delete.",
+        "title": "Link Id",
+        "type": "integer"
+      },
+      "tag_name": {
+        "description": "Tag associated with the release, unencoded.",
+        "title": "Tag Name",
+        "type": "string"
+      }
+    },
+    "required": ["id", "tag_name", "link_id"],
+    "title": "DeleteReleaseAssetLinkRequest",
+    "type": "object"
+  },
+  "name": "delete_release_asset_link",
+  "outputSchema": {
+    "$defs": {
+      "DeleteReleaseAssetLinkResponse": {
+        "additionalProperties": true,
+        "description": "The deleted release asset link returned by GitLab.",
+        "properties": {
+          "direct_asset_url": {
+            "description": "Direct asset download URL.",
+            "title": "Direct Asset Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Asset link ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "link_type": {
+            "description": "Asset link type.",
+            "title": "Link Type",
+            "type": "string"
+          },
+          "name": {
+            "description": "Asset link name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "Asset link URL.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "DeleteReleaseAssetLinkResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteReleaseAssetLinkResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information (e.g., top values, counts) for a specific tag key on an existing Sentry issue; results are paginated (max 1000 values per page).",
+  "inputSchema": {
+    "description": "Request schema for `RetrieveIssueTagDetails`",
+    "properties": {
+      "environment": {
+        "description": "Optional list of environment names to filter tag values; if omitted, all environments are considered.",
+        "examples": ["production", "staging", "development"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "issue_id": {
+        "description": "The unique numerical ID of the Sentry issue.",
+        "examples": ["1234567890"],
+        "title": "Issue Id",
+        "type": "integer"
+      },
+      "key": {
+        "description": "The specific tag key (e.g., 'browser', 'os', 'environment', 'release', custom tags) for which to retrieve detailed values; case-sensitive.",
+        "examples": ["browser", "environment", "userType", "appVersion", "os.name", "level"],
+        "title": "Key",
+        "type": "string"
+      }
+    },
+    "required": ["issue_id", "key"],
+    "title": "RetrieveIssueTagDetailsRequest",
+    "type": "object"
+  },
+  "name": "retrieve_issue_tag_details",
+  "outputSchema": {
+    "$defs": {
+      "RetrieveIssueTagDetailsResponse": {
+        "description": "Response schema for `RetrieveIssueTagDetails`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/TagDetails",
+            "description": "Structured tag details including key, name, counts, and top values with their statistics.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "RetrieveIssueTagDetailsResponse",
+        "type": "object"
+      },
+      "TagDetails": {
+        "description": "Schema for tag details returned by the API.",
+        "properties": {
+          "key": {
+            "description": "The tag key identifier.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable display name for the tag.",
+            "title": "Name",
+            "type": "string"
+          },
+          "topValues": {
+            "description": "List of the most frequent tag values, ordered by count (descending). Limited to top 1000 values.",
+            "items": {
+              "$ref": "#/$defs/TagValue"
+            },
+            "title": "Top Values",
+            "type": "array"
+          },
+          "totalValues": {
+            "description": "Total number of tag value occurrences (including duplicates).",
+            "title": "Total Values",
+            "type": "integer"
+          },
+          "uniqueValues": {
+            "description": "Number of unique values for this tag across the issue.",
+            "title": "Unique Values",
+            "type": "integer"
+          }
+        },
+        "required": ["key", "name", "uniqueValues", "totalValues", "topValues"],
+        "title": "TagDetails",
+        "type": "object"
+      },
+      "TagValue": {
+        "description": "Schema for individual tag value entries in topValues list.",
+        "properties": {
+          "count": {
+            "description": "Number of times this value appears in the issue.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "firstSeen": {
+            "description": "ISO 8601 timestamp of when this tag value was first seen.",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "key": {
+            "description": "The tag key identifier.",
+            "title": "Key",
+            "type": "string"
+          },
+          "lastSeen": {
+            "description": "ISO 8601 timestamp of when this tag value was last seen.",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name for this specific tag value (may be null for empty/unset values).",
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "description": "The actual tag value (may be null for empty/unset values).",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["key", "count", "lastSeen", "firstSeen"],
+        "title": "TagValue",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveIssueTagDetailsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

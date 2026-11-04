@@ -1,0 +1,102 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a specific check item from a checklist using the checklist ID and check item ID.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a specific check item from a checklist.",
+    "properties": {
+      "fields": {
+        "default": "name,nameData,pos,state",
+        "description": "Determines which fields to include in the response. Specify 'all' or a comma-separated list of: 'name', 'nameData', 'pos', 'state', or 'type'.",
+        "examples": ["name,pos", "all"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idCheckItem": {
+        "description": "The ID of the check item to retrieve.",
+        "examples": ["5abbe4b7ddc1b351ef961415"],
+        "title": "Id Check Item",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "The ID of the checklist containing the check item.",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id Checklist",
+        "type": "string"
+      }
+    },
+    "required": ["idChecklist", "idCheckItem"],
+    "title": "GetCheckItemByIdRequest",
+    "type": "object"
+  },
+  "name": "get_check_item_by_id",
+  "outputSchema": {
+    "$defs": {
+      "GetCheckItemByIdResponse": {
+        "description": "Response schema for `GetChecklistsCheckItemsByIdChecklistByIdCheckItem`, containing the details of the retrieved check item.",
+        "properties": {
+          "due": {
+            "description": "ISO 8601 formatted due date for the check item (e.g., '2021-02-12T07:00:00.000Z'). Requires Business Class or higher subscription. Null if not set.",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Reminder time in milliseconds before due date. Requires Business Class or higher subscription. Null if not set.",
+            "title": "Due Reminder",
+            "type": "number"
+          },
+          "id": {
+            "description": "The unique identifier for the check item",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "The ID of the parent checklist containing this check item",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "The ID of the member assigned to this check item. Requires Business Class or higher subscription. Null if not assigned.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "The text/name of the check item",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "description": "Additional data associated with the name (typically null)",
+            "title": "Name Data"
+          },
+          "pos": {
+            "description": "The position of the check item within the checklist",
+            "title": "Pos",
+            "type": "number"
+          },
+          "state": {
+            "description": "The completion state of the check item. Possible values: 'complete' or 'incomplete'",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idChecklist", "name", "state", "pos"],
+        "title": "GetCheckItemByIdResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCheckItemByIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

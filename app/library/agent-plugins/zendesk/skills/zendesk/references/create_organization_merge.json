@@ -1,0 +1,99 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Merge two Zendesk organizations by combining all users, tickets, and data from the losing organization into the winning organization. This action is irreversible — once merged, the losing organization and all its data cannot be recovered. Use when you need to consolidate duplicate organizations or combine organization data into a single organization.",
+  "inputSchema": {
+    "description": "Request model for merging two Zendesk organizations.",
+    "properties": {
+      "organization_id": {
+        "description": "The ID of the organization to merge from (the losing organization that will be merged into another)",
+        "examples": [26925565264412],
+        "human_parameter_description": "The numeric ID of the organization to merge from. This organization will be merged into the winner organization and then deleted.",
+        "human_parameter_name": "Organization ID (Loser)",
+        "title": "Organization Id",
+        "type": "integer"
+      },
+      "winner_id": {
+        "description": "The ID of the winning organization that will receive all users and tickets from the losing organization",
+        "examples": [26924554541340],
+        "human_parameter_description": "The numeric ID of the organization to merge into. All users and tickets from the losing organization will be transferred here.",
+        "human_parameter_name": "Winner Organization ID",
+        "title": "Winner Id",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id", "winner_id"],
+    "title": "CreateOrganizationMergeRequest",
+    "type": "object"
+  },
+  "name": "create_organization_merge",
+  "outputSchema": {
+    "$defs": {
+      "CreateOrganizationMergeResponse": {
+        "description": "Response model for create organization merge operation.",
+        "properties": {
+          "organization_merge": {
+            "$ref": "#/$defs/OrganizationMergeData",
+            "description": "Details of the organization merge operation",
+            "title": "Organization Merge"
+          }
+        },
+        "required": ["organization_merge"],
+        "title": "CreateOrganizationMergeResponse",
+        "type": "object"
+      },
+      "OrganizationMergeData": {
+        "description": "Details of an organization merge operation.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier for the organization merge",
+            "title": "Id",
+            "type": "string"
+          },
+          "loser_id": {
+            "description": "The ID of the organization that was merged (absorbed into the winner)",
+            "title": "Loser Id",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/$defs/OrganizationMergeStatus",
+            "description": "Current status of the merge operation",
+            "title": "Status"
+          },
+          "url": {
+            "description": "API URL of the organization merge resource",
+            "title": "Url",
+            "type": "string"
+          },
+          "winner_id": {
+            "description": "The ID of the organization that absorbed the loser organization",
+            "title": "Winner Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "loser_id", "status", "url", "winner_id"],
+        "title": "OrganizationMergeData",
+        "type": "object"
+      },
+      "OrganizationMergeStatus": {
+        "description": "Status of an organization merge operation.",
+        "enum": ["new", "in_progress", "error", "complete"],
+        "title": "OrganizationMergeStatus",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateOrganizationMergeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

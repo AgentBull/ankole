@@ -1,0 +1,133 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Set a specific organization membership as the default for a user in Zendesk. Use when you need to change which organization is the primary/default for a user. Only one organization can be the default at a time. This action is idempotent - setting the same membership as default multiple times will succeed without side effects.",
+  "inputSchema": {
+    "description": "Request parameters for making an organization membership the default for a user.",
+    "properties": {
+      "organization_membership_id": {
+        "description": "The numeric ID of the organization membership to set as the user's default. Obtain from zendesk.get_userS_ORGANIZATION_MEMBERSHIPS; do not guess or fabricate IDs.",
+        "examples": [26925592148380],
+        "human_parameter_description": "Enter the numeric ID of the organization membership to make default for the user. You can find this ID by listing the user's organization memberships.",
+        "human_parameter_name": "Organization Membership ID",
+        "minimum": 1,
+        "title": "Organization Membership Id",
+        "type": "integer"
+      },
+      "user_id": {
+        "description": "The numeric ID of the Zendesk user whose organization membership you want to set as default. Obtain from ZENDESK_LIST_USERS or ZENDESK_SEARCH_USERS; do not guess or fabricate IDs.",
+        "examples": [26925592147484],
+        "human_parameter_description": "Enter the numeric ID of the user whose default organization membership should be changed. You can find user IDs by listing or searching users in Zendesk.",
+        "human_parameter_name": "User ID",
+        "minimum": 1,
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id", "organization_membership_id"],
+    "title": "MakeDefaultOrganizationMembershipRequest",
+    "type": "object"
+  },
+  "name": "make_default_organization_membership",
+  "outputSchema": {
+    "$defs": {
+      "MakeDefaultOrganizationMembershipResponse": {
+        "description": "Response model for making an organization membership the default.",
+        "properties": {
+          "count": {
+            "description": "Total count of organization memberships",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL to the next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "organization_memberships": {
+            "description": "The updated organization membership object with default flag set to true",
+            "items": {
+              "$ref": "#/$defs/OrganizationMembershipResponse"
+            },
+            "title": "Organization Memberships",
+            "type": "array"
+          },
+          "previous_page": {
+            "description": "URL to the previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["organization_memberships", "count"],
+        "title": "MakeDefaultOrganizationMembershipResponse",
+        "type": "object"
+      },
+      "OrganizationMembershipResponse": {
+        "description": "Organization membership object returned from the API.",
+        "properties": {
+          "created_at": {
+            "description": "When this record was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Denotes whether this is the default organization membership for the user",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the organization membership",
+            "title": "Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "The ID of the organization in the membership",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "organization_name": {
+            "description": "The name of the organization associated with this user",
+            "title": "Organization Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When this record last got updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "The API url of this membership",
+            "title": "Url",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "The ID of the user in the membership",
+            "title": "User Id",
+            "type": "integer"
+          },
+          "view_tickets": {
+            "description": "Denotes whether the user can or cannot have access to all organization's tickets",
+            "title": "View Tickets",
+            "type": "boolean"
+          }
+        },
+        "required": ["user_id", "organization_id"],
+        "title": "OrganizationMembershipResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/MakeDefaultOrganizationMembershipResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

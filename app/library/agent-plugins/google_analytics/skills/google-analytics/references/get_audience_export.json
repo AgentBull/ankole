@@ -1,0 +1,109 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to get configuration metadata about a specific audience export. Use when you need to understand an audience export after it has been created or check its status.",
+  "inputSchema": {
+    "description": "Request model for retrieving a specific Audience Export.",
+    "properties": {
+      "name": {
+        "description": "Required. The audience export resource name. Format: properties/{property}/audienceExports/{audience_export}. Example: properties/489591273/audienceExports/19298228",
+        "examples": ["properties/489591273/audienceExports/19298228"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "PropertiesAudienceexportsGetRequest",
+    "type": "object"
+  },
+  "name": "get_audience_export",
+  "outputSchema": {
+    "$defs": {
+      "AudienceDimension": {
+        "description": "Schema for an AudienceDimension included in the export.",
+        "properties": {
+          "dimensionName": {
+            "description": "API name of the dimension, e.g., 'country', 'city', 'deviceCategory'",
+            "title": "Dimension Name",
+            "type": "string"
+          }
+        },
+        "title": "AudienceDimension",
+        "type": "object"
+      },
+      "PropertiesAudienceexportsGetResponse": {
+        "description": "Response model for retrieving an Audience Export metadata.",
+        "properties": {
+          "audience": {
+            "description": "Required. The audience resource name. Format: properties/{property}/audiences/{audience}",
+            "title": "Audience",
+            "type": "string"
+          },
+          "audienceDisplayName": {
+            "description": "Output only. The descriptive display name for this audience. For example, 'Purchasers'.",
+            "title": "Audience Display Name",
+            "type": "string"
+          },
+          "beginCreatingTime": {
+            "description": "Output only. The time when CreateAudienceExport was called and the AudienceExport began the CREATING state.",
+            "title": "Begin Creating Time",
+            "type": "string"
+          },
+          "creationQuotaTokensCharged": {
+            "description": "Output only. The total quota tokens charged during creation of the AudienceExport. Because this token count is based on activity from the CREATING state, this tokens charged will be fixed once an AudienceExport enters the ACTIVE or FAILED states.",
+            "title": "Creation Quota Tokens Charged",
+            "type": "integer"
+          },
+          "dimensions": {
+            "description": "Required. The dimensions requested and displayed in the query response.",
+            "items": {
+              "$ref": "#/$defs/AudienceDimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "errorMessage": {
+            "description": "Output only. Error message is populated when an audience export fails during creation. A common reason for such a failure is quota exhaustion.",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "Output only. Identifier. The audience export resource name assigned during creation. Format: properties/{property}/audienceExports/{audience_export}",
+            "title": "Name",
+            "type": "string"
+          },
+          "percentageCompleted": {
+            "description": "Output only. The percentage completed for this audience export ranging between 0 to 100.",
+            "title": "Percentage Completed",
+            "type": "number"
+          },
+          "rowCount": {
+            "description": "Output only. The total number of rows in the AudienceExport result.",
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Output only. The current state for this AudienceExport. Possible values: STATE_UNSPECIFIED, CREATING, ACTIVE, FAILED",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "PropertiesAudienceexportsGetResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/PropertiesAudienceexportsGetResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

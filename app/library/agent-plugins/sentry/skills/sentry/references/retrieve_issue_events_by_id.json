@@ -1,0 +1,573 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves events for a specified Sentry `issue_id`, which must be an existing issue.",
+  "inputSchema": {
+    "description": "Request schema for `RetrieveIssueEventsById`",
+    "properties": {
+      "end": {
+        "description": "The end timestamp for filtering events, in ISO-8601 format (e.g., `2001-12-14T12:34:56.7890Z`). If provided, `start` must also be specified. This parameter is overridden by `statsPeriod` if both are used.",
+        "examples": ["2023-01-31T23:59:59Z", "2024-07-15T11:00:00.456Z"],
+        "title": "End",
+        "type": "string"
+      },
+      "environment": {
+        "description": "A list of environment names (e.g., 'production', 'staging') to filter events by. Only events from these specified environments will be returned.",
+        "examples": ["production", "staging", "development"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "full": {
+        "description": "If set to `true`, the full event body, including stacktraces, is included in the response for each event. If `false` or not provided (default), summarized event data is returned.",
+        "title": "Full",
+        "type": "boolean"
+      },
+      "issue_id": {
+        "description": "The unique numeric identifier of the Sentry issue for which to retrieve associated events.",
+        "examples": [123456789, 987654321],
+        "title": "Issue Id",
+        "type": "integer"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["my-organization", "example", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "query": {
+        "description": "An optional Sentry search query string to further filter events. Uses Sentry's search syntax (e.g., 'level:error', 'user.ip:127.0.0.1', 'handled:no tag_name:tag_value').",
+        "examples": ["level:error", "user.ip:192.168.1.1 AND handled:no", "release:1.2.3", "browser.name:Firefox"],
+        "title": "Query",
+        "type": "string"
+      },
+      "sample": {
+        "description": "If set to `true`, events are returned in a pseudo-random yet deterministic order. An identical query will consistently produce the same event sequence. Useful for obtaining a representative sample from a large number of events.",
+        "title": "Sample",
+        "type": "boolean"
+      },
+      "start": {
+        "description": "The start timestamp for filtering events, in ISO-8601 format (e.g., `2001-12-14T12:34:56.7890Z`). If provided, `end` must also be specified. This parameter is overridden by `statsPeriod` if both are used.",
+        "examples": ["2023-01-01T00:00:00Z", "2024-07-15T10:30:00.123Z"],
+        "title": "Start",
+        "type": "string"
+      },
+      "statsPeriod": {
+        "description": "A relative time period for the query (e.g., '24h', '7d', '2w'), calculated from the current time. This overrides `start` and `end` if specified. Format is a number followed by 'd' (days), 'h' (hours), 'm' (minutes), 's' (seconds), or 'w' (weeks).",
+        "examples": ["24h", "7d", "30m", "2w"],
+        "title": "Stats Period",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "issue_id"],
+    "title": "RetrieveIssueEventsByIdRequest",
+    "type": "object"
+  },
+  "name": "retrieve_issue_events_by_id",
+  "outputSchema": {
+    "$defs": {
+      "EventRelease": {
+        "description": "Release information associated with the event",
+        "properties": {
+          "commitCount": {
+            "description": "Number of commits in the release",
+            "title": "Commit Count",
+            "type": "integer"
+          },
+          "data": {
+            "additionalProperties": true,
+            "description": "Additional release data",
+            "title": "Data",
+            "type": "object"
+          },
+          "dateCreated": {
+            "description": "Release creation timestamp",
+            "format": "date-time",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateReleased": {
+            "description": "Release date",
+            "format": "date-time",
+            "title": "Date Released",
+            "type": "string"
+          },
+          "deployCount": {
+            "description": "Number of deployments for this release",
+            "title": "Deploy Count",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Release identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "lastCommit": {
+            "additionalProperties": true,
+            "description": "Last commit information",
+            "title": "Last Commit",
+            "type": "object"
+          },
+          "lastDeploy": {
+            "$ref": "#/$defs/LastDeploy",
+            "description": "Last deployment information",
+            "title": "Last Deploy"
+          },
+          "ref": {
+            "description": "Git reference (commit SHA, branch, or tag)",
+            "title": "Ref",
+            "type": "string"
+          },
+          "status": {
+            "description": "Release status",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "Release URL",
+            "title": "Url",
+            "type": "string"
+          },
+          "version": {
+            "description": "Release version string",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["id", "dateCreated", "commitCount", "deployCount", "status", "data"],
+        "title": "EventRelease",
+        "type": "object"
+      },
+      "EventSDK": {
+        "description": "SDK information used to capture the event",
+        "properties": {
+          "name": {
+            "description": "SDK name",
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "description": "SDK version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "title": "EventSDK",
+        "type": "object"
+      },
+      "EventTag": {
+        "description": "Tag object for categorizing and filtering events",
+        "properties": {
+          "key": {
+            "description": "Tag name or key",
+            "title": "Key",
+            "type": "string"
+          },
+          "query": {
+            "description": "Search query for the tag",
+            "title": "Query",
+            "type": "string"
+          },
+          "value": {
+            "description": "Tag value",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["key", "value"],
+        "title": "EventTag",
+        "type": "object"
+      },
+      "EventUser": {
+        "description": "User information associated with an event",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "description": "Custom user data",
+            "title": "Data",
+            "type": "object"
+          },
+          "email": {
+            "description": "User email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "geo": {
+            "additionalProperties": true,
+            "description": "Geographic location data",
+            "title": "Geo",
+            "type": "object"
+          },
+          "id": {
+            "description": "User identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "ip_address": {
+            "description": "IP address of the user",
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the user",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "User login name",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "EventUser",
+        "type": "object"
+      },
+      "EventUserReport": {
+        "description": "User-submitted crash report",
+        "properties": {
+          "comments": {
+            "description": "User's comments about the crash",
+            "title": "Comments",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "Report submission timestamp",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email of the person who submitted the report",
+            "title": "Email",
+            "type": "string"
+          },
+          "event": {
+            "additionalProperties": true,
+            "description": "Event reference",
+            "title": "Event",
+            "type": "object"
+          },
+          "eventID": {
+            "description": "Associated event ID",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "id": {
+            "description": "User report identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the person who submitted the report",
+            "title": "Name",
+            "type": "string"
+          },
+          "user": {
+            "additionalProperties": true,
+            "description": "User details",
+            "title": "User",
+            "type": "object"
+          }
+        },
+        "required": ["id", "eventID", "comments", "dateCreated", "event"],
+        "title": "EventUserReport",
+        "type": "object"
+      },
+      "IssueEvent": {
+        "description": "Event object associated with an issue",
+        "properties": {
+          "entries": {
+            "description": "Event entries including exception, breadcrumbs, and request data",
+            "items": {},
+            "title": "Entries",
+            "type": "array"
+          },
+          "fingerprints": {
+            "description": "Event fingerprints used for grouping events into issues",
+            "items": {},
+            "title": "Fingerprints",
+            "type": "array"
+          },
+          "release": {
+            "$ref": "#/$defs/EventRelease",
+            "description": "Release information associated with the event",
+            "title": "Release"
+          },
+          "location": {
+            "description": "Source code location where the event occurred",
+            "title": "Location",
+            "type": "string"
+          },
+          "crashFile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Associated crash file reference",
+            "title": "Crash File"
+          },
+          "groupingConfig": {
+            "additionalProperties": true,
+            "description": "Configuration used for event grouping",
+            "title": "Grouping Config",
+            "type": "object"
+          },
+          "culprit": {
+            "description": "Identified culprit or source of the error",
+            "title": "Culprit",
+            "type": "string"
+          },
+          "projectID": {
+            "description": "Project identifier",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "errors": {
+            "description": "Processing errors encountered while handling the event",
+            "items": {},
+            "title": "Errors",
+            "type": "array"
+          },
+          "dateCreated": {
+            "description": "Event creation timestamp in ISO-8601 format",
+            "format": "date-time",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "size": {
+            "description": "Event size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "message": {
+            "description": "Event message content",
+            "title": "Message",
+            "type": "string"
+          },
+          "tags": {
+            "description": "Array of tag objects for categorizing and filtering events",
+            "items": {
+              "$ref": "#/$defs/EventTag"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "sdkUpdates": {
+            "description": "Available SDK updates and recommendations",
+            "items": {},
+            "title": "Sdk Updates",
+            "type": "array"
+          },
+          "resolvedWith": {
+            "description": "Information about how the issue was resolved",
+            "items": {},
+            "title": "Resolved With",
+            "type": "array"
+          },
+          "type": {
+            "description": "Event type (e.g., 'error', 'default')",
+            "title": "Type",
+            "type": "string"
+          },
+          "previousEventID": {
+            "description": "ID of the previous event in the issue",
+            "title": "Previous Event Id",
+            "type": "string"
+          },
+          "sdk": {
+            "$ref": "#/$defs/EventSDK",
+            "description": "SDK information used to capture the event",
+            "title": "Sdk"
+          },
+          "dist": {
+            "description": "Distribution identifier",
+            "title": "Dist",
+            "type": "string"
+          },
+          "contexts": {
+            "additionalProperties": true,
+            "description": "Event contexts containing runtime, browser, device, and other contextual information",
+            "title": "Contexts",
+            "type": "object"
+          },
+          "packages": {
+            "additionalProperties": true,
+            "description": "Package dependencies and versions",
+            "title": "Packages",
+            "type": "object"
+          },
+          "userReport": {
+            "$ref": "#/$defs/EventUserReport",
+            "description": "User-submitted crash report",
+            "title": "User Report"
+          },
+          "platform": {
+            "description": "Platform identifier (e.g., 'python', 'javascript')",
+            "title": "Platform",
+            "type": "string"
+          },
+          "nextEventID": {
+            "description": "ID of the next event in the issue",
+            "title": "Next Event Id",
+            "type": "string"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additional event metadata containing event-specific information",
+            "title": "Metadata"
+          },
+          "eventID": {
+            "description": "Event ID in string format",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique event identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "_meta": {
+            "additionalProperties": true,
+            "description": "Metadata about data scrubbing and privacy",
+            "title": " Meta",
+            "type": "object"
+          },
+          "occurrence": {
+            "additionalProperties": true,
+            "description": "Occurrence details for issue platform events",
+            "title": "Occurrence",
+            "type": "object"
+          },
+          "groupID": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Associated issue group ID",
+            "title": "Group Id"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/EventUser"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "User information associated with the event",
+            "title": "User"
+          },
+          "title": {
+            "description": "Event title",
+            "title": "Title",
+            "type": "string"
+          },
+          "context": {
+            "additionalProperties": true,
+            "description": "Additional context information",
+            "title": "Context",
+            "type": "object"
+          },
+          "dateReceived": {
+            "description": "Timestamp when the event was received by Sentry",
+            "format": "date-time",
+            "title": "Date Received",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "eventID",
+          "groupID",
+          "projectID",
+          "message",
+          "title",
+          "dateCreated",
+          "crashFile",
+          "metadata",
+          "user",
+          "tags"
+        ],
+        "title": "IssueEvent",
+        "type": "object"
+      },
+      "LastDeploy": {
+        "description": "Last deployment information",
+        "properties": {
+          "dateFinished": {
+            "description": "Deployment completion timestamp",
+            "title": "Date Finished",
+            "type": "string"
+          },
+          "dateStarted": {
+            "description": "Deployment start timestamp",
+            "title": "Date Started",
+            "type": "string"
+          },
+          "environment": {
+            "description": "Deployment environment",
+            "title": "Environment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Deploy identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Deployment name",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "Deployment URL",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "environment", "dateFinished", "name"],
+        "title": "LastDeploy",
+        "type": "object"
+      },
+      "RetrieveIssueEventsByIdResponse": {
+        "description": "Response payload containing events associated with the specified Sentry issue.\n\nThe response contains a collection of event objects, each representing an error occurrence\nwithin the issue. Events include details such as event IDs, timestamps, user information,\ntags, metadata, and optionally full stacktraces (when `full=true` is specified).",
+        "items": {
+          "$ref": "#/$defs/IssueEvent"
+        },
+        "title": "RetrieveIssueEventsByIdResponse",
+        "type": "array"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveIssueEventsByIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

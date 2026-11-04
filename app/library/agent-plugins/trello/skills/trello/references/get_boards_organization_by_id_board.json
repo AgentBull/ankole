@@ -1,0 +1,217 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetches information about the Trello Workspace (organization) to which a specific board belongs, returning details for the Workspace only, not the board itself or its content.",
+  "inputSchema": {
+    "description": "Request schema for `GetBoardsOrganizationByIdBoard`",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Specifies the fields to be returned for the organization. Use 'all' to retrieve all available fields, or provide a comma-separated list of specific fields. Valid fields include: 'billableMemberCount', 'desc', 'descData', 'displayName', 'idBoards', 'invitations', 'invited', 'logoHash', 'memberships', 'name', 'powerUps', 'prefs', 'premiumFeatures', 'products', 'url', or 'website'.",
+        "examples": ["name,displayName,url", "desc,memberships,products", "all"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The ID of the Trello board.",
+        "examples": ["60d5f0b5e6a0b30f5d9b6a5c"],
+        "title": "Id Board",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard"],
+    "title": "GetBoardsOrganizationByIdBoardRequest",
+    "type": "object"
+  },
+  "name": "get_boards_organization_by_id_board",
+  "outputSchema": {
+    "$defs": {
+      "BoardVisibilityRestrict": {
+        "description": "Board visibility restrictions",
+        "properties": {
+          "org": {
+            "description": "Organization visibility restriction",
+            "title": "Org",
+            "type": "string"
+          },
+          "private": {
+            "description": "Private visibility restriction",
+            "title": "Private",
+            "type": "string"
+          },
+          "public": {
+            "description": "Public visibility restriction",
+            "title": "Public",
+            "type": "string"
+          }
+        },
+        "title": "BoardVisibilityRestrict",
+        "type": "object"
+      },
+      "GetBoardsOrganizationByIdBoardResponse": {
+        "description": "Response schema for `GetBoardsOrganizationByIdBoard`",
+        "properties": {
+          "billableMemberCount": {
+            "description": "The number of billable members in the organization",
+            "title": "Billable Member Count",
+            "type": "integer"
+          },
+          "desc": {
+            "description": "The description of the organization",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "additionalProperties": true,
+            "description": "Additional description data for the organization (contains emoji and other metadata)",
+            "title": "Desc Data",
+            "type": "object"
+          },
+          "displayName": {
+            "description": "The display name of the organization",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "domainName": {
+            "description": "The domain name associated with the organization",
+            "title": "Domain Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the organization",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "Array of board IDs belonging to the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idMemberCreator": {
+            "description": "ID of the member who created the organization",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "invitations": {
+            "description": "List of pending invitations for the organization",
+            "items": {},
+            "title": "Invitations",
+            "type": "array"
+          },
+          "invited": {
+            "description": "Whether the user has been invited to the organization",
+            "title": "Invited",
+            "type": "boolean"
+          },
+          "logoHash": {
+            "description": "Hash identifier for the organization's logo",
+            "title": "Logo Hash",
+            "type": "string"
+          },
+          "logoUrl": {
+            "description": "Full URL to the organization's logo image",
+            "title": "Logo Url",
+            "type": "string"
+          },
+          "membersCount": {
+            "description": "The total number of members in the organization",
+            "title": "Members Count",
+            "type": "integer"
+          },
+          "memberships": {
+            "description": "List of memberships in the organization",
+            "items": {},
+            "title": "Memberships",
+            "type": "array"
+          },
+          "name": {
+            "description": "The name of the organization",
+            "title": "Name",
+            "type": "string"
+          },
+          "powerUps": {
+            "description": "List of Power-Ups enabled for the organization",
+            "items": {},
+            "title": "Power Ups",
+            "type": "array"
+          },
+          "prefs": {
+            "$ref": "#/$defs/OrganizationPrefs",
+            "description": "Organization preferences and settings",
+            "title": "Prefs"
+          },
+          "premiumFeatures": {
+            "description": "List of premium features enabled for the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Premium Features",
+            "type": "array"
+          },
+          "products": {
+            "description": "List of products/features enabled for the organization",
+            "items": {},
+            "title": "Products",
+            "type": "array"
+          },
+          "url": {
+            "description": "The URL to access the organization",
+            "title": "Url",
+            "type": "string"
+          },
+          "website": {
+            "description": "The organization's website URL",
+            "title": "Website",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "GetBoardsOrganizationByIdBoardResponse",
+        "type": "object"
+      },
+      "OrganizationPrefs": {
+        "description": "Organization preferences and settings",
+        "properties": {
+          "associatedDomain": {
+            "description": "Associated domain for the organization",
+            "title": "Associated Domain",
+            "type": "string"
+          },
+          "boardVisibilityRestrict": {
+            "$ref": "#/$defs/BoardVisibilityRestrict",
+            "description": "Board visibility restrictions",
+            "title": "Board Visibility Restrict"
+          },
+          "externalMembersDisabled": {
+            "description": "Whether external members are disabled",
+            "title": "External Members Disabled",
+            "type": "boolean"
+          },
+          "googleAppsVersion": {
+            "description": "Google Apps version",
+            "title": "Google Apps Version",
+            "type": "integer"
+          }
+        },
+        "title": "OrganizationPrefs",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBoardsOrganizationByIdBoardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

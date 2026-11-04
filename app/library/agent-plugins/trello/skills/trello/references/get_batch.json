@@ -1,0 +1,58 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Executes multiple Trello API GET requests in a single batch operation for efficient bulk data retrieval.",
+  "inputSchema": {
+    "description": "Defines the parameters for making a batch GET request to the Trello API.",
+    "properties": {
+      "urls": {
+        "description": "A comma-separated string of Trello API v1 GET routes to be executed in a single batch request. Each route must be relative to the `/1` Trello API base (e.g., `/cards/{idCard}`, `/boards/{idBoard}/lists`) and should not include the `/1` prefix in the individual routes. Trello typically limits this to a maximum of 10 routes per batch call.",
+        "examples": [
+          "/members/me,/boards/YOUR_BOARD_ID/cards",
+          "/cards/YOUR_CARD_ID",
+          "/boards/YOUR_BOARD_ID/lists?fields=name,idBoard&filter=open"
+        ],
+        "title": "Urls",
+        "type": "string"
+      }
+    },
+    "required": ["urls"],
+    "title": "GetBatchRequest",
+    "type": "object"
+  },
+  "name": "get_batch",
+  "outputSchema": {
+    "$defs": {
+      "GetBatchResponse": {
+        "description": "Array of batch response objects, where each element represents the result of one batched GET request. The Trello batch endpoint allows up to 10 GET requests in a single API call.",
+        "properties": {
+          "batch_results": {
+            "description": "Array of batch response objects, where each element is an object with a single numeric HTTP status code key (e.g., '200', '404', '401'). The value for successful requests (200) is typically an array of objects; error status codes contain string error messages.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Batch Results",
+            "type": "array"
+          }
+        },
+        "required": ["batch_results"],
+        "title": "GetBatchResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBatchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

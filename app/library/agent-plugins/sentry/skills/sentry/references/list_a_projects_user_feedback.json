@@ -1,0 +1,144 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of legacy user feedback items within a Sentry project. Use when you need to see user-reported feedback on errors. Note: This returns legacy User Reports, not submissions from the User Feedback Widget.",
+  "inputSchema": {
+    "description": "Request schema for listing user feedback items within a project.",
+    "properties": {
+      "cursor": {
+        "description": "Pagination cursor for retrieving the next or previous page of results.",
+        "examples": ["1735689600:0:0"],
+        "title": "Cursor",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization.",
+        "examples": ["example", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Maximum number of feedback items to return per page. Default: 100.",
+        "examples": [10, 50, 100],
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "project_id_or_slug": {
+        "description": "The ID or slug of the project.",
+        "examples": ["example-frontend", "9876543210"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "ListAProjectsUserFeedbackRequest",
+    "type": "object"
+  },
+  "name": "list_a_projects_user_feedback",
+  "outputSchema": {
+    "$defs": {
+      "EventReference": {
+        "description": "Event reference object schema.",
+        "properties": {
+          "eventID": {
+            "description": "Event identifier.",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "id": {
+            "description": "Event ID, can be null.",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": ["eventID"],
+        "title": "EventReference",
+        "type": "object"
+      },
+      "ListAProjectsUserFeedbackResponse": {
+        "description": "Response schema containing a list of user feedback items.",
+        "properties": {
+          "data": {
+            "description": "List of user feedback items for the specified project.",
+            "items": {
+              "$ref": "#/$defs/UserFeedbackItem"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "ListAProjectsUserFeedbackResponse",
+        "type": "object"
+      },
+      "UserFeedbackItem": {
+        "description": "Individual user feedback item schema.",
+        "properties": {
+          "comments": {
+            "description": "User's feedback text.",
+            "title": "Comments",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when feedback was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "email": {
+            "description": "Submitter's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "event": {
+            "$ref": "#/$defs/EventReference",
+            "description": "Event reference object.",
+            "title": "Event"
+          },
+          "eventID": {
+            "description": "Associated event identifier.",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "id": {
+            "description": "Feedback item identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "issue": {
+            "additionalProperties": true,
+            "description": "Related issue object, can be null.",
+            "title": "Issue",
+            "type": "object"
+          },
+          "name": {
+            "description": "Submitter's name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "user": {
+            "additionalProperties": true,
+            "description": "User object, can be null.",
+            "title": "User",
+            "type": "object"
+          }
+        },
+        "required": ["id", "eventID", "name", "email", "comments", "dateCreated", "event"],
+        "title": "UserFeedbackItem",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListAProjectsUserFeedbackResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

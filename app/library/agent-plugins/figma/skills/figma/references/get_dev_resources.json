@@ -1,0 +1,92 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves development resources (e.g., Jira/GitHub links) for a Figma main file, optionally filtering by specific node IDs.",
+  "inputSchema": {
+    "description": "Request schema for retrieving development resources associated with a Figma file.",
+    "properties": {
+      "file_key": {
+        "description": "The unique identifier of the Figma design file from which to retrieve development resources. This must be the key for a main file, not a branch key. Extract the file_key from Figma URLs: figma.com/design/{file_key}/... or figma.com/file/{file_key}/...",
+        "examples": ["dAln0zQzF2xXyZc8V9bA6e"],
+        "title": "File Key",
+        "type": "string"
+      },
+      "node_ids": {
+        "description": "A comma-separated string of node IDs to filter dev resources. Example: '1:2,100:54'. If omitted, returns all dev resources in the file.",
+        "examples": ["1:2,100:54", "205:3,301:15"],
+        "title": "Node Ids",
+        "type": "string"
+      }
+    },
+    "required": ["file_key"],
+    "title": "GetDevResourcesRequest",
+    "type": "object"
+  },
+  "name": "get_dev_resources",
+  "outputSchema": {
+    "$defs": {
+      "DevResource": {
+        "description": "Represents a development resource linked to a Figma file or node.",
+        "properties": {
+          "file_key": {
+            "description": "The identifier of the Figma file this development resource is associated with.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of this specific development resource link.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The display name of the development resource (e.g., 'Implement Feature X', 'BUG-123').",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "The identifier of the specific node (e.g., layer, frame, component) in the Figma file to which this development resource is attached.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL pointing to the external development tool or resource (e.g., a link to a Jira ticket, GitHub issue, or documentation page).",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "url", "file_key", "node_id"],
+        "title": "DevResource",
+        "type": "object"
+      },
+      "GetDevResourcesResponse": {
+        "description": "Response schema for `GetDevResources`, containing the retrieved development resources.",
+        "properties": {
+          "dev_resources": {
+            "description": "A list of `DevResource` objects, each representing an external development resource linked to the Figma file or specific nodes within it.",
+            "items": {
+              "$ref": "#/$defs/DevResource"
+            },
+            "title": "Dev Resources",
+            "type": "array"
+          }
+        },
+        "required": ["dev_resources"],
+        "title": "GetDevResourcesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetDevResourcesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

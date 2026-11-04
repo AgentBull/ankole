@@ -1,0 +1,237 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed metadata for a specific published Figma component set using its unique `key`.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a Figma component set.",
+    "properties": {
+      "key": {
+        "description": "The unique identifier of the component set.",
+        "examples": ["NsklHwLekg2Y09ChsX0VIN"],
+        "title": "Key",
+        "type": "string"
+      }
+    },
+    "required": ["key"],
+    "title": "GetComponentSetRequest",
+    "type": "object"
+  },
+  "name": "get_component_set",
+  "outputSchema": {
+    "$defs": {
+      "ContainingComponentSet": {
+        "properties": {
+          "name": {
+            "description": "The name of the parent component set node, if applicable.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "The unique identifier of the parent component set node, if applicable.",
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "title": "ContainingComponentSet",
+        "type": "object"
+      },
+      "ContainingFrame": {
+        "properties": {
+          "backgroundColor": {
+            "description": "The background color of the frame, if set, in RGBA format.",
+            "title": "Background Color",
+            "type": "string"
+          },
+          "containingComponentSet": {
+            "$ref": "#/$defs/ContainingComponentSet",
+            "description": "Details of the component set that this frame is part of, if applicable.",
+            "title": "Containing Component Set"
+          },
+          "containingStateGroup": {
+            "$ref": "#/$defs/ContainingStateGroup",
+            "description": "Deprecated: This field is deprecated. Use `containingComponentSet` instead for information about the component set containing this frame.",
+            "title": "Containing State Group"
+          },
+          "name": {
+            "description": "The name of the frame node.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "The unique identifier of the frame node within the file.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "pageId": {
+            "description": "The unique identifier of the page containing this frame.",
+            "title": "Page Id",
+            "type": "string"
+          },
+          "pageName": {
+            "description": "The name of the page containing this frame.",
+            "title": "Page Name",
+            "type": "string"
+          }
+        },
+        "required": ["pageId", "pageName"],
+        "title": "ContainingFrame",
+        "type": "object"
+      },
+      "ContainingStateGroup": {
+        "properties": {
+          "name": {
+            "description": "The name of the state group node, if applicable.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "The unique identifier of the state group node, if applicable.",
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "title": "ContainingStateGroup",
+        "type": "object"
+      },
+      "Error": {
+        "enum": [false],
+        "title": "Error",
+        "type": "boolean"
+      },
+      "GetComponentSetResponse": {
+        "description": "Response schema for `GetComponentSet`, providing metadata for a component set.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "The main data payload of the response, containing details of the component set.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetComponentSetResponse",
+        "type": "object"
+      },
+      "Meta": {
+        "properties": {
+          "containing_frame": {
+            "$ref": "#/$defs/ContainingFrame",
+            "description": "Information about the frame that contains the component set, if applicable. This provides context on where the component set is located within a file structure.",
+            "title": "Containing Frame"
+          },
+          "created_at": {
+            "description": "The date and time (UTC ISO 8601 format) when the component set was created.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the component set as provided by the publisher.",
+            "title": "Description",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "The unique identifier of the Figma file that contains this component set.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "key": {
+            "description": "The unique identifier for the component set.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the component set.",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "The unique identifier of the component set node within the Figma file.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "URL to a thumbnail image of the component set, if available.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "The date and time (UTC ISO 8601 format) when the component set was last updated.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Information about the user who published the component set.",
+            "title": "User"
+          }
+        },
+        "required": ["key", "file_key", "node_id", "name", "description", "created_at", "updated_at", "user"],
+        "title": "Meta",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "error": {
+            "$ref": "#/$defs/Error",
+            "description": "Indicates if an error occurred. For successful requests, this value is always `false`.",
+            "title": "Error"
+          },
+          "meta": {
+            "$ref": "#/$defs/Meta",
+            "description": "Contains the detailed metadata for the requested component set.",
+            "title": "Meta"
+          },
+          "status": {
+            "$ref": "#/$defs/Status",
+            "description": "HTTP status code of the response. A value of 200 indicates success.",
+            "title": "Status"
+          }
+        },
+        "required": ["status", "error", "meta"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Status": {
+        "enum": [200],
+        "title": "Status",
+        "type": "integer"
+      },
+      "User": {
+        "properties": {
+          "handle": {
+            "description": "The name of the user, often their username or display name.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique stable identifier of the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "img_url": {
+            "description": "URL of the user's profile image.",
+            "title": "Img Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "handle", "img_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetComponentSetResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

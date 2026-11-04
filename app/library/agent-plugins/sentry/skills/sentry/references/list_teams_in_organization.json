@@ -1,0 +1,281 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists teams for an existing Sentry organization, optionally including project details and supporting pagination via a cursor.",
+  "inputSchema": {
+    "description": "Request schema for `ListTeamsInOrganization`",
+    "properties": {
+      "cursor": {
+        "description": "Pagination cursor for retrieving the next or previous page of results.",
+        "examples": ["1693372800000:0:1", "1693372800000:1:0"],
+        "title": "Cursor",
+        "type": "string"
+      },
+      "detailed": {
+        "description": "If '1', includes project details for each team. If '0' or not provided, excludes project details.",
+        "examples": ["0", "1"],
+        "title": "Detailed",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the Sentry organization.",
+        "examples": ["my-organization-slug", "123456"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "ListTeamsInOrganizationRequest",
+    "type": "object"
+  },
+  "name": "list_teams_in_organization",
+  "outputSchema": {
+    "$defs": {
+      "ListTeamsInOrganizationResponse": {
+        "description": "Response schema for `ListTeamsInOrganization`",
+        "items": {
+          "$ref": "#/$defs/Team"
+        },
+        "title": "ListTeamsInOrganizationResponse",
+        "type": "array"
+      },
+      "Team": {
+        "description": "Team object in a Sentry organization.",
+        "properties": {
+          "access": {
+            "description": "Array of permission strings granted to the user for this team (e.g., 'team:read', 'alerts:read').",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "avatar": {
+            "$ref": "#/$defs/TeamAvatar",
+            "description": "Avatar metadata for the team.",
+            "title": "Avatar"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp of when the team was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "externalTeams": {
+            "description": "Array of external team integrations for teams provisioned through identity providers.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "External Teams",
+            "type": "array"
+          },
+          "flags": {
+            "additionalProperties": true,
+            "description": "Feature flags for the team, such as 'idp:provisioned'.",
+            "title": "Flags",
+            "type": "object"
+          },
+          "hasAccess": {
+            "description": "Indicates whether the user has access to this team.",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the team.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isMember": {
+            "description": "Indicates whether the current user is a member of this team.",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "isPending": {
+            "description": "Indicates whether the user's membership in this team is pending.",
+            "title": "Is Pending",
+            "type": "boolean"
+          },
+          "memberCount": {
+            "description": "Total number of members in the team.",
+            "title": "Member Count",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Display name of the team.",
+            "title": "Name",
+            "type": "string"
+          },
+          "orgRole": {
+            "description": "Organization-level role assignment for the user (nullable).",
+            "title": "Org Role",
+            "type": "string"
+          },
+          "organization": {
+            "$ref": "#/$defs/TeamOrganization",
+            "description": "Organization metadata for the team.",
+            "title": "Organization"
+          },
+          "projects": {
+            "description": "Array of projects associated with the team. Included when detailed=1 query parameter is set, omitted when detailed=0.",
+            "items": {
+              "$ref": "#/$defs/TeamProject"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "slug": {
+            "description": "URL-friendly team name.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "teamRole": {
+            "description": "The role of the current user within the team (nullable).",
+            "title": "Team Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "dateCreated",
+          "organization",
+          "isMember",
+          "flags",
+          "access",
+          "hasAccess",
+          "isPending",
+          "memberCount",
+          "avatar"
+        ],
+        "title": "Team",
+        "type": "object"
+      },
+      "TeamAvatar": {
+        "description": "Avatar metadata for a team.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar', 'upload').",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar image (nullable).",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the avatar image (nullable).",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "TeamAvatar",
+        "type": "object"
+      },
+      "TeamOrganization": {
+        "description": "Organization metadata for a team.",
+        "properties": {
+          "dateCreated": {
+            "description": "ISO 8601 timestamp of when the organization was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the organization.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the organization.",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly organization name.",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "slug", "name", "dateCreated"],
+        "title": "TeamOrganization",
+        "type": "object"
+      },
+      "TeamProject": {
+        "description": "Project associated with a team.",
+        "properties": {
+          "dateCreated": {
+            "description": "ISO 8601 timestamp of when the project was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "features": {
+            "description": "Array of enabled features for the project.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "hasMonitors": {
+            "description": "Indicates whether the project has cron monitors enabled.",
+            "title": "Has Monitors",
+            "type": "boolean"
+          },
+          "hasReplays": {
+            "description": "Indicates whether the project has session replay functionality enabled.",
+            "title": "Has Replays",
+            "type": "boolean"
+          },
+          "hasSessions": {
+            "description": "Indicates whether the project has session tracking enabled.",
+            "title": "Has Sessions",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the project.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the project.",
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Technology platform of the project (e.g., 'javascript-react', 'python').",
+            "title": "Platform",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly project name.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current status of the project (e.g., 'active', 'disabled').",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["id", "slug", "name", "dateCreated"],
+        "title": "TeamProject",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListTeamsInOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to delete a branch from a GitLab project repository. Use when you need to remove a branch that is no longer needed. This action is irreversible — the branch cannot be recovered once deleted. Cannot delete default or protected branches.",
+  "inputSchema": {
+    "properties": {
+      "branch_name": {
+        "description": "The URL-encoded name of the branch to delete. Cannot be the default or a protected branch.",
+        "examples": ["feature-branch", "bugfix/issue-123"],
+        "title": "Branch Name",
+        "type": "string"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["5", "group_name/project_name"],
+        "title": "Project Id"
+      }
+    },
+    "required": ["project_id", "branch_name"],
+    "title": "DeleteRepositoryBranchRequest",
+    "type": "object"
+  },
+  "name": "delete_repository_branch",
+  "outputSchema": {
+    "$defs": {
+      "DeleteRepositoryBranchResponse": {
+        "properties": {
+          "message": {
+            "description": "A message indicating the status of the deletion.",
+            "title": "Message",
+            "type": "string"
+          },
+          "status_code": {
+            "description": "HTTP status code of the response.",
+            "title": "Status Code",
+            "type": "integer"
+          }
+        },
+        "required": ["status_code"],
+        "title": "DeleteRepositoryBranchResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteRepositoryBranchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,219 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve details about a specific routing form submission by its UUID. Use when you need submission details including questions, answers, and routing results.",
+  "inputSchema": {
+    "description": "Request model for retrieving details about a specific routing form submission.",
+    "properties": {
+      "uuid": {
+        "description": "The unique identifier (UUID) of the routing form submission to retrieve. Extract from submission URI or webhook payload.",
+        "examples": ["AAAAAAAAAAAAAAAA", "00000000-0000-0000-0000-000000000000"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "GetRoutingFormSubmissionRequest",
+    "type": "object"
+  },
+  "name": "get_routing_form_submission",
+  "outputSchema": {
+    "$defs": {
+      "GetRoutingFormSubmissionResponse": {
+        "description": "Response model containing detailed information about the routing form submission.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/RoutingFormSubmissionResource",
+            "description": "The routing form submission resource object containing complete submission details.",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "GetRoutingFormSubmissionResponse",
+        "type": "object"
+      },
+      "QuestionAndAnswer": {
+        "description": "Represents a question from the routing form and the submitter's answer.",
+        "properties": {
+          "answer": {
+            "description": "The submitter's answer to the question.",
+            "title": "Answer",
+            "type": "string"
+          },
+          "position": {
+            "description": "The order/position of the question in the form, starting from 0.",
+            "title": "Position",
+            "type": "integer"
+          },
+          "question": {
+            "description": "The text of the question asked in the routing form.",
+            "title": "Question",
+            "type": "string"
+          },
+          "question_uuid": {
+            "description": "Unique identifier for the question.",
+            "title": "Question Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["question_uuid", "question", "answer", "position"],
+        "title": "QuestionAndAnswer",
+        "type": "object"
+      },
+      "RoutingFormSubmissionResource": {
+        "description": "Complete routing form submission resource object containing all submission details.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the routing form submission was created (ISO 8601 format in UTC).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "questions_and_answers": {
+            "description": "List of questions asked and answers provided by the submitter.",
+            "items": {
+              "$ref": "#/$defs/QuestionAndAnswer"
+            },
+            "title": "Questions And Answers",
+            "type": "array"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/RoutingResult"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The routing destination result - indicates where the submission was routed.",
+            "title": "Result"
+          },
+          "routing_form": {
+            "description": "URI reference to the associated routing form.",
+            "title": "Routing Form",
+            "type": "string"
+          },
+          "submitter": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SubmitterInfo"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Information about the person who submitted the form, including email and possibly name.",
+            "title": "Submitter"
+          },
+          "submitter_type": {
+            "description": "Type/category of the submitter (e.g., 'external', 'guest').",
+            "title": "Submitter Type",
+            "type": "string"
+          },
+          "tracking": {
+            "$ref": "#/$defs/TrackingInfo",
+            "description": "Marketing attribution and integration tracking data.",
+            "title": "Tracking"
+          },
+          "updated_at": {
+            "description": "Timestamp when the routing form submission was last updated (ISO 8601 format in UTC).",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the routing form submission.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "routing_form", "questions_and_answers", "created_at", "updated_at"],
+        "title": "RoutingFormSubmissionResource",
+        "type": "object"
+      },
+      "RoutingResult": {
+        "description": "The routing destination result indicating where the submission was routed.",
+        "properties": {
+          "type": {
+            "description": "Type of destination (e.g., 'event_type', 'external_url').",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The actual destination (URI or URL) where the submission was routed.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "RoutingResult",
+        "type": "object"
+      },
+      "SubmitterInfo": {
+        "description": "Information about the person who submitted the routing form.",
+        "properties": {
+          "email": {
+            "description": "The submitter's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "The submitter's name if provided.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "SubmitterInfo",
+        "type": "object"
+      },
+      "TrackingInfo": {
+        "description": "Marketing attribution and integration tracking data for the submission.",
+        "properties": {
+          "salesforce_uuid": {
+            "description": "Salesforce UUID for CRM integration tracking.",
+            "title": "Salesforce Uuid",
+            "type": "string"
+          },
+          "utm_campaign": {
+            "description": "UTM campaign parameter for marketing attribution.",
+            "title": "Utm Campaign",
+            "type": "string"
+          },
+          "utm_content": {
+            "description": "UTM content parameter for marketing attribution.",
+            "title": "Utm Content",
+            "type": "string"
+          },
+          "utm_medium": {
+            "description": "UTM medium parameter for marketing attribution.",
+            "title": "Utm Medium",
+            "type": "string"
+          },
+          "utm_source": {
+            "description": "UTM source parameter for marketing attribution.",
+            "title": "Utm Source",
+            "type": "string"
+          },
+          "utm_term": {
+            "description": "UTM term parameter for marketing attribution.",
+            "title": "Utm Term",
+            "type": "string"
+          }
+        },
+        "title": "TrackingInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRoutingFormSubmissionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

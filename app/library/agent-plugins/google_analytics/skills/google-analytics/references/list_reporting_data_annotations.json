@@ -1,0 +1,169 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List a page of Reporting Data Annotations for a specific GA4 property, optionally filtering the results. Annotations document important events or periods in reporting data.",
+  "inputSchema": {
+    "description": "Request model for listing Reporting Data Annotations on a property.",
+    "properties": {
+      "filter": {
+        "description": "Optional. Expression to refine results. Supported fields: name, title, description, annotationDate, annotationDateRange, color. Helper functions: annotation_duration(), is_annotation_in_range(). Operators: =, !=, <, >, <=, >=, :, =~, !~, NOT, AND, OR.",
+        "examples": ["color = RED AND title =~ 'campaign'"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "pageSize": {
+        "description": "Optional. Maximum number of resources per response. Default: 50, Max: 200.",
+        "examples": [50, 100],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. Pagination token from previous response to retrieve next page.",
+        "examples": ["abc123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. Resource name of the property. Format: properties/{property_id}. Example: properties/123456789",
+        "examples": ["properties/123456789"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListReportingDataAnnotationsRequest",
+    "type": "object"
+  },
+  "name": "list_reporting_data_annotations",
+  "outputSchema": {
+    "$defs": {
+      "Date": {
+        "description": "Date representation with year, month, and day.",
+        "properties": {
+          "day": {
+            "description": "Day (1-31, or 0 for day-unspecified).",
+            "maximum": 31,
+            "minimum": 0,
+            "title": "Day",
+            "type": "integer"
+          },
+          "month": {
+            "description": "Month (1-12, or 0 for month-unspecified).",
+            "maximum": 12,
+            "minimum": 0,
+            "title": "Month",
+            "type": "integer"
+          },
+          "year": {
+            "description": "Year (1-9999, or 0 for year-unspecified).",
+            "maximum": 9999,
+            "minimum": 0,
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": ["year", "month", "day"],
+        "title": "Date",
+        "type": "object"
+      },
+      "DateRange": {
+        "description": "Date range with start and end dates.",
+        "properties": {
+          "endDate": {
+            "$ref": "#/$defs/Date",
+            "description": "Ending date of the range (required, full date, must be >= startDate).",
+            "title": "End Date"
+          },
+          "startDate": {
+            "$ref": "#/$defs/Date",
+            "description": "Beginning date of the range (required, full date).",
+            "title": "Start Date"
+          }
+        },
+        "required": ["startDate", "endDate"],
+        "title": "DateRange",
+        "type": "object"
+      },
+      "ListReportingDataAnnotationsResponse": {
+        "description": "Response model for listing Reporting Data Annotations.",
+        "properties": {
+          "nextPageToken": {
+            "description": "Pagination token for subsequent requests. Omitted when no additional pages exist.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "reportingDataAnnotations": {
+            "default": [],
+            "description": "List of ReportingDataAnnotation objects.",
+            "items": {
+              "$ref": "#/$defs/ReportingDataAnnotation"
+            },
+            "title": "Reporting Data Annotations",
+            "type": "array"
+          }
+        },
+        "title": "ListReportingDataAnnotationsResponse",
+        "type": "object"
+      },
+      "ReportingDataAnnotation": {
+        "description": "Schema for a Reporting Data Annotation resource.",
+        "properties": {
+          "annotationDate": {
+            "$ref": "#/$defs/Date",
+            "description": "Single calendar date for the annotation (union field).",
+            "title": "Annotation Date"
+          },
+          "annotationDateRange": {
+            "$ref": "#/$defs/DateRange",
+            "description": "Date range spanning multiple days (union field).",
+            "title": "Annotation Date Range"
+          },
+          "color": {
+            "description": "Display color. Values: COLOR_UNSPECIFIED, PURPLE, BROWN, BLUE, GREEN, RED, CYAN, ORANGE.",
+            "enum": ["COLOR_UNSPECIFIED", "PURPLE", "BROWN", "BLUE", "GREEN", "RED", "CYAN", "ORANGE"],
+            "title": "Color",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional. Additional context about the annotation.",
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource identifier. Format: properties/{property_id}/reportingDataAnnotations/{annotation_id}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "systemGenerated": {
+            "description": "Output-only. True if auto-generated by Google Analytics.",
+            "title": "System Generated",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "Human-readable label for the annotation.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["name", "title", "color"],
+        "title": "ReportingDataAnnotation",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListReportingDataAnnotationsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

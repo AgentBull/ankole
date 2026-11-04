@@ -1,0 +1,77 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a specific comment from a Figma file or branch, provided the authenticated user is the original author of the comment.",
+  "inputSchema": {
+    "description": "Defines the parameters required to delete a comment from a Figma file.",
+    "properties": {
+      "comment_id": {
+        "description": "The unique string identifier of the comment to be deleted. This ID can be obtained from the response of `GET /v1/files/:file_key/comments` or from the response when creating a comment with `POST /v1/files/:file_key/comments`. Only the author of the comment can delete it.",
+        "examples": ["1602410633", "987654321"],
+        "title": "Comment Id",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "The key of the Figma file or branch from which the comment will be deleted. This can be a file key (typically found in the file's URL, e.g., 'sFHgQh9dL6369o5wrZHmdR' from https://www.figma.com/design/sFHgQh9dL6369o5wrZHmdR/...) or a branch key. To obtain a branch key, use the `GET /v1/files/:key` endpoint with the `branch_data` query parameter.",
+        "examples": ["sFHgQh9dL6369o5wrZHmdR", "ABC123xyz789"],
+        "title": "File Key",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "comment_id"],
+    "title": "DeleteACommentRequest",
+    "type": "object"
+  },
+  "name": "delete_a_comment",
+  "outputSchema": {
+    "$defs": {
+      "DeleteACommentResponse": {
+        "description": "Defines the structure of the response received after successfully deleting a comment.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Contains the outcome of the comment deletion, including HTTP status code and error indicator.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "DeleteACommentResponse",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "error": {
+            "description": "Indicates if an error occurred. For successful deletions, this value is `false`.",
+            "title": "Error",
+            "type": "boolean"
+          },
+          "i18n": {
+            "description": "Internationalization data, typically null for delete operations.",
+            "title": "I18N"
+          },
+          "status": {
+            "description": "The HTTP status code of the request. A value of 200 indicates the comment was successfully deleted.",
+            "title": "Status",
+            "type": "integer"
+          }
+        },
+        "required": ["status", "error"],
+        "title": "Model",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteACommentResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

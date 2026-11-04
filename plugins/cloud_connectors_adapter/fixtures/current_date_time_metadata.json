@@ -1,0 +1,50 @@
+{
+  "slug": "GOOGLECALENDAR_GET_CURRENT_DATE_TIME",
+  "version": "20261103_00",
+  "output_parameters": {
+    "type": "object",
+    "$defs": {
+      "GetCurrentDateTimeResponse": {
+        "type": "object",
+        "title": "GetCurrentDateTimeResponse",
+        "required": ["current_datetime", "yyyymmdd_datetime"],
+        "properties": {
+          "display_url": {
+            "type": "string",
+            "title": "Display Url",
+            "description": "URL to view this resource in Google Calendar web UI. None for computed queries with no persistent UI."
+          },
+          "current_datetime": {
+            "type": "string",
+            "title": "Current Datetime",
+            "description": "Current date and time in ISO 8601 format including timezone offset and microseconds (e.g., 2025-10-10T07:00:09.073977+00:00)."
+          },
+          "yyyymmdd_datetime": {
+            "type": "string",
+            "title": "Yyyymmdd Datetime",
+            "description": "Comma-separated components of the current timestamp: year, month, day, hour, minute, second (no leading zeros). Example: 2025,10,10,7,0,9."
+          }
+        }
+      }
+    },
+    "title": "GetCurrentDateTimeResponseWrapper",
+    "required": ["data", "successful"],
+    "properties": {
+      "data": {
+        "$ref": "#/$defs/GetCurrentDateTimeResponse",
+        "title": "Data",
+        "description": "Data from the action execution"
+      },
+      "error": {
+        "type": "string",
+        "title": "Error",
+        "description": "Error if any occurred during the execution of the action"
+      },
+      "successful": {
+        "type": "boolean",
+        "title": "Successful",
+        "description": "Whether or not the action execution was successful or not"
+      }
+    }
+  }
+}

@@ -1,0 +1,642 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetches detailed information about a specific custom dashboard within a Sentry organization.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a specific custom dashboard within a Sentry organization.",
+    "properties": {
+      "dashboard_id": {
+        "description": "The unique numeric identifier (ID) of the custom dashboard to retrieve within the specified organization.",
+        "examples": [1, 234, 237256],
+        "title": "Dashboard Id",
+        "type": "integer"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization.",
+        "examples": ["my-awesome-org", "sentry"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "dashboard_id"],
+    "title": "RetrieveOrganizationDashboardRequest",
+    "type": "object"
+  },
+  "name": "retrieve_organization_dashboard",
+  "outputSchema": {
+    "$defs": {
+      "Avatar": {
+        "description": "User's avatar information.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., upload, gravatar).",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar. Nullable.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the avatar. Nullable.",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "Avatar",
+        "type": "object"
+      },
+      "ChangedReason": {
+        "description": "Reasons for widget changes.",
+        "properties": {
+          "equations": {
+            "description": "Changes to equations. Nullable.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Equations",
+            "type": "array"
+          },
+          "orderby": {
+            "description": "Changes to ordering. Nullable.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Orderby",
+            "type": "array"
+          },
+          "selected_columns": {
+            "description": "Changes to selected columns.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Selected Columns",
+            "type": "array"
+          }
+        },
+        "title": "ChangedReason",
+        "type": "object"
+      },
+      "CreatedBy": {
+        "description": "User who created the dashboard.",
+        "properties": {
+          "avatar": {
+            "$ref": "#/$defs/Avatar",
+            "title": "Avatar"
+          },
+          "avatarUrl": {
+            "description": "URL to user's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "dateJoined": {
+            "description": "Timestamp when the user joined in date-time format.",
+            "title": "Date Joined",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "emails": {
+            "description": "List of user's email addresses.",
+            "items": {
+              "$ref": "#/$defs/Email"
+            },
+            "title": "Emails",
+            "type": "array"
+          },
+          "experiments": {
+            "additionalProperties": true,
+            "description": "User's experimental feature flags.",
+            "title": "Experiments",
+            "type": "object"
+          },
+          "has2fa": {
+            "description": "Whether the user has two-factor authentication enabled.",
+            "title": "Has2Fa",
+            "type": "boolean"
+          },
+          "hasPasswordAuth": {
+            "description": "Whether the user has password authentication enabled.",
+            "title": "Has Password Auth",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "User identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isActive": {
+            "description": "Whether the user account is active.",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "isManaged": {
+            "description": "Whether the user is managed by an external system.",
+            "title": "Is Managed",
+            "type": "boolean"
+          },
+          "isStaff": {
+            "description": "Whether the user is a staff member.",
+            "title": "Is Staff",
+            "type": "boolean"
+          },
+          "isSuperuser": {
+            "description": "Whether the user has superuser privileges.",
+            "title": "Is Superuser",
+            "type": "boolean"
+          },
+          "lastActive": {
+            "description": "Timestamp of user's last activity in date-time format. Nullable.",
+            "title": "Last Active",
+            "type": "string"
+          },
+          "lastLogin": {
+            "description": "Timestamp of user's last login in date-time format. Nullable.",
+            "title": "Last Login",
+            "type": "string"
+          },
+          "name": {
+            "description": "User's full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "User's username.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "username",
+          "email",
+          "avatarUrl",
+          "isActive",
+          "hasPasswordAuth",
+          "isManaged",
+          "dateJoined",
+          "has2fa",
+          "isSuperuser",
+          "isStaff",
+          "experiments",
+          "emails",
+          "avatar"
+        ],
+        "title": "CreatedBy",
+        "type": "object"
+      },
+      "Email": {
+        "description": "Email information for a user.",
+        "properties": {
+          "email": {
+            "description": "Email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Email identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_verified": {
+            "description": "Whether the email is verified.",
+            "title": "Is Verified",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "email", "is_verified"],
+        "title": "Email",
+        "type": "object"
+      },
+      "Layout": {
+        "description": "Widget layout configuration.",
+        "properties": {
+          "h": {
+            "description": "Height of the widget in grid units.",
+            "title": "H",
+            "type": "integer"
+          },
+          "minH": {
+            "description": "Minimum height in grid units.",
+            "title": "Min H",
+            "type": "integer"
+          },
+          "w": {
+            "description": "Width of the widget in grid units.",
+            "title": "W",
+            "type": "integer"
+          },
+          "x": {
+            "description": "Horizontal position in grid units.",
+            "title": "X",
+            "type": "integer"
+          },
+          "y": {
+            "description": "Vertical position in grid units.",
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": ["w", "y", "h", "minH", "x"],
+        "title": "Layout",
+        "type": "object"
+      },
+      "LinkedDashboard": {
+        "description": "Dashboards linked to a query.",
+        "properties": {
+          "dashboardId": {
+            "description": "Linked dashboard identifier.",
+            "title": "Dashboard Id",
+            "type": "integer"
+          },
+          "field": {
+            "description": "Field name for linking.",
+            "title": "Field",
+            "type": "string"
+          }
+        },
+        "required": ["field", "dashboardId"],
+        "title": "LinkedDashboard",
+        "type": "object"
+      },
+      "OnDemandConfig": {
+        "description": "On-demand query configuration.",
+        "properties": {
+          "dashboardWidgetQueryId": {
+            "description": "Dashboard widget query identifier.",
+            "title": "Dashboard Widget Query Id",
+            "type": "integer"
+          },
+          "enabled": {
+            "description": "Whether on-demand querying is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "extractionState": {
+            "description": "State of data extraction.",
+            "title": "Extraction State",
+            "type": "string"
+          }
+        },
+        "required": ["enabled", "extractionState", "dashboardWidgetQueryId"],
+        "title": "OnDemandConfig",
+        "type": "object"
+      },
+      "Permissions": {
+        "description": "Access control settings.",
+        "properties": {
+          "isEditableByEveryone": {
+            "description": "Whether the dashboard can be edited by everyone in the organization.",
+            "title": "Is Editable By Everyone",
+            "type": "boolean"
+          },
+          "teamsWithEditAccess": {
+            "description": "List of team IDs with edit access.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Teams With Edit Access",
+            "type": "array"
+          }
+        },
+        "required": ["isEditableByEveryone", "teamsWithEditAccess"],
+        "title": "Permissions",
+        "type": "object"
+      },
+      "Query": {
+        "description": "Query definitions for the widget.",
+        "properties": {
+          "aggregates": {
+            "description": "List of aggregate functions to apply.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Aggregates",
+            "type": "array"
+          },
+          "columns": {
+            "description": "List of column names.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "conditions": {
+            "description": "Query filter conditions.",
+            "title": "Conditions",
+            "type": "string"
+          },
+          "fieldAliases": {
+            "description": "List of field aliases.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Field Aliases",
+            "type": "array"
+          },
+          "fields": {
+            "description": "List of field names to query.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "id": {
+            "description": "Query identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isHidden": {
+            "description": "Whether the query is hidden from display.",
+            "title": "Is Hidden",
+            "type": "boolean"
+          },
+          "linkedDashboards": {
+            "description": "Dashboards linked to this query.",
+            "items": {
+              "$ref": "#/$defs/LinkedDashboard"
+            },
+            "title": "Linked Dashboards",
+            "type": "array"
+          },
+          "name": {
+            "description": "Query name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "onDemand": {
+            "description": "On-demand query configuration.",
+            "items": {
+              "$ref": "#/$defs/OnDemandConfig"
+            },
+            "title": "On Demand",
+            "type": "array"
+          },
+          "orderby": {
+            "description": "Query ordering specification.",
+            "title": "Orderby",
+            "type": "string"
+          },
+          "selectedAggregate": {
+            "description": "Index of selected aggregate function. Nullable.",
+            "title": "Selected Aggregate",
+            "type": "integer"
+          },
+          "widgetId": {
+            "description": "Parent widget identifier.",
+            "title": "Widget Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "fields",
+          "aggregates",
+          "columns",
+          "fieldAliases",
+          "conditions",
+          "orderby",
+          "widgetId",
+          "onDemand",
+          "isHidden",
+          "linkedDashboards"
+        ],
+        "title": "Query",
+        "type": "object"
+      },
+      "RetrieveOrganizationDashboardResponse": {
+        "description": "Response schema containing the details of the retrieved custom dashboard.",
+        "properties": {
+          "createdBy": {
+            "$ref": "#/$defs/CreatedBy",
+            "description": "User who created the dashboard. Nullable.",
+            "title": "Created By"
+          },
+          "dateCreated": {
+            "description": "Creation timestamp in date-time format.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "environment": {
+            "description": "Environment filters.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Environment",
+            "type": "array"
+          },
+          "expired": {
+            "description": "Whether the dashboard has expired. Nullable.",
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "filters": {
+            "additionalProperties": true,
+            "description": "Dashboard filtering configuration.",
+            "title": "Filters",
+            "type": "object"
+          },
+          "id": {
+            "description": "Dashboard identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isFavorited": {
+            "description": "Favorite status indicator for the current user.",
+            "title": "Is Favorited",
+            "type": "boolean"
+          },
+          "period": {
+            "description": "Time range selection (e.g., 7d, 14d, 30d).",
+            "title": "Period",
+            "type": "string"
+          },
+          "permissions": {
+            "$ref": "#/$defs/Permissions",
+            "description": "Access control settings. Nullable.",
+            "title": "Permissions"
+          },
+          "prebuiltId": {
+            "description": "Pre-built template reference identifier. Nullable.",
+            "title": "Prebuilt Id",
+            "type": "integer"
+          },
+          "projects": {
+            "description": "Associated project IDs.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "title": {
+            "description": "Dashboard name.",
+            "title": "Title",
+            "type": "string"
+          },
+          "utc": {
+            "description": "UTC offset or timezone string. Nullable.",
+            "title": "Utc",
+            "type": "string"
+          },
+          "widgets": {
+            "description": "Dashboard widget components.",
+            "items": {
+              "$ref": "#/$defs/Widget"
+            },
+            "title": "Widgets",
+            "type": "array"
+          }
+        },
+        "required": ["id", "title", "dateCreated", "widgets", "projects", "filters", "isFavorited"],
+        "title": "RetrieveOrganizationDashboardResponse",
+        "type": "object"
+      },
+      "Thresholds": {
+        "description": "Threshold configuration for alerting.",
+        "properties": {
+          "max_values": {
+            "additionalProperties": true,
+            "description": "Maximum threshold values with additional properties as integers.",
+            "title": "Max Values",
+            "type": "object"
+          },
+          "preferredPolarity": {
+            "description": "Preferred polarity for threshold evaluation.",
+            "title": "Preferred Polarity",
+            "type": "string"
+          },
+          "unit": {
+            "description": "Unit of measurement for thresholds.",
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "title": "Thresholds",
+        "type": "object"
+      },
+      "Widget": {
+        "description": "Dashboard widget components.",
+        "properties": {
+          "axisRange": {
+            "additionalProperties": true,
+            "description": "Axis range configuration for charts. Nullable.",
+            "title": "Axis Range",
+            "type": "object"
+          },
+          "changedReason": {
+            "description": "Reasons for widget changes. Nullable.",
+            "items": {
+              "$ref": "#/$defs/ChangedReason"
+            },
+            "title": "Changed Reason",
+            "type": "array"
+          },
+          "dashboardId": {
+            "description": "Parent dashboard identifier.",
+            "title": "Dashboard Id",
+            "type": "string"
+          },
+          "datasetSource": {
+            "description": "Source dataset for the widget data. Nullable.",
+            "title": "Dataset Source",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "Widget creation timestamp.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "description": {
+            "description": "Widget description. Nullable.",
+            "title": "Description",
+            "type": "string"
+          },
+          "displayType": {
+            "description": "Type of visualization display (e.g., line, bar, table).",
+            "title": "Display Type",
+            "type": "string"
+          },
+          "exploreUrls": {
+            "description": "URLs for exploring widget data. Nullable.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Explore Urls",
+            "type": "array"
+          },
+          "id": {
+            "description": "Widget identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "interval": {
+            "description": "Time interval for data aggregation.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "layout": {
+            "$ref": "#/$defs/Layout",
+            "description": "Widget layout configuration. Nullable.",
+            "title": "Layout"
+          },
+          "limit": {
+            "description": "Maximum number of results to return. Nullable.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "queries": {
+            "description": "Query definitions for the widget.",
+            "items": {
+              "$ref": "#/$defs/Query"
+            },
+            "title": "Queries",
+            "type": "array"
+          },
+          "thresholds": {
+            "$ref": "#/$defs/Thresholds",
+            "description": "Threshold configuration for alerting. Nullable.",
+            "title": "Thresholds"
+          },
+          "title": {
+            "description": "Widget title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "widgetType": {
+            "description": "Type of widget (e.g., discover, issue).",
+            "title": "Widget Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "title", "displayType", "interval", "dateCreated", "dashboardId", "queries", "widgetType"],
+        "title": "Widget",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveOrganizationDashboardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

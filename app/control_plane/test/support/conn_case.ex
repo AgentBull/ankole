@@ -54,6 +54,17 @@ defmodule AnkoleWeb.ConnCase do
   @doc "Uses the site's canonical origin for Console and public API requests."
   def site_conn(conn), do: at_origin(conn, AnkoleWeb.PodURL.site_origin(conn))
 
+  @doc "Returns the selected edition's Console mount plus an application route."
+  def console_path(suffix \\ "") do
+    if suffix == "",
+      do: AnkoleWeb.SiteAdminConsole.path(),
+      else: String.trim_trailing(AnkoleWeb.SiteAdminConsole.path(), "/") <> suffix
+  end
+
+  @doc "Returns the canonical Console URL for an application route."
+  def console_url(suffix \\ ""),
+    do: AnkoleWeb.SiteAdminConsole.url(build_conn(), console_path(suffix))
+
   @doc "Uses the tenant's canonical origin for Pod requests."
   def pod_conn(conn, tenant), do: at_origin(conn, AnkoleWeb.PodURL.origin(conn, tenant))
 

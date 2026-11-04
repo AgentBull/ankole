@@ -1,0 +1,54 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to remove a user from a Calendly organization by membership UUID. Use when you need to revoke a user's access to an organization. Requires admin rights; organization owners cannot be removed.",
+  "inputSchema": {
+    "description": "Request schema for deleting an organization membership.",
+    "properties": {
+      "uuid": {
+        "description": "The unique identifier of the organization membership to be removed. This is the membership UUID, not the user UUID.",
+        "examples": ["34190604-bb77-4f51-8486-7e096b18b12d"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "DeleteOrganizationMembershipRequest",
+    "type": "object"
+  },
+  "name": "delete_organization_membership",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationMembershipResponse": {
+        "description": "Response schema for deleting an organization membership.\n\nOn successful deletion (204 No Content), all fields will be None.\nFor error responses, the response contains error details.",
+        "properties": {
+          "message": {
+            "description": "Human-readable error message describing what went wrong.",
+            "title": "Message",
+            "type": "string"
+          },
+          "title": {
+            "description": "Error title indicating the type of error (e.g., 'Invalid Argument', 'Unauthenticated', 'Permission Denied', 'Not Found').",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "DeleteOrganizationMembershipResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationMembershipResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

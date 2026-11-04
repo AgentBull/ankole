@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Schedules a Sentry project for asynchronous deletion within a specified organization, hiding it from most public views once the process begins.",
+  "inputSchema": {
+    "description": "Specifies the Sentry organization and project to be deleted.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or URL-friendly slug of the Sentry organization to which the project belongs.",
+        "examples": ["my-organization-slug", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The unique identifier (ID) or URL-friendly slug of the Sentry project to be deleted.",
+        "examples": ["my-project-slug", "67890"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "DeleteProjectByIdRequest",
+    "type": "object"
+  },
+  "name": "delete_project_by_id",
+  "outputSchema": {
+    "$defs": {
+      "DeleteProjectByIdResponse": {
+        "description": "HTTP 204 No Content - Empty response body on successful deletion. Project is scheduled for asynchronous deletion and hidden from most public views.",
+        "properties": {},
+        "title": "DeleteProjectByIdResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteProjectByIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

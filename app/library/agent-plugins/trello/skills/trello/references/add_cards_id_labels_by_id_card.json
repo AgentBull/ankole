@@ -1,0 +1,59 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Adds an existing label to a Trello card; `idCard` identifies the card and `value` is the ID of the label to add. Both card and label must already exist.",
+  "inputSchema": {
+    "description": "Request schema for `AddCardsIdLabelsByIdCard`.",
+    "properties": {
+      "idCard": {
+        "description": "The ID or shortLink of the Trello card. Card IDs are typically 24-character hexadecimal strings.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "cardShortLink123"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "value": {
+        "description": "The ID of the label to add. Label IDs are typically 24-character hexadecimal strings.",
+        "examples": ["60c72b2f9f1b2c002d9c6d5e", "60c72b2f9f1b2c002d9c6d5f"],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "value"],
+    "title": "AddCardsIdLabelsByIdCardRequest",
+    "type": "object"
+  },
+  "name": "add_cards_id_labels_by_id_card",
+  "outputSchema": {
+    "$defs": {
+      "AddCardsIdLabelsByIdCardResponse": {
+        "description": "Response schema for `AddCardsIdLabelsByIdCard`.\n\nReturns a list of label IDs that are currently on the card after adding the label.",
+        "properties": {
+          "label_ids": {
+            "description": "List of label IDs currently applied to the card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Label Ids",
+            "type": "array"
+          }
+        },
+        "required": ["label_ids"],
+        "title": "AddCardsIdLabelsByIdCardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddCardsIdLabelsByIdCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

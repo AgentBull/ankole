@@ -1,0 +1,147 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Posts a comment to a specific commit in a GitLab project repository. Use this action when you need to provide feedback, review notes, or discussion on a particular commit. Line-specific comments require both path and line parameters; if invalid, the comment is placed at the commit level.",
+  "inputSchema": {
+    "properties": {
+      "line": {
+        "description": "The line number where the comment should be placed. Requires path to be specified.",
+        "examples": [10],
+        "title": "Line",
+        "type": "integer"
+      },
+      "line_type": {
+        "description": "The type of line ('new' or 'old'). Requires path and line to be specified.",
+        "examples": ["new"],
+        "title": "Line Type",
+        "type": "string"
+      },
+      "note": {
+        "description": "The text content of the comment.",
+        "examples": ["This commit looks good!"],
+        "title": "Note",
+        "type": "string"
+      },
+      "path": {
+        "description": "The file path relative to the repository. Required if line or line_type is specified.",
+        "examples": ["src/main.py"],
+        "title": "Path",
+        "type": "string"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": [123, "my-group/my-project"],
+        "title": "Project Id"
+      },
+      "sha": {
+        "description": "The commit hash or name of a repository branch or tag.",
+        "examples": ["6104942438c14ec7bd21c6cd5bd995272b3faff6", "main"],
+        "title": "Sha",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "sha", "note"],
+    "title": "CreateCommitCommentRequest",
+    "type": "object"
+  },
+  "name": "create_commit_comment",
+  "outputSchema": {
+    "$defs": {
+      "Author": {
+        "properties": {
+          "avatar_url": {
+            "description": "The URL of the author's avatar.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the comment author.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "The name of the comment author.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "The state of the user account.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of the comment author.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "The URL to the author's profile.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "name", "state", "web_url"],
+        "title": "Author",
+        "type": "object"
+      },
+      "CreateCommitCommentResponse": {
+        "properties": {
+          "author": {
+            "$ref": "#/$defs/Author",
+            "description": "Information about the comment author.",
+            "title": "Author"
+          },
+          "created_at": {
+            "description": "The timestamp when the comment was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "line": {
+            "description": "The line number of the comment.",
+            "title": "Line",
+            "type": "integer"
+          },
+          "line_type": {
+            "description": "The type of line ('new' or 'old').",
+            "title": "Line Type",
+            "type": "string"
+          },
+          "note": {
+            "description": "The text content of the comment.",
+            "title": "Note",
+            "type": "string"
+          },
+          "path": {
+            "description": "The file path relative to the repository.",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": ["note", "author", "created_at"],
+        "title": "CreateCommitCommentResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateCommitCommentResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

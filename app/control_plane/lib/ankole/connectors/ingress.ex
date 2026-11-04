@@ -2,6 +2,32 @@ defmodule Ankole.Connectors.Ingress do
   @moduledoc "Verifies a tenant-bound provider event before its durable Signal fanout."
   alias Ankole.Connectors.{Credentials, Registry, Store, Triggers}
 
+  @doc "Accepts a delivery after the configured Cloud provider authenticates and binds its Pod scope."
+  def receive_cloud_delivery(%{
+        "kind" => "trigger_event",
+        "pod_trigger_id" => id,
+        "delivery_id" => delivery_id,
+        "cloud_event" => event
+      })
+      when is_binary(delivery_id) and is_map(event) do
+    with {:ok, %{trigger: trigger}} <- Triggers.get_ingress(id),
+         true <- is_binary(event["type"]) and is_map(event["data"]) do
+      Ankole.Signals.emit("connector-trigger://" <> trigger.id, Map.put(event, "id", delivery_id))
+    else
+      false -> {:error, :invalid_cloud_event}
+      error -> error
+    end
+  end
+
+  def receive_cloud_delivery(
+        %{"kind" => "trigger_status", "pod_trigger_id" => id, "status" => status} = envelope
+      )
+      when status in ["active", "degraded"] do
+    Triggers.receive_cloud_status(id, status, envelope["last_error"])
+  end
+
+  def receive_cloud_delivery(_), do: {:error, :invalid_cloud_delivery}
+
   def receive_event(:auth, id, body, headers) do
     with {:ok, config} <- Store.get_auth_config(id),
          {:ok, secret} <- Credentials.secret(config),

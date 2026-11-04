@@ -1,0 +1,700 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves the details of a PaymentMethod object by its unique identifier. Returns information including the payment method type (card, us_bank_account, sepa_debit, etc.), billing details, and type-specific payment information. Use this when you need to view the configuration and details of an existing payment method.",
+  "inputSchema": {
+    "description": "Request model for retrieving a PaymentMethod.",
+    "properties": {
+      "expand": {
+        "description": "Optional list of fields to expand in the response. For example, pass ['customer'] to expand the customer field into a full Customer object instead of just an ID. Supports nested expansion using dot notation (e.g., ['customer.default_source']).",
+        "examples": [["customer"], ["customer", "billing_details"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Expand",
+        "type": "array"
+      },
+      "payment_method_id": {
+        "description": "The ID of the PaymentMethod to retrieve. Must start with 'pm_' followed by alphanumeric characters.",
+        "examples": ["pm_1Q0PsIJvEtkwdCNYMSaVuRz6"],
+        "title": "Payment Method Id",
+        "type": "string"
+      }
+    },
+    "required": ["payment_method_id"],
+    "title": "GetPaymentMethodRequest",
+    "type": "object"
+  },
+  "name": "get_payment_method",
+  "outputSchema": {
+    "$defs": {
+      "BillingDetails": {
+        "description": "Billing information associated with the payment method.",
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/BillingDetailsAddress",
+            "description": "Billing address.",
+            "title": "Address"
+          },
+          "email": {
+            "description": "Email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name of cardholder/account holder.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Phone number.",
+            "title": "Phone",
+            "type": "string"
+          },
+          "tax_id": {
+            "description": "Tax identification number (LATAM).",
+            "title": "Tax Id",
+            "type": "string"
+          }
+        },
+        "title": "BillingDetails",
+        "type": "object"
+      },
+      "BillingDetailsAddress": {
+        "description": "Address information for billing details.",
+        "properties": {
+          "city": {
+            "description": "City, district, suburb, town, or village.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2).",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Address line 1 (e.g., street, PO Box, or company name).",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Address line 2 (e.g., apartment, suite, unit, or building).",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "ZIP or postal code.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State, county, province, or region.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "BillingDetailsAddress",
+        "type": "object"
+      },
+      "Card": {
+        "description": "Card payment method details.",
+        "properties": {
+          "brand": {
+            "description": "Card brand (e.g., visa, mastercard, amex, discover, diners, jcb, unionpay, unknown).",
+            "title": "Brand",
+            "type": "string"
+          },
+          "checks": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Checks on Card address and CVC.",
+            "title": "Checks",
+            "type": "object"
+          },
+          "country": {
+            "description": "Two-letter ISO code representing the country of the card.",
+            "title": "Country",
+            "type": "string"
+          },
+          "description": {
+            "description": "A high-level description of the card type.",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_brand": {
+            "description": "The brand to use when displaying the card.",
+            "title": "Display Brand",
+            "type": "string"
+          },
+          "exp_month": {
+            "description": "Two-digit number representing the card's expiration month.",
+            "title": "Exp Month",
+            "type": "integer"
+          },
+          "exp_year": {
+            "description": "Four-digit number representing the card's expiration year.",
+            "title": "Exp Year",
+            "type": "integer"
+          },
+          "fingerprint": {
+            "description": "Uniquely identifies this particular card number.",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "funding": {
+            "description": "Card funding type (credit, debit, prepaid, or unknown).",
+            "title": "Funding",
+            "type": "string"
+          },
+          "generated_from": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Details of the original payment method that this payment method was generated from.",
+            "title": "Generated From",
+            "type": "object"
+          },
+          "last4": {
+            "description": "The last four digits of the card.",
+            "title": "Last4",
+            "type": "string"
+          },
+          "networks": {
+            "$ref": "#/$defs/CardNetworks",
+            "description": "Networks available for card payments.",
+            "title": "Networks"
+          },
+          "three_d_secure_usage": {
+            "$ref": "#/$defs/CardThreeDSecureUsage",
+            "description": "Information about 3D Secure support.",
+            "title": "Three D Secure Usage"
+          },
+          "wallet": {
+            "$ref": "#/$defs/CardWallet",
+            "description": "Card wallet details if this card is part of a wallet.",
+            "title": "Wallet"
+          }
+        },
+        "required": ["brand", "exp_month", "exp_year", "funding", "last4"],
+        "title": "Card",
+        "type": "object"
+      },
+      "CardNetworks": {
+        "description": "Networks available for card payments.",
+        "properties": {
+          "available": {
+            "description": "All available networks for the card.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Available",
+            "type": "array"
+          },
+          "preferred": {
+            "description": "The preferred network for the card.",
+            "title": "Preferred",
+            "type": "string"
+          }
+        },
+        "title": "CardNetworks",
+        "type": "object"
+      },
+      "CardThreeDSecureUsage": {
+        "description": "Information about 3D Secure support.",
+        "properties": {
+          "supported": {
+            "description": "Whether 3D Secure is supported on this card.",
+            "title": "Supported",
+            "type": "boolean"
+          }
+        },
+        "required": ["supported"],
+        "title": "CardThreeDSecureUsage",
+        "type": "object"
+      },
+      "CardWallet": {
+        "description": "Card wallet details if this card is part of a wallet.",
+        "properties": {
+          "dynamic_last4": {
+            "description": "The last four digits of the device account number (for tokenized cards).",
+            "title": "Dynamic Last4",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of the card wallet (e.g., apple_pay, google_pay, samsung_pay).",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "CardWallet",
+        "type": "object"
+      },
+      "CashApp": {
+        "description": "Cash App payment method details.",
+        "properties": {
+          "buyer_id": {
+            "description": "A unique and immutable identifier assigned by Cash App to every buyer.",
+            "title": "Buyer Id",
+            "type": "string"
+          },
+          "cashtag": {
+            "description": "A public identifier for buyers using Cash App.",
+            "title": "Cashtag",
+            "type": "string"
+          }
+        },
+        "title": "CashApp",
+        "type": "object"
+      },
+      "GetPaymentMethodResponse": {
+        "description": "Response model for retrieving a PaymentMethod.",
+        "properties": {
+          "customer_balance": {
+            "additionalProperties": true,
+            "description": "Stripe cash balance details (populated if type is 'customer_balance').",
+            "title": "Customer Balance",
+            "type": "object"
+          },
+          "billing_details": {
+            "$ref": "#/$defs/BillingDetails",
+            "description": "Billing information container.",
+            "title": "Billing Details"
+          },
+          "sepa_debit": {
+            "$ref": "#/$defs/SepaDebit",
+            "description": "SEPA debit details (populated if type is 'sepa_debit').",
+            "title": "Sepa Debit"
+          },
+          "ideal": {
+            "additionalProperties": true,
+            "description": "iDEAL bank redirect details (populated if type is 'ideal').",
+            "title": "Ideal",
+            "type": "object"
+          },
+          "au_becs_debit": {
+            "additionalProperties": true,
+            "description": "Australian BECS debit details (populated if type is 'au_becs_debit').",
+            "title": "Au Becs Debit",
+            "type": "object"
+          },
+          "sofort": {
+            "additionalProperties": true,
+            "description": "Sofort bank redirect details (populated if type is 'sofort').",
+            "title": "Sofort",
+            "type": "object"
+          },
+          "affirm": {
+            "additionalProperties": true,
+            "description": "Affirm payment details (populated if type is 'affirm').",
+            "title": "Affirm",
+            "type": "object"
+          },
+          "grabpay": {
+            "additionalProperties": true,
+            "description": "GrabPay wallet details (populated if type is 'grabpay').",
+            "title": "Grabpay",
+            "type": "object"
+          },
+          "link": {
+            "additionalProperties": true,
+            "description": "Stripe Link saved payment details (populated if type is 'link').",
+            "title": "Link",
+            "type": "object"
+          },
+          "bacs_debit": {
+            "additionalProperties": true,
+            "description": "UK Bacs Direct Debit details (populated if type is 'bacs_debit').",
+            "title": "Bacs Debit",
+            "type": "object"
+          },
+          "p24": {
+            "additionalProperties": true,
+            "description": "Przelewy24 details (populated if type is 'p24').",
+            "title": "P24",
+            "type": "object"
+          },
+          "card_present": {
+            "additionalProperties": true,
+            "description": "In-person card transaction details (populated if type is 'card_present').",
+            "title": "Card Present",
+            "type": "object"
+          },
+          "konbini": {
+            "additionalProperties": true,
+            "description": "Konbini voucher details (populated if type is 'konbini').",
+            "title": "Konbini",
+            "type": "object"
+          },
+          "created": {
+            "description": "Unix epoch creation time.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "pix": {
+            "additionalProperties": true,
+            "description": "PIX instant transfer details (populated if type is 'pix').",
+            "title": "Pix",
+            "type": "object"
+          },
+          "zip": {
+            "additionalProperties": true,
+            "description": "Zip payment details (populated if type is 'zip').",
+            "title": "Zip",
+            "type": "object"
+          },
+          "alipay": {
+            "additionalProperties": true,
+            "description": "Alipay payment details (populated if type is 'alipay').",
+            "title": "Alipay",
+            "type": "object"
+          },
+          "multibanco": {
+            "additionalProperties": true,
+            "description": "Multibanco voucher details (populated if type is 'multibanco').",
+            "title": "Multibanco",
+            "type": "object"
+          },
+          "bancontact": {
+            "additionalProperties": true,
+            "description": "Bancontact details (populated if type is 'bancontact').",
+            "title": "Bancontact",
+            "type": "object"
+          },
+          "type": {
+            "description": "Payment method category (e.g., card, us_bank_account, sepa_debit).",
+            "title": "Type",
+            "type": "string"
+          },
+          "eps": {
+            "additionalProperties": true,
+            "description": "EPS bank redirect details (populated if type is 'eps').",
+            "title": "Eps",
+            "type": "object"
+          },
+          "customer": {
+            "description": "Associated customer ID if payment method is saved to a customer.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "revolut_pay": {
+            "additionalProperties": true,
+            "description": "Revolut Pay details (populated if type is 'revolut_pay').",
+            "title": "Revolut Pay",
+            "type": "object"
+          },
+          "blik": {
+            "additionalProperties": true,
+            "description": "BLIK payment details (populated if type is 'blik').",
+            "title": "Blik",
+            "type": "object"
+          },
+          "us_bank_account": {
+            "$ref": "#/$defs/UsBankAccount",
+            "description": "ACH details (populated if type is 'us_bank_account').",
+            "title": "Us Bank Account"
+          },
+          "interac_present": {
+            "additionalProperties": true,
+            "description": "Interac present details (populated if type is 'interac_present').",
+            "title": "Interac Present",
+            "type": "object"
+          },
+          "amazon_pay": {
+            "additionalProperties": true,
+            "description": "Amazon Pay details (populated if type is 'amazon_pay').",
+            "title": "Amazon Pay",
+            "type": "object"
+          },
+          "paynow": {
+            "additionalProperties": true,
+            "description": "PayNow QR payment details (populated if type is 'paynow').",
+            "title": "Paynow",
+            "type": "object"
+          },
+          "giropay": {
+            "additionalProperties": true,
+            "description": "Giropay details (populated if type is 'giropay').",
+            "title": "Giropay",
+            "type": "object"
+          },
+          "boleto": {
+            "additionalProperties": true,
+            "description": "Boleto voucher details (populated if type is 'boleto').",
+            "title": "Boleto",
+            "type": "object"
+          },
+          "oxxo": {
+            "additionalProperties": true,
+            "description": "OXXO voucher details (populated if type is 'oxxo').",
+            "title": "Oxxo",
+            "type": "object"
+          },
+          "customer_account": {
+            "description": "Associated customer account ID if payment method is saved to a customer account.",
+            "title": "Customer Account",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "wechat_pay": {
+            "additionalProperties": true,
+            "description": "WeChat Pay details (populated if type is 'wechat_pay').",
+            "title": "Wechat Pay",
+            "type": "object"
+          },
+          "promptpay": {
+            "additionalProperties": true,
+            "description": "PromptPay details (populated if type is 'promptpay').",
+            "title": "Promptpay",
+            "type": "object"
+          },
+          "paypal": {
+            "additionalProperties": true,
+            "description": "PayPal account details (populated if type is 'paypal').",
+            "title": "Paypal",
+            "type": "object"
+          },
+          "livemode": {
+            "description": "Whether object exists in live or test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "allow_redisplay": {
+            "description": "Controls checkout visibility - 'always', 'limited', or 'unspecified'.",
+            "title": "Allow Redisplay",
+            "type": "string"
+          },
+          "acss_debit": {
+            "additionalProperties": true,
+            "description": "Canadian ACSS debit details (populated if type is 'acss_debit').",
+            "title": "Acss Debit",
+            "type": "object"
+          },
+          "id": {
+            "description": "Unique identifier for the payment method.",
+            "title": "Id",
+            "type": "string"
+          },
+          "swish": {
+            "additionalProperties": true,
+            "description": "Swish wallet details (populated if type is 'swish').",
+            "title": "Swish",
+            "type": "object"
+          },
+          "klarna": {
+            "additionalProperties": true,
+            "description": "Klarna payment details (populated if type is 'klarna').",
+            "title": "Klarna",
+            "type": "object"
+          },
+          "fpx": {
+            "additionalProperties": true,
+            "description": "FPX bank redirect details (populated if type is 'fpx').",
+            "title": "Fpx",
+            "type": "object"
+          },
+          "afterpay_clearpay": {
+            "additionalProperties": true,
+            "description": "Afterpay/Clearpay details (populated if type is 'afterpay_clearpay').",
+            "title": "Afterpay Clearpay",
+            "type": "object"
+          },
+          "radar_options": {
+            "$ref": "#/$defs/RadarOptions",
+            "description": "Fraud detection session snapshot.",
+            "title": "Radar Options"
+          },
+          "mobilepay": {
+            "additionalProperties": true,
+            "description": "MobilePay wallet details (populated if type is 'mobilepay').",
+            "title": "Mobilepay",
+            "type": "object"
+          },
+          "cashapp": {
+            "$ref": "#/$defs/CashApp",
+            "description": "Cash App Pay details (populated if type is 'cashapp').",
+            "title": "Cashapp"
+          },
+          "object": {
+            "description": "Object type identifier, always 'payment_method'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "card": {
+            "$ref": "#/$defs/Card",
+            "description": "Credit/debit card details (populated if type is 'card').",
+            "title": "Card"
+          }
+        },
+        "required": ["id", "object", "type", "created", "livemode", "billing_details"],
+        "title": "GetPaymentMethodResponse",
+        "type": "object"
+      },
+      "RadarOptions": {
+        "description": "Fraud detection session snapshot.",
+        "properties": {
+          "session": {
+            "description": "The Radar session associated with this payment method.",
+            "title": "Session",
+            "type": "string"
+          }
+        },
+        "title": "RadarOptions",
+        "type": "object"
+      },
+      "SepaDebit": {
+        "description": "SEPA debit payment method details.",
+        "properties": {
+          "bank_code": {
+            "description": "Bank code of the bank associated with the bank account.",
+            "title": "Bank Code",
+            "type": "string"
+          },
+          "branch_code": {
+            "description": "Branch code of the bank associated with the bank account.",
+            "title": "Branch Code",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter ISO code representing the country the bank account is located in.",
+            "title": "Country",
+            "type": "string"
+          },
+          "fingerprint": {
+            "description": "Uniquely identifies this particular bank account.",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "generated_from": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Details of the original payment method that this payment method was generated from.",
+            "title": "Generated From",
+            "type": "object"
+          },
+          "last4": {
+            "description": "Last four characters of the IBAN.",
+            "title": "Last4",
+            "type": "string"
+          }
+        },
+        "title": "SepaDebit",
+        "type": "object"
+      },
+      "UsBankAccount": {
+        "description": "US bank account payment method details.",
+        "properties": {
+          "account_holder_type": {
+            "description": "Account holder type (individual or company).",
+            "title": "Account Holder Type",
+            "type": "string"
+          },
+          "account_type": {
+            "description": "Account type (checking or savings).",
+            "title": "Account Type",
+            "type": "string"
+          },
+          "bank_name": {
+            "description": "Name of the bank.",
+            "title": "Bank Name",
+            "type": "string"
+          },
+          "financial_connections_account": {
+            "description": "The ID of the Financial Connections Account used to create the payment method.",
+            "title": "Financial Connections Account",
+            "type": "string"
+          },
+          "fingerprint": {
+            "description": "Uniquely identifies this particular bank account.",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "last4": {
+            "description": "Last four digits of the bank account number.",
+            "title": "Last4",
+            "type": "string"
+          },
+          "networks": {
+            "$ref": "#/$defs/UsBankAccountNetworks",
+            "description": "Networks for US bank account payments.",
+            "title": "Networks"
+          },
+          "routing_number": {
+            "description": "Routing number of the bank account.",
+            "title": "Routing Number",
+            "type": "string"
+          },
+          "status_details": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Status details for the bank account.",
+            "title": "Status Details",
+            "type": "object"
+          }
+        },
+        "required": ["last4"],
+        "title": "UsBankAccount",
+        "type": "object"
+      },
+      "UsBankAccountNetworks": {
+        "description": "Networks for US bank account payments.",
+        "properties": {
+          "preferred": {
+            "description": "The preferred network.",
+            "title": "Preferred",
+            "type": "string"
+          },
+          "supported": {
+            "description": "All supported networks.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Supported",
+            "type": "array"
+          }
+        },
+        "required": ["supported"],
+        "title": "UsBankAccountNetworks",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetPaymentMethodResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

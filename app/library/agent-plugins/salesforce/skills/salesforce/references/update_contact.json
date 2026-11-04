@@ -1,0 +1,184 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing contact in Salesforce with the specified changes. Only provided fields will be updated. Returns HTTP 204 with no body on success; use salesforce.get_contact to verify applied changes. Org-level validation rules, duplicate rules, or field-level permissions may reject correctly formatted requests with HTTP 400; inspect the error response to identify the constraint.",
+  "inputSchema": {
+    "properties": {
+      "account_id": {
+        "default": "",
+        "description": "Updated Account ID association. Leave empty to keep unchanged. Alternatively use salesforce.associate_contact_to_account, but prefer setting this field when updating multiple fields simultaneously.",
+        "examples": ["001XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce Account ID to associate with this contact. Use this to link the contact to a different account.",
+        "human_parameter_name": "Account ID",
+        "title": "Account Id",
+        "type": "string"
+      },
+      "birthdate": {
+        "default": "",
+        "description": "Updated birthdate in YYYY-MM-DD format. Leave empty to keep unchanged.",
+        "examples": ["1990-01-15", "1985-12-25"],
+        "human_parameter_description": "The contact's birthdate in YYYY-MM-DD format. Include this only if you want to update it.",
+        "human_parameter_name": "Birthdate",
+        "title": "Birthdate",
+        "type": "string"
+      },
+      "contact_id": {
+        "description": "The Salesforce ID of the contact to update. Must be a valid 18-character Salesforce ID (retrieve via salesforce.search_contacts); names or emails cannot substitute.",
+        "examples": ["003Wd000005NK4rIAG", "003XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce ID of the contact you want to update. You can copy this from the contact's URL or a previous search result.",
+        "human_parameter_name": "Contact ID",
+        "title": "Contact Id",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values. Custom fields in Salesforce end with '__c' (e.g., 'Level__c', 'Languages__c').",
+        "examples": [
+          {
+            "Languages__c": "English;Spanish",
+            "Level__c": "Primary"
+          }
+        ],
+        "human_parameter_description": "Use this to set custom field values on the contact. Provide a dictionary where keys are the custom field API names (ending in __c) and values are the data to set.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "department": {
+        "default": "",
+        "description": "Updated department. Leave empty to keep unchanged.",
+        "examples": ["Sales", "Engineering", "Marketing"],
+        "human_parameter_description": "The department the contact works in, such as Sales or Marketing. Include only if you’re changing it.",
+        "human_parameter_name": "Department",
+        "title": "Department",
+        "type": "string"
+      },
+      "email": {
+        "default": "",
+        "description": "Updated email address. Leave empty to keep unchanged.",
+        "examples": ["john.smith@example.com", "contact@company.com"],
+        "human_parameter_description": "The new email address for the contact. Provide this only if you want to change their email.",
+        "human_parameter_name": "Email",
+        "title": "Email",
+        "type": "string"
+      },
+      "first_name": {
+        "default": "",
+        "description": "Updated first name. Leave empty to keep unchanged.",
+        "examples": ["John", "Jane", "Michael"],
+        "human_parameter_description": "The new first name for the contact. Leave blank to keep their current first name.",
+        "human_parameter_name": "First Name",
+        "title": "First Name",
+        "type": "string"
+      },
+      "last_name": {
+        "default": "",
+        "description": "Updated last name. Leave empty to keep unchanged.",
+        "examples": ["Smith", "Johnson", "Williams"],
+        "human_parameter_description": "The new last name for the contact. Leave blank to keep the current one.",
+        "human_parameter_name": "Last Name",
+        "title": "Last Name",
+        "type": "string"
+      },
+      "mailing_city": {
+        "default": "",
+        "description": "Updated mailing city. Leave empty to keep unchanged.",
+        "examples": ["San Francisco", "New York", "Chicago"],
+        "human_parameter_description": "The city for the contact’s mailing address. Provide it only if you want to change it.",
+        "human_parameter_name": "Mailing City",
+        "title": "Mailing City",
+        "type": "string"
+      },
+      "mailing_country": {
+        "default": "",
+        "description": "Updated mailing country. Leave empty to keep unchanged.",
+        "examples": ["USA", "United States", "Canada"],
+        "human_parameter_description": "The country for the contact’s mailing address, such as United States or Canada.",
+        "human_parameter_name": "Mailing Country",
+        "title": "Mailing Country",
+        "type": "string"
+      },
+      "mailing_postal_code": {
+        "default": "",
+        "description": "Updated mailing postal/zip code. Leave empty to keep unchanged.",
+        "examples": ["94105", "10001", "60601"],
+        "human_parameter_description": "The ZIP or postal code for the mailing address. Enter this if you are updating the address.",
+        "human_parameter_name": "Postal Code",
+        "title": "Mailing Postal Code",
+        "type": "string"
+      },
+      "mailing_state": {
+        "default": "",
+        "description": "Updated mailing state/province. Leave empty to keep unchanged.",
+        "examples": ["CA", "NY", "IL", "California", "New York"],
+        "human_parameter_description": "The state or province for the mailing address. Use the abbreviation or full name—either is fine.",
+        "human_parameter_name": "Mailing State",
+        "title": "Mailing State",
+        "type": "string"
+      },
+      "mailing_street": {
+        "default": "",
+        "description": "Updated mailing street address. Leave empty to keep unchanged.",
+        "examples": ["123 Main St", "456 Oak Avenue, Suite 200"],
+        "human_parameter_description": "The street line of the contact’s mailing address. Include apartment, suite, or unit if needed.",
+        "human_parameter_name": "Mailing Street",
+        "title": "Mailing Street",
+        "type": "string"
+      },
+      "mobile_phone": {
+        "default": "",
+        "description": "Updated mobile phone number. Leave empty to keep unchanged.",
+        "examples": ["(555) 987-6543", "+1-555-123-4567"],
+        "human_parameter_description": "The contact’s mobile number. Provide this if you want to update their cell phone.",
+        "human_parameter_name": "Mobile Phone",
+        "title": "Mobile Phone",
+        "type": "string"
+      },
+      "phone": {
+        "default": "",
+        "description": "Updated primary phone number. Leave empty to keep unchanged.",
+        "examples": ["(555) 123-4567", "+1-800-555-0123"],
+        "human_parameter_description": "The main phone number for the contact. Include the country code if needed.",
+        "human_parameter_name": "Phone",
+        "title": "Phone",
+        "type": "string"
+      },
+      "title": {
+        "default": "",
+        "description": "Updated job title. Leave empty to keep unchanged.",
+        "examples": ["CEO", "Sales Manager", "Software Engineer"],
+        "human_parameter_description": "The contact’s job title, like 'Sales Manager' or 'CEO'. Fill this in to update it.",
+        "human_parameter_name": "Title",
+        "title": "Title",
+        "type": "string"
+      }
+    },
+    "required": ["contact_id"],
+    "title": "UpdateContactRequest",
+    "type": "object"
+  },
+  "name": "update_contact",
+  "outputSchema": {
+    "$defs": {
+      "UpdateContactResponse": {
+        "description": "Response for successful contact update.\n\nHTTP 204 No Content - Salesforce returns empty body on successful update.\nError responses (4xx/5xx) are handled via raise_for_status().",
+        "properties": {},
+        "title": "UpdateContactResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateContactResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

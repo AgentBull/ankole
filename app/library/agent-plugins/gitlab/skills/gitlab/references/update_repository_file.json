@@ -1,0 +1,120 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing file in a GitLab repository. Commits the changes to the specified branch with the provided commit message. Use this action when you need to modify file contents, change file permissions, or update files in a specific branch. Note that if concurrent modifications occur (detected via last_commit_id), the update will fail.",
+  "inputSchema": {
+    "properties": {
+      "author_email": {
+        "description": "The email address of the commit author.",
+        "examples": ["user@example.com"],
+        "title": "Author Email",
+        "type": "string"
+      },
+      "author_name": {
+        "description": "The name of the commit author.",
+        "examples": ["John Doe"],
+        "title": "Author Name",
+        "type": "string"
+      },
+      "branch": {
+        "description": "Name of the branch to commit to. The commit is added to this branch.",
+        "examples": ["main", "develop", "feature-branch"],
+        "title": "Branch",
+        "type": "string"
+      },
+      "commit_message": {
+        "description": "Commit message describing the changes.",
+        "examples": ["Update README.md", "Fix typo in class.rb"],
+        "title": "Commit Message",
+        "type": "string"
+      },
+      "content": {
+        "description": "The new content of the file.",
+        "examples": ["# New Content\nThis is the updated file content."],
+        "title": "Content",
+        "type": "string"
+      },
+      "encoding": {
+        "description": "Change encoding to base64. Default is text.",
+        "enum": ["text", "base64"],
+        "examples": ["text", "base64"],
+        "title": "Encoding",
+        "type": "string"
+      },
+      "execute_filemode": {
+        "description": "Enable or disable the execute flag on the file.",
+        "title": "Execute Filemode",
+        "type": "boolean"
+      },
+      "file_path": {
+        "description": "URL-encoded full path to the file in the repository (e.g., lib%2Fclass%2Erb or path/to/file.txt).",
+        "examples": ["lib/class.rb", "src/main.py", "README.md"],
+        "title": "File Path",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["5", "group_name/project_name"],
+        "title": "Id"
+      },
+      "last_commit_id": {
+        "description": "Last known file commit ID. Used to detect concurrent modifications.",
+        "examples": ["a1b2c3d4e5f6g7h8i9j0"],
+        "title": "Last Commit Id",
+        "type": "string"
+      },
+      "start_branch": {
+        "description": "Name of the branch to start the new commit from. If not provided, defaults to the value of branch.",
+        "examples": ["main", "develop"],
+        "title": "Start Branch",
+        "type": "string"
+      }
+    },
+    "required": ["id", "file_path", "branch", "content", "commit_message"],
+    "title": "UpdateRepositoryFileRequest",
+    "type": "object"
+  },
+  "name": "update_repository_file",
+  "outputSchema": {
+    "$defs": {
+      "UpdateRepositoryFileResponse": {
+        "properties": {
+          "branch": {
+            "description": "The name of the branch where the file was updated.",
+            "title": "Branch",
+            "type": "string"
+          },
+          "file_path": {
+            "description": "The path to the updated file.",
+            "title": "File Path",
+            "type": "string"
+          }
+        },
+        "required": ["file_path", "branch"],
+        "title": "UpdateRepositoryFileResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateRepositoryFileResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

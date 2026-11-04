@@ -1,0 +1,421 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Runs multiple analytics data reports for one GA4 property in a single request. Report metadata returned by this tool does not include data truncation reasons.",
+  "inputSchema": {
+    "description": "Request model for executing multiple report requests in a batch.",
+    "properties": {
+      "property": {
+        "description": "Required. The property resource name. Format: properties/{property_id}",
+        "examples": ["properties/123456789"],
+        "title": "Property",
+        "type": "string"
+      },
+      "requests": {
+        "description": "Required. Up to 5 individual RunReportRequest objects (minimum 1, maximum 5). CRITICAL: Non-cohort requests MUST contain 'dateRanges' (list of {startDate, endDate}); cohort requests (containing 'cohortSpec') must NOT include 'dateRanges'. Key fields per request: dateRanges, dimensions (list of {name}), metrics (list of {name}), dimensionFilter/metricFilter (FilterExpression: use andGroup/orGroup/notExpression/filter at top level), cohortSpec, offset, limit, orderBys, keepEmptyRows. NOTE: Do NOT include 'pivots' field - use batchRunPivotReports action for pivot reports.",
+        "examples": [
+          [
+            {
+              "dateRanges": [
+                {
+                  "endDate": "2024-01-31",
+                  "startDate": "2024-01-01"
+                }
+              ],
+              "dimensions": [
+                {
+                  "name": "country"
+                }
+              ],
+              "metrics": [
+                {
+                  "name": "activeUsers"
+                }
+              ]
+            }
+          ]
+        ],
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "maxItems": 5,
+        "minItems": 1,
+        "title": "Requests",
+        "type": "array"
+      },
+      "unwrapped_filters": {
+        "description": "Internal field to track which filters were unwrapped during validation",
+        "items": {
+          "type": "string"
+        },
+        "title": "Unwrapped Filters",
+        "type": "array"
+      }
+    },
+    "required": ["property", "requests"],
+    "title": "BatchRunReportsRequest",
+    "type": "object"
+  },
+  "name": "batch_run_reports",
+  "outputSchema": {
+    "$defs": {
+      "ActiveMetricRestriction": {
+        "description": "Active metric restriction details.",
+        "properties": {
+          "metricName": {
+            "description": "Name of the restricted metric",
+            "title": "Metric Name",
+            "type": "string"
+          },
+          "restrictedMetricTypes": {
+            "description": "Reasons for restriction (COST_DATA, REVENUE_DATA)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Restricted Metric Types",
+            "type": "array"
+          }
+        },
+        "title": "ActiveMetricRestriction",
+        "type": "object"
+      },
+      "BatchRunReportsResponse": {
+        "description": "Response model for batchRunReports API.",
+        "properties": {
+          "kind": {
+            "description": "Fixed string: \"analyticsData#batchRunReports\"",
+            "title": "Kind",
+            "type": "string"
+          },
+          "reports": {
+            "description": "List of RunReportResponse objects, one for each request.",
+            "items": {
+              "$ref": "#/$defs/RunReportResponse"
+            },
+            "title": "Reports",
+            "type": "array"
+          }
+        },
+        "required": ["reports", "kind"],
+        "title": "BatchRunReportsResponse",
+        "type": "object"
+      },
+      "DimensionHeader": {
+        "description": "Dimension column header.",
+        "properties": {
+          "name": {
+            "description": "The dimension's name",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "DimensionHeader",
+        "type": "object"
+      },
+      "DimensionValue": {
+        "description": "Dimension value.",
+        "properties": {
+          "value": {
+            "description": "Value as a string if the dimension type is a string",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "DimensionValue",
+        "type": "object"
+      },
+      "MetricHeader": {
+        "description": "Metric column header.",
+        "properties": {
+          "name": {
+            "description": "The metric's name",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/$defs/MetricType",
+            "description": "The metric's data type",
+            "title": "Type"
+          }
+        },
+        "title": "MetricHeader",
+        "type": "object"
+      },
+      "MetricType": {
+        "description": "Metric data type classification.",
+        "enum": [
+          "METRIC_TYPE_UNSPECIFIED",
+          "TYPE_INTEGER",
+          "TYPE_FLOAT",
+          "TYPE_SECONDS",
+          "TYPE_MILLISECONDS",
+          "TYPE_MINUTES",
+          "TYPE_HOURS",
+          "TYPE_STANDARD",
+          "TYPE_CURRENCY",
+          "TYPE_FEET",
+          "TYPE_MILES",
+          "TYPE_METERS",
+          "TYPE_KILOMETERS"
+        ],
+        "title": "MetricType",
+        "type": "string"
+      },
+      "MetricValue": {
+        "description": "Metric measurement value.",
+        "properties": {
+          "value": {
+            "description": "Measurement value. See MetricHeader for type.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "MetricValue",
+        "type": "object"
+      },
+      "PropertyQuota": {
+        "description": "Current quota status for a GA4 property.",
+        "properties": {
+          "concurrentRequests": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Standard: 10 concurrent; 360: 50 concurrent",
+            "title": "Concurrent Requests"
+          },
+          "potentiallyThresholdedRequestsPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "120 requests/hour with thresholded dimensions",
+            "title": "Potentially Thresholded Requests Per Hour"
+          },
+          "serverErrorsPerProjectPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Standard: 10 errors/hour; 360: 50/hour",
+            "title": "Server Errors Per Project Per Hour"
+          },
+          "tokensPerDay": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Standard: 200,000 tokens/day; 360: 2,000,000/day",
+            "title": "Tokens Per Day"
+          },
+          "tokensPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Standard: 40,000 tokens/hour; 360: 400,000/hour",
+            "title": "Tokens Per Hour"
+          },
+          "tokensPerProjectPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Standard: 14,000/hour; 360: 140,000/hour",
+            "title": "Tokens Per Project Per Hour"
+          }
+        },
+        "title": "PropertyQuota",
+        "type": "object"
+      },
+      "QuotaStatus": {
+        "description": "Current quota status.",
+        "properties": {
+          "consumed": {
+            "description": "Quota consumed by this request",
+            "title": "Consumed",
+            "type": "integer"
+          },
+          "remaining": {
+            "description": "Quota remaining after this request",
+            "title": "Remaining",
+            "type": "integer"
+          }
+        },
+        "title": "QuotaStatus",
+        "type": "object"
+      },
+      "ResponseMetaData": {
+        "description": "Report-level metadata.",
+        "properties": {
+          "currencyCode": {
+            "description": "ISO 4217 currency code (e.g., USD, EUR)",
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "dataLossFromOtherRow": {
+            "description": "If true, dimension combinations are rolled into '(other)' row",
+            "title": "Data Loss From Other Row",
+            "type": "boolean"
+          },
+          "emptyReason": {
+            "description": "Explanation if report contains no data",
+            "title": "Empty Reason",
+            "type": "string"
+          },
+          "samplingMetadatas": {
+            "description": "Sampling details if report is sampled",
+            "items": {
+              "$ref": "#/$defs/SamplingMetadata"
+            },
+            "title": "Sampling Metadatas",
+            "type": "array"
+          },
+          "schemaRestrictionResponse": {
+            "$ref": "#/$defs/SchemaRestrictionResponse",
+            "description": "Active schema restrictions",
+            "title": "Schema Restriction Response"
+          },
+          "subjectToThresholding": {
+            "description": "Whether report is subject to data thresholding",
+            "title": "Subject To Thresholding",
+            "type": "boolean"
+          },
+          "timeZone": {
+            "description": "Property timezone in IANA format",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "title": "ResponseMetaData",
+        "type": "object"
+      },
+      "Row": {
+        "description": "Row of dimension values and metric values.",
+        "properties": {
+          "dimensionValues": {
+            "description": "List of requested dimension values",
+            "items": {
+              "$ref": "#/$defs/DimensionValue"
+            },
+            "title": "Dimension Values",
+            "type": "array"
+          },
+          "metricValues": {
+            "description": "List of requested visible metric values",
+            "items": {
+              "$ref": "#/$defs/MetricValue"
+            },
+            "title": "Metric Values",
+            "type": "array"
+          }
+        },
+        "title": "Row",
+        "type": "object"
+      },
+      "RunReportResponse": {
+        "description": "Response for a single report request.",
+        "properties": {
+          "dimensionHeaders": {
+            "description": "Dimension column headers",
+            "items": {
+              "$ref": "#/$defs/DimensionHeader"
+            },
+            "title": "Dimension Headers",
+            "type": "array"
+          },
+          "kind": {
+            "description": "Always \"analyticsData#runReport\"",
+            "title": "Kind",
+            "type": "string"
+          },
+          "maximums": {
+            "description": "Peak metric values when requested",
+            "items": {
+              "$ref": "#/$defs/Row"
+            },
+            "title": "Maximums",
+            "type": "array"
+          },
+          "metadata": {
+            "$ref": "#/$defs/ResponseMetaData",
+            "description": "Report-level metadata",
+            "title": "Metadata"
+          },
+          "metricHeaders": {
+            "description": "Metric column headers",
+            "items": {
+              "$ref": "#/$defs/MetricHeader"
+            },
+            "title": "Metric Headers",
+            "type": "array"
+          },
+          "minimums": {
+            "description": "Lowest metric values when requested",
+            "items": {
+              "$ref": "#/$defs/Row"
+            },
+            "title": "Minimums",
+            "type": "array"
+          },
+          "propertyQuota": {
+            "$ref": "#/$defs/PropertyQuota",
+            "description": "Current quota status",
+            "title": "Property Quota"
+          },
+          "rowCount": {
+            "description": "Total query results independent of pagination",
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "rows": {
+            "description": "Dimension value combinations and metric values",
+            "items": {
+              "$ref": "#/$defs/Row"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "totals": {
+            "description": "Aggregated metric totals when requested",
+            "items": {
+              "$ref": "#/$defs/Row"
+            },
+            "title": "Totals",
+            "type": "array"
+          }
+        },
+        "title": "RunReportResponse",
+        "type": "object"
+      },
+      "SamplingMetadata": {
+        "description": "Sampling metadata when report is sampled.",
+        "properties": {
+          "samplesReadCount": {
+            "description": "Total events read in the sampled report",
+            "title": "Samples Read Count",
+            "type": "integer"
+          },
+          "samplingSpaceSize": {
+            "description": "Total events available for analysis",
+            "title": "Sampling Space Size",
+            "type": "integer"
+          }
+        },
+        "title": "SamplingMetadata",
+        "type": "object"
+      },
+      "SchemaRestrictionResponse": {
+        "description": "Schema restrictions in effect.",
+        "properties": {
+          "activeMetricRestrictions": {
+            "description": "All active metric restrictions in the report",
+            "items": {
+              "$ref": "#/$defs/ActiveMetricRestriction"
+            },
+            "title": "Active Metric Restrictions",
+            "type": "array"
+          }
+        },
+        "title": "SchemaRestrictionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/BatchRunReportsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

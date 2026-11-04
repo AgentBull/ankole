@@ -1,0 +1,56 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a display-friendly representation of an existing and accessible Trello action for UI/report purposes, providing presentation-focused data instead of full raw details and without altering the action.",
+  "inputSchema": {
+    "description": "Request schema for `GetActionsDisplayByIdAction`",
+    "properties": {
+      "idAction": {
+        "description": "The unique identifier of the Trello action for which display information is to be retrieved.",
+        "examples": ["592f11060f95a3d3d46a987a"],
+        "title": "Id Action",
+        "type": "string"
+      }
+    },
+    "required": ["idAction"],
+    "title": "GetActionsDisplayByIdActionRequest",
+    "type": "object"
+  },
+  "name": "get_actions_display_by_id_action",
+  "outputSchema": {
+    "$defs": {
+      "GetActionsDisplayByIdActionResponse": {
+        "description": "Response schema for `GetActionsDisplayByIdAction`",
+        "properties": {
+          "entities": {
+            "additionalProperties": true,
+            "description": "A dictionary of entity names to entity objects containing contextual information about objects involved in the action (cards, boards, lists, members, dates, etc.). Each entity has type and relevant data fields.",
+            "title": "Entities",
+            "type": "object"
+          },
+          "translationKey": {
+            "description": "The translation key describing the action type (e.g., 'action_comment_on_card', 'action_changed_a_due_date').",
+            "title": "Translation Key",
+            "type": "string"
+          }
+        },
+        "required": ["translationKey"],
+        "title": "GetActionsDisplayByIdActionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetActionsDisplayByIdActionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

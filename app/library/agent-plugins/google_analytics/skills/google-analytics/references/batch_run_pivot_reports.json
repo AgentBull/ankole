@@ -1,0 +1,68 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to return multiple pivot reports in a batch for a GA4 property. Use when you need to fetch multiple pivot table reports with multi-dimensional analysis in a single request.",
+  "inputSchema": {
+    "description": "Request model for executing multiple pivot report requests in a batch.",
+    "properties": {
+      "property": {
+        "description": "Required. The GA4 property resource name. Format: properties/{property_id}",
+        "examples": ["properties/123456789"],
+        "title": "Property",
+        "type": "string"
+      },
+      "requests": {
+        "description": "Required. Up to 5 individual RunPivotReportRequest objects. Each request can have dimensions, metrics, dateRanges, pivots, dimensionFilter, metricFilter, currencyCode, cohortSpec, keepEmptyRows, returnPropertyQuota, and comparisons fields. CRITICAL CONSTRAINT: Every dimension defined in 'dimensions' MUST be used in at least one of: pivots (fieldNames), dimensionFilter, or orderBys. Dimensions not used anywhere will cause a 400 error. The only exception is 'dateRange' dimensions. Additionally, all fieldNames in pivots must reference dimensions defined in the request's 'dimensions' array, and no two pivots can share the same dimension.",
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Requests",
+        "type": "array"
+      }
+    },
+    "required": ["property", "requests"],
+    "title": "BatchRunPivotReportsRequest",
+    "type": "object"
+  },
+  "name": "batch_run_pivot_reports",
+  "outputSchema": {
+    "$defs": {
+      "BatchRunPivotReportsResponse": {
+        "description": "Response model for batchRunPivotReports API.",
+        "properties": {
+          "kind": {
+            "description": "Fixed string: 'analyticsData#batchRunPivotReports'",
+            "title": "Kind",
+            "type": "string"
+          },
+          "pivotReports": {
+            "description": "List of RunPivotReportResponse objects, one for each request. Each contains pivotHeaders, dimensionHeaders, metricHeaders, rows, aggregates, metadata, propertyQuota, and kind fields.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Pivot Reports",
+            "type": "array"
+          }
+        },
+        "required": ["pivotReports", "kind"],
+        "title": "BatchRunPivotReportsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/BatchRunPivotReportsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

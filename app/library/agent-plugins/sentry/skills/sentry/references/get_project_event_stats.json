@@ -1,0 +1,88 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves time-series event statistics for a Sentry project. Returns an array of [timestamp, count] data points showing event volumes over time. Use this to analyze event trends, monitor error rates, or generate custom dashboards. The endpoint supports different event types (received, rejected, blacklisted, generated) and time resolutions (10s, 1h, 1d). **Important**: This endpoint may change in the future without notice. Monitor Sentry's API changelog for updates. **Common use cases**: - Monitor error rates over time - Analyze event rejection patterns - Generate custom analytics dashboards - Track event volume trends",
+  "inputSchema": {
+    "description": "Request schema for retrieving event statistics for a Sentry project.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the organization.",
+        "examples": ["my-organization-slug", "123456"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the project.",
+        "examples": ["my-project-slug", "789012"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      },
+      "resolution": {
+        "description": "Time granularity for data aggregation: '10s' (10-second intervals), '1h' (hourly intervals), or '1d' (daily intervals). Finer resolutions (10s) return more data points but may be slower. If not specified, Sentry automatically selects an appropriate resolution based on the time range.",
+        "enum": ["10s", "1h", "1d"],
+        "examples": ["10s", "1h", "1d"],
+        "title": "ResolutionEnm",
+        "type": "string"
+      },
+      "since": {
+        "description": "UNIX timestamp (seconds since epoch) marking the start of the query period. Must be earlier than 'until' if both are provided. If not specified, defaults to 24 hours before the current time.",
+        "examples": ["1678886400"],
+        "title": "Since",
+        "type": "string"
+      },
+      "stat": {
+        "description": "The type of event statistic to retrieve: 'received' (events accepted by Sentry), 'rejected' (events rejected due to rate limits/filters), 'blacklisted' (events from blocked sources), or 'generated' (events created by Sentry). If not specified, defaults to 'received'.",
+        "enum": ["received", "rejected", "blacklisted", "generated"],
+        "examples": ["received", "rejected", "blacklisted", "generated"],
+        "title": "StatEnm",
+        "type": "string"
+      },
+      "until": {
+        "description": "UNIX timestamp (seconds since epoch) marking the end of the query period. Must be later than 'since' if both are provided. If not specified, defaults to the current time.",
+        "examples": ["1678972800"],
+        "title": "Until",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "GetProjectEventStatsRequest",
+    "type": "object"
+  },
+  "name": "get_project_event_stats",
+  "outputSchema": {
+    "$defs": {
+      "GetProjectEventStatsResponse": {
+        "description": "Response schema containing the event statistics for the project.",
+        "properties": {
+          "data": {
+            "description": "Array of [timestamp, count] pairs representing event statistics over time. Each pair contains a UNIX timestamp (seconds since epoch) and the corresponding event count for that time period.",
+            "items": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "GetProjectEventStatsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetProjectEventStatsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

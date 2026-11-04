@@ -1,0 +1,456 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a customizable, one-time share link for a Calendly event type, allowing specific overrides to its settings (e.g., duration, availability, location) without altering the original event type.",
+  "inputSchema": {
+    "description": "Request to create a customized, one-time share link for an event type.",
+    "properties": {
+      "availability__rule__rules": {
+        "description": "List of custom availability rules that override the event type's default schedule. Provide an array of objects EACH containing: `type`=`'wday'`, `wday` (weekday), and `intervals` (list of `{from, to}` times). Field names are case-sensitive – use **`wday`, `from`, `to`** exactly. Must be combined with `availability_rule_timezone`.",
+        "examples": [
+          [
+            {
+              "intervals": [
+                {
+                  "from": "09:00",
+                  "to": "17:00"
+                }
+              ],
+              "type": "wday",
+              "wday": "monday"
+            },
+            {
+              "intervals": [
+                {
+                  "from": "10:00",
+                  "to": "16:00"
+                }
+              ],
+              "type": "wday",
+              "wday": "tuesday"
+            },
+            {
+              "intervals": [],
+              "type": "wday",
+              "wday": "wednesday"
+            }
+          ]
+        ],
+        "items": {
+          "description": "Custom availability rule for specific weekdays and time intervals.",
+          "properties": {
+            "intervals": {
+              "description": "List of time intervals when the host is available on this weekday. Empty list means unavailable all day.",
+              "examples": [
+                [
+                  {
+                    "from": "09:00",
+                    "to": "12:00"
+                  },
+                  {
+                    "from": "14:00",
+                    "to": "17:00"
+                  }
+                ],
+                [
+                  {
+                    "from": "10:00",
+                    "to": "16:00"
+                  }
+                ],
+                []
+              ],
+              "items": {
+                "description": "Time interval specification for availability windows.",
+                "properties": {
+                  "from": {
+                    "description": "**Key must be exactly 'from'** – start time in 24-hour HH:MM format.",
+                    "examples": ["09:00", "13:30", "08:00"],
+                    "title": "From",
+                    "type": "string"
+                  },
+                  "to": {
+                    "description": "**Key must be exactly 'to'** – end time in 24-hour HH:MM format.",
+                    "examples": ["17:00", "12:00", "18:30"],
+                    "title": "To",
+                    "type": "string"
+                  }
+                },
+                "required": ["from", "to"],
+                "title": "TimeInterval",
+                "type": "object"
+              },
+              "title": "Intervals",
+              "type": "array"
+            },
+            "type": {
+              "const": "wday",
+              "description": "Rule type – must be the literal string `'wday'`",
+              "title": "Type",
+              "type": "string"
+            },
+            "wday": {
+              "description": "Day of the week (field name **'wday'**, not 'weekday').",
+              "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+              "examples": ["monday", "tuesday", "friday"],
+              "title": "Wday",
+              "type": "string"
+            }
+          },
+          "required": ["type", "wday", "intervals"],
+          "title": "AvailabilityRule",
+          "type": "object"
+        },
+        "title": "Availability  Rule  Rules",
+        "type": "array"
+      },
+      "availability__rule__timezone": {
+        "description": "IANA timezone (e.g., 'America/New_York') for custom availability rules. Required with `availability_rule_rules`.",
+        "examples": ["America/New_York", "Europe/London"],
+        "title": "Availability  Rule  Timezone",
+        "type": "string"
+      },
+      "duration": {
+        "description": "Custom event duration in minutes, overriding event type default.",
+        "examples": ["30", "60"],
+        "title": "Duration",
+        "type": "integer"
+      },
+      "duration_options": {
+        "description": "Alternative selectable durations in minutes, overriding event type options.",
+        "examples": ["[15, 30, 45]"],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Duration Options",
+        "type": "array"
+      },
+      "end_date": {
+        "description": "End date (YYYY-MM-DD) for shared link availability; required if `period_type` is 'fixed'.",
+        "examples": ["2024-12-31"],
+        "format": "date",
+        "title": "End Date",
+        "type": "string"
+      },
+      "event_type": {
+        "description": "URI of the event type to base this share on.",
+        "examples": ["https://api.calendly.com/event_types/GBGBDCAADAEDCRZ2"],
+        "format": "uri",
+        "title": "Event Type",
+        "type": "string"
+      },
+      "hide_location": {
+        "description": "If true, hides event location until booking (only if event type has a single custom location).",
+        "title": "Hide Location",
+        "type": "boolean"
+      },
+      "location_configurations": {
+        "description": "Custom location settings that override the event type's default locations. Each configuration specifies a location type and associated details.",
+        "examples": [
+          [
+            {
+              "additional_info": "Main conference room",
+              "kind": "physical",
+              "location": "123 Business Ave, Suite 200"
+            },
+            {
+              "additional_info": "Zoom link provided upon booking",
+              "kind": "zoom_conference"
+            }
+          ],
+          [
+            {
+              "additional_info": "Call for details",
+              "kind": "custom",
+              "location": "Phone: +1-555-0123"
+            }
+          ]
+        ],
+        "items": {
+          "description": "Location override configuration for the shared event.",
+          "properties": {
+            "additional_info": {
+              "description": "Additional information about the location, such as instructions or details",
+              "examples": ["Conference Room A", "Zoom link will be provided", "Call for address"],
+              "title": "Additional Info",
+              "type": "string"
+            },
+            "kind": {
+              "description": "Type of location. Common values include 'physical', 'zoom_conference', 'google_conference', 'microsoft_teams_conference', 'custom', 'ask_invitee'.",
+              "examples": ["physical", "zoom_conference", "google_conference", "custom"],
+              "title": "Kind",
+              "type": "string"
+            },
+            "location": {
+              "description": "Specific location details like address, phone number, or meeting room",
+              "examples": ["123 Main St, Suite 100", "+1-555-0123", "Building A, Room 201"],
+              "title": "Location",
+              "type": "string"
+            }
+          },
+          "required": ["kind"],
+          "title": "LocationConfiguration",
+          "type": "object"
+        },
+        "title": "Location Configurations",
+        "type": "array"
+      },
+      "max_booking_time": {
+        "description": "Max days in advance an invitee can book; required if `period_type` is 'moving' or 'available_moving'.",
+        "examples": ["60"],
+        "title": "Max Booking Time",
+        "type": "integer"
+      },
+      "name": {
+        "description": "Custom name for the shared link; defaults to event type name if unspecified.",
+        "examples": ["Quick Chat with John"],
+        "title": "Name",
+        "type": "string"
+      },
+      "period_type": {
+        "description": "Availability period type: 'available_moving' (shows actual available slots for `max_booking_time` days), 'moving' (available for `max_booking_time` days), 'fixed' (within `start_date`/`end_date`), 'unlimited'.",
+        "enum": ["available_moving", "moving", "fixed", "unlimited"],
+        "title": "PeriodTypeEnm",
+        "type": "string"
+      },
+      "start_date": {
+        "description": "Start date (YYYY-MM-DD) for shared link availability; required if `period_type` is 'fixed'.",
+        "examples": ["2024-01-01"],
+        "format": "date",
+        "title": "Start Date",
+        "type": "string"
+      }
+    },
+    "required": ["event_type"],
+    "title": "CreateShareRequest",
+    "type": "object"
+  },
+  "name": "create_share",
+  "outputSchema": {
+    "$defs": {
+      "AvailabilityRuleContainer": {
+        "description": "Custom availability rules for this scheduling link.",
+        "properties": {
+          "rules": {
+            "description": "Array of availability rule objects defining when the event can be scheduled.",
+            "items": {
+              "$ref": "#/$defs/AvailabilityRuleResponse"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "timezone": {
+            "description": "Timezone for the availability rules. Example: 'America/New_York'",
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "title": "AvailabilityRuleContainer",
+        "type": "object"
+      },
+      "AvailabilityRuleResponse": {
+        "description": "Availability rule object in response.",
+        "properties": {
+          "date": {
+            "description": "Specific date for the rule in YYYY-MM-DD format. Example: '2019-01-02'",
+            "title": "Date",
+            "type": "string"
+          },
+          "intervals": {
+            "description": "Array of time intervals when availability is offered.",
+            "items": {
+              "$ref": "#/$defs/TimeIntervalResponse"
+            },
+            "title": "Intervals",
+            "type": "array"
+          },
+          "type": {
+            "description": "Type of rule. Example: 'wday' for day of week",
+            "title": "Type",
+            "type": "string"
+          },
+          "wday": {
+            "description": "Day of the week. Example: 'friday'",
+            "title": "Wday",
+            "type": "string"
+          }
+        },
+        "title": "AvailabilityRuleResponse",
+        "type": "object"
+      },
+      "CreateShareResponse": {
+        "description": "Details of the created one-time share link.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/Resource",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "CreateShareResponse",
+        "type": "object"
+      },
+      "LocationConfigurationResponse": {
+        "description": "Location configuration object for the event.",
+        "properties": {
+          "additional_info": {
+            "description": "Additional information about the location. Example: 'Example additional info'",
+            "title": "Additional Info",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of location. Example: 'physical'",
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "description": "Physical location address. Example: '123 Abc St.'",
+            "title": "Location",
+            "type": "string"
+          },
+          "phone_number": {
+            "description": "Phone number for the meeting. Example: '+1 888-888-8888'",
+            "title": "Phone Number",
+            "type": "string"
+          },
+          "position": {
+            "description": "Position/order of this location configuration in the list.",
+            "title": "Position",
+            "type": "integer"
+          }
+        },
+        "title": "LocationConfigurationResponse",
+        "type": "object"
+      },
+      "Resource": {
+        "description": "The main resource object containing the scheduling link data and configuration.",
+        "properties": {
+          "scheduling_links": {
+            "description": "Array containing one or more scheduling link objects with booking information.",
+            "items": {
+              "$ref": "#/$defs/SchedulingLink"
+            },
+            "title": "Scheduling Links",
+            "type": "array"
+          },
+          "share_override": {
+            "$ref": "#/$defs/ShareOverride",
+            "description": "Optional customization settings that override the default event type configuration for this specific share.",
+            "title": "Share Override"
+          }
+        },
+        "required": ["scheduling_links"],
+        "title": "Resource",
+        "type": "object"
+      },
+      "SchedulingLink": {
+        "description": "Scheduling link object with booking information.",
+        "properties": {
+          "booking_url": {
+            "description": "The shareable URL where invitees can book appointments. Example: 'https://calendly.com/d/abcd-brv8/15-minute-meeting'",
+            "title": "Booking Url",
+            "type": "string"
+          },
+          "owner": {
+            "description": "The URI of the event type resource that owns this scheduling link. Example: 'https://api.calendly.com/event_types/AAAAAAAAAAAAAAAA'",
+            "title": "Owner",
+            "type": "string"
+          },
+          "owner_type": {
+            "description": "The type of owner resource. Currently supports 'EventType'.",
+            "title": "Owner Type",
+            "type": "string"
+          }
+        },
+        "required": ["booking_url", "owner", "owner_type"],
+        "title": "SchedulingLink",
+        "type": "object"
+      },
+      "ShareOverride": {
+        "description": "Optional customization settings that override the default event type configuration for this specific share.",
+        "properties": {
+          "availability_rule": {
+            "$ref": "#/$defs/AvailabilityRuleContainer",
+            "description": "Custom availability rules for this scheduling link.",
+            "title": "Availability Rule"
+          },
+          "duration": {
+            "description": "Duration of the event in minutes. Example: 60",
+            "title": "Duration",
+            "type": "integer"
+          },
+          "end_date": {
+            "description": "End date for availability in YYYY-MM-DD format. Example: '2019-01-03'",
+            "title": "End Date",
+            "type": "string"
+          },
+          "hide_location": {
+            "description": "Whether to hide the location from the invitee before booking.",
+            "title": "Hide Location",
+            "type": "boolean"
+          },
+          "location_configurations": {
+            "description": "Array of location configuration objects for the event.",
+            "items": {
+              "$ref": "#/$defs/LocationConfigurationResponse"
+            },
+            "title": "Location Configurations",
+            "type": "array"
+          },
+          "max_booking_time": {
+            "description": "Maximum booking time in minutes. Example: 300",
+            "title": "Max Booking Time",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Custom name for the scheduled event. Example: '15 Minute Meeting'",
+            "title": "Name",
+            "type": "string"
+          },
+          "period_type": {
+            "description": "Type of scheduling period. Example: 'fixed'",
+            "title": "Period Type",
+            "type": "string"
+          },
+          "start_date": {
+            "description": "Start date for availability in YYYY-MM-DD format. Example: '2019-01-02'",
+            "title": "Start Date",
+            "type": "string"
+          }
+        },
+        "title": "ShareOverride",
+        "type": "object"
+      },
+      "TimeIntervalResponse": {
+        "description": "Time interval specification for availability windows in response.",
+        "properties": {
+          "from": {
+            "description": "Start time in HH:MM format. Example: '07:00'",
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "description": "End time in HH:MM format. Example: '11:00'",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "title": "TimeIntervalResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateShareResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

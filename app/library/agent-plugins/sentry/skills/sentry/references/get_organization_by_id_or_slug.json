@@ -1,0 +1,251 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a Sentry organization by its ID or slug; use the `detailed` parameter to optionally exclude project and team details for a more concise response.",
+  "inputSchema": {
+    "description": "Request schema for `GetOrganizationByIdOrSlug`",
+    "properties": {
+      "detailed": {
+        "description": "Optional query parameter controlling response detail level. Set to \"0\" to exclude project and team details for a more concise response. Set to \"1\" (or omit entirely) for full details including projects and teams.",
+        "examples": ["0", "1"],
+        "title": "Detailed",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization.",
+        "examples": ["my-org-slug", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "GetOrganizationByIdOrSlugRequest",
+    "type": "object"
+  },
+  "name": "get_organization_by_id_or_slug",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationByIdOrSlugResponse": {
+        "additionalProperties": true,
+        "description": "Response schema for `GetOrganizationByIdOrSlug`\n\nNote: This schema includes only the core fields documented in the official Sentry API documentation.\nThe API may return additional undocumented fields which are not explicitly modeled here but will\nbe preserved during validation.",
+        "properties": {
+          "access": {
+            "description": "User's access scopes for this organization (e.g., 'org:read', 'org:write').",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "allowMemberInvite": {
+            "description": "Whether members can invite new users to the organization.",
+            "title": "Allow Member Invite",
+            "type": "boolean"
+          },
+          "allowMemberProjectCreation": {
+            "description": "Whether members can create new projects.",
+            "title": "Allow Member Project Creation",
+            "type": "boolean"
+          },
+          "allowSuperuserAccess": {
+            "description": "Whether Sentry superusers can access this organization.",
+            "title": "Allow Superuser Access",
+            "type": "boolean"
+          },
+          "avatar": {
+            "$ref": "#/$defs/OrganizationAvatar",
+            "title": "Avatar"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the organization was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "extraOptions": {
+            "additionalProperties": true,
+            "description": "Additional configuration options for the organization.",
+            "title": "Extra Options",
+            "type": "object"
+          },
+          "features": {
+            "description": "List of feature flags enabled for the organization.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "hasAuthProvider": {
+            "description": "Whether the organization has an authentication provider configured.",
+            "title": "Has Auth Provider",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier of the organization.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isEarlyAdopter": {
+            "description": "Whether the organization is enrolled in the early adopter program.",
+            "title": "Is Early Adopter",
+            "type": "boolean"
+          },
+          "links": {
+            "$ref": "#/$defs/OrganizationLinks",
+            "title": "Links"
+          },
+          "name": {
+            "description": "Display name of the organization.",
+            "title": "Name",
+            "type": "string"
+          },
+          "onboardingTasks": {
+            "description": "List of onboarding tasks with completion status.",
+            "items": {
+              "$ref": "#/$defs/OnboardingTask"
+            },
+            "title": "Onboarding Tasks",
+            "type": "array"
+          },
+          "require2FA": {
+            "description": "Whether two-factor authentication is required for all members.",
+            "title": "Require2 Fa",
+            "type": "boolean"
+          },
+          "slug": {
+            "description": "URL-friendly organization name used in URLs.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/OrganizationStatus",
+            "title": "Status"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "dateCreated",
+          "status",
+          "avatar",
+          "links",
+          "hasAuthProvider",
+          "isEarlyAdopter",
+          "require2FA",
+          "allowMemberInvite",
+          "allowMemberProjectCreation",
+          "allowSuperuserAccess"
+        ],
+        "title": "GetOrganizationByIdOrSlugResponse",
+        "type": "object"
+      },
+      "OnboardingTask": {
+        "description": "Onboarding task with completion status.",
+        "properties": {
+          "completionSeen": {
+            "description": "Timestamp when completion was acknowledged.",
+            "title": "Completion Seen",
+            "type": "string"
+          },
+          "data": {
+            "additionalProperties": true,
+            "description": "Additional task-specific data.",
+            "title": "Data",
+            "type": "object"
+          },
+          "dateCompleted": {
+            "description": "Timestamp when task was completed.",
+            "title": "Date Completed",
+            "type": "string"
+          },
+          "status": {
+            "description": "Completion status of the task.",
+            "title": "Status",
+            "type": "string"
+          },
+          "task": {
+            "description": "Task identifier.",
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": ["status", "dateCompleted", "data"],
+        "title": "OnboardingTask",
+        "type": "object"
+      },
+      "OrganizationAvatar": {
+        "description": "Avatar configuration for the organization.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar').",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the uploaded avatar image, if any.",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "OrganizationAvatar",
+        "type": "object"
+      },
+      "OrganizationLinks": {
+        "description": "Navigation URLs for the organization.",
+        "properties": {
+          "organizationUrl": {
+            "description": "Full URL to the organization's Sentry dashboard.",
+            "title": "Organization Url",
+            "type": "string"
+          },
+          "regionUrl": {
+            "description": "Region-specific base URL (e.g., 'https://us.sentry.io').",
+            "title": "Region Url",
+            "type": "string"
+          }
+        },
+        "required": ["organizationUrl", "regionUrl"],
+        "title": "OrganizationLinks",
+        "type": "object"
+      },
+      "OrganizationStatus": {
+        "description": "Current status of the organization.",
+        "properties": {
+          "id": {
+            "description": "Status identifier (e.g., 'active').",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable status name.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "OrganizationStatus",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationByIdOrSlugResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,361 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Search for Zendesk views by their title. Use when you need to find views in your Zendesk account by searching for keywords in their titles. Views are saved searches that display tickets matching specific conditions. This action supports filtering by access level, active status, group, and sorting results.",
+  "inputSchema": {
+    "description": "Request parameters for searching Zendesk views.",
+    "properties": {
+      "access": {
+        "description": "Filter views by access level. Valid values are 'personal', 'shared', or 'account'. When not specified, returns views of all access levels.",
+        "examples": ["shared"],
+        "human_parameter_description": "Filter views by who can access them: personal (only you), shared (team), or account (everyone).",
+        "human_parameter_name": "Access Level",
+        "title": "Access",
+        "type": "string"
+      },
+      "active": {
+        "description": "Filter views by active status. Set to true to return only active views, or false to return only inactive views. When not specified, returns both active and inactive views.",
+        "examples": [true],
+        "human_parameter_description": "Choose whether to show only active views, only inactive ones, or both.",
+        "human_parameter_name": "Active Status",
+        "title": "Active",
+        "type": "boolean"
+      },
+      "group_id": {
+        "description": "Filter views by group ID. Only returns views that are assigned to the specified group.",
+        "examples": [25789188],
+        "human_parameter_description": "Enter a group ID to only show views assigned to that specific group.",
+        "human_parameter_name": "Group ID",
+        "title": "Group Id",
+        "type": "integer"
+      },
+      "include": {
+        "description": "Sideload related data to include in the response. See Zendesk documentation for available sideloads.",
+        "examples": ["permissions"],
+        "human_parameter_description": "Add extra related information to the results, such as permissions or other view-related data.",
+        "human_parameter_name": "Include Sideloads",
+        "title": "Include",
+        "type": "string"
+      },
+      "page": {
+        "description": "Pagination parameter. Supports both traditional offset and cursor-based pagination: traditional uses `?page=2` (integer page number); cursor uses `?page[size]=50&page[after]=cursor` (deepObject with size, after, before). Mutually exclusive.",
+        "examples": ["2"],
+        "title": "Page",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Number of records to return per page. Maximum is 100 records per page for the views search endpoint.",
+        "examples": [50],
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "query": {
+        "description": "Query string used to find all views with matching title. Case-insensitive partial match on view titles.",
+        "examples": ["sales", "support tickets"],
+        "human_parameter_description": "Enter keywords to search for views by their title. The search matches partial titles case-insensitively.",
+        "human_parameter_name": "Search Query",
+        "title": "Query",
+        "type": "string"
+      },
+      "sort_by": {
+        "description": "Field to sort results by. Options: 'alphabetical' (sorts A-Z), 'created_at' (by creation date), 'updated_at' (by last modification), 'position' (by dashboard position). If unspecified, views are sorted by relevance to the query.",
+        "enum": ["alphabetical", "created_at", "updated_at", "position"],
+        "examples": ["position", "updated_at"],
+        "human_parameter_description": "Choose how to order the search results: alphabetically by title, by when they were created, by when they were last updated, or by their position on the views dashboard.",
+        "human_parameter_name": "Sort By",
+        "title": "Sort By",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort order direction. Options: 'asc' (ascending) or 'desc' (descending). Defaults to 'asc' for alphabetical and position sorts, 'desc' for created_at and updated_at sorts.",
+        "enum": ["asc", "desc"],
+        "examples": ["desc"],
+        "human_parameter_description": "Choose whether results appear in ascending order (A-Z, oldest first) or descending order (Z-A, newest first).",
+        "human_parameter_name": "Sort Order",
+        "title": "Sort Order",
+        "type": "string"
+      }
+    },
+    "required": ["query"],
+    "title": "GetViewsSearchRequest",
+    "type": "object"
+  },
+  "name": "get_views_search",
+  "outputSchema": {
+    "$defs": {
+      "GetViewsSearchResponse": {
+        "description": "Response containing search results for Zendesk views.",
+        "properties": {
+          "count": {
+            "description": "Total number of views matching the search criteria",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for the next page of results. Null if there are no more results.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for the previous page of results. Null if this is the first page.",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "views": {
+            "description": "List of views matching the search query",
+            "items": {
+              "$ref": "#/$defs/ZendeskView"
+            },
+            "title": "Views",
+            "type": "array"
+          }
+        },
+        "required": ["views", "count"],
+        "title": "GetViewsSearchResponse",
+        "type": "object"
+      },
+      "ViewConditionField": {
+        "description": "A condition field in view conditions.",
+        "properties": {
+          "field": {
+            "description": "The field to check",
+            "title": "Field",
+            "type": "string"
+          },
+          "operator": {
+            "description": "The comparison operator",
+            "title": "Operator",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value to compare against",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "ViewConditionField",
+        "type": "object"
+      },
+      "ViewConditions": {
+        "description": "Conditions that determine when a view applies.",
+        "properties": {
+          "all": {
+            "description": "All conditions that must be satisfied (AND logic)",
+            "items": {
+              "$ref": "#/$defs/ViewConditionField"
+            },
+            "title": "All",
+            "type": "array"
+          },
+          "any": {
+            "description": "Any condition that can be satisfied (OR logic)",
+            "items": {
+              "$ref": "#/$defs/ViewConditionField"
+            },
+            "title": "Any",
+            "type": "array"
+          }
+        },
+        "title": "ViewConditions",
+        "type": "object"
+      },
+      "ViewExecution": {
+        "description": "Execution configuration for a view.",
+        "properties": {
+          "columns": {
+            "description": "Columns displayed in the view results",
+            "items": {
+              "$ref": "#/$defs/ViewExecutionColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "group": {
+            "$ref": "#/$defs/ViewExecutionGroup",
+            "description": "Grouping configuration",
+            "title": "Group"
+          },
+          "sort": {
+            "$ref": "#/$defs/ViewExecutionSort",
+            "description": "Sort configuration",
+            "title": "Sort"
+          }
+        },
+        "title": "ViewExecution",
+        "type": "object"
+      },
+      "ViewExecutionColumn": {
+        "description": "A column displayed in the view results.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "Column identifier",
+            "title": "Id"
+          },
+          "title": {
+            "description": "Column title",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Column data type (e.g., 'text')",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to the ticket field definition",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ViewExecutionColumn",
+        "type": "object"
+      },
+      "ViewExecutionGroup": {
+        "description": "Grouping configuration for the view.",
+        "properties": {
+          "id": {
+            "description": "Field used for grouping",
+            "title": "Id",
+            "type": "string"
+          },
+          "order": {
+            "description": "Group order",
+            "title": "Order",
+            "type": "string"
+          },
+          "title": {
+            "description": "Display title of the group field",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "ViewExecutionGroup",
+        "type": "object"
+      },
+      "ViewExecutionSort": {
+        "description": "Sort configuration for the view.",
+        "properties": {
+          "id": {
+            "description": "Field used for sorting",
+            "title": "Id",
+            "type": "string"
+          },
+          "order": {
+            "description": "Sort order ('asc' or 'desc')",
+            "title": "Order",
+            "type": "string"
+          },
+          "title": {
+            "description": "Display title of the sort field",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "ViewExecutionSort",
+        "type": "object"
+      },
+      "ViewRestriction": {
+        "description": "Restriction settings for a view.",
+        "properties": {
+          "id": {
+            "description": "ID of the user or group with access",
+            "title": "Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Type of restriction (e.g., 'User', 'Group')",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "ViewRestriction",
+        "type": "object"
+      },
+      "ZendeskView": {
+        "description": "A Zendesk view object.",
+        "properties": {
+          "active": {
+            "description": "Whether the view is currently active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "conditions": {
+            "$ref": "#/$defs/ViewConditions",
+            "description": "Conditions that determine when tickets appear in the view",
+            "title": "Conditions"
+          },
+          "created_at": {
+            "description": "Timestamp when the view was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether this is a default view provided by Zendesk",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Description of what the view displays",
+            "title": "Description",
+            "type": "string"
+          },
+          "execution": {
+            "$ref": "#/$defs/ViewExecution",
+            "description": "Display configuration for the view",
+            "title": "Execution"
+          },
+          "id": {
+            "description": "Unique identifier for the view",
+            "title": "Id",
+            "type": "integer"
+          },
+          "position": {
+            "description": "Position of the view on the views dashboard",
+            "title": "Position",
+            "type": "integer"
+          },
+          "restriction": {
+            "$ref": "#/$defs/ViewRestriction",
+            "description": "Access restrictions for the view",
+            "title": "Restriction"
+          },
+          "title": {
+            "description": "Title/name of the view",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the view was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id", "title", "active", "position", "default"],
+        "title": "ZendeskView",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetViewsSearchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,221 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to run a customized pivot report of Google Analytics event data. Use when you need a pivot table view with advanced segmentation and multi-dimensional analysis of GA4 data.",
+  "inputSchema": {
+    "description": "Request model for running a customized pivot report of Google Analytics event data.",
+    "properties": {
+      "cohortSpec": {
+        "additionalProperties": true,
+        "description": "Optional. Cohort configuration with 'cohorts' (required), optional 'cohortsRange' and 'cohortReportSettings'.",
+        "title": "Cohort Spec",
+        "type": "object"
+      },
+      "comparisons": {
+        "description": "Optional. Comparison configurations. Each comparison has optional 'name' and required 'dimensionFilter' or 'comparison'.",
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Comparisons",
+        "type": "array"
+      },
+      "currencyCode": {
+        "description": "Optional. ISO4217 currency code (e.g., 'USD', 'EUR').",
+        "examples": ["USD"],
+        "title": "Currency Code",
+        "type": "string"
+      },
+      "dateRanges": {
+        "description": "Optional. Date ranges for event data retrieval. Each range has 'startDate' and 'endDate' (YYYY-MM-DD format or relative like 'NdaysAgo', 'yesterday', 'today'), and optional 'name'.",
+        "examples": [
+          [
+            {
+              "endDate": "2024-12-09",
+              "startDate": "2024-12-01"
+            }
+          ]
+        ],
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Date Ranges",
+        "type": "array"
+      },
+      "dimensionFilter": {
+        "additionalProperties": true,
+        "description": "Optional. Filter clause for dimensions only. Can use andGroup, orGroup, notExpression, or filter.",
+        "title": "Dimension Filter",
+        "type": "object"
+      },
+      "dimensions": {
+        "description": "Optional. Dimensions to request. Each dimension has a 'name' field and optional 'dimensionExpression'. Dimensions must be used in pivots, filters, or orderBys.",
+        "examples": [
+          [
+            {
+              "name": "country"
+            },
+            {
+              "name": "deviceCategory"
+            }
+          ]
+        ],
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Dimensions",
+        "type": "array"
+      },
+      "keepEmptyRows": {
+        "description": "Optional. If true, includes rows where all metrics equal 0.",
+        "title": "Keep Empty Rows",
+        "type": "boolean"
+      },
+      "metricFilter": {
+        "additionalProperties": true,
+        "description": "Optional. Post-aggregation filter (SQL HAVING clause equivalent).",
+        "title": "Metric Filter",
+        "type": "object"
+      },
+      "metrics": {
+        "description": "Required. At least one metric is required. Each metric has a 'name' field, optional 'expression', and optional 'invisible' boolean.",
+        "examples": [
+          [
+            {
+              "name": "activeUsers"
+            },
+            {
+              "name": "sessions"
+            }
+          ]
+        ],
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Metrics",
+        "type": "array"
+      },
+      "pivots": {
+        "description": "Optional. Visual format configuration for dimensions. Each pivot has 'fieldNames' (required string array), 'limit' (required), optional 'orderBys', 'offset', and 'metricAggregations'.",
+        "examples": [
+          [
+            {
+              "fieldNames": ["country"],
+              "limit": 5
+            }
+          ]
+        ],
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Pivots",
+        "type": "array"
+      },
+      "property": {
+        "description": "Required. The GA4 property resource name. Format: properties/{property_id}",
+        "examples": ["properties/123456789"],
+        "title": "Property",
+        "type": "string"
+      },
+      "returnPropertyQuota": {
+        "description": "Optional. If true, returns current quota state in PropertyQuota.",
+        "title": "Return Property Quota",
+        "type": "boolean"
+      }
+    },
+    "required": ["property", "metrics"],
+    "title": "RunPivotReportRequest",
+    "type": "object"
+  },
+  "name": "run_pivot_report",
+  "outputSchema": {
+    "$defs": {
+      "RunPivotReportResponse": {
+        "description": "Response model for runPivotReport API.",
+        "properties": {
+          "aggregates": {
+            "description": "Aggregated metric data (totals, minimums, or maximums) controlled by metricAggregations in pivot request.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Aggregates",
+            "type": "array"
+          },
+          "dimensionHeaders": {
+            "description": "Describes dimension columns; count and order align with dimensions in rows.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Dimension Headers",
+            "type": "array"
+          },
+          "kind": {
+            "description": "Resource type identifier, always 'analyticsData#runPivotReport'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Report metadata information including currency codes, time zone, and data freshness.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "metricHeaders": {
+            "description": "Describes metric columns; count and order align with metrics in rows.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Metric Headers",
+            "type": "array"
+          },
+          "pivotHeaders": {
+            "description": "Summarizes columns and rows created by pivots. Each PivotHeader has 'pivotDimensionHeaders' and 'rowCount'.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Pivot Headers",
+            "type": "array"
+          },
+          "propertyQuota": {
+            "additionalProperties": true,
+            "description": "Google Analytics property's quota state including this request. Contains token and concurrent request limits.",
+            "title": "Property Quota",
+            "type": "object"
+          },
+          "rows": {
+            "description": "Contains dimension value combinations paired with corresponding metric values.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "title": "RunPivotReportResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RunPivotReportResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

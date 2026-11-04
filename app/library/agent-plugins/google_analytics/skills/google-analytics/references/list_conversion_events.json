@@ -1,0 +1,103 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists deprecated conversion event resources configured for a Google Analytics property. Google recommends using key events instead.",
+  "inputSchema": {
+    "description": "Request model for listing conversion events on a property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. The maximum number of resources to return. If unspecified, at most 50 resources will be returned. The maximum value is 200",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous ListConversionEvents call. Provide this to retrieve the subsequent page",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The resource name of the parent property. Format: 'properties/{propertyId}'",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "AnalyticsadminPropertiesConversioneventsListRequest",
+    "type": "object"
+  },
+  "name": "list_conversion_events",
+  "outputSchema": {
+    "$defs": {
+      "AnalyticsadminPropertiesConversioneventsListResponse": {
+        "description": "Response model for listing conversion events.",
+        "properties": {
+          "conversionEvents": {
+            "description": "List of conversion events in the specified parent property",
+            "items": {
+              "$ref": "#/$defs/ConversionEvent"
+            },
+            "title": "Conversion Events",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "A token which can be sent as pageToken to retrieve the next page. If this field is omitted, there are no subsequent pages",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "AnalyticsadminPropertiesConversioneventsListResponse",
+        "type": "object"
+      },
+      "ConversionEvent": {
+        "description": "Schema for a ConversionEvent resource.",
+        "properties": {
+          "createTime": {
+            "description": "Time when this conversion event was created in the property (google-datetime format)",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "custom": {
+            "description": "Indicates whether the event is custom (true) or a default Google Analytics event (false)",
+            "title": "Custom",
+            "type": "boolean"
+          },
+          "deletable": {
+            "description": "If true, this event can currently be deleted with DeleteConversionEvent",
+            "title": "Deletable",
+            "type": "boolean"
+          },
+          "eventName": {
+            "description": "The event name for this conversion event. Examples: 'click', 'purchase'",
+            "title": "Event Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name of this conversion event. Format: properties/{property}/conversionEvents/{conversion_event}",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "ConversionEvent",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AnalyticsadminPropertiesConversioneventsListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

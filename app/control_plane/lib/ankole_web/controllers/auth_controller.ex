@@ -35,7 +35,7 @@ defmodule AnkoleWeb.AuthController do
            ),
          return_to =
            if(is_binary(target.console_return_to),
-             do: AnkoleWeb.PodURL.site_origin(conn) <> target.console_return_to,
+             do: AnkoleWeb.SiteAdminConsole.url(conn, target.console_return_to),
              else: target.return_to
            ),
          {:ok, _} <-
@@ -176,7 +176,7 @@ defmodule AnkoleWeb.AuthController do
         external_id: login.external_id,
         auth_time: login.auth_time
       })
-      |> redirect(to: AnkoleWeb.SiteAdminConsole.path())
+      |> redirect(external: AnkoleWeb.SiteAdminConsole.url(conn))
     else
       {:ok, true} -> error(conn, 409, "setup already completed")
       {:error, reason} -> login_error(conn, reason)
@@ -194,7 +194,7 @@ defmodule AnkoleWeb.AuthController do
     do: AnkoleWeb.PodURL.oauth_return_to(conn, oauth_request)
 
   defp callback_return_to(conn, oidc_state, nil) do
-    site_prefix = AnkoleWeb.PodURL.site_origin(conn) <> "/"
+    site_prefix = AnkoleWeb.SiteAdminConsole.origin(conn) <> "/"
 
     if String.starts_with?(oidc_state.return_to, site_prefix),
       do: oidc_state.return_to,

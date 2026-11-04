@@ -1,0 +1,174 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Show many Zendesk organizations by their IDs or external IDs. Use when you need to retrieve multiple organizations in a single API call. Accepts up to 100 organization IDs or external IDs as comma-separated lists. Only one of ids or external_ids should be provided. Returns organization objects with all standard fields including name, domain_names, tags, and organization_fields.",
+  "inputSchema": {
+    "description": "Request parameters for showing many Zendesk organizations by IDs.",
+    "properties": {
+      "external_ids": {
+        "description": "A comma-separated list of external organization IDs to retrieve (max 100). Either this or ids is required.",
+        "examples": ["ABC123,XYZ456", "ext1,ext2,ext3"],
+        "title": "External Ids",
+        "type": "string"
+      },
+      "ids": {
+        "description": "A comma-separated list of organization IDs to retrieve (max 100). Either this or external_ids is required.",
+        "examples": ["35436,20057623", "1,2,3"],
+        "title": "Ids",
+        "type": "string"
+      }
+    },
+    "title": "GetOrganizationsShowManyRequest",
+    "type": "object"
+  },
+  "name": "get_organizations_show_many",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationsShowManyResponse": {
+        "description": "Response containing multiple Zendesk organizations.",
+        "properties": {
+          "count": {
+            "description": "Total number of organizations returned",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL to the next page of results (if available)",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "organizations": {
+            "description": "Array of organizations matching the provided IDs",
+            "items": {
+              "$ref": "#/$defs/ZendeskOrganization"
+            },
+            "title": "Organizations",
+            "type": "array"
+          },
+          "previous_page": {
+            "description": "URL to the previous page of results (if available)",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["organizations", "count"],
+        "title": "GetOrganizationsShowManyResponse",
+        "type": "object"
+      },
+      "OrganizationFields": {
+        "additionalProperties": true,
+        "description": "Custom field values for the organization.",
+        "properties": {
+          "org_decimal": {
+            "description": "Decimal custom field value",
+            "title": "Org Decimal",
+            "type": "number"
+          },
+          "org_dropdown": {
+            "description": "Dropdown custom field value",
+            "title": "Org Dropdown",
+            "type": "string"
+          }
+        },
+        "title": "OrganizationFields",
+        "type": "object"
+      },
+      "ZendeskOrganization": {
+        "description": "Zendesk organization object.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when organization was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "description": "Details about the organization (e.g., address)",
+            "title": "Details",
+            "type": "string"
+          },
+          "domain_names": {
+            "description": "Domain names associated with the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Domain Names",
+            "type": "array"
+          },
+          "external_id": {
+            "description": "Case-insensitive external identifier for linking to external records",
+            "title": "External Id",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "Group ID for automatic ticket routing",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Auto-assigned organization identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Unique organization name",
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Internal notes about the organization",
+            "title": "Notes",
+            "type": "string"
+          },
+          "organization_fields": {
+            "$ref": "#/$defs/OrganizationFields",
+            "description": "Custom field values for the organization",
+            "title": "Organization Fields"
+          },
+          "shared_comments": {
+            "description": "Whether end users can comment on each other's tickets",
+            "title": "Shared Comments",
+            "type": "boolean"
+          },
+          "shared_tickets": {
+            "description": "Whether end users can view each other's tickets",
+            "title": "Shared Tickets",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "Organization tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "updated_at": {
+            "description": "Timestamp of the last update",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API endpoint URL for this organization",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ZendeskOrganization",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationsShowManyResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

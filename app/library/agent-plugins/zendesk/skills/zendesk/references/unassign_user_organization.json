@@ -1,0 +1,58 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Immediately removes a user from an organization in Zendesk. Use when you need to unassign a user from an organization membership. This action is irreversible - the user will no longer be associated with the organization.",
+  "inputSchema": {
+    "properties": {
+      "organization_id": {
+        "description": "The ID of the organization",
+        "examples": [26924554541340],
+        "human_parameter_description": "The numeric ID of the Zendesk organization you want to unassign the user from. You can find this in the organization record or from a previous list or search result.",
+        "human_parameter_name": "Organization ID",
+        "title": "Organization Id",
+        "type": "integer"
+      },
+      "user_id": {
+        "description": "The ID of the user",
+        "examples": [26923127464348],
+        "human_parameter_description": "The numeric ID of the Zendesk user you want to unassign from an organization. You can find this in the user's profile URL or from a user search result.",
+        "human_parameter_name": "User ID",
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id", "organization_id"],
+    "title": "UnassignUserOrganizationRequest",
+    "type": "object"
+  },
+  "name": "unassign_user_organization",
+  "outputSchema": {
+    "$defs": {
+      "UnassignUserOrganizationResponse": {
+        "properties": {
+          "success": {
+            "description": "Indicates whether the organization unassignment was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "UnassignUserOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UnassignUserOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

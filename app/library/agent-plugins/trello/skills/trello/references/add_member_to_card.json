@@ -1,0 +1,467 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Assigns a Trello member to a specific Trello card by card ID (or short link) and member ID.",
+  "inputSchema": {
+    "description": "Request schema for adding a member to a Trello card.",
+    "properties": {
+      "idCard": {
+        "description": "The ID or short link of the Trello card to which the member will be added.",
+        "examples": ["60d5f0b8e6a0b30029e5b0f3", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "value": {
+        "description": "The ID of the Trello member to be added to the card.",
+        "examples": ["5f9b3b3b3b3b3b3b3b3b3b3b"],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idCard"],
+    "title": "AddMemberToCardRequest",
+    "type": "object"
+  },
+  "name": "add_member_to_card",
+  "outputSchema": {
+    "$defs": {
+      "AddMemberToCardResponse": {
+        "description": "Response schema for adding a member to a Trello card. Returns the updated Card object.",
+        "properties": {
+          "url": {
+            "description": "Full URL",
+            "title": "Url",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "Short link",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "mirrorSourceId": {
+            "description": "Mirror source ID",
+            "title": "Mirror Source Id",
+            "type": "string"
+          },
+          "due": {
+            "description": "Due date",
+            "title": "Due",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "Board ID",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Due reminder",
+            "title": "Due Reminder",
+            "type": "integer"
+          },
+          "isTemplate": {
+            "description": "Card is a template",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "idChecklists": {
+            "description": "Checklist IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Checklists",
+            "type": "array"
+          },
+          "idMembers": {
+            "description": "Member IDs assigned to card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members",
+            "type": "array"
+          },
+          "manualCoverAttachment": {
+            "description": "Cover manually set",
+            "title": "Manual Cover Attachment",
+            "type": "boolean"
+          },
+          "idLabels": {
+            "description": "Label IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Labels",
+            "type": "array"
+          },
+          "idAttachmentCover": {
+            "description": "Cover attachment ID",
+            "title": "Id Attachment Cover",
+            "type": "string"
+          },
+          "desc": {
+            "description": "Card description",
+            "title": "Desc",
+            "type": "string"
+          },
+          "idMembersVoted": {
+            "description": "Member IDs who voted",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members Voted",
+            "type": "array"
+          },
+          "name": {
+            "description": "Card name/title",
+            "title": "Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "Card email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position in list",
+            "title": "Pos",
+            "type": "number"
+          },
+          "shortUrl": {
+            "description": "Short URL",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "Node ID",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "User is subscribed",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "dueComplete": {
+            "description": "Due date marked complete",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "descData": {
+            "$ref": "#/$defs/DescData",
+            "description": "Description structured data",
+            "title": "Desc Data"
+          },
+          "checkItemStates": {
+            "description": "Check item states",
+            "items": {},
+            "title": "Check Item States",
+            "type": "array"
+          },
+          "closed": {
+            "description": "Card is closed/archived",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "dateLastActivity": {
+            "description": "Last activity timestamp",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "cover": {
+            "$ref": "#/$defs/CardCover",
+            "description": "Cover image information",
+            "title": "Cover"
+          },
+          "idShort": {
+            "description": "Short numeric ID",
+            "title": "Id Short",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Label objects",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "pinned": {
+            "description": "Card is pinned",
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "idList": {
+            "description": "List ID",
+            "title": "Id List",
+            "type": "string"
+          },
+          "id": {
+            "description": "Card unique identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "agent": {
+            "$ref": "#/$defs/CardAgent",
+            "description": "Agent information",
+            "title": "Agent"
+          },
+          "badges": {
+            "$ref": "#/$defs/CardBadges",
+            "description": "Badge counts and statuses",
+            "title": "Badges"
+          },
+          "cardRole": {
+            "description": "Card role",
+            "title": "Card Role",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start date",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "title": "AddMemberToCardResponse",
+        "type": "object"
+      },
+      "CardAgent": {
+        "description": "Agent information for a Trello card.",
+        "properties": {
+          "conversationId": {
+            "description": "Agent conversation ID",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Agent name",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "CardAgent",
+        "type": "object"
+      },
+      "CardBadges": {
+        "description": "Badge counts and statuses for a Trello card.",
+        "properties": {
+          "attachments": {
+            "description": "Number of attachments",
+            "title": "Attachments",
+            "type": "integer"
+          },
+          "attachmentsByType": {
+            "additionalProperties": true,
+            "description": "Attachments grouped by type",
+            "title": "Attachments By Type",
+            "type": "object"
+          },
+          "checkItems": {
+            "description": "Total check items",
+            "title": "Check Items",
+            "type": "integer"
+          },
+          "checkItemsChecked": {
+            "description": "Checked items count",
+            "title": "Check Items Checked",
+            "type": "integer"
+          },
+          "checkItemsEarliestDue": {
+            "description": "Earliest due date",
+            "title": "Check Items Earliest Due",
+            "type": "string"
+          },
+          "comments": {
+            "description": "Number of comments",
+            "title": "Comments",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Has description",
+            "title": "Description",
+            "type": "boolean"
+          },
+          "due": {
+            "description": "Due date",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueComplete": {
+            "description": "Due date marked complete",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "externalSource": {
+            "description": "External source",
+            "title": "External Source",
+            "type": "string"
+          },
+          "fogbugz": {
+            "description": "FogBugz data",
+            "title": "Fogbugz",
+            "type": "string"
+          },
+          "lastUpdatedByAi": {
+            "description": "Last updated by AI",
+            "title": "Last Updated By Ai",
+            "type": "boolean"
+          },
+          "location": {
+            "description": "Has location",
+            "title": "Location",
+            "type": "boolean"
+          },
+          "maliciousAttachments": {
+            "description": "Malicious attachments count",
+            "title": "Malicious Attachments",
+            "type": "integer"
+          },
+          "start": {
+            "description": "Start date",
+            "title": "Start",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "User subscribed",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "viewingMemberVoted": {
+            "description": "Viewing member voted",
+            "title": "Viewing Member Voted",
+            "type": "boolean"
+          },
+          "votes": {
+            "description": "Number of votes",
+            "title": "Votes",
+            "type": "integer"
+          }
+        },
+        "title": "CardBadges",
+        "type": "object"
+      },
+      "CardCover": {
+        "description": "Cover image information for a Trello card.",
+        "properties": {
+          "brightness": {
+            "description": "Brightness setting",
+            "title": "Brightness",
+            "type": "string"
+          },
+          "color": {
+            "description": "Cover color",
+            "title": "Color",
+            "type": "string"
+          },
+          "edgeColor": {
+            "description": "Edge color",
+            "title": "Edge Color",
+            "type": "string"
+          },
+          "idAttachment": {
+            "description": "Attachment ID",
+            "title": "Id Attachment",
+            "type": "string"
+          },
+          "idPlugin": {
+            "description": "Plugin ID",
+            "title": "Id Plugin",
+            "type": "string"
+          },
+          "idUploadedBackground": {
+            "description": "Uploaded background ID",
+            "title": "Id Uploaded Background",
+            "type": "string"
+          },
+          "scaled": {
+            "description": "Scaled image versions",
+            "items": {
+              "$ref": "#/$defs/CoverScaled"
+            },
+            "title": "Scaled",
+            "type": "array"
+          },
+          "size": {
+            "description": "Cover size",
+            "title": "Size",
+            "type": "string"
+          },
+          "yPosition": {
+            "description": "Y position",
+            "title": "Y Position",
+            "type": "number"
+          }
+        },
+        "title": "CardCover",
+        "type": "object"
+      },
+      "CoverScaled": {
+        "description": "Scaled cover image data.",
+        "properties": {
+          "_id": {
+            "description": "Internal ID",
+            "title": " Id",
+            "type": "string"
+          },
+          "bytes": {
+            "description": "File size in bytes",
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "height": {
+            "description": "Image height",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Scaled image ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "scaled": {
+            "description": "Is scaled version",
+            "title": "Scaled",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "Image URL",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "CoverScaled",
+        "type": "object"
+      },
+      "DescData": {
+        "description": "Description data for a card.",
+        "properties": {
+          "emoji": {
+            "additionalProperties": true,
+            "description": "Emoji data",
+            "title": "Emoji",
+            "type": "object"
+          }
+        },
+        "title": "DescData",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddMemberToCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

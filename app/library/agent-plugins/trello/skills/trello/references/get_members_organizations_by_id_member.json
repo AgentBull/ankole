@@ -1,0 +1,300 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetches organizations a specific Trello member belongs to; the `idMember` must be an ID or username of an existing Trello member.",
+  "inputSchema": {
+    "description": "Request schema for `GetMembersOrganizationsByIdMember`",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Specifies which fields to include in the response. Use 'all' for all available fields, or provide a comma-separated list of specific fields. Available fields: billableMemberCount, desc, descData, displayName, idBoards, invitations, invited, logoHash, memberships, name, powerUps, prefs, premiumFeatures, products, url, website.",
+        "examples": ["displayName,url,memberships", "name,desc", "all"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "filter": {
+        "default": "all",
+        "description": "Filters the types of organizations returned. Use 'all' for all organizations, 'members' for organizations where the member has a role, 'none' for organizations with no specific filter, or 'public' for public organizations.",
+        "examples": ["all", "members", "public"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID or username of the Trello member.",
+        "examples": ["john.doe", "605ab1234567890123456789"],
+        "title": "Id Member",
+        "type": "string"
+      },
+      "paid_account": {
+        "description": "Filters organizations based on whether they have a paid Trello account. Provide 'true' to list only organizations with a paid account, or 'false' for those without.",
+        "examples": ["true", "false"],
+        "title": "Paid Account",
+        "type": "string"
+      }
+    },
+    "required": ["idMember"],
+    "title": "GetMembersOrganizationsByIdMemberRequest",
+    "type": "object"
+  },
+  "name": "get_members_organizations_by_id_member",
+  "outputSchema": {
+    "$defs": {
+      "BoardDeleteRestrict": {
+        "description": "Board deletion restrictions configuration.",
+        "properties": {},
+        "title": "BoardDeleteRestrict",
+        "type": "object"
+      },
+      "BoardVisibilityRestrict": {
+        "description": "Board visibility restrictions configuration.",
+        "properties": {},
+        "title": "BoardVisibilityRestrict",
+        "type": "object"
+      },
+      "GetMembersOrganizationsByIdMemberResponse": {
+        "description": "Response schema for `GetMembersOrganizationsByIdMember`",
+        "properties": {
+          "organizations": {
+            "description": "List of organizations associated with the member.",
+            "items": {
+              "$ref": "#/$defs/Organization"
+            },
+            "title": "Organizations",
+            "type": "array"
+          }
+        },
+        "required": ["organizations"],
+        "title": "GetMembersOrganizationsByIdMemberResponse",
+        "type": "object"
+      },
+      "Membership": {
+        "description": "Organization membership object.",
+        "properties": {
+          "deactivated": {
+            "description": "Whether the membership is deactivated.",
+            "title": "Deactivated",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the membership.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "memberType": {
+            "description": "Type of membership (e.g., 'admin', 'normal').",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "unconfirmed": {
+            "description": "Whether the membership is unconfirmed.",
+            "title": "Unconfirmed",
+            "type": "boolean"
+          }
+        },
+        "title": "Membership",
+        "type": "object"
+      },
+      "Organization": {
+        "description": "Trello organization object.",
+        "properties": {
+          "activeMembershipCount": {
+            "description": "Active member count.",
+            "title": "Active Membership Count",
+            "type": "integer"
+          },
+          "billableMemberCount": {
+            "description": "Count of billable members.",
+            "title": "Billable Member Count",
+            "type": "integer"
+          },
+          "dateLastActivity": {
+            "description": "Timestamp of last activity (e.g., 2018-10-17T19:10:14.808Z).",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "desc": {
+            "description": "Organization description.",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "description": "Structured description data.",
+            "title": "Desc Data"
+          },
+          "displayName": {
+            "description": "Display name for the organization.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "googleAppsVersion": {
+            "description": "Google Workspace integration version.",
+            "title": "Google Apps Version",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the organization.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "Array of associated board IDs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idEnterprise": {
+            "description": "Enterprise ID if organization is part of an enterprise.",
+            "title": "Id Enterprise",
+            "type": "string"
+          },
+          "idMembers": {
+            "description": "Array of member IDs in organization.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members",
+            "type": "array"
+          },
+          "invitations": {
+            "description": "Pending invitations to the organization.",
+            "items": {},
+            "title": "Invitations",
+            "type": "array"
+          },
+          "invited": {
+            "description": "Whether the user has been invited to the organization.",
+            "title": "Invited",
+            "type": "boolean"
+          },
+          "ixUpdate": {
+            "description": "Update index.",
+            "title": "Ix Update",
+            "type": "integer"
+          },
+          "limits": {
+            "description": "Organization limits and restrictions.",
+            "title": "Limits"
+          },
+          "logoHash": {
+            "description": "Hash identifier for logo image.",
+            "title": "Logo Hash",
+            "type": "string"
+          },
+          "logoUrl": {
+            "description": "URL to organization logo.",
+            "title": "Logo Url",
+            "type": "string"
+          },
+          "memberships": {
+            "description": "Array of membership objects representing member relationships.",
+            "items": {
+              "$ref": "#/$defs/Membership"
+            },
+            "title": "Memberships",
+            "type": "array"
+          },
+          "name": {
+            "description": "The organization's internal name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "offering": {
+            "description": "Subscription offering type (e.g., trello.enterprise).",
+            "title": "Offering",
+            "type": "string"
+          },
+          "powerUps": {
+            "description": "Enabled Power-Ups for the organization.",
+            "items": {},
+            "title": "Power Ups",
+            "type": "array"
+          },
+          "prefs": {
+            "$ref": "#/$defs/OrganizationPrefs",
+            "description": "Organization preferences and settings.",
+            "title": "Prefs"
+          },
+          "premiumFeatures": {
+            "description": "Array of premium feature strings available to the organization.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Premium Features",
+            "type": "array"
+          },
+          "products": {
+            "description": "Product licensing information.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "url": {
+            "description": "Organization's web address (e.g., https://trello.com/w/<name>).",
+            "title": "Url",
+            "type": "string"
+          },
+          "website": {
+            "description": "Official website URL.",
+            "title": "Website",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "Organization",
+        "type": "object"
+      },
+      "OrganizationPrefs": {
+        "description": "Organization preferences and settings.",
+        "properties": {
+          "attachmentRestrictions": {
+            "description": "Attachment restrictions (e.g., ['computer']).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Attachment Restrictions",
+            "type": "array"
+          },
+          "boardDeleteRestrict": {
+            "$ref": "#/$defs/BoardDeleteRestrict",
+            "description": "Board deletion restrictions.",
+            "title": "Board Delete Restrict"
+          },
+          "boardVisibilityRestrict": {
+            "$ref": "#/$defs/BoardVisibilityRestrict",
+            "description": "Board visibility restrictions.",
+            "title": "Board Visibility Restrict"
+          },
+          "permissionLevel": {
+            "description": "Permission level (e.g., 'private').",
+            "title": "Permission Level",
+            "type": "string"
+          }
+        },
+        "title": "OrganizationPrefs",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMembersOrganizationsByIdMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

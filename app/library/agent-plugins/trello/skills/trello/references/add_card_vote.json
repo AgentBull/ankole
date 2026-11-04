@@ -1,0 +1,113 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Casts a 'yes' vote for a specified member on a Trello card; a member can only vote once per card.",
+  "inputSchema": {
+    "description": "Request schema for `AddCardVote`",
+    "properties": {
+      "idCard": {
+        "description": "The ID of the card to add the vote to. Must be the full 24-character card ID, not a short link. For example, `571d07b591c8b68aeb4f6acc`.",
+        "examples": ["571d07b591c8b68aeb4f6acc"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "value": {
+        "description": "The ID of the member to cast a 'yes' vote on the card. Must be a valid 24-character member ID. Note: Voting must be enabled on the board for this action to succeed.",
+        "examples": ["600f0c000000000000000000"],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "value"],
+    "title": "AddCardVoteRequest",
+    "type": "object"
+  },
+  "name": "add_card_vote",
+  "outputSchema": {
+    "$defs": {
+      "AddCardVoteResponse": {
+        "description": "Response schema for `AddCardVote`",
+        "properties": {
+          "members": {
+            "description": "Array of member objects representing users who have voted on the card",
+            "items": {
+              "$ref": "#/$defs/Member"
+            },
+            "title": "Members",
+            "type": "array"
+          }
+        },
+        "required": ["members"],
+        "title": "AddCardVoteResponse",
+        "type": "object"
+      },
+      "Member": {
+        "description": "A Trello member object representing a user who has voted on the card",
+        "properties": {
+          "avatarUrl": {
+            "description": "The url of this member's avatar",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "confirmed": {
+            "description": "Whether the user has confirmed their email address for their account",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "fullName": {
+            "description": "The full name related to the account, if it is public",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "List of boards this member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idOrganizations": {
+            "description": "List of workspaces this member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Organizations",
+            "type": "array"
+          },
+          "initials": {
+            "description": "The initials related to the account, if it is public",
+            "title": "Initials",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of this account",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "Member",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddCardVoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

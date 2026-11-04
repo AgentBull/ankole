@@ -1,0 +1,227 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves explore data for an organization as a timeseries for a selected dataset and aggregate axis, optionally grouped by top events.",
+  "inputSchema": {
+    "description": "Request schema for `QueryExploreEventsInTimeseriesFormat`",
+    "properties": {
+      "comparisonDelta": {
+        "description": "The delta in seconds to return additional offset timeseries by.",
+        "examples": [86400, 3600],
+        "title": "Comparison Delta",
+        "type": "integer"
+      },
+      "dataset": {
+        "description": "Which dataset to query. Changing datasets changes the available fields that can be queried. Options: 'logs', 'profile_functions', 'spans', 'uptime_results'.",
+        "enum": ["logs", "profile_functions", "spans", "uptime_results"],
+        "examples": ["spans", "logs"],
+        "title": "Dataset",
+        "type": "string"
+      },
+      "disableAggregateExtrapolation": {
+        "description": "Whether to disable aggregate extrapolation.",
+        "enum": ["0", "1"],
+        "examples": ["0", "1"],
+        "title": "DisableAggregateExtrapolationEnum",
+        "type": "string"
+      },
+      "end": {
+        "description": "The end of the period of time for the query, expected in ISO-8601 format. For example, `2001-12-14T12:34:56.7890`. This parameter is ignored if `statsPeriod` is provided.",
+        "examples": ["2024-01-15T12:30:00Z", "2023-12-01T00:00:00.000Z"],
+        "title": "End",
+        "type": "string"
+      },
+      "environment": {
+        "description": "The name of environments to filter by.",
+        "examples": [["production"], ["staging", "development"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "excludeOther": {
+        "description": "Whether to include the 'other' timeseries in TopEvents queries.",
+        "enum": ["0", "1"],
+        "examples": ["0", "1"],
+        "title": "ExcludeOtherEnum",
+        "type": "string"
+      },
+      "groupBy": {
+        "description": "List of fields to group by. *Required* for topEvents queries as this and sort determine what the top events are.",
+        "examples": [["transaction"], ["project", "environment"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Group By",
+        "type": "array"
+      },
+      "interval": {
+        "description": "The size of the bucket for the timeseries to have, must be a value smaller than the window being queried. If the interval is invalid a default interval will be selected instead.",
+        "examples": [3600, 86400],
+        "title": "Interval",
+        "type": "integer"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["my-org-slug", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "preventMetricAggregates": {
+        "description": "Whether to throw an error when aggregates are passed.",
+        "enum": ["0", "1"],
+        "examples": ["0", "1"],
+        "title": "PreventMetricAggregatesEnum",
+        "type": "string"
+      },
+      "project": {
+        "description": "The IDs of projects to filter by. `-1` means all available projects. For example, the following are valid parameters: `[1234, 56789]` or `[-1]`.",
+        "examples": [[1234, 56789], [-1]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Project",
+        "type": "array"
+      },
+      "query": {
+        "description": "Filters results by using query syntax. Example: `(transaction:foo AND release:abc) OR (transaction:[bar,baz] AND release:def)`.",
+        "examples": ["transaction:foo AND release:abc", "environment:production AND user.email:*@example.com"],
+        "title": "Query",
+        "type": "string"
+      },
+      "sort": {
+        "description": "What to order the results of the query by. Must be something in the `field` list, excluding equations.",
+        "examples": ["count()", "-count()"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "start": {
+        "description": "The start of the period of time for the query, expected in ISO-8601 format. For example, `2001-12-14T12:34:56.7890`. This parameter is ignored if `statsPeriod` is provided.",
+        "examples": ["2024-01-01T10:00:00Z", "2023-11-01T00:00:00.000Z"],
+        "title": "Start",
+        "type": "string"
+      },
+      "statsPeriod": {
+        "description": "The period of time for the query, will override the start & end parameters. A number followed by one of: 'd' (days), 'h' (hours), 'm' (minutes), 's' (seconds), 'w' (weeks). For example, `24h` means query data starting from 24 hours ago to now.",
+        "examples": ["24h", "7d", "30m", "1w"],
+        "title": "Stats Period",
+        "type": "string"
+      },
+      "topEvents": {
+        "description": "The number of top event results to return, must be between 1 and 10. When topEvents is passed, both sort and groupBy are required parameters.",
+        "examples": [5, 10],
+        "title": "Top Events",
+        "type": "integer"
+      },
+      "yAxis": {
+        "description": "The aggregate field to create the timeseries for, defaults to `count()` when not included.",
+        "examples": ["count()", "avg(transaction.duration)"],
+        "title": "Y Axis",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "dataset"],
+    "title": "QueryExploreEventsInTimeseriesFormatRequest",
+    "type": "object"
+  },
+  "name": "query_explore_events_in_timeseries_format",
+  "outputSchema": {
+    "$defs": {
+      "QueryExploreEventsInTimeseriesFormatResponse": {
+        "description": "Response schema for `QueryExploreEventsInTimeseriesFormat`",
+        "properties": {
+          "meta": {
+            "$ref": "#/$defs/TimeseriesMetadata",
+            "description": "Metadata about the timeseries response including dataset and time range.",
+            "title": "Meta"
+          },
+          "timeSeries": {
+            "description": "Array of timeseries items, each containing values and metadata for one or more axis/groupings.",
+            "items": {
+              "$ref": "#/$defs/TimeseriesItem"
+            },
+            "title": "Time Series",
+            "type": "array"
+          }
+        },
+        "required": ["timeSeries"],
+        "title": "QueryExploreEventsInTimeseriesFormatResponse",
+        "type": "object"
+      },
+      "TimeseriesItem": {
+        "description": "Individual timeseries item with values and metadata.",
+        "properties": {
+          "groupBy": {
+            "additionalProperties": true,
+            "description": "The groupBy fields and their values for this timeseries.",
+            "title": "Group By",
+            "type": "object"
+          },
+          "meta": {
+            "$ref": "#/$defs/TimeseriesValueMeta",
+            "description": "Metadata about the timeseries values.",
+            "title": "Meta"
+          },
+          "values": {
+            "description": "Array of timeseries data points.",
+            "items": {},
+            "title": "Values",
+            "type": "array"
+          },
+          "yAxis": {
+            "description": "The aggregate field this timeseries represents.",
+            "title": "Y Axis",
+            "type": "string"
+          }
+        },
+        "required": ["values", "yAxis"],
+        "title": "TimeseriesItem",
+        "type": "object"
+      },
+      "TimeseriesMetadata": {
+        "description": "Metadata about the timeseries response.",
+        "properties": {
+          "dataset": {
+            "description": "The dataset that was queried.",
+            "title": "Dataset",
+            "type": "string"
+          },
+          "end": {
+            "description": "The end timestamp of the query period as a UNIX timestamp (seconds since epoch).",
+            "title": "End",
+            "type": "number"
+          },
+          "start": {
+            "description": "The start timestamp of the query period as a UNIX timestamp (seconds since epoch).",
+            "title": "Start",
+            "type": "number"
+          }
+        },
+        "required": ["dataset", "end", "start"],
+        "title": "TimeseriesMetadata",
+        "type": "object"
+      },
+      "TimeseriesValueMeta": {
+        "additionalProperties": true,
+        "description": "Metadata for a timeseries value.",
+        "properties": {},
+        "title": "TimeseriesValueMeta",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/QueryExploreEventsInTimeseriesFormatResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

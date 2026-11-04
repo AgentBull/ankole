@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Removes a specific starred board (identified by `idBoardStar`) from a Trello member's (identified by `idMember`) list of favorites; `idBoardStar` must be an existing star for that member.",
+  "inputSchema": {
+    "description": "Request schema for `RemoveBoardStar`",
+    "properties": {
+      "idBoardStar": {
+        "description": "The ID of the board star. This uniquely identifies the 'starred' relationship between the member and a board.",
+        "examples": ["5f5b9f9e8d7c6b5a4f3e2d1c"],
+        "title": "Id Board Star",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID or username of the Trello member.",
+        "examples": ["johndoe", "60d5f2f3b4e5e6f7g8h9i0j1"],
+        "title": "Id Member",
+        "type": "string"
+      }
+    },
+    "required": ["idMember", "idBoardStar"],
+    "title": "RemoveBoardStarRequest",
+    "type": "object"
+  },
+  "name": "remove_board_star",
+  "outputSchema": {
+    "$defs": {
+      "RemoveBoardStarResponse": {
+        "description": "Empty response body. The DELETE operation returns HTTP 200 OK status code on success with no content in the response body. This is standard REST API behavior for successful DELETE operations.",
+        "properties": {},
+        "title": "RemoveBoardStarResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RemoveBoardStarResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,237 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves rule-level approval satisfaction for a GitLab merge request. This endpoint requires GitLab Premium or Ultimate and shows which users count toward each rule, not every user who approved. Use Get Merge Request Approvals for all-tier aggregate status and the complete approving-user list.",
+  "inputSchema": {
+    "properties": {
+      "merge_request_iid": {
+        "description": "The project-scoped internal ID (IID) of the merge request.",
+        "examples": [42],
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the GitLab project.",
+        "examples": [123, "group/project-name"],
+        "title": "Project Id"
+      }
+    },
+    "required": ["project_id", "merge_request_iid"],
+    "title": "GetMergeRequestApprovalStateRequest",
+    "type": "object"
+  },
+  "name": "get_merge_request_approval_state",
+  "outputSchema": {
+    "$defs": {
+      "ApprovalRuleState": {
+        "properties": {
+          "approvals_required": {
+            "description": "Number of approvals required by this rule.",
+            "title": "Approvals Required",
+            "type": "integer"
+          },
+          "approved": {
+            "description": "Whether this specific approval rule is satisfied.",
+            "title": "Approved",
+            "type": "boolean"
+          },
+          "approved_by": {
+            "description": "Approving users whose approvals count toward this specific rule.",
+            "items": {
+              "$ref": "#/$defs/ApprovalStateUser"
+            },
+            "title": "Approved By",
+            "type": "array"
+          },
+          "contains_hidden_groups": {
+            "description": "Whether the rule includes groups hidden from the caller.",
+            "title": "Contains Hidden Groups",
+            "type": "boolean"
+          },
+          "eligible_approvers": {
+            "description": "Users currently eligible to approve under this rule.",
+            "items": {
+              "$ref": "#/$defs/ApprovalStateUser"
+            },
+            "title": "Eligible Approvers",
+            "type": "array"
+          },
+          "groups": {
+            "description": "Groups assigned as approvers for this rule.",
+            "items": {
+              "$ref": "#/$defs/ApprovalStateGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "id": {
+            "description": "ID of the approval rule.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the approval rule.",
+            "title": "Name",
+            "type": "string"
+          },
+          "overridden": {
+            "description": "Whether this rule was overridden for the merge request.",
+            "title": "Overridden",
+            "type": "boolean"
+          },
+          "report_type": {
+            "description": "Security or compliance report type associated with the rule.",
+            "title": "Report Type",
+            "type": "string"
+          },
+          "rule_type": {
+            "description": "GitLab type of the approval rule.",
+            "title": "Rule Type",
+            "type": "string"
+          },
+          "source_rule": {
+            "additionalProperties": true,
+            "description": "Source project-level rule details when GitLab supplies them.",
+            "title": "Source Rule",
+            "type": "object"
+          },
+          "users": {
+            "description": "Users explicitly assigned as approvers for this rule.",
+            "items": {
+              "$ref": "#/$defs/ApprovalStateUser"
+            },
+            "title": "Users",
+            "type": "array"
+          }
+        },
+        "title": "ApprovalRuleState",
+        "type": "object"
+      },
+      "ApprovalStateGroup": {
+        "properties": {
+          "full_name": {
+            "description": "Full display name of the group.",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "full_path": {
+            "description": "Full namespace path of the group.",
+            "title": "Full Path",
+            "type": "string"
+          },
+          "id": {
+            "description": "GitLab group ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Group name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "description": "URL path segment of the group.",
+            "title": "Path",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "URL of the group in GitLab.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "ApprovalStateGroup",
+        "type": "object"
+      },
+      "ApprovalStateUser": {
+        "properties": {
+          "avatar_url": {
+            "description": "URL of the user's avatar.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "GitLab user ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "User's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "Current state of the user account.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "GitLab username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "URL of the user's GitLab profile.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "name"],
+        "title": "ApprovalStateUser",
+        "type": "object"
+      },
+      "GetMergeRequestApprovalStateResponse": {
+        "properties": {
+          "approval_state": {
+            "$ref": "#/$defs/MergeRequestApprovalState",
+            "description": "Rule-level approval state for the merge request.",
+            "title": "Approval State"
+          }
+        },
+        "required": ["approval_state"],
+        "title": "GetMergeRequestApprovalStateResponse",
+        "type": "object"
+      },
+      "MergeRequestApprovalState": {
+        "properties": {
+          "approval_rules_overwritten": {
+            "description": "Whether the project's default approval rules were modified for this merge request.",
+            "title": "Approval Rules Overwritten",
+            "type": "boolean"
+          },
+          "rules": {
+            "description": "Approval rules with their eligibility, counted approvers, and satisfaction state.",
+            "items": {
+              "$ref": "#/$defs/ApprovalRuleState"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "title": "MergeRequestApprovalState",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMergeRequestApprovalStateResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

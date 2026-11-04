@@ -1,0 +1,89 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Request a Typeform choice image at a specified size. The tool expects a JSON response with image metadata rather than downloading image bytes.",
+  "inputSchema": {
+    "properties": {
+      "image_id": {
+        "description": "Unique ID for the image to retrieve",
+        "examples": ["YY93X8ZdXCC3"],
+        "title": "Image Id",
+        "type": "string"
+      },
+      "size": {
+        "description": "Image size to retrieve. Options: 'default' (scaled to fit 230x230px), 'thumbnail' (cropped to 80x80px), 'supersize' (cropped to 310x233px), 'supermobile' (cropped to 238x164px), 'supersizefit' (scaled to fit 310x233px)",
+        "enum": ["default", "thumbnail", "supersize", "supermobile", "supersizefit"],
+        "examples": ["default"],
+        "title": "Size",
+        "type": "string"
+      }
+    },
+    "required": ["image_id", "size"],
+    "title": "TypeformGetChoiceImageBySizeRequest",
+    "type": "object"
+  },
+  "name": "get_choice_image_by_size",
+  "outputSchema": {
+    "$defs": {
+      "TypeformGetChoiceImageBySizeResponse": {
+        "properties": {
+          "avg_color": {
+            "description": "Average color of the image in hexadecimal format",
+            "title": "Avg Color",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "Name of the image file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "has_alpha": {
+            "description": "Whether the image has an alpha channel (transparency)",
+            "title": "Has Alpha",
+            "type": "boolean"
+          },
+          "height": {
+            "description": "Height of the image in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the image",
+            "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "description": "MIME type of the image (image/gif, image/jpeg, or image/png)",
+            "title": "Media Type",
+            "type": "string"
+          },
+          "src": {
+            "description": "URL of the choice image at the requested size",
+            "title": "Src",
+            "type": "string"
+          },
+          "width": {
+            "description": "Width of the image in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "TypeformGetChoiceImageBySizeResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/TypeformGetChoiceImageBySizeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

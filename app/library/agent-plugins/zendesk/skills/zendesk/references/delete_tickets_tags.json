@@ -1,0 +1,63 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Remove tags from a Zendesk ticket. This action is irreversible; once tags are removed, they cannot be recovered without re-adding them. Use when you need to clean up ticket tags, remove outdated labels, or clear all tags from a ticket.",
+  "inputSchema": {
+    "description": "Request parameters for removing tags from a Zendesk ticket.",
+    "properties": {
+      "tags": {
+        "description": "Comma-separated list of tag names to remove from the ticket. If not provided, all tags will be removed from the ticket.",
+        "examples": ["urgent,escalation,vip"],
+        "human_parameter_description": "A comma-separated list of tag names to remove from the ticket. For example: 'urgent, escalation, vip'. Leave empty to remove all tags.",
+        "human_parameter_name": "Tags",
+        "title": "Tags",
+        "type": "string"
+      },
+      "ticket_id": {
+        "description": "The ID of the ticket to remove tags from",
+        "examples": [123456],
+        "human_parameter_description": "The numeric ID of the Zendesk ticket from which you want to remove tags. You can find this in the ticket's URL or from a ticket list.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "DeleteTicketsTagsRequest",
+    "type": "object"
+  },
+  "name": "delete_tickets_tags",
+  "outputSchema": {
+    "$defs": {
+      "DeleteTicketsTagsResponse": {
+        "description": "Response containing the remaining tags on the ticket after deletion.",
+        "properties": {
+          "tags": {
+            "description": "An array of tag strings representing all tags currently on the ticket after removal",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags"],
+        "title": "DeleteTicketsTagsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteTicketsTagsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,578 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetches comprehensive information about a Trello member, specified by ID or username, including profile, activities, boards, cards, notifications, and organization affiliations, with customizable detail levels via filters and field parameters.",
+  "inputSchema": {
+    "description": "Request schema for `GetMembersByIdMember`",
+    "properties": {
+      "card_fields": {
+        "default": "all",
+        "description": "Fields to return for each card. Valid values: 'all' or a comma-separated list (e.g., 'name,desc').",
+        "title": "Card Fields",
+        "type": "string"
+      },
+      "action_since": {
+        "description": "Retrieve actions created after this date/time (ISO 8601 or 'lastView'), or 'null' for no restriction.",
+        "examples": ["2023-01-01T00:00:00Z", "lastView", "null"],
+        "title": "Action Since",
+        "type": "string"
+      },
+      "card_attachment_fields": {
+        "default": "url and previews",
+        "description": "Fields to return for card attachments. Valid values: 'all' or a comma-separated list (e.g., 'url,name').",
+        "title": "Card Attachment Fields",
+        "type": "string"
+      },
+      "actions": {
+        "description": "Filters actions by type. Valid values: 'all' or a comma-separated list of action types (e.g., addAttachmentToCard, commentCard, createBoard).",
+        "title": "Actions",
+        "type": "string"
+      },
+      "board_actions": {
+        "description": "Filters board actions by type. Valid values: 'all' or a comma-separated list of action types (e.g., createCard, updateBoard).",
+        "title": "Board Actions",
+        "type": "string"
+      },
+      "board_actions_entities": {
+        "description": "Include related entities in board actions. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Board Actions Entities",
+        "type": "string"
+      },
+      "organization_fields": {
+        "default": "all",
+        "description": "Fields to return for organizations. Valid values: 'all' or a comma-separated list (e.g., 'name,displayName').",
+        "title": "Organization Fields",
+        "type": "string"
+      },
+      "card_member_fields": {
+        "default": "avatarHash,fullName,initials,username",
+        "description": "Fields to return for card members. Valid values: 'all' or a comma-separated list (e.g., 'fullName,username').",
+        "title": "Card Member Fields",
+        "type": "string"
+      },
+      "board_fields": {
+        "default": "name, closed, idOrganization and pinned",
+        "description": "Fields to return for each board. Valid values: 'all' or a comma-separated list (e.g., 'name,idOrganization').",
+        "title": "Board Fields",
+        "type": "string"
+      },
+      "notifications_display": {
+        "description": "Include display information for notifications. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Notifications Display",
+        "type": "string"
+      },
+      "boards": {
+        "description": "Filters boards. Valid values: 'all' or a comma-separated list (e.g., 'open,starred').",
+        "examples": ["all", "open,starred"],
+        "title": "Boards",
+        "type": "string"
+      },
+      "paid_account": {
+        "description": "Include paid account information for the member. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Paid Account",
+        "type": "string"
+      },
+      "board_actions_display": {
+        "description": "Include display information for board actions. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Board Actions Display",
+        "type": "string"
+      },
+      "organizations": {
+        "default": "none",
+        "description": "Filters organizations the member belongs to. Valid values: 'all', 'members', 'none', 'public'.",
+        "examples": ["all", "members", "none"],
+        "title": "Organizations",
+        "type": "string"
+      },
+      "board_organization": {
+        "description": "Include the organization for each board. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Board Organization",
+        "type": "string"
+      },
+      "boardsInvited_fields": {
+        "default": "name, closed, idOrganization and pinned",
+        "description": "Fields to return for boards the member has been invited to. Valid values: 'all' or a comma-separated list (e.g., 'name,idOrganization').",
+        "title": "Boards Invited Fields",
+        "type": "string"
+      },
+      "board_actions_since": {
+        "description": "Retrieve board actions created after this date/time (ISO 8601 or 'lastView'), or 'null' for no restriction.",
+        "examples": ["2023-01-01T00:00:00Z", "lastView", "null"],
+        "title": "Board Actions Since",
+        "type": "string"
+      },
+      "cards": {
+        "default": "none",
+        "description": "Filters cards. Valid values: 'all', 'closed', 'none', 'open', 'visible'.",
+        "examples": ["all", "open", "none"],
+        "title": "Cards",
+        "type": "string"
+      },
+      "notification_memberCreator_fields": {
+        "default": "avatarHash,fullName,initials,username",
+        "description": "Fields for the notification member creator. Valid values: 'all' or a comma-separated list (e.g., 'fullName,username').",
+        "title": "Notification Member Creator Fields",
+        "type": "string"
+      },
+      "notification_memberCreator": {
+        "description": "Include the member creator for notifications. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Notification Member Creator",
+        "type": "string"
+      },
+      "organizationsInvited_fields": {
+        "default": "all",
+        "description": "Fields to return for organizations the member has been invited to. Valid values: 'all' or a comma-separated list (e.g., 'name,displayName').",
+        "title": "Organizations Invited Fields",
+        "type": "string"
+      },
+      "action_before": {
+        "description": "Retrieve actions created before this date/time (ISO 8601), or 'null' for no restriction.",
+        "examples": ["2023-12-31T23:59:59Z", "null"],
+        "title": "Action Before",
+        "type": "string"
+      },
+      "customBoardBackgrounds": {
+        "default": "none",
+        "description": "Filters custom board backgrounds. Valid values: 'all', 'none'.",
+        "examples": ["all", "none"],
+        "title": "Custom Board Backgrounds",
+        "type": "string"
+      },
+      "notification_fields": {
+        "default": "all",
+        "description": "Fields to return for notifications. Valid values: 'all' or a comma-separated list (e.g., 'data,date,unread').",
+        "examples": ["all", "data,date,unread"],
+        "title": "Notification Fields",
+        "type": "string"
+      },
+      "notification_since": {
+        "description": "Retrieve notifications created after this notification ID, or 'null' for no restriction.",
+        "examples": ["60d5f2b9e0a5b70077f00000", "null"],
+        "title": "Notification Since",
+        "type": "string"
+      },
+      "card_attachments": {
+        "description": "Include card attachments. Valid values: 'true', 'false', 'cover'.",
+        "examples": ["true", "false", "cover"],
+        "title": "Card Attachments",
+        "type": "string"
+      },
+      "customEmoji": {
+        "default": "none",
+        "description": "Filters custom emoji. Valid values: 'all', 'none'.",
+        "examples": ["all", "none"],
+        "title": "Custom Emoji",
+        "type": "string"
+      },
+      "boardStars": {
+        "description": "Include information about the member's starred boards. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Board Stars",
+        "type": "string"
+      },
+      "notification_before": {
+        "description": "Retrieve notifications created before this notification ID, or 'null' for no restriction.",
+        "examples": ["60d5f2b9e0a5b70077f00000", "null"],
+        "title": "Notification Before",
+        "type": "string"
+      },
+      "actions_display": {
+        "description": "Include display information for actions. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Actions Display",
+        "type": "string"
+      },
+      "board_memberships": {
+        "default": "none",
+        "description": "Filters board memberships. Valid values: 'all' or a comma-separated list (e.g., 'active,admin').",
+        "examples": ["all", "active,admin", "me"],
+        "title": "Board Memberships",
+        "type": "string"
+      },
+      "card_stickers": {
+        "description": "Include sticker information for cards. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Card Stickers",
+        "type": "string"
+      },
+      "tokens": {
+        "default": "none",
+        "description": "Filters API tokens for the member. Valid values: 'all', 'none'.",
+        "examples": ["all", "none"],
+        "title": "Tokens",
+        "type": "string"
+      },
+      "organizationsInvited": {
+        "default": "none",
+        "description": "Filters organizations the member has been invited to. Valid values: 'all', 'members', 'none', 'public'.",
+        "examples": ["all", "members", "none"],
+        "title": "Organizations Invited",
+        "type": "string"
+      },
+      "organization_paid_account": {
+        "description": "Include paid account information for organizations. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Organization Paid Account",
+        "type": "string"
+      },
+      "notifications": {
+        "description": "Filters notifications by type. Valid values: 'all' or a comma-separated list of notification types (e.g., commentCard, addedToBoard).",
+        "title": "Notifications",
+        "type": "string"
+      },
+      "savedSearches": {
+        "description": "Include the member's saved searches. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Saved Searches",
+        "type": "string"
+      },
+      "board_lists": {
+        "default": "open",
+        "description": "Filters lists on boards. Valid values: 'all', 'closed', 'none', 'open'.",
+        "examples": ["all", "open", "closed"],
+        "title": "Board Lists",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID or username of the Trello member.",
+        "examples": ["johndoe", "60d5f2b9e0a5b70077f00000"],
+        "title": "Id Member",
+        "type": "string"
+      },
+      "card_members": {
+        "description": "Include member objects for each card. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Card Members",
+        "type": "string"
+      },
+      "board_action_fields": {
+        "default": "all",
+        "description": "Fields to return for each board action. Valid values: 'all' or a comma-separated list (e.g., 'data,date').",
+        "examples": ["all", "data,date"],
+        "title": "Board Action Fields",
+        "type": "string"
+      },
+      "customStickers": {
+        "default": "none",
+        "description": "Filters custom stickers. Valid values: 'all', 'none'.",
+        "examples": ["all", "none"],
+        "title": "Custom Stickers",
+        "type": "string"
+      },
+      "notifications_limit": {
+        "default": "50",
+        "description": "Maximum number of notifications to return (1-1000).",
+        "examples": ["10", "100"],
+        "title": "Notifications Limit",
+        "type": "string"
+      },
+      "board_organization_fields": {
+        "default": "name and displayName",
+        "description": "Fields to return for the board's organization. Valid values: 'all' or a comma-separated list (e.g., 'name,displayName').",
+        "title": "Board Organization Fields",
+        "type": "string"
+      },
+      "notifications_entities": {
+        "description": "Include related entities in notifications. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Notifications Entities",
+        "type": "string"
+      },
+      "boardBackgrounds": {
+        "default": "none",
+        "description": "Filters board backgrounds. Valid values: 'all', 'custom', 'default', 'none', 'premium'.",
+        "examples": ["all", "custom", "default"],
+        "title": "Board Backgrounds",
+        "type": "string"
+      },
+      "actions_entities": {
+        "description": "Include related entities in actions. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Actions Entities",
+        "type": "string"
+      },
+      "boardsInvited": {
+        "description": "Filters boards the member has been invited to. Valid values: 'all' or a comma-separated list (e.g., 'open,starred').",
+        "examples": ["all", "open"],
+        "title": "Boards Invited",
+        "type": "string"
+      },
+      "board_actions_format": {
+        "default": "list",
+        "description": "Format for board actions. Valid values: 'count', 'list', 'minimal'.",
+        "examples": ["list", "count", "minimal"],
+        "title": "Board Actions Format",
+        "type": "string"
+      },
+      "board_actions_limit": {
+        "default": "50",
+        "description": "Maximum number of board actions to return (0-1000).",
+        "examples": ["10", "100"],
+        "title": "Board Actions Limit",
+        "type": "string"
+      },
+      "actions_limit": {
+        "default": "5",
+        "description": "Maximum number of actions to return (0-1000).",
+        "examples": ["10", "100"],
+        "title": "Actions Limit",
+        "type": "string"
+      },
+      "fields": {
+        "default": "all",
+        "description": "Member fields to return. Valid values: 'all' or a comma-separated list (e.g., 'fullName,username,email').",
+        "title": "Fields",
+        "type": "string"
+      },
+      "action_fields": {
+        "default": "all",
+        "description": "Fields to return for each action. Valid values: 'all' or a comma-separated list (e.g., 'data,date').",
+        "examples": ["all", "data,date"],
+        "title": "Action Fields",
+        "type": "string"
+      }
+    },
+    "required": ["idMember"],
+    "title": "GetMembersByIdMemberRequest",
+    "type": "object"
+  },
+  "name": "get_members_by_id_member",
+  "outputSchema": {
+    "$defs": {
+      "GetMembersByIdMemberResponse": {
+        "description": "Response schema for `GetMembersByIdMember`",
+        "properties": {
+          "activityBlocked": {
+            "description": "Whether activity is blocked for this member",
+            "title": "Activity Blocked",
+            "type": "boolean"
+          },
+          "avatarHash": {
+            "description": "Hash for avatar image",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarSource": {
+            "description": "Source of the avatar (e.g., 'gravatar', 'upload')",
+            "title": "Avatar Source",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "The URL of this member's avatar",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "bio": {
+            "description": "User biography text",
+            "title": "Bio",
+            "type": "string"
+          },
+          "bioData": {
+            "additionalProperties": true,
+            "description": "Structured bio data containing emoji information",
+            "title": "Bio Data",
+            "type": "object"
+          },
+          "confirmed": {
+            "description": "Whether the user has confirmed their email address for their account",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "User's email address (requires 'account' scope)",
+            "title": "Email",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "The full name related to the account, if it is public",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "gravatarHash": {
+            "description": "Hash for Gravatar integration",
+            "title": "Gravatar Hash",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "List of board IDs this member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idBoardsPinned": {
+            "description": "List of board IDs that this member has pinned",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards Pinned",
+            "type": "array"
+          },
+          "idEnterprise": {
+            "description": "The enterprise ID associated with the member",
+            "title": "Id Enterprise",
+            "type": "string"
+          },
+          "idEnterprisesDeactivated": {
+            "description": "List of enterprise IDs where the member has been deactivated",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Enterprises Deactivated",
+            "type": "array"
+          },
+          "idMemberReferrer": {
+            "description": "ID of the member who referred this user",
+            "title": "Id Member Referrer",
+            "type": "string"
+          },
+          "idOrganizations": {
+            "description": "List of workspace/organization IDs this member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Organizations",
+            "type": "array"
+          },
+          "idPremOrgsAdmin": {
+            "description": "IDs of premium organizations the member administrates",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Prem Orgs Admin",
+            "type": "array"
+          },
+          "initials": {
+            "description": "The initials related to the account, if it is public",
+            "title": "Initials",
+            "type": "string"
+          },
+          "loginTypes": {
+            "description": "Authentication methods used by the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Login Types",
+            "type": "array"
+          },
+          "memberType": {
+            "description": "Type of member account (e.g., 'normal', 'ghost')",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "nonPublic": {
+            "$ref": "#/$defs/NonPublic",
+            "description": "Non-public information about the member including fullName, initials, and avatarUrl",
+            "title": "Non Public"
+          },
+          "oneTimeMessagesDismissed": {
+            "description": "Tracking of which one-time messages/notifications the user has dismissed",
+            "items": {
+              "type": "string"
+            },
+            "title": "One Time Messages Dismissed",
+            "type": "array"
+          },
+          "prefs": {
+            "additionalProperties": true,
+            "description": "User preferences and settings",
+            "title": "Prefs",
+            "type": "object"
+          },
+          "premiumFeatures": {
+            "description": "Premium subscription features available to the user",
+            "items": {
+              "type": "string"
+            },
+            "title": "Premium Features",
+            "type": "array"
+          },
+          "products": {
+            "description": "Product/subscription information for the member",
+            "items": {},
+            "title": "Products",
+            "type": "array"
+          },
+          "status": {
+            "description": "The member's account status",
+            "title": "Status",
+            "type": "string"
+          },
+          "trophies": {
+            "description": "Achievements or badges earned by the user",
+            "items": {
+              "type": "string"
+            },
+            "title": "Trophies",
+            "type": "array"
+          },
+          "uploadedAvatarHash": {
+            "description": "Hash for uploaded avatar image",
+            "title": "Uploaded Avatar Hash",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to the member's profile",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of this account",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username"],
+        "title": "GetMembersByIdMemberResponse",
+        "type": "object"
+      },
+      "NonPublic": {
+        "description": "Non-public information about the member",
+        "properties": {
+          "avatarUrl": {
+            "description": "Avatar URL (non-public)",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Full name (non-public)",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "initials": {
+            "description": "Initials (non-public)",
+            "title": "Initials",
+            "type": "string"
+          }
+        },
+        "title": "NonPublic",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMembersByIdMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

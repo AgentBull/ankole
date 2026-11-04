@@ -1,0 +1,211 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve a commit's GPG, SSH, or X.509 signature. Unsigned commits return HTTP 404.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespaced project path.",
+        "title": "Id"
+      },
+      "sha": {
+        "description": "Commit hash or repository branch or tag name.",
+        "title": "Sha",
+        "type": "string"
+      }
+    },
+    "required": ["id", "sha"],
+    "title": "GetCommitSignatureRequest",
+    "type": "object"
+  },
+  "name": "get_commit_signature",
+  "outputSchema": {
+    "$defs": {
+      "GetCommitSignatureResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "commit_source": {
+            "description": "Source of the commit.",
+            "title": "Commit Source",
+            "type": "string"
+          },
+          "gpg_key_id": {
+            "description": "GPG key ID for PGP signatures.",
+            "title": "Gpg Key Id",
+            "type": "integer"
+          },
+          "gpg_key_primary_keyid": {
+            "description": "GPG primary key ID.",
+            "title": "Gpg Key Primary Keyid",
+            "type": "string"
+          },
+          "gpg_key_subkey_id": {
+            "description": "GPG subkey ID, if present.",
+            "title": "Gpg Key Subkey Id",
+            "type": "string"
+          },
+          "gpg_key_user_email": {
+            "description": "GPG key user email address.",
+            "title": "Gpg Key User Email",
+            "type": "string"
+          },
+          "gpg_key_user_name": {
+            "description": "GPG key user name.",
+            "title": "Gpg Key User Name",
+            "type": "string"
+          },
+          "key": {
+            "$ref": "#/$defs/SignatureSSHKey",
+            "description": "SSH signing key information.",
+            "title": "Key"
+          },
+          "signature_type": {
+            "description": "Signature type: PGP, SSH, or X509.",
+            "title": "Signature Type",
+            "type": "string"
+          },
+          "verification_status": {
+            "description": "Signature verification status.",
+            "title": "Verification Status",
+            "type": "string"
+          },
+          "x509_certificate": {
+            "$ref": "#/$defs/SignatureX509Certificate",
+            "description": "X.509 signing certificate information.",
+            "title": "X509 Certificate"
+          }
+        },
+        "title": "GetCommitSignatureResponse",
+        "type": "object"
+      },
+      "SignatureSSHKey": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "description": "SSH key creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "SSH key expiration timestamp.",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "description": "SSH key ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "key": {
+            "description": "SSH public key.",
+            "title": "Key",
+            "type": "string"
+          },
+          "title": {
+            "description": "SSH key title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "usage_type": {
+            "description": "Permitted SSH key usage.",
+            "title": "Usage Type",
+            "type": "string"
+          }
+        },
+        "title": "SignatureSSHKey",
+        "type": "object"
+      },
+      "SignatureX509Certificate": {
+        "additionalProperties": true,
+        "properties": {
+          "certificate_status": {
+            "description": "Certificate status.",
+            "title": "Certificate Status",
+            "type": "string"
+          },
+          "email": {
+            "description": "Certificate email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "X.509 certificate ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "serial_number": {
+            "description": "Decimal certificate serial number as a string to preserve precision.",
+            "title": "Serial Number",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Certificate distinguished name.",
+            "title": "Subject",
+            "type": "string"
+          },
+          "subject_key_identifier": {
+            "description": "Certificate subject key identifier.",
+            "title": "Subject Key Identifier",
+            "type": "string"
+          },
+          "x509_issuer": {
+            "$ref": "#/$defs/SignatureX509Issuer",
+            "description": "Certificate issuer information.",
+            "title": "X509 Issuer"
+          }
+        },
+        "title": "SignatureX509Certificate",
+        "type": "object"
+      },
+      "SignatureX509Issuer": {
+        "additionalProperties": true,
+        "properties": {
+          "crl_url": {
+            "description": "Certificate revocation list URL.",
+            "title": "Crl Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "X.509 issuer ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "subject": {
+            "description": "Issuer distinguished name.",
+            "title": "Subject",
+            "type": "string"
+          },
+          "subject_key_identifier": {
+            "description": "Issuer subject key identifier.",
+            "title": "Subject Key Identifier",
+            "type": "string"
+          }
+        },
+        "title": "SignatureX509Issuer",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCommitSignatureResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

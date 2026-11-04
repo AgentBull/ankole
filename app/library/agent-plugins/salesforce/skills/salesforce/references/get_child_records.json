@@ -1,0 +1,264 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to get child records for a specified parent record and child relationship name. Use when you need to retrieve related records from a parent-child relationship in Salesforce, such as getting all Contacts for an Account or all Opportunities for an Account. Results are paginated with configurable page size.",
+  "inputSchema": {
+    "properties": {
+      "fields": {
+        "description": "Comma-separated list of API names of the related list's column fields to query. Supports spanning relationships in the format ObjectApiName.ChildRelationshipName.FieldApiName (e.g., Opportunity.Account.BillingAddress). If not specified, default fields are returned.",
+        "examples": ["Name,Email,Phone", "Title,Department,AccountId"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "optional_fields": {
+        "description": "Comma-separated list of additional field API names in the related list to query. These are additional fields queried for the records returned that don't create visible columns. If the field is not available to the user, no error occurs.",
+        "examples": ["Description,CreatedDate", "LastModifiedDate,OwnerId"],
+        "title": "Optional Fields",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "The number of list records to return per page. The default value is 5 and the value can be 1-2000.",
+        "examples": [5, 50, 100],
+        "maximum": 2000,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "page_token": {
+        "description": "Token for pagination, used to navigate to a specific page of results. Obtained from the response's nextPageToken or previousPageToken fields.",
+        "examples": ["0"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "record_id": {
+        "description": "The unique 18-character Salesforce ID of the parent record. This is the record whose child records you want to retrieve.",
+        "examples": ["001dN00000lvXx4QAE", "0015g00000XXXXXX"],
+        "title": "Record Id",
+        "type": "string"
+      },
+      "relationship_name": {
+        "description": "The API name of the child relationship (typically the plural form of the child object name). Common examples include 'Contacts', 'Opportunities', 'Cases', 'Tasks'.",
+        "examples": ["Contacts", "Opportunities", "Cases", "Tasks"],
+        "title": "Relationship Name",
+        "type": "string"
+      }
+    },
+    "required": ["record_id", "relationship_name"],
+    "title": "GetChildRecordsRequest",
+    "type": "object"
+  },
+  "name": "get_child_records",
+  "outputSchema": {
+    "$defs": {
+      "GetChildRecordsResponse": {
+        "description": "Response containing child records collection with pagination support.",
+        "properties": {
+          "count": {
+            "description": "The total number of records in the collection.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "currentPageToken": {
+            "description": "Token identifying the current page of results.",
+            "title": "Current Page Token",
+            "type": "string"
+          },
+          "currentPageUrl": {
+            "description": "URL for the current page of child records.",
+            "title": "Current Page Url",
+            "type": "string"
+          },
+          "nextPageToken": {
+            "description": "Token for retrieving the next page of results. Null if no more pages exist.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "nextPageUrl": {
+            "description": "URL to get the next page of child records. Null if this is the last page.",
+            "title": "Next Page Url",
+            "type": "string"
+          },
+          "previousPageToken": {
+            "description": "Token for retrieving the previous page of results. Null if on the first page.",
+            "title": "Previous Page Token",
+            "type": "string"
+          },
+          "previousPageUrl": {
+            "description": "URL to get the previous page of child records. Null if this is the first page.",
+            "title": "Previous Page Url",
+            "type": "string"
+          },
+          "records": {
+            "description": "Array of Record response bodies containing the child records.",
+            "items": {
+              "$ref": "#/$defs/RecordData"
+            },
+            "title": "Records",
+            "type": "array"
+          }
+        },
+        "title": "GetChildRecordsResponse",
+        "type": "object"
+      },
+      "RecordData": {
+        "description": "Individual child record data.",
+        "properties": {
+          "apiName": {
+            "description": "The API name of the record's object type.",
+            "title": "Api Name",
+            "type": "string"
+          },
+          "childRelationships": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Object containing child relationship information with pagination URLs.",
+            "title": "Child Relationships",
+            "type": "object"
+          },
+          "eTag": {
+            "description": "ETag field for browser caching optimization.",
+            "title": "E Tag",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {
+              "$ref": "#/$defs/RecordFieldValue"
+            },
+            "description": "Object containing field data where each field has a displayValue and value.",
+            "title": "Fields",
+            "type": "object"
+          },
+          "id": {
+            "description": "The unique 18-character Salesforce ID for the record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "lastModifiedById": {
+            "description": "The ID of the user who last modified the record.",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "lastModifiedDate": {
+            "description": "The date and time when the record was last modified.",
+            "title": "Last Modified Date",
+            "type": "string"
+          },
+          "recordTypeId": {
+            "description": "The ID of the record type. Returned for every record.",
+            "title": "Record Type Id",
+            "type": "string"
+          },
+          "systemModstamp": {
+            "description": "Timestamp indicating when the record was last modified by any user or automated process.",
+            "title": "System Modstamp",
+            "type": "string"
+          },
+          "weakEtag": {
+            "description": "Timestamp value used to compare whether a record is newer, older, or the same version.",
+            "title": "Weak Etag",
+            "type": "integer"
+          }
+        },
+        "title": "RecordData",
+        "type": "object"
+      },
+      "RecordFieldValue": {
+        "description": "Represents a field value with display and actual value.",
+        "properties": {
+          "displayValue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "description": "The human-readable formatted value.",
+            "title": "Display Value"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "description": "The raw data value.",
+            "title": "Value"
+          }
+        },
+        "title": "RecordFieldValue",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetChildRecordsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

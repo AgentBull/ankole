@@ -1,0 +1,113 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves values for a specified tag key recorded in a Sentry project. An empty list can also result from a 404 response or a non-list response.",
+  "inputSchema": {
+    "description": "Request schema for `RetrieveProjectTagValues` action.",
+    "properties": {
+      "key": {
+        "description": "The specific tag key for which to retrieve the associated distinct values (e.g., 'browser', 'device', 'environment').",
+        "examples": ["browser", "device.model", "os.name", "environment"],
+        "title": "Key",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization.",
+        "examples": ["my-organization", "acme-corp"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry project.",
+        "examples": ["internal-project", "frontend-app"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug", "key"],
+    "title": "RetrieveProjectTagValuesRequest",
+    "type": "object"
+  },
+  "name": "retrieve_project_tag_values",
+  "outputSchema": {
+    "$defs": {
+      "RetrieveProjectTagValuesResponse": {
+        "description": "Response schema for `RetrieveProjectTagValues` action.",
+        "properties": {
+          "tag_values": {
+            "description": "List of unique tag values for the specified key. Returns up to 1000 values. Returns an empty list if the tag key doesn't exist or has no values.",
+            "examples": [
+              [
+                {
+                  "count": 42,
+                  "firstSeen": "2026-01-15T08:30:00Z",
+                  "key": "environment",
+                  "lastSeen": "2026-02-01T13:00:00Z",
+                  "name": "production",
+                  "value": "production"
+                }
+              ]
+            ],
+            "items": {
+              "$ref": "#/$defs/TagValue"
+            },
+            "title": "Tag Values",
+            "type": "array"
+          }
+        },
+        "title": "RetrieveProjectTagValuesResponse",
+        "type": "object"
+      },
+      "TagValue": {
+        "description": "A single tag value with metadata.",
+        "properties": {
+          "count": {
+            "description": "Number of times this tag value has been seen",
+            "title": "Count",
+            "type": "integer"
+          },
+          "firstSeen": {
+            "description": "ISO 8601 timestamp of when this tag value was first seen",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "key": {
+            "description": "The tag key this value belongs to",
+            "title": "Key",
+            "type": "string"
+          },
+          "lastSeen": {
+            "description": "ISO 8601 timestamp of when this tag value was last seen",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the tag value",
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "description": "The actual value of the tag",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "TagValue",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveProjectTagValuesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,313 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a promotion code linked to an underlying coupon. Use when you need to generate customer-redeemable codes with optional restrictions.",
+  "inputSchema": {
+    "description": "Request parameters for creating a promotion code.",
+    "properties": {
+      "active": {
+        "description": "Whether the promotion code is currently active. Defaults to true if not specified.",
+        "title": "Active",
+        "type": "boolean"
+      },
+      "code": {
+        "description": "The customer-facing code (alphanumeric only: a-z, A-Z, 0-9). Maximum 500 characters. Auto-generated if omitted. Must be unique across all active promotion codes.",
+        "examples": ["TESTPROMO25", "SUMMER2024"],
+        "title": "Code",
+        "type": "string"
+      },
+      "coupon": {
+        "description": "ID of the coupon that this promotion code will apply. This is required.",
+        "examples": ["qMlqwca9", "25OFF"],
+        "title": "Coupon",
+        "type": "string"
+      },
+      "customer": {
+        "description": "ID of the customer that this promotion code can be used by. If not set, the promotion code can be used by all customers.",
+        "examples": ["cus_1234567890"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "expires_at": {
+        "description": "Unix timestamp specifying when the promotion code will expire. Cannot exceed the coupon's redeems_by timestamp if specified.",
+        "examples": [1735689600],
+        "title": "Expires At",
+        "type": "integer"
+      },
+      "max_redemptions": {
+        "description": "A positive integer specifying the number of times the promotion code can be redeemed. Cannot exceed the coupon's max_redemptions if set.",
+        "examples": [100, 1000],
+        "title": "Max Redemptions",
+        "type": "integer"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Set of key-value pairs that you can attach to an object. Useful for storing additional information in a structured format.",
+        "title": "Metadata",
+        "type": "object"
+      },
+      "restrictions": {
+        "additionalProperties": false,
+        "description": "Settings for restricting the promotion code's redemption.",
+        "properties": {
+          "currency_options": {
+            "additionalProperties": {
+              "description": "Per-currency minimum purchase amounts.",
+              "properties": {
+                "minimum_amount": {
+                  "description": "Minimum purchase amount required in the specified currency (in smallest currency unit).",
+                  "examples": [1000, 5000],
+                  "title": "Minimum Amount",
+                  "type": "integer"
+                }
+              },
+              "required": ["minimum_amount"],
+              "title": "CurrencyOptions",
+              "type": "object"
+            },
+            "description": "Per-currency minimum purchase amounts (using ISO 4217 currency codes as keys).",
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "first_time_transaction": {
+            "description": "If true, the promotion code can only be redeemed by customers without any successful payments or invoices.",
+            "title": "First Time Transaction",
+            "type": "boolean"
+          },
+          "minimum_amount": {
+            "description": "Minimum purchase amount required to redeem the promotion code (in smallest currency unit).",
+            "examples": [1000, 2500],
+            "title": "Minimum Amount",
+            "type": "integer"
+          },
+          "minimum_amount_currency": {
+            "description": "Three-letter ISO currency code for the minimum_amount.",
+            "examples": ["usd", "eur", "gbp"],
+            "title": "Minimum Amount Currency",
+            "type": "string"
+          }
+        },
+        "title": "Restrictions",
+        "type": "object"
+      }
+    },
+    "required": ["coupon"],
+    "title": "CreatePromotionCodeRequest",
+    "type": "object"
+  },
+  "name": "create_promotion_code",
+  "outputSchema": {
+    "$defs": {
+      "CreatePromotionCodeResponse": {
+        "description": "Response from creating a promotion code in Stripe.",
+        "properties": {
+          "active": {
+            "description": "Whether the promotion code is currently active.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The customer-facing promotion code string.",
+            "title": "Code",
+            "type": "string"
+          },
+          "coupon": {
+            "$ref": "#/$defs/PromotionCoupon",
+            "description": "The coupon referenced by this promotion code.",
+            "title": "Coupon"
+          },
+          "created": {
+            "description": "Time at which the object was created (Unix timestamp).",
+            "title": "Created",
+            "type": "integer"
+          },
+          "customer": {
+            "description": "ID of the customer that this promotion code can be used by, or null if available to all customers.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "Unix timestamp when the promotion code expires, or null if it doesn't expire.",
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the promotion code.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Whether the object exists in live mode or test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "max_redemptions": {
+            "description": "Maximum number of times this promotion code can be redeemed, or null if unlimited.",
+            "title": "Max Redemptions",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs attached to the object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Value: 'promotion_code'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "restrictions": {
+            "$ref": "#/$defs/RestrictionsResponse",
+            "description": "Settings that restrict the redemption of the promotion code.",
+            "title": "Restrictions"
+          },
+          "times_redeemed": {
+            "description": "Number of times this promotion code has been redeemed.",
+            "title": "Times Redeemed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "active",
+          "code",
+          "coupon",
+          "created",
+          "livemode",
+          "restrictions",
+          "times_redeemed"
+        ],
+        "title": "CreatePromotionCodeResponse",
+        "type": "object"
+      },
+      "PromotionCoupon": {
+        "description": "Coupon details for the promotion code.",
+        "properties": {
+          "amount_off": {
+            "description": "Amount that will be taken off the subtotal (in smallest currency unit).",
+            "title": "Amount Off",
+            "type": "integer"
+          },
+          "created": {
+            "description": "Time at which the object was created (Unix timestamp).",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "duration": {
+            "description": "Duration of the coupon. One of: forever, once, repeating.",
+            "title": "Duration",
+            "type": "string"
+          },
+          "duration_in_months": {
+            "description": "Number of months the coupon applies if duration is repeating.",
+            "title": "Duration In Months",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the coupon.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Whether the object exists in live mode or test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "max_redemptions": {
+            "description": "Maximum number of times this coupon can be redeemed.",
+            "title": "Max Redemptions",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs attached to the object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "Name of the coupon.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Value: 'coupon'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percent_off": {
+            "description": "Percent discount that will be applied.",
+            "title": "Percent Off",
+            "type": "number"
+          },
+          "redeem_by": {
+            "description": "Unix timestamp after which the coupon can no longer be redeemed.",
+            "title": "Redeem By",
+            "type": "integer"
+          },
+          "times_redeemed": {
+            "description": "Number of times this coupon has been applied.",
+            "title": "Times Redeemed",
+            "type": "integer"
+          },
+          "valid": {
+            "description": "Whether the coupon can still be redeemed.",
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "object", "created", "duration", "livemode", "times_redeemed", "valid"],
+        "title": "PromotionCoupon",
+        "type": "object"
+      },
+      "RestrictionsResponse": {
+        "description": "Restrictions applied to the promotion code.",
+        "properties": {
+          "first_time_transaction": {
+            "description": "Whether the code is limited to first-time transaction customers.",
+            "title": "First Time Transaction",
+            "type": "boolean"
+          },
+          "minimum_amount": {
+            "description": "Minimum purchase amount required (in smallest currency unit).",
+            "title": "Minimum Amount",
+            "type": "integer"
+          },
+          "minimum_amount_currency": {
+            "description": "Currency for the minimum amount.",
+            "title": "Minimum Amount Currency",
+            "type": "string"
+          }
+        },
+        "required": ["first_time_transaction"],
+        "title": "RestrictionsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreatePromotionCodeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

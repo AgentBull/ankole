@@ -1,0 +1,61 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Send a verification email to a user to verify ownership of their email address identity. The user receives an email with a link to confirm their identity. Use when you need to verify a user's email address identity in Zendesk, such as when creating new users or resolving identity verification issues. Note: This action sends a verification email to the user's identity address.",
+  "inputSchema": {
+    "description": "Request parameters for requesting user identity verification.",
+    "properties": {
+      "user_id": {
+        "description": "The numeric ID of the user",
+        "examples": [26923127464348],
+        "title": "User Id",
+        "type": "integer"
+      },
+      "user_identity_id": {
+        "description": "The numeric ID of the user identity to verify",
+        "examples": [26925580604700],
+        "title": "User Identity Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id", "user_identity_id"],
+    "title": "RequestUserVerificationRequest",
+    "type": "object"
+  },
+  "name": "request_user_verification",
+  "outputSchema": {
+    "$defs": {
+      "RequestUserVerificationResponse": {
+        "description": "Response from requesting user identity verification.",
+        "properties": {
+          "sent_at": {
+            "description": "Timestamp when the verification email was sent",
+            "examples": ["2025-04-21T10:30:00Z"],
+            "title": "Sent At",
+            "type": "string"
+          },
+          "verified": {
+            "description": "Whether the identity has been verified. Returns true if verification email was sent successfully.",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "title": "RequestUserVerificationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RequestUserVerificationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,112 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new file in a GitLab repository at the specified path with the given content. Use this action when you need to add a new file to a repository branch with a commit message.",
+  "inputSchema": {
+    "properties": {
+      "author_email": {
+        "description": "The email address of the commit author. If not provided, uses the authenticated user's email.",
+        "examples": ["author@example.com"],
+        "title": "Author Email",
+        "type": "string"
+      },
+      "author_name": {
+        "description": "The name of the commit author. If not provided, uses the authenticated user's name.",
+        "examples": ["John Doe"],
+        "title": "Author Name",
+        "type": "string"
+      },
+      "branch": {
+        "description": "The name of the branch where the file will be created.",
+        "examples": ["main", "develop", "feature-branch"],
+        "title": "Branch",
+        "type": "string"
+      },
+      "commit_message": {
+        "description": "The commit message describing why the file was created.",
+        "examples": ["Add new configuration file", "Create initial README"],
+        "title": "Commit Message",
+        "type": "string"
+      },
+      "content": {
+        "description": "The content of the file to create.",
+        "examples": ["# My New File\n\nThis is the content."],
+        "title": "Content",
+        "type": "string"
+      },
+      "encoding": {
+        "description": "The encoding of the file content. Set to 'base64' if the content is base64-encoded. Default is 'text'.",
+        "examples": ["text", "base64"],
+        "title": "Encoding",
+        "type": "string"
+      },
+      "execute_filemode": {
+        "description": "Whether to enable the execute flag on the file (for executable files).",
+        "title": "Execute Filemode",
+        "type": "boolean"
+      },
+      "file_path": {
+        "description": "The full path to the file to create within the repository (e.g., 'lib/class.rb' or 'docs/README.md').",
+        "examples": ["lib/class.rb", "docs/README.md"],
+        "title": "File Path",
+        "type": "string"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["5", "group_name/project_name"],
+        "title": "Project Id"
+      },
+      "start_branch": {
+        "description": "Name of the base branch to create the new branch from. Only used if the specified branch does not exist.",
+        "examples": ["main"],
+        "title": "Start Branch",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "file_path", "branch", "content", "commit_message"],
+    "title": "CreateFileRequest",
+    "type": "object"
+  },
+  "name": "create_file",
+  "outputSchema": {
+    "$defs": {
+      "CreateFileResponse": {
+        "properties": {
+          "branch": {
+            "description": "The name of the branch where the file was created.",
+            "title": "Branch",
+            "type": "string"
+          },
+          "file_path": {
+            "description": "The full path of the created file in the repository.",
+            "title": "File Path",
+            "type": "string"
+          }
+        },
+        "title": "CreateFileResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateFileResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

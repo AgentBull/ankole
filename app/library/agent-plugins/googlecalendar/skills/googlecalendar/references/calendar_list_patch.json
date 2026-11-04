@@ -1,0 +1,333 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing calendar on the user's calendar list using patch semantics. This method allows partial updates, modifying only the specified fields.",
+  "inputSchema": {
+    "properties": {
+      "backgroundColor": {
+        "description": "Hex color for calendar background.",
+        "examples": ["#0088aa"],
+        "human_parameter_description": "Pick the background color for this calendar in hex (e.g., #0088aa) to help you visually distinguish it in your calendar view.",
+        "human_parameter_name": "Background Color",
+        "title": "Background Color",
+        "type": "string"
+      },
+      "calendar_id": {
+        "description": "Calendar identifier. To retrieve calendar IDs call the calendarList.list method. Use \"primary\" keyword for the currently logged in user's primary calendar.",
+        "examples": [
+          "primary",
+          "examplecalendar@group.calendar.google.com",
+          "c_abc123def456@group.calendar.google.com"
+        ],
+        "human_parameter_description": "The calendar you want to patch. Use 'primary' for your main calendar, or paste the specific calendar ID to update.",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "colorId": {
+        "description": "ID for calendar color from colors endpoint.",
+        "examples": ["6", "17"],
+        "human_parameter_description": "Choose a color by its ID from Google's calendar color palette. This is a quick way to set a theme without entering a hex code.",
+        "human_parameter_name": "Color ID",
+        "title": "Color Id",
+        "type": "string"
+      },
+      "colorRgbFormat": {
+        "description": "Whether to use RGB for foreground/background colors.",
+        "examples": [true, false],
+        "human_parameter_description": "If true, treat color values as RGB hex codes when updating colors. Turn this on when you're specifying foreground/background hex values.",
+        "human_parameter_name": "Color RGB Format",
+        "title": "Color Rgb Format",
+        "type": "boolean"
+      },
+      "defaultReminders": {
+        "description": "List of default reminders.",
+        "human_parameter_description": "Set the default reminders that will apply to new events on this calendar, such as email or popup alerts and how many minutes before the event.",
+        "human_parameter_name": "Default Reminders",
+        "items": {
+          "properties": {
+            "method": {
+              "description": "Method for the reminder (e.g., email, popup).",
+              "title": "Method",
+              "type": "string"
+            },
+            "minutes": {
+              "description": "Minutes before event for reminder.",
+              "title": "Minutes",
+              "type": "integer"
+            }
+          },
+          "required": ["method", "minutes"],
+          "title": "Reminder",
+          "type": "object"
+        },
+        "title": "Default Reminders",
+        "type": "array"
+      },
+      "foregroundColor": {
+        "description": "Hex color for calendar foreground.",
+        "examples": ["#ffffff"],
+        "human_parameter_description": "Pick the text/icon color for this calendar in hex (e.g., #ffffff) so events stay readable against the background.",
+        "human_parameter_name": "Foreground Color",
+        "title": "Foreground Color",
+        "type": "string"
+      },
+      "hidden": {
+        "description": "Whether calendar is hidden.",
+        "examples": [true, false],
+        "human_parameter_description": "Choose whether to hide this calendar from your calendar list. Hiding won't delete it—just removes it from view.",
+        "human_parameter_name": "Hidden",
+        "title": "Hidden",
+        "type": "boolean"
+      },
+      "notificationSettings": {
+        "additionalProperties": false,
+        "description": "Notification settings for the calendar.",
+        "human_parameter_description": "Control which notifications you receive for this calendar (for example, event creations or changes) and how they are sent.",
+        "human_parameter_name": "Notification Settings",
+        "properties": {
+          "notifications": {
+            "description": "List of notifications.",
+            "items": {
+              "properties": {
+                "method": {
+                  "description": "Method for the notification (e.g., email).",
+                  "title": "Method",
+                  "type": "string"
+                },
+                "type": {
+                  "description": "Type of notification (e.g., eventCreation).",
+                  "title": "Type",
+                  "type": "string"
+                }
+              },
+              "required": ["method", "type"],
+              "title": "Notification",
+              "type": "object"
+            },
+            "title": "Notifications",
+            "type": "array"
+          }
+        },
+        "title": "NotificationSettings",
+        "type": "object"
+      },
+      "selected": {
+        "description": "Whether calendar content shows in UI.",
+        "examples": [true, false],
+        "human_parameter_description": "Decide if events from this calendar should appear on your calendar view. Unselect to keep it in the list but not overlay its events.",
+        "human_parameter_name": "Selected",
+        "title": "Selected",
+        "type": "boolean"
+      },
+      "summaryOverride": {
+        "description": "User-set summary for the calendar.",
+        "examples": ["My Work Calendar"],
+        "human_parameter_description": "Enter a custom name for this calendar as you want it to appear in your list (e.g., 'My Work Calendar').",
+        "human_parameter_name": "Summary Override",
+        "title": "Summary Override",
+        "type": "string"
+      }
+    },
+    "required": ["calendar_id"],
+    "title": "CalendarListPatchRequest",
+    "type": "object"
+  },
+  "name": "calendar_list_patch",
+  "outputSchema": {
+    "$defs": {
+      "CalendarListPatchResponse": {
+        "properties": {
+          "accessRole": {
+            "description": "The effective access role that the authenticated user has on the calendar. Possible values are: \"owner\", \"writer\", \"reader\", \"freeBusyReader\".",
+            "enum": ["freeBusyReader", "reader", "writer", "owner"],
+            "title": "Access Role",
+            "type": "string"
+          },
+          "backgroundColor": {
+            "description": "The main color of the calendar in the hexadecimal format \"#0088aa\".",
+            "title": "Background Color",
+            "type": "string"
+          },
+          "colorId": {
+            "description": "The color of the calendar. This ID refers to an entry in the colors definition (colors collection).",
+            "title": "Color Id",
+            "type": "string"
+          },
+          "conferenceProperties": {
+            "$ref": "#/$defs/ConferencePropertiesResponse",
+            "description": "Conferencing properties of the calendar.",
+            "title": "Conference Properties"
+          },
+          "defaultReminders": {
+            "description": "The default reminders that the authenticated user has for this calendar.",
+            "items": {
+              "$ref": "#/$defs/DefaultReminderResponse"
+            },
+            "title": "Default Reminders",
+            "type": "array"
+          },
+          "deleted": {
+            "description": "Whether the calendar has been deleted from the calendar list. Only present if true.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Description of the calendar, if provided.",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_url": {
+            "description": "URL to view/edit this calendar's settings in Google Calendar web UI.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the resource.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "foregroundColor": {
+            "description": "The foreground color of the calendar in the hexadecimal format \"#ffffff\".",
+            "title": "Foreground Color",
+            "type": "string"
+          },
+          "hidden": {
+            "description": "Whether the calendar has been hidden from the calendar list.",
+            "title": "Hidden",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Identifier of the calendar.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "calendar#calendarListEntry",
+            "description": "Type of the resource. Always \"calendar#calendarListEntry\".",
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "description": "Location associated with the calendar, if provided.",
+            "title": "Location",
+            "type": "string"
+          },
+          "notificationSettings": {
+            "$ref": "#/$defs/NotificationSettingsResponse",
+            "description": "The notifications that the authenticated user is receiving for this calendar.",
+            "title": "Notification Settings"
+          },
+          "primary": {
+            "description": "Whether the calendar is the primary calendar of the authenticated user. Only present if true.",
+            "title": "Primary",
+            "type": "boolean"
+          },
+          "selected": {
+            "description": "Whether the calendar has been selected for viewing by the authenticated user.",
+            "title": "Selected",
+            "type": "boolean"
+          },
+          "summary": {
+            "description": "Title of the calendar.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "summaryOverride": {
+            "description": "User-specified name of the calendar displayed in the UI. If present, it overrides the calendar's summary.",
+            "title": "Summary Override",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "The time zone of the calendar (IANA time zone identifier).",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "etag", "id", "summary"],
+        "title": "CalendarListPatchResponse",
+        "type": "object"
+      },
+      "CalendarNotificationResponse": {
+        "properties": {
+          "method": {
+            "description": "The method used to deliver the notification. Possible values include \"email\" (\"sms\" is deprecated and may be ignored).",
+            "enum": ["email", "sms"],
+            "title": "Method",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of notification. Possible values are: \"eventCreation\", \"eventChange\", \"eventCancellation\", \"eventResponse\", \"agenda\".",
+            "enum": ["eventCreation", "eventChange", "eventCancellation", "eventResponse", "agenda"],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "method"],
+        "title": "CalendarNotificationResponse",
+        "type": "object"
+      },
+      "ConferencePropertiesResponse": {
+        "properties": {
+          "allowedConferenceSolutionTypes": {
+            "description": "The types of conference solutions that are allowed for the calendar.",
+            "items": {
+              "enum": ["eventHangout", "eventNamedHangout", "hangoutsMeet"],
+              "type": "string"
+            },
+            "title": "Allowed Conference Solution Types",
+            "type": "array"
+          }
+        },
+        "title": "ConferencePropertiesResponse",
+        "type": "object"
+      },
+      "DefaultReminderResponse": {
+        "properties": {
+          "method": {
+            "description": "The method used by this reminder. Possible values include \"email\" and \"popup\".",
+            "enum": ["email", "popup"],
+            "title": "Method",
+            "type": "string"
+          },
+          "minutes": {
+            "description": "Number of minutes before the start of the event when the reminder should trigger.",
+            "minimum": 0,
+            "title": "Minutes",
+            "type": "integer"
+          }
+        },
+        "required": ["method", "minutes"],
+        "title": "DefaultReminderResponse",
+        "type": "object"
+      },
+      "NotificationSettingsResponse": {
+        "properties": {
+          "notifications": {
+            "description": "A list of notifications set for this calendar.",
+            "items": {
+              "$ref": "#/$defs/CalendarNotificationResponse"
+            },
+            "title": "Notifications",
+            "type": "array"
+          }
+        },
+        "title": "NotificationSettingsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CalendarListPatchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,355 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List Salesforce accounts using a SOQL query with filtering, sorting, and field selection. Results are paginated; the response retains only fields defined in the account response model, so other selected fields may be omitted.",
+  "inputSchema": {
+    "properties": {
+      "query": {
+        "default": "SELECT Id, Name, Type, Industry, Phone, Website, BillingCity, ShippingCity, AnnualRevenue, NumberOfEmployees FROM Account",
+        "description": "SOQL query to fetch accounts. Use standard SOQL syntax to filter, sort, and limit results. Always include WHERE and LIMIT clauses to avoid oversized responses. Avoid FIELDS(ALL) without LIMIT. Website and Phone are frequently null; avoid filtering on them without tolerating null values. To include parent-child relationships, explicitly add ParentId or Parent.Name to the SELECT clause.",
+        "examples": [
+          "SELECT Id, Name FROM Account WHERE Type = 'Customer'",
+          "SELECT Id, Name, Industry FROM Account WHERE Industry = 'Technology' ORDER BY Name",
+          "SELECT Id, Name, AnnualRevenue FROM Account WHERE AnnualRevenue > 1000000 LIMIT 10"
+        ],
+        "human_parameter_description": "The SOQL statement that tells Salesforce which account records and fields to return. Include filters, sorting, and limits to get exactly the accounts you need.",
+        "human_parameter_name": "SOQL Query",
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "title": "ListAccountsRequest",
+    "type": "object"
+  },
+  "name": "list_accounts",
+  "outputSchema": {
+    "$defs": {
+      "AccountRecord": {
+        "description": "Individual Account record returned by the query.",
+        "properties": {
+          "Website": {
+            "description": "Website URL for the Account.",
+            "title": "Website",
+            "type": "string"
+          },
+          "IsDeleted": {
+            "description": "Indicates whether the Account has been moved to the Recycle Bin.",
+            "title": "Is Deleted",
+            "type": "boolean"
+          },
+          "AccountNumber": {
+            "description": "Account number assigned to this Account.",
+            "title": "Account Number",
+            "type": "string"
+          },
+          "BillingAddress": {
+            "additionalProperties": true,
+            "description": "Compound read-only field containing all billing address components.",
+            "title": "Billing Address",
+            "type": "object"
+          },
+          "TickerSymbol": {
+            "description": "Stock ticker symbol for the Account.",
+            "title": "Ticker Symbol",
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/$defs/AccountRecordAttributes",
+            "title": "Attributes"
+          },
+          "Phone": {
+            "description": "Phone number for the Account.",
+            "title": "Phone",
+            "type": "string"
+          },
+          "BillingLongitude": {
+            "description": "Longitude of the billing address.",
+            "title": "Billing Longitude",
+            "type": "number"
+          },
+          "Jigsaw": {
+            "description": "Data.com key for the Account.",
+            "title": "Jigsaw",
+            "type": "string"
+          },
+          "Site": {
+            "description": "Account site or location designation.",
+            "title": "Site",
+            "type": "string"
+          },
+          "AccountSource": {
+            "description": "Source from which the Account was obtained.",
+            "title": "Account Source",
+            "type": "string"
+          },
+          "BillingStreet": {
+            "description": "Street address of the billing address.",
+            "title": "Billing Street",
+            "type": "string"
+          },
+          "Description": {
+            "description": "Text description of the Account.",
+            "title": "Description",
+            "type": "string"
+          },
+          "CreatedDate": {
+            "description": "Date and time when the Account was created (ISO 8601 format).",
+            "title": "Created Date",
+            "type": "string"
+          },
+          "ShippingCity": {
+            "description": "City of the shipping address.",
+            "title": "Shipping City",
+            "type": "string"
+          },
+          "OwnerId": {
+            "description": "ID of the User who owns this Account record.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "LastViewedDate": {
+            "description": "Date and time when the Account was last viewed.",
+            "title": "Last Viewed Date",
+            "type": "string"
+          },
+          "Fax": {
+            "description": "Fax number for the Account.",
+            "title": "Fax",
+            "type": "string"
+          },
+          "LastActivityDate": {
+            "description": "Date of the most recent activity associated with the Account.",
+            "title": "Last Activity Date",
+            "type": "string"
+          },
+          "ParentId": {
+            "description": "ID of the parent Account in a hierarchy.",
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "ShippingPostalCode": {
+            "description": "Postal code of the shipping address.",
+            "title": "Shipping Postal Code",
+            "type": "string"
+          },
+          "AnnualRevenue": {
+            "description": "Annual revenue amount for the Account.",
+            "title": "Annual Revenue",
+            "type": "number"
+          },
+          "ShippingStreet": {
+            "description": "Street address of the shipping address.",
+            "title": "Shipping Street",
+            "type": "string"
+          },
+          "LastModifiedById": {
+            "description": "ID of the User who last modified the Account.",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "SicDesc": {
+            "description": "Description of the Standard Industrial Classification code.",
+            "title": "Sic Desc",
+            "type": "string"
+          },
+          "BillingCity": {
+            "description": "City of the billing address.",
+            "title": "Billing City",
+            "type": "string"
+          },
+          "ShippingLatitude": {
+            "description": "Latitude of the shipping address.",
+            "title": "Shipping Latitude",
+            "type": "number"
+          },
+          "ShippingGeocodeAccuracy": {
+            "description": "Accuracy level of the shipping address geocoding.",
+            "title": "Shipping Geocode Accuracy",
+            "type": "string"
+          },
+          "Ownership": {
+            "description": "Ownership type of the Account (e.g., Public, Private).",
+            "title": "Ownership",
+            "type": "string"
+          },
+          "CreatedById": {
+            "description": "ID of the User who created the Account.",
+            "title": "Created By Id",
+            "type": "string"
+          },
+          "ShippingCountry": {
+            "description": "Country of the shipping address.",
+            "title": "Shipping Country",
+            "type": "string"
+          },
+          "BillingPostalCode": {
+            "description": "Postal code of the billing address.",
+            "title": "Billing Postal Code",
+            "type": "string"
+          },
+          "BillingState": {
+            "description": "State or province of the billing address.",
+            "title": "Billing State",
+            "type": "string"
+          },
+          "LastReferencedDate": {
+            "description": "Date and time when the Account was last referenced.",
+            "title": "Last Referenced Date",
+            "type": "string"
+          },
+          "SystemModstamp": {
+            "description": "Date and time when the Account was last modified by a user or automated process (ISO 8601 format). Read-only system field.",
+            "title": "System Modstamp",
+            "type": "string"
+          },
+          "BillingGeocodeAccuracy": {
+            "description": "Accuracy level of the billing address geocoding.",
+            "title": "Billing Geocode Accuracy",
+            "type": "string"
+          },
+          "JigsawCompanyId": {
+            "description": "Data.com company ID for the Account.",
+            "title": "Jigsaw Company Id",
+            "type": "string"
+          },
+          "NumberOfEmployees": {
+            "description": "Number of employees at the Account.",
+            "title": "Number Of Employees",
+            "type": "integer"
+          },
+          "Rating": {
+            "description": "Rating classification for the Account (e.g., Hot, Warm, Cold).",
+            "title": "Rating",
+            "type": "string"
+          },
+          "Id": {
+            "description": "Unique 18-character identifier for the Account record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "PhotoUrl": {
+            "description": "URL for the Account's photo or logo.",
+            "title": "Photo Url",
+            "type": "string"
+          },
+          "BillingLatitude": {
+            "description": "Latitude of the billing address.",
+            "title": "Billing Latitude",
+            "type": "number"
+          },
+          "Type": {
+            "description": "Type classification of the Account (e.g., Customer, Competitor, Partner).",
+            "title": "Type",
+            "type": "string"
+          },
+          "ShippingAddress": {
+            "additionalProperties": true,
+            "description": "Compound read-only field containing all shipping address components.",
+            "title": "Shipping Address",
+            "type": "object"
+          },
+          "Sic": {
+            "description": "Standard Industrial Classification code for the Account.",
+            "title": "Sic",
+            "type": "string"
+          },
+          "Name": {
+            "description": "Name of the Account.",
+            "title": "Name",
+            "type": "string"
+          },
+          "ShippingLongitude": {
+            "description": "Longitude of the shipping address.",
+            "title": "Shipping Longitude",
+            "type": "number"
+          },
+          "ShippingState": {
+            "description": "State or province of the shipping address.",
+            "title": "Shipping State",
+            "type": "string"
+          },
+          "BillingCountry": {
+            "description": "Country of the billing address.",
+            "title": "Billing Country",
+            "type": "string"
+          },
+          "Industry": {
+            "description": "Industry that the Account belongs to.",
+            "title": "Industry",
+            "type": "string"
+          },
+          "LastModifiedDate": {
+            "description": "Date and time when the Account was last modified by a user (ISO 8601 format).",
+            "title": "Last Modified Date",
+            "type": "string"
+          }
+        },
+        "required": ["attributes"],
+        "title": "AccountRecord",
+        "type": "object"
+      },
+      "AccountRecordAttributes": {
+        "description": "Metadata about the record including type and URL.",
+        "properties": {
+          "type": {
+            "description": "The sObject type, typically 'Account'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "Resource URI path to this specific Account record.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "AccountRecordAttributes",
+        "type": "object"
+      },
+      "ListAccountsResponse": {
+        "description": "Response from Salesforce SOQL query for Account records.",
+        "properties": {
+          "done": {
+            "description": "Indicates whether all results have been retrieved. When false, additional records can be fetched using nextRecordsUrl.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "nextRecordsUrl": {
+            "description": "URL path to retrieve the next batch of records when done is false. Only present when pagination is required.",
+            "title": "Next Records Url",
+            "type": "string"
+          },
+          "records": {
+            "description": "Array of Account records returned by the query.",
+            "items": {
+              "$ref": "#/$defs/AccountRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "totalSize": {
+            "description": "Total number of records that match the SOQL query.",
+            "title": "Total Size",
+            "type": "integer"
+          }
+        },
+        "required": ["done", "totalSize", "records"],
+        "title": "ListAccountsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListAccountsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

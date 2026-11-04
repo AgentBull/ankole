@@ -1,0 +1,317 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Retries failed or canceled jobs in a pipeline. Use this action when you need to re-run a pipeline that has failed or was canceled. Note that if there are no failed or canceled jobs in the pipeline, calling this action has no effect.",
+  "inputSchema": {
+    "properties": {
+      "pipeline_id": {
+        "description": "The ID of the pipeline to retry.",
+        "examples": [456],
+        "title": "Pipeline Id",
+        "type": "integer"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["123", "group_name/project_name"],
+        "title": "Project Id"
+      }
+    },
+    "required": ["project_id", "pipeline_id"],
+    "title": "RetryPipelineRequest",
+    "type": "object"
+  },
+  "name": "retry_pipeline",
+  "outputSchema": {
+    "$defs": {
+      "DetailedStatus": {
+        "properties": {
+          "details_path": {
+            "description": "Path to the details page for the status.",
+            "title": "Details Path",
+            "type": "string"
+          },
+          "favicon": {
+            "description": "Path to the favicon for the status.",
+            "title": "Favicon",
+            "type": "string"
+          },
+          "group": {
+            "description": "Group of the status.",
+            "title": "Group",
+            "type": "string"
+          },
+          "has_details": {
+            "description": "Indicates if there are details available for the status.",
+            "title": "Has Details",
+            "type": "boolean"
+          },
+          "icon": {
+            "description": "Name of the icon representing the status.",
+            "title": "Icon",
+            "type": "string"
+          },
+          "illustration": {
+            "additionalProperties": true,
+            "description": "Illustration for the status.",
+            "title": "Illustration",
+            "type": "object"
+          },
+          "label": {
+            "description": "Label of the status.",
+            "title": "Label",
+            "type": "string"
+          },
+          "text": {
+            "description": "Text of the status.",
+            "title": "Text",
+            "type": "string"
+          },
+          "tooltip": {
+            "description": "Tooltip text for the status.",
+            "title": "Tooltip",
+            "type": "string"
+          }
+        },
+        "title": "DetailedStatus",
+        "type": "object"
+      },
+      "PipelineSource": {
+        "enum": [
+          "push",
+          "web",
+          "trigger",
+          "schedule",
+          "api",
+          "external",
+          "pipeline",
+          "chat",
+          "webide",
+          "merge_request_event",
+          "external_pull_request_event",
+          "parent_pipeline",
+          "onfetch",
+          "duo_workflow",
+          "container_registry_push",
+          "ondemand_dast_scan",
+          "ondemand_dast_validation",
+          "security_orchestration_policy"
+        ],
+        "title": "PipelineSource",
+        "type": "string"
+      },
+      "PipelineStatus": {
+        "enum": [
+          "created",
+          "waiting_for_resource",
+          "preparing",
+          "pending",
+          "running",
+          "success",
+          "failed",
+          "canceled",
+          "skipped",
+          "manual",
+          "scheduled"
+        ],
+        "title": "PipelineStatus",
+        "type": "string"
+      },
+      "RetryPipelineResponse": {
+        "properties": {
+          "archived": {
+            "description": "Indicates if the pipeline is archived.",
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "before_sha": {
+            "description": "The SHA of the commit before the pipeline's commit.",
+            "title": "Before Sha",
+            "type": "string"
+          },
+          "committed_at": {
+            "description": "Timestamp of the commit.",
+            "format": "date-time",
+            "title": "Committed At",
+            "type": "string"
+          },
+          "coverage": {
+            "description": "Test coverage report.",
+            "title": "Coverage",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp of when the pipeline was created.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detailed_status": {
+            "$ref": "#/$defs/DetailedStatus",
+            "description": "Detailed status information.",
+            "title": "Detailed Status"
+          },
+          "duration": {
+            "description": "Duration of the pipeline in seconds.",
+            "title": "Duration",
+            "type": "integer"
+          },
+          "finished_at": {
+            "description": "Timestamp of when the pipeline finished.",
+            "format": "date-time",
+            "title": "Finished At",
+            "type": "string"
+          },
+          "id": {
+            "description": "ID of the pipeline.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Internal ID of the pipeline.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the pipeline.",
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "ID of the project the pipeline belongs to.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "queued_duration": {
+            "description": "Queued duration of the pipeline in seconds.",
+            "title": "Queued Duration",
+            "type": "number"
+          },
+          "ref": {
+            "description": "Ref of the pipeline (branch or tag).",
+            "title": "Ref",
+            "type": "string"
+          },
+          "sha": {
+            "description": "SHA of the commit the pipeline ran for.",
+            "title": "Sha",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/PipelineSource",
+            "description": "Source of the pipeline.",
+            "title": "Source"
+          },
+          "started_at": {
+            "description": "Timestamp of when the pipeline started.",
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/PipelineStatus",
+            "description": "Status of the pipeline.",
+            "title": "Status"
+          },
+          "tag": {
+            "description": "Indicates if the pipeline was triggered by a tag.",
+            "title": "Tag",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "description": "Timestamp of when the pipeline was last updated.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Details of the user who triggered the pipeline.",
+            "title": "User"
+          },
+          "web_url": {
+            "description": "URL to the pipeline's page in the GitLab UI.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "yaml_errors": {
+            "description": "YAML validation errors, if any.",
+            "title": "Yaml Errors",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "iid",
+          "project_id",
+          "sha",
+          "ref",
+          "status",
+          "source",
+          "created_at",
+          "updated_at",
+          "web_url"
+        ],
+        "title": "RetryPipelineResponse",
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "avatar_url": {
+            "description": "URL of the user's avatar.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "ID of the user.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the user.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "State of the user (e.g., active).",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the user.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "URL to the user's profile page.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "name", "state", "web_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetryPipelineResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

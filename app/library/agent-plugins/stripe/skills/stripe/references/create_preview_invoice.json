@@ -1,0 +1,1619 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to preview an upcoming invoice without creating it. Use when you need to show pending charges, renewal fees, discounts, and prorations before finalizing an invoice.",
+  "inputSchema": {
+    "description": "Request schema for creating a preview of an upcoming Stripe invoice.\n\nTool to preview an upcoming invoice without creating it. Use when you need to show pending charges, renewal fees, discounts, and prorations before finalizing an invoice.",
+    "properties": {
+      "automatic_tax": {
+        "additionalProperties": false,
+        "description": "Configuration for automatic tax calculation.",
+        "properties": {
+          "enabled": {
+            "description": "If true, Stripe automatically computes tax on this invoice",
+            "examples": [true, false],
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "liability": {
+            "additionalProperties": false,
+            "description": "Stripe Connect account liable for tax.",
+            "properties": {
+              "account": {
+                "description": "The ID of the Stripe account that is liable for tax",
+                "examples": ["acct_12345ABCDEF"],
+                "title": "Account",
+                "type": "string"
+              }
+            },
+            "required": ["account"],
+            "title": "AutomaticTaxLiability",
+            "type": "object"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTax",
+        "type": "object"
+      },
+      "currency": {
+        "description": "Three-letter ISO currency code (e.g., usd, eur)",
+        "examples": ["usd", "eur", "gbp"],
+        "title": "Currency",
+        "type": "string"
+      },
+      "customer": {
+        "description": "Customer ID for the invoice preview. Required when using invoice_items, subscription_details.items, or schedule_details.phases. You must also provide at least one of: subscription, subscription_details.items, schedule, schedule_details.phases, or invoice_items.",
+        "examples": ["cus_TepU77olhoBKbH"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "customer_account": {
+        "description": "Account representing the customer",
+        "title": "Customer Account",
+        "type": "string"
+      },
+      "customer_details": {
+        "additionalProperties": false,
+        "description": "Explicit customer details for preview.",
+        "properties": {
+          "address": {
+            "additionalProperties": false,
+            "description": "Customer address for tax calculation.",
+            "properties": {
+              "city": {
+                "description": "City, district, suburb, town, or village",
+                "title": "City",
+                "type": "string"
+              },
+              "country": {
+                "description": "Two-letter country code (ISO 3166-1 alpha-2). Required for tax calculation.",
+                "title": "Country",
+                "type": "string"
+              },
+              "line1": {
+                "description": "Address line 1",
+                "title": "Line1",
+                "type": "string"
+              },
+              "line2": {
+                "description": "Address line 2",
+                "title": "Line2",
+                "type": "string"
+              },
+              "postal_code": {
+                "description": "ZIP or postal code. Required for tax calculation.",
+                "title": "Postal Code",
+                "type": "string"
+              },
+              "state": {
+                "description": "State, county, province, or region",
+                "title": "State",
+                "type": "string"
+              }
+            },
+            "title": "CustomerAddress",
+            "type": "object"
+          },
+          "shipping": {
+            "additionalProperties": false,
+            "description": "Customer shipping details.",
+            "properties": {
+              "address": {
+                "additionalProperties": false,
+                "description": "Shipping address (required)",
+                "properties": {
+                  "city": {
+                    "description": "City, district, suburb, town, or village",
+                    "title": "City",
+                    "type": "string"
+                  },
+                  "country": {
+                    "description": "Two-letter country code (ISO 3166-1 alpha-2). Required for tax calculation.",
+                    "title": "Country",
+                    "type": "string"
+                  },
+                  "line1": {
+                    "description": "Address line 1",
+                    "title": "Line1",
+                    "type": "string"
+                  },
+                  "line2": {
+                    "description": "Address line 2",
+                    "title": "Line2",
+                    "type": "string"
+                  },
+                  "postal_code": {
+                    "description": "ZIP or postal code. Required for tax calculation.",
+                    "title": "Postal Code",
+                    "type": "string"
+                  },
+                  "state": {
+                    "description": "State, county, province, or region",
+                    "title": "State",
+                    "type": "string"
+                  }
+                },
+                "title": "Address",
+                "type": "object"
+              },
+              "name": {
+                "description": "Recipient name (required)",
+                "title": "Name",
+                "type": "string"
+              },
+              "phone": {
+                "description": "Recipient phone number",
+                "title": "Phone",
+                "type": "string"
+              }
+            },
+            "required": ["address", "name"],
+            "title": "CustomerShipping",
+            "type": "object"
+          },
+          "tax": {
+            "additionalProperties": false,
+            "description": "Customer tax inference details.",
+            "properties": {
+              "ip_address": {
+                "description": "IP address for tax inference",
+                "title": "Ip Address",
+                "type": "string"
+              }
+            },
+            "title": "CustomerTax",
+            "type": "object"
+          },
+          "tax_exempt": {
+            "description": "Tax exempt status: none, exempt, or reverse",
+            "title": "Tax Exempt",
+            "type": "string"
+          },
+          "tax_ids": {
+            "description": "Customer tax IDs",
+            "items": {
+              "description": "Customer tax identifier.",
+              "properties": {
+                "type": {
+                  "description": "Tax ID type (required)",
+                  "title": "Type",
+                  "type": "string"
+                },
+                "value": {
+                  "description": "Tax ID value (required)",
+                  "title": "Value",
+                  "type": "string"
+                }
+              },
+              "required": ["type", "value"],
+              "title": "CustomerTaxId",
+              "type": "object"
+            },
+            "title": "Tax Ids",
+            "type": "array"
+          }
+        },
+        "title": "CustomerDetails",
+        "type": "object"
+      },
+      "discounts": {
+        "description": "Discounts to apply to the invoice preview",
+        "items": {
+          "description": "Discount to apply to the invoice preview.",
+          "properties": {
+            "coupon": {
+              "description": "The ID of an existing coupon to apply",
+              "examples": ["SUMMER25OFF"],
+              "title": "Coupon",
+              "type": "string"
+            },
+            "discount": {
+              "description": "The ID of an existing discount to apply",
+              "examples": ["di_1J2x3y4z5A6b7c8d"],
+              "title": "Discount",
+              "type": "string"
+            },
+            "promotion_code": {
+              "description": "The ID of an existing promotion code to apply",
+              "examples": ["PROMO123XYZ"],
+              "title": "Promotion Code",
+              "type": "string"
+            }
+          },
+          "title": "InvoiceDiscount",
+          "type": "object"
+        },
+        "title": "Discounts",
+        "type": "array"
+      },
+      "invoice_items": {
+        "description": "Invoice items to include in preview (up to 250)",
+        "items": {
+          "description": "Invoice item to include in preview.",
+          "properties": {
+            "amount": {
+              "description": "Amount in cents",
+              "title": "Amount",
+              "type": "integer"
+            },
+            "currency": {
+              "description": "Three-letter ISO currency code",
+              "title": "Currency",
+              "type": "string"
+            },
+            "description": {
+              "description": "Item description",
+              "title": "Description",
+              "type": "string"
+            },
+            "discountable": {
+              "description": "Whether discounts apply to this item",
+              "title": "Discountable",
+              "type": "boolean"
+            },
+            "discounts": {
+              "description": "Discounts for this item",
+              "items": {
+                "description": "Discount for a specific invoice item.",
+                "properties": {
+                  "coupon": {
+                    "description": "Coupon ID",
+                    "title": "Coupon",
+                    "type": "string"
+                  },
+                  "discount": {
+                    "description": "Discount ID",
+                    "title": "Discount",
+                    "type": "string"
+                  },
+                  "promotion_code": {
+                    "description": "Promotion code ID",
+                    "title": "Promotion Code",
+                    "type": "string"
+                  }
+                },
+                "title": "InvoiceItemDiscount",
+                "type": "object"
+              },
+              "title": "Discounts",
+              "type": "array"
+            },
+            "invoiceitem": {
+              "description": "ID of an existing invoice item to include",
+              "title": "Invoiceitem",
+              "type": "string"
+            },
+            "metadata": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Metadata",
+              "title": "Metadata",
+              "type": "object"
+            },
+            "period": {
+              "additionalProperties": false,
+              "description": "Period for invoice item.",
+              "properties": {
+                "end": {
+                  "description": "Period end timestamp",
+                  "title": "End",
+                  "type": "integer"
+                },
+                "start": {
+                  "description": "Period start timestamp",
+                  "title": "Start",
+                  "type": "integer"
+                }
+              },
+              "required": ["end", "start"],
+              "title": "InvoiceItemPeriod",
+              "type": "object"
+            },
+            "price": {
+              "description": "Price ID",
+              "title": "Price",
+              "type": "string"
+            },
+            "price_data": {
+              "additionalProperties": false,
+              "description": "Price data for invoice item.",
+              "properties": {
+                "currency": {
+                  "description": "Three-letter ISO currency code",
+                  "examples": ["usd", "eur"],
+                  "title": "Currency",
+                  "type": "string"
+                },
+                "product": {
+                  "description": "Product ID",
+                  "title": "Product",
+                  "type": "string"
+                },
+                "tax_behavior": {
+                  "description": "Tax behavior: inclusive, exclusive, or unspecified",
+                  "title": "Tax Behavior",
+                  "type": "string"
+                },
+                "unit_amount": {
+                  "description": "Unit amount in cents (max 99,999,999)",
+                  "title": "Unit Amount",
+                  "type": "integer"
+                },
+                "unit_amount_decimal": {
+                  "description": "Unit amount with up to 12 decimal places",
+                  "title": "Unit Amount Decimal",
+                  "type": "string"
+                }
+              },
+              "required": ["currency", "product"],
+              "title": "InvoiceItemPriceData",
+              "type": "object"
+            },
+            "quantity": {
+              "description": "Quantity",
+              "title": "Quantity",
+              "type": "integer"
+            },
+            "tax_behavior": {
+              "description": "Tax behavior: inclusive, exclusive, or unspecified",
+              "title": "Tax Behavior",
+              "type": "string"
+            },
+            "tax_code": {
+              "description": "Tax code ID",
+              "title": "Tax Code",
+              "type": "string"
+            },
+            "tax_rates": {
+              "description": "Tax rate IDs",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tax Rates",
+              "type": "array"
+            },
+            "unit_amount": {
+              "description": "Unit amount in cents",
+              "title": "Unit Amount",
+              "type": "integer"
+            },
+            "unit_amount_decimal": {
+              "description": "Unit amount with decimals",
+              "title": "Unit Amount Decimal",
+              "type": "string"
+            }
+          },
+          "title": "InvoiceItem",
+          "type": "object"
+        },
+        "title": "Invoice Items",
+        "type": "array"
+      },
+      "issuer": {
+        "additionalProperties": false,
+        "description": "Connected account issuing invoice.",
+        "properties": {
+          "account": {
+            "description": "Connected account ID",
+            "title": "Account",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type: account or self (required)",
+            "examples": ["account", "self"],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "Issuer",
+        "type": "object"
+      },
+      "on_behalf_of": {
+        "description": "Connected account ID for invoice presentation",
+        "examples": ["acct_1J2x3y4z5A6b7c8d"],
+        "title": "On Behalf Of",
+        "type": "string"
+      },
+      "preview_mode": {
+        "description": "Preview mode: next (default) or recurring",
+        "examples": ["next", "recurring"],
+        "title": "Preview Mode",
+        "type": "string"
+      },
+      "schedule": {
+        "description": "Subscription schedule ID to preview",
+        "title": "Schedule",
+        "type": "string"
+      },
+      "subscription": {
+        "description": "Subscription ID to preview",
+        "examples": ["sub_1J2x3y4z5A6b7c8d"],
+        "title": "Subscription",
+        "type": "string"
+      },
+      "subscription_details": {
+        "additionalProperties": false,
+        "description": "Subscription configuration for preview.",
+        "properties": {
+          "billing_cycle_anchor": {
+            "description": "Billing cycle anchor: now, unchanged, or timestamp",
+            "title": "Billing Cycle Anchor",
+            "type": "string"
+          },
+          "billing_mode": {
+            "description": "Billing mode for preview",
+            "title": "Billing Mode",
+            "type": "string"
+          },
+          "cancel_at": {
+            "description": "Cancellation timestamp",
+            "title": "Cancel At",
+            "type": "integer"
+          },
+          "cancel_at_period_end": {
+            "description": "Whether to cancel at period end",
+            "title": "Cancel At Period End",
+            "type": "boolean"
+          },
+          "cancel_now": {
+            "description": "Whether to cancel now",
+            "title": "Cancel Now",
+            "type": "boolean"
+          },
+          "default_tax_rates": {
+            "description": "Default tax rate IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Default Tax Rates",
+            "type": "array"
+          },
+          "items": {
+            "description": "Subscription items (up to 20)",
+            "items": {
+              "description": "Subscription item configuration.",
+              "properties": {
+                "billing_thresholds": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "description": "Billing thresholds",
+                  "title": "Billing Thresholds",
+                  "type": "object"
+                },
+                "clear_usage": {
+                  "description": "Whether to clear usage",
+                  "title": "Clear Usage",
+                  "type": "boolean"
+                },
+                "deleted": {
+                  "description": "Whether to delete item",
+                  "title": "Deleted",
+                  "type": "boolean"
+                },
+                "discounts": {
+                  "description": "Discounts for this item",
+                  "items": {
+                    "description": "Discount for a specific invoice item.",
+                    "properties": {
+                      "coupon": {
+                        "description": "Coupon ID",
+                        "title": "Coupon",
+                        "type": "string"
+                      },
+                      "discount": {
+                        "description": "Discount ID",
+                        "title": "Discount",
+                        "type": "string"
+                      },
+                      "promotion_code": {
+                        "description": "Promotion code ID",
+                        "title": "Promotion Code",
+                        "type": "string"
+                      }
+                    },
+                    "title": "InvoiceItemDiscount",
+                    "type": "object"
+                  },
+                  "title": "Discounts",
+                  "type": "array"
+                },
+                "id": {
+                  "description": "Subscription item ID",
+                  "title": "Id",
+                  "type": "string"
+                },
+                "metadata": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Metadata",
+                  "title": "Metadata",
+                  "type": "object"
+                },
+                "price": {
+                  "description": "Price ID",
+                  "title": "Price",
+                  "type": "string"
+                },
+                "price_data": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Price data",
+                  "title": "Price Data",
+                  "type": "object"
+                },
+                "quantity": {
+                  "description": "Quantity",
+                  "title": "Quantity",
+                  "type": "integer"
+                },
+                "tax_rates": {
+                  "description": "Tax rate IDs",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Tax Rates",
+                  "type": "array"
+                }
+              },
+              "title": "SubscriptionItem",
+              "type": "object"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "proration_behavior": {
+            "description": "Proration behavior: create_prorations, none, always_invoice",
+            "title": "Proration Behavior",
+            "type": "string"
+          },
+          "proration_date": {
+            "description": "Proration calculation timestamp",
+            "title": "Proration Date",
+            "type": "integer"
+          },
+          "resume_at": {
+            "description": "Resume timestamp or now",
+            "title": "Resume At",
+            "type": "string"
+          },
+          "start_date": {
+            "description": "Start date timestamp",
+            "title": "Start Date",
+            "type": "integer"
+          },
+          "trial_end": {
+            "description": "Trial end: now or timestamp",
+            "title": "Trial End",
+            "type": "string"
+          }
+        },
+        "title": "SubscriptionDetails",
+        "type": "object"
+      }
+    },
+    "title": "CreatePreviewInvoiceRequest",
+    "type": "object"
+  },
+  "name": "create_preview_invoice",
+  "outputSchema": {
+    "$defs": {
+      "AddressResponse": {
+        "description": "Address information.",
+        "properties": {
+          "city": {
+            "description": "City",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Country code",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Address line 1",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Address line 2",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "Postal code",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "AddressResponse",
+        "type": "object"
+      },
+      "AutomaticTaxResponse": {
+        "description": "Tax calculation results.",
+        "properties": {
+          "disabled_reason": {
+            "description": "Why automatic tax disabled",
+            "title": "Disabled Reason",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether automatic tax enabled",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "liability": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Account liable for tax",
+            "title": "Liability",
+            "type": "object"
+          },
+          "provider": {
+            "description": "Tax provider",
+            "title": "Provider",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status: complete, failed, requires_location_inputs",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTaxResponse",
+        "type": "object"
+      },
+      "CreatePreviewInvoiceResponse": {
+        "description": "Response from creating an invoice preview.",
+        "properties": {
+          "customer_phone": {
+            "description": "Customer phone",
+            "title": "Customer Phone",
+            "type": "string"
+          },
+          "lines": {
+            "$ref": "#/$defs/InvoiceLines",
+            "description": "Line items",
+            "title": "Lines"
+          },
+          "account_country": {
+            "description": "Account country code",
+            "title": "Account Country",
+            "type": "string"
+          },
+          "subtotal": {
+            "description": "Subtotal in cents",
+            "title": "Subtotal",
+            "type": "integer"
+          },
+          "shipping_details": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Shipping details",
+            "title": "Shipping Details",
+            "type": "object"
+          },
+          "application": {
+            "description": "Application ID",
+            "title": "Application",
+            "type": "string"
+          },
+          "test_clock": {
+            "description": "Test clock ID",
+            "title": "Test Clock",
+            "type": "string"
+          },
+          "rendering": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Rendering options",
+            "title": "Rendering",
+            "type": "object"
+          },
+          "shipping_cost": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Shipping cost",
+            "title": "Shipping Cost",
+            "type": "object"
+          },
+          "account_tax_ids": {
+            "description": "Account tax IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Account Tax Ids",
+            "type": "array"
+          },
+          "description": {
+            "description": "Description",
+            "title": "Description",
+            "type": "string"
+          },
+          "total": {
+            "description": "Total in cents",
+            "title": "Total",
+            "type": "integer"
+          },
+          "subscription_details": {
+            "additionalProperties": true,
+            "description": "Subscription details",
+            "title": "Subscription Details",
+            "type": "object"
+          },
+          "hosted_invoice_url": {
+            "description": "Hosted invoice URL",
+            "title": "Hosted Invoice Url",
+            "type": "string"
+          },
+          "customer_email": {
+            "description": "Customer email",
+            "title": "Customer Email",
+            "type": "string"
+          },
+          "customer_address": {
+            "$ref": "#/$defs/AddressResponse",
+            "description": "Customer address",
+            "title": "Customer Address"
+          },
+          "created": {
+            "description": "Creation timestamp",
+            "title": "Created",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Invoice status",
+            "title": "Status",
+            "type": "string"
+          },
+          "customer_shipping": {
+            "$ref": "#/$defs/CustomerShippingResponse",
+            "description": "Customer shipping",
+            "title": "Customer Shipping"
+          },
+          "total_pretax_credit_amounts": {
+            "description": "Total pretax credit amounts",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Total Pretax Credit Amounts",
+            "type": "array"
+          },
+          "from_invoice": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "From invoice",
+            "title": "From Invoice",
+            "type": "object"
+          },
+          "discounts": {
+            "description": "Discount IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "issuer": {
+            "$ref": "#/$defs/IssuerResponse",
+            "description": "Issuer details",
+            "title": "Issuer"
+          },
+          "threshold_reason": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Threshold reason",
+            "title": "Threshold Reason",
+            "type": "object"
+          },
+          "billing_reason": {
+            "description": "Billing reason",
+            "title": "Billing Reason",
+            "type": "string"
+          },
+          "total_excluding_tax": {
+            "description": "Total excluding tax",
+            "title": "Total Excluding Tax",
+            "type": "integer"
+          },
+          "latest_revision": {
+            "description": "Latest revision ID",
+            "title": "Latest Revision",
+            "type": "string"
+          },
+          "tax": {
+            "description": "Tax amount",
+            "title": "Tax",
+            "type": "integer"
+          },
+          "automatic_tax": {
+            "$ref": "#/$defs/AutomaticTaxResponse",
+            "description": "Automatic tax settings",
+            "title": "Automatic Tax"
+          },
+          "attempted": {
+            "description": "Whether payment attempted",
+            "title": "Attempted",
+            "type": "boolean"
+          },
+          "amount_shipping": {
+            "description": "Shipping amount in cents",
+            "title": "Amount Shipping",
+            "type": "integer"
+          },
+          "customer": {
+            "description": "Customer ID",
+            "title": "Customer",
+            "type": "string"
+          },
+          "next_payment_attempt": {
+            "description": "Next payment attempt timestamp",
+            "title": "Next Payment Attempt",
+            "type": "integer"
+          },
+          "account_name": {
+            "description": "Account name",
+            "title": "Account Name",
+            "type": "string"
+          },
+          "status_transitions": {
+            "$ref": "#/$defs/StatusTransitions",
+            "description": "Status transitions",
+            "title": "Status Transitions"
+          },
+          "quote": {
+            "description": "Quote ID",
+            "title": "Quote",
+            "type": "string"
+          },
+          "starting_balance": {
+            "description": "Starting balance",
+            "title": "Starting Balance",
+            "type": "integer"
+          },
+          "number": {
+            "description": "Invoice number",
+            "title": "Number",
+            "type": "string"
+          },
+          "collection_method": {
+            "description": "Collection method",
+            "title": "Collection Method",
+            "type": "string"
+          },
+          "on_behalf_of": {
+            "description": "On behalf of account",
+            "title": "On Behalf Of",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "Custom fields",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "receipt_number": {
+            "description": "Receipt number",
+            "title": "Receipt Number",
+            "type": "string"
+          },
+          "total_discount_amounts": {
+            "description": "Total discount amounts",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Total Discount Amounts",
+            "type": "array"
+          },
+          "default_tax_rates": {
+            "description": "Default tax rates",
+            "items": {
+              "$ref": "#/$defs/TaxRateResponse"
+            },
+            "title": "Default Tax Rates",
+            "type": "array"
+          },
+          "total_tax_amounts": {
+            "description": "Total tax amounts",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Total Tax Amounts",
+            "type": "array"
+          },
+          "period_start": {
+            "description": "Period start timestamp",
+            "title": "Period Start",
+            "type": "integer"
+          },
+          "auto_advance": {
+            "description": "Auto advance setting",
+            "title": "Auto Advance",
+            "type": "boolean"
+          },
+          "default_payment_method": {
+            "description": "Default payment method ID",
+            "title": "Default Payment Method",
+            "type": "string"
+          },
+          "transfer_data": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Transfer data",
+            "title": "Transfer Data",
+            "type": "object"
+          },
+          "customer_tax_ids": {
+            "description": "Customer tax IDs",
+            "items": {
+              "$ref": "#/$defs/CustomerTaxIdResponse"
+            },
+            "title": "Customer Tax Ids",
+            "type": "array"
+          },
+          "ending_balance": {
+            "description": "Ending balance",
+            "title": "Ending Balance",
+            "type": "integer"
+          },
+          "post_payment_credit_notes_amount": {
+            "description": "Post-payment credit notes amount",
+            "title": "Post Payment Credit Notes Amount",
+            "type": "integer"
+          },
+          "attempt_count": {
+            "description": "Payment attempt count",
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "subtotal_excluding_tax": {
+            "description": "Subtotal excluding tax",
+            "title": "Subtotal Excluding Tax",
+            "type": "integer"
+          },
+          "statement_descriptor": {
+            "description": "Statement descriptor",
+            "title": "Statement Descriptor",
+            "type": "string"
+          },
+          "customer_account": {
+            "description": "Customer account ID",
+            "title": "Customer Account",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "last_finalization_error": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Last finalization error",
+            "title": "Last Finalization Error",
+            "type": "object"
+          },
+          "customer_tax_exempt": {
+            "description": "Tax exempt status",
+            "title": "Customer Tax Exempt",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live mode",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "currency": {
+            "description": "Currency code",
+            "title": "Currency",
+            "type": "string"
+          },
+          "amount_remaining": {
+            "description": "Amount remaining in cents",
+            "title": "Amount Remaining",
+            "type": "integer"
+          },
+          "payment_settings": {
+            "$ref": "#/$defs/PaymentSettingsResponse",
+            "description": "Payment settings",
+            "title": "Payment Settings"
+          },
+          "period_end": {
+            "description": "Period end timestamp",
+            "title": "Period End",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Invoice ID prefixed with 'upcoming_in' for preview invoices",
+            "title": "Id",
+            "type": "string"
+          },
+          "webhooks_delivered_at": {
+            "description": "Webhooks delivered timestamp",
+            "title": "Webhooks Delivered At",
+            "type": "integer"
+          },
+          "footer": {
+            "description": "Footer text",
+            "title": "Footer",
+            "type": "string"
+          },
+          "amount_overpaid": {
+            "description": "Amount overpaid in cents",
+            "title": "Amount Overpaid",
+            "type": "integer"
+          },
+          "amount_due": {
+            "description": "Final amount due in cents",
+            "title": "Amount Due",
+            "type": "integer"
+          },
+          "invoice_pdf": {
+            "description": "Invoice PDF URL",
+            "title": "Invoice Pdf",
+            "type": "string"
+          },
+          "effective_at": {
+            "description": "Effective date timestamp",
+            "title": "Effective At",
+            "type": "integer"
+          },
+          "pre_payment_credit_notes_amount": {
+            "description": "Pre-payment credit notes amount",
+            "title": "Pre Payment Credit Notes Amount",
+            "type": "integer"
+          },
+          "automatically_finalizes_at": {
+            "description": "Auto finalization timestamp",
+            "title": "Automatically Finalizes At",
+            "type": "integer"
+          },
+          "object": {
+            "description": "Always 'invoice'",
+            "title": "Object",
+            "type": "string"
+          },
+          "subscription": {
+            "description": "Subscription ID",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Due date timestamp",
+            "title": "Due Date",
+            "type": "integer"
+          },
+          "parent": {
+            "additionalProperties": true,
+            "description": "Parent invoice details",
+            "title": "Parent",
+            "type": "object"
+          },
+          "default_source": {
+            "description": "Default source ID",
+            "title": "Default Source",
+            "type": "string"
+          },
+          "customer_name": {
+            "description": "Customer name",
+            "title": "Customer Name",
+            "type": "string"
+          },
+          "amount_paid": {
+            "description": "Amount paid in cents",
+            "title": "Amount Paid",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount_due",
+          "amount_paid",
+          "amount_remaining",
+          "amount_shipping",
+          "attempt_count",
+          "attempted",
+          "automatic_tax",
+          "collection_method",
+          "created",
+          "currency",
+          "default_tax_rates",
+          "issuer",
+          "lines",
+          "livemode",
+          "payment_settings",
+          "period_end",
+          "period_start",
+          "post_payment_credit_notes_amount",
+          "pre_payment_credit_notes_amount",
+          "starting_balance",
+          "status_transitions",
+          "subtotal",
+          "total"
+        ],
+        "title": "CreatePreviewInvoiceResponse",
+        "type": "object"
+      },
+      "CustomerShippingResponse": {
+        "description": "Shipping information.",
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/AddressResponse",
+            "description": "Shipping address",
+            "title": "Address"
+          },
+          "name": {
+            "description": "Recipient name",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Phone number",
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "title": "CustomerShippingResponse",
+        "type": "object"
+      },
+      "CustomerTaxIdResponse": {
+        "description": "Customer tax identifier.",
+        "properties": {
+          "type": {
+            "description": "Tax ID type",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "Tax ID value",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "CustomerTaxIdResponse",
+        "type": "object"
+      },
+      "InvoiceLines": {
+        "description": "List of invoice line items.",
+        "properties": {
+          "data": {
+            "description": "Line items",
+            "items": {
+              "$ref": "#/$defs/LineItem"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether more items exist",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "Always 'list'",
+            "title": "Object",
+            "type": "string"
+          },
+          "total_count": {
+            "description": "Total count of line items",
+            "title": "Total Count",
+            "type": "integer"
+          },
+          "url": {
+            "description": "List URL",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "InvoiceLines",
+        "type": "object"
+      },
+      "IssuerResponse": {
+        "description": "Invoice issuer.",
+        "properties": {
+          "account": {
+            "description": "Account ID",
+            "title": "Account",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type: account or self",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "IssuerResponse",
+        "type": "object"
+      },
+      "LineItem": {
+        "description": "Invoice line item.",
+        "properties": {
+          "amount": {
+            "description": "Amount in cents",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Currency code",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description",
+            "title": "Description",
+            "type": "string"
+          },
+          "discount_amounts": {
+            "description": "Discount amounts",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Discount Amounts",
+            "type": "array"
+          },
+          "discountable": {
+            "description": "Whether discountable",
+            "title": "Discountable",
+            "type": "boolean"
+          },
+          "discounts": {
+            "description": "Discount IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Line item ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "Invoice ID",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live mode",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "Always 'line_item'",
+            "title": "Object",
+            "type": "string"
+          },
+          "parent": {
+            "additionalProperties": true,
+            "description": "Parent details for line item",
+            "title": "Parent",
+            "type": "object"
+          },
+          "period": {
+            "$ref": "#/$defs/LineItemPeriod",
+            "description": "Period",
+            "title": "Period"
+          },
+          "pretax_credit_amounts": {
+            "description": "Pretax credit amounts",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Pretax Credit Amounts",
+            "type": "array"
+          },
+          "price": {
+            "additionalProperties": true,
+            "description": "Price details",
+            "title": "Price",
+            "type": "object"
+          },
+          "pricing": {
+            "additionalProperties": true,
+            "description": "Pricing details for new API version",
+            "title": "Pricing",
+            "type": "object"
+          },
+          "proration": {
+            "description": "Whether proration",
+            "title": "Proration",
+            "type": "boolean"
+          },
+          "proration_details": {
+            "additionalProperties": true,
+            "description": "Proration details",
+            "title": "Proration Details",
+            "type": "object"
+          },
+          "quantity": {
+            "description": "Quantity",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "subscription": {
+            "description": "Subscription ID",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "subscription_item": {
+            "description": "Subscription item ID",
+            "title": "Subscription Item",
+            "type": "string"
+          },
+          "subtotal": {
+            "description": "Subtotal in cents",
+            "title": "Subtotal",
+            "type": "integer"
+          },
+          "tax_amounts": {
+            "description": "Tax amounts",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Tax Amounts",
+            "type": "array"
+          },
+          "tax_rates": {
+            "description": "Tax rates",
+            "items": {
+              "$ref": "#/$defs/TaxRateResponse"
+            },
+            "title": "Tax Rates",
+            "type": "array"
+          },
+          "taxes": {
+            "description": "Taxes applied",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Taxes",
+            "type": "array"
+          },
+          "type": {
+            "description": "Line item type (optional in newer API versions)",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount_excluding_tax": {
+            "description": "Unit amount excluding tax",
+            "title": "Unit Amount Excluding Tax",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "amount", "currency", "discountable", "livemode", "period"],
+        "title": "LineItem",
+        "type": "object"
+      },
+      "LineItemPeriod": {
+        "description": "Line item period.",
+        "properties": {
+          "end": {
+            "description": "Period end",
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "description": "Period start",
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": ["end", "start"],
+        "title": "LineItemPeriod",
+        "type": "object"
+      },
+      "PaymentSettingsResponse": {
+        "description": "Payment settings.",
+        "properties": {
+          "default_mandate": {
+            "description": "Mandate ID",
+            "title": "Default Mandate",
+            "type": "string"
+          },
+          "payment_method_options": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Payment method options",
+            "title": "Payment Method Options",
+            "type": "object"
+          },
+          "payment_method_types": {
+            "description": "Payment method types",
+            "items": {
+              "type": "string"
+            },
+            "title": "Payment Method Types",
+            "type": "array"
+          }
+        },
+        "title": "PaymentSettingsResponse",
+        "type": "object"
+      },
+      "StatusTransitions": {
+        "description": "Status transitions.",
+        "properties": {
+          "finalized_at": {
+            "description": "Finalization timestamp",
+            "title": "Finalized At",
+            "type": "integer"
+          },
+          "marked_uncollectible_at": {
+            "description": "Marked uncollectible timestamp",
+            "title": "Marked Uncollectible At",
+            "type": "integer"
+          },
+          "paid_at": {
+            "description": "Paid timestamp",
+            "title": "Paid At",
+            "type": "integer"
+          },
+          "voided_at": {
+            "description": "Voided timestamp",
+            "title": "Voided At",
+            "type": "integer"
+          }
+        },
+        "title": "StatusTransitions",
+        "type": "object"
+      },
+      "TaxRateResponse": {
+        "description": "Tax rate details.",
+        "properties": {
+          "active": {
+            "description": "Whether active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "country": {
+            "description": "Country code",
+            "title": "Country",
+            "type": "string"
+          },
+          "created": {
+            "description": "Creation timestamp",
+            "title": "Created",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Description",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "Display name",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "effective_percentage": {
+            "description": "Effective percentage",
+            "title": "Effective Percentage",
+            "type": "number"
+          },
+          "id": {
+            "description": "Tax rate ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "inclusive": {
+            "description": "Whether inclusive",
+            "title": "Inclusive",
+            "type": "boolean"
+          },
+          "jurisdiction": {
+            "description": "Jurisdiction",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "jurisdiction_level": {
+            "description": "Jurisdiction level",
+            "title": "Jurisdiction Level",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live mode",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "Always 'tax_rate'",
+            "title": "Object",
+            "type": "string"
+          },
+          "percentage": {
+            "description": "Tax percentage",
+            "title": "Percentage",
+            "type": "number"
+          },
+          "state": {
+            "description": "State code",
+            "title": "State",
+            "type": "string"
+          },
+          "tax_type": {
+            "description": "Tax type",
+            "title": "Tax Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "active", "created", "display_name", "inclusive", "livemode", "percentage"],
+        "title": "TaxRateResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreatePreviewInvoiceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

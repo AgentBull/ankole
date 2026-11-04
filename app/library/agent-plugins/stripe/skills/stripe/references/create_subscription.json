@@ -1,0 +1,2022 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new, highly configurable subscription for an existing Stripe customer, supporting multiple items, trials, discounts, and various billing/payment options.",
+  "inputSchema": {
+    "properties": {
+      "cancel_at_period_end": {
+        "default": false,
+        "description": "Cancel the subscription at the end of the current billing period.",
+        "title": "Cancel At Period End",
+        "type": "boolean"
+      },
+      "billing_cycle_anchor_config": {
+        "additionalProperties": false,
+        "description": "Configure the billing cycle anchor using a specific day, hour, minute, etc.",
+        "properties": {
+          "day_of_month": {
+            "description": "Day of the month (1-31) to anchor the billing cycle.",
+            "maximum": 31,
+            "minimum": 1,
+            "title": "Day Of Month",
+            "type": "integer"
+          },
+          "hour": {
+            "description": "Hour of the day (0-23, UTC) for billing.",
+            "maximum": 23,
+            "minimum": 0,
+            "title": "Hour",
+            "type": "integer"
+          },
+          "minute": {
+            "description": "Minute of the hour (0-59, UTC) for billing.",
+            "maximum": 59,
+            "minimum": 0,
+            "title": "Minute",
+            "type": "integer"
+          },
+          "month": {
+            "description": "Month (1-12) to start billing.",
+            "maximum": 12,
+            "minimum": 1,
+            "title": "Month",
+            "type": "integer"
+          },
+          "second": {
+            "description": "Second of the minute (0-59, UTC) for billing.",
+            "maximum": 59,
+            "minimum": 0,
+            "title": "Second",
+            "type": "integer"
+          }
+        },
+        "required": ["day_of_month"],
+        "title": "BillingCycleAnchorConfig",
+        "type": "object"
+      },
+      "items": {
+        "description": "List of items (products/services and pricing) for the subscription.",
+        "items": {
+          "properties": {
+            "billing_thresholds": {
+              "additionalProperties": false,
+              "description": "Usage-based billing thresholds for this item.",
+              "properties": {
+                "amount_gte": {
+                  "description": "Monetary threshold (in smallest currency unit) to trigger billing.",
+                  "examples": ["10000"],
+                  "title": "Amount Gte",
+                  "type": "integer"
+                },
+                "reset_billing_cycle_anchor": {
+                  "description": "Reset the billing cycle anchor to the threshold bill date.",
+                  "title": "Reset Billing Cycle Anchor",
+                  "type": "boolean"
+                }
+              },
+              "title": "BillingThresholds",
+              "type": "object"
+            },
+            "discounts": {
+              "description": "List of discounts for this item, overriding subscription-level discounts.",
+              "items": {
+                "properties": {
+                  "coupon": {
+                    "description": "ID of the coupon to apply.",
+                    "examples": ["coupon_xxxxxxxxxxxxxx"],
+                    "title": "Coupon",
+                    "type": "string"
+                  },
+                  "discount": {
+                    "description": "ID of an existing discount object to apply (typically for ad-hoc discounts).",
+                    "title": "Discount",
+                    "type": "string"
+                  },
+                  "promotion_code": {
+                    "description": "ID of the promotion code to apply.",
+                    "examples": ["promo_xxxxxxxxxxxxxx"],
+                    "title": "Promotion Code",
+                    "type": "string"
+                  }
+                },
+                "title": "Discount",
+                "type": "object"
+              },
+              "title": "Discounts",
+              "type": "array"
+            },
+            "metadata": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Key-value pairs for additional information about this item.",
+              "title": "Metadata",
+              "type": "object"
+            },
+            "price": {
+              "description": "ID of the price object. One of `price` or `price_data` is required.",
+              "examples": ["price_xxxxxxxxxxxxxx"],
+              "title": "Price",
+              "type": "string"
+            },
+            "price_data": {
+              "additionalProperties": false,
+              "description": "Data to generate a new price object inline. One of `price` or `price_data` is required.",
+              "properties": {
+                "currency": {
+                  "description": "Three-letter ISO currency code (lowercase).",
+                  "examples": ["usd", "eur", "gbp"],
+                  "title": "Currency",
+                  "type": "string"
+                },
+                "product": {
+                  "description": "ID of the product associated with this price.",
+                  "examples": ["prod_xxxxxxxxxxxxxx"],
+                  "title": "Product",
+                  "type": "string"
+                },
+                "recurring": {
+                  "additionalProperties": true,
+                  "description": "Recurring components of the price (e.g., interval, interval_count).",
+                  "examples": [
+                    {
+                      "interval": "month",
+                      "interval_count": 1
+                    }
+                  ],
+                  "title": "Recurring",
+                  "type": "object"
+                },
+                "unit_amount": {
+                  "description": "Unit amount in the currency's smallest unit (e.g., cents for USD).",
+                  "examples": ["1000", "2500"],
+                  "title": "Unit Amount",
+                  "type": "integer"
+                }
+              },
+              "required": ["currency", "product", "unit_amount"],
+              "title": "PriceData",
+              "type": "object"
+            },
+            "quantity": {
+              "description": "Quantity of the subscription item.",
+              "title": "Quantity",
+              "type": "integer"
+            },
+            "tax_rates": {
+              "description": "List of tax rate IDs to apply to this item, overriding defaults.",
+              "examples": [["txr_xxxxxxxxxxxxxx"]],
+              "items": {
+                "type": "string"
+              },
+              "title": "Tax Rates",
+              "type": "array"
+            }
+          },
+          "title": "SubscriptionItem",
+          "type": "object"
+        },
+        "title": "Items",
+        "type": "array"
+      },
+      "days_until_due": {
+        "description": "Days until invoice is due (for `send_invoice` collection method).",
+        "title": "Days Until Due",
+        "type": "integer"
+      },
+      "description": {
+        "description": "Arbitrary string describing the subscription.",
+        "title": "Description",
+        "type": "string"
+      },
+      "pending_invoice_item_interval": {
+        "additionalProperties": false,
+        "description": "Configuration for generating pending invoice items for usage-based billing.",
+        "properties": {
+          "interval": {
+            "description": "Frequency for generating pending invoice items.",
+            "enum": ["day", "week", "month", "year"],
+            "title": "Interval",
+            "type": "string"
+          },
+          "interval_count": {
+            "default": 1,
+            "description": "Number of intervals between invoice item creation.",
+            "title": "Interval Count",
+            "type": "integer"
+          }
+        },
+        "required": ["interval"],
+        "title": "PendingInvoiceItemInterval",
+        "type": "object"
+      },
+      "application_fee_percent": {
+        "description": "Percentage (0-100) of subscription amount as an application fee for the platform.",
+        "title": "Application Fee Percent",
+        "type": "number"
+      },
+      "discounts": {
+        "description": "List of discounts for the entire subscription.",
+        "items": {
+          "properties": {
+            "coupon": {
+              "description": "ID of the coupon to apply.",
+              "examples": ["coupon_xxxxxxxxxxxxxx"],
+              "title": "Coupon",
+              "type": "string"
+            },
+            "discount": {
+              "description": "ID of an existing discount object to apply (typically for ad-hoc discounts).",
+              "title": "Discount",
+              "type": "string"
+            },
+            "promotion_code": {
+              "description": "ID of the promotion code to apply.",
+              "examples": ["promo_xxxxxxxxxxxxxx"],
+              "title": "Promotion Code",
+              "type": "string"
+            }
+          },
+          "title": "Discount",
+          "type": "object"
+        },
+        "title": "Discounts",
+        "type": "array"
+      },
+      "automatic_tax": {
+        "additionalProperties": false,
+        "description": "Settings for Stripe's automatic tax calculation.",
+        "properties": {
+          "enabled": {
+            "description": "Enable automatic tax calculation by Stripe for this subscription.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "liability": {
+            "additionalProperties": false,
+            "description": "Account responsible for tax liabilities if automatic tax is enabled.",
+            "properties": {
+              "connected_account": {
+                "description": "Stripe Connect account ID liable for tax calculations and reporting.",
+                "examples": ["acct_xxxxxxxxxxxxxx"],
+                "title": "Connected Account",
+                "type": "string"
+              }
+            },
+            "required": ["connected_account"],
+            "title": "AutomaticTaxLiability",
+            "type": "object"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTax",
+        "type": "object"
+      },
+      "trial_end": {
+        "description": "Unix timestamp for trial end. Overrides plan trial period. During the trial, no payment is required - this allows creating subscriptions without a payment method. Can be up to two years from billing cycle anchor.",
+        "title": "Trial End",
+        "type": "integer"
+      },
+      "trial_from_plan": {
+        "description": "Inherit trial period from the plan of the first item.",
+        "title": "Trial From Plan",
+        "type": "boolean"
+      },
+      "customer": {
+        "description": "ID of the existing Stripe customer.",
+        "examples": ["cus_xxxxxxxxxxxxxx"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "promotion_code": {
+        "description": "ID of the promotion code to apply.",
+        "examples": ["promo_xxxxxxxxxxxxxx"],
+        "title": "Promotion Code",
+        "type": "string"
+      },
+      "invoice_settings": {
+        "additionalProperties": false,
+        "description": "Custom settings for invoices generated for this subscription.",
+        "properties": {
+          "account_tax_ids": {
+            "description": "List of tax ID objects (e.g., VAT numbers) for invoices. Must be Stripe-verified.",
+            "examples": [["txr_xxxxxxxxxxxxxx"]],
+            "items": {
+              "type": "string"
+            },
+            "title": "Account Tax Ids",
+            "type": "array"
+          },
+          "issuer": {
+            "additionalProperties": true,
+            "description": "Entity issuing the invoice (e.g., company or individual), with details.",
+            "title": "Issuer",
+            "type": "object"
+          }
+        },
+        "title": "InvoiceSettings",
+        "type": "object"
+      },
+      "trial_period_days": {
+        "description": "Number of days for the trial period. During the trial, no payment is required - this allows creating subscriptions without a payment method attached. Payment will be collected when the trial ends.",
+        "title": "Trial Period Days",
+        "type": "integer"
+      },
+      "collection_method": {
+        "default": "charge_automatically",
+        "description": "How to collect payment. 'charge_automatically' (default) attempts to charge customer's payment method at billing cycle end. 'send_invoice' emails an invoice with payment instructions - subscriptions using this method activate regardless of first invoice status and don't require a payment method.",
+        "enum": ["charge_automatically", "send_invoice"],
+        "title": "Collection Method",
+        "type": "string"
+      },
+      "on_behalf_of": {
+        "description": "Stripe Connect account ID for attributing payments (if charging on behalf of).",
+        "examples": ["acct_xxxxxxxxxxxxxx"],
+        "title": "On Behalf Of",
+        "type": "string"
+      },
+      "backdate_start_date": {
+        "description": "Unix timestamp to backdate the subscription's start.",
+        "title": "Backdate Start Date",
+        "type": "integer"
+      },
+      "off_session": {
+        "description": "Allow initial payment attempt off-session (without direct customer interaction).",
+        "title": "Off Session",
+        "type": "boolean"
+      },
+      "default_tax_rates": {
+        "description": "List of default tax rate IDs, overridable at item level.",
+        "examples": [["txr_xxxxxxxxxxxxxx"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Default Tax Rates",
+        "type": "array"
+      },
+      "default_payment_method": {
+        "description": "ID of the default payment method for this subscription (must be attached to customer). Not required if: (1) using trial_period_days or trial_end for trial subscriptions, or (2) using collection_method='send_invoice' for invoice-based billing.",
+        "examples": ["pm_xxxxxxxxxxxxxx"],
+        "title": "Default Payment Method",
+        "type": "string"
+      },
+      "transfer_data": {
+        "additionalProperties": false,
+        "description": "Data to specify a funds transfer to a connected Stripe account as part of this subscription.",
+        "properties": {
+          "amount_percent": {
+            "description": "Percentage (1-100, up to 4 decimal places) of subscription amount to transfer.",
+            "title": "Amount Percent",
+            "type": "number"
+          },
+          "destination": {
+            "description": "ID of the Stripe connected account receiving the transfer.",
+            "examples": ["acct_xxxxxxxxxxxxxx"],
+            "title": "Destination",
+            "type": "string"
+          }
+        },
+        "required": ["destination"],
+        "title": "TransferData",
+        "type": "object"
+      },
+      "billing_cycle_anchor": {
+        "description": "Unix timestamp to anchor the subscription's billing cycle.",
+        "title": "Billing Cycle Anchor",
+        "type": "integer"
+      },
+      "payment_behavior": {
+        "description": "Behavior when initial payment fails or requires SCA (e.g., 3D Secure authentication). Options: 'allow_incomplete' (default) - creates subscription with status='incomplete' if the first invoice can't be paid; 'default_incomplete' - creates subscription with status='incomplete' when payment is required, otherwise starts as active; 'error_if_incomplete' - returns HTTP 402 error if payment fails; 'pending_if_incomplete' - only valid for updates. Note: This parameter controls payment failure handling, not whether a payment method is required. To create subscriptions without a payment method, use trial_period_days or collection_method='send_invoice'.",
+        "enum": ["allow_incomplete", "default_incomplete", "error_if_incomplete", "pending_if_incomplete"],
+        "title": "PaymentBehavior",
+        "type": "string"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Key-value pairs for additional information about the subscription.",
+        "title": "Metadata",
+        "type": "object"
+      },
+      "currency": {
+        "description": "Three-letter ISO currency code (lowercase) for the subscription.",
+        "examples": ["usd", "eur", "gbp"],
+        "title": "Currency",
+        "type": "string"
+      },
+      "payment_settings": {
+        "additionalProperties": false,
+        "description": "Advanced payment settings for the subscription, including payment method options.",
+        "properties": {
+          "payment_method_options": {
+            "additionalProperties": false,
+            "description": "Settings for various payment methods, such as card or bank debits.",
+            "properties": {
+              "acss_debit": {
+                "additionalProperties": true,
+                "description": "Configuration for Canadian ACSS Debit payments.",
+                "title": "Acss Debit",
+                "type": "object"
+              },
+              "card": {
+                "additionalProperties": false,
+                "description": "Options specific to card-based payment methods.",
+                "properties": {
+                  "installments": {
+                    "additionalProperties": true,
+                    "description": "Configuration for card installment payment options.",
+                    "title": "Installments",
+                    "type": "object"
+                  },
+                  "network": {
+                    "description": "Preferred card network (e.g., 'visa', 'mastercard').",
+                    "examples": ["visa", "mastercard", "amex"],
+                    "title": "Network",
+                    "type": "string"
+                  },
+                  "request_three_d_secure": {
+                    "description": "When to request 3D Secure authentication for card payments.",
+                    "examples": ["automatic", "any"],
+                    "title": "Request Three D Secure",
+                    "type": "string"
+                  }
+                },
+                "title": "CardPaymentMethodOptions",
+                "type": "object"
+              },
+              "sepa_debit": {
+                "additionalProperties": true,
+                "description": "Configuration for SEPA Direct Debit payments.",
+                "title": "Sepa Debit",
+                "type": "object"
+              }
+            },
+            "title": "PaymentMethodOptions",
+            "type": "object"
+          },
+          "payment_method_types": {
+            "description": "Accepted payment method types (e.g., `card`, `acss_debit`).",
+            "examples": [["card", "acss_debit", "sepa_debit"]],
+            "items": {
+              "type": "string"
+            },
+            "title": "Payment Method Types",
+            "type": "array"
+          },
+          "save_default_payment_method": {
+            "description": "Controls how the payment method used for the subscription is saved.",
+            "enum": ["off", "on_subscription"],
+            "title": "SaveDefaultPaymentMethod",
+            "type": "string"
+          }
+        },
+        "title": "PaymentSettings",
+        "type": "object"
+      },
+      "cancel_at": {
+        "description": "Unix timestamp to schedule subscription cancellation.",
+        "title": "Cancel At",
+        "type": "integer"
+      },
+      "add_invoice_items": {
+        "description": "One-time invoice items for the first invoice.",
+        "items": {
+          "properties": {
+            "discounts": {
+              "description": "Discounts for this invoice item.",
+              "items": {
+                "properties": {
+                  "coupon": {
+                    "description": "ID of the coupon to apply.",
+                    "examples": ["coupon_xxxxxxxxxxxxxx"],
+                    "title": "Coupon",
+                    "type": "string"
+                  },
+                  "discount": {
+                    "description": "ID of an existing discount object to apply (typically for ad-hoc discounts).",
+                    "title": "Discount",
+                    "type": "string"
+                  },
+                  "promotion_code": {
+                    "description": "ID of the promotion code to apply.",
+                    "examples": ["promo_xxxxxxxxxxxxxx"],
+                    "title": "Promotion Code",
+                    "type": "string"
+                  }
+                },
+                "title": "Discount",
+                "type": "object"
+              },
+              "title": "Discounts",
+              "type": "array"
+            },
+            "price": {
+              "description": "ID of the price object. One of `price` or `price_data` is required.",
+              "examples": ["price_xxxxxxxxxxxxxx"],
+              "title": "Price",
+              "type": "string"
+            },
+            "price_data": {
+              "additionalProperties": false,
+              "description": "Data to generate a new price object inline.",
+              "properties": {
+                "currency": {
+                  "description": "Three-letter ISO currency code (lowercase).",
+                  "examples": ["usd", "eur", "gbp"],
+                  "title": "Currency",
+                  "type": "string"
+                },
+                "product": {
+                  "description": "ID of the product associated with this price.",
+                  "examples": ["prod_xxxxxxxxxxxxxx"],
+                  "title": "Product",
+                  "type": "string"
+                },
+                "recurring": {
+                  "additionalProperties": true,
+                  "description": "Recurring components of the price (e.g., interval, interval_count).",
+                  "examples": [
+                    {
+                      "interval": "month",
+                      "interval_count": 1
+                    }
+                  ],
+                  "title": "Recurring",
+                  "type": "object"
+                },
+                "unit_amount": {
+                  "description": "Unit amount in the currency's smallest unit (e.g., cents for USD).",
+                  "examples": ["1000", "2500"],
+                  "title": "Unit Amount",
+                  "type": "integer"
+                }
+              },
+              "required": ["currency", "product", "unit_amount"],
+              "title": "PriceData",
+              "type": "object"
+            },
+            "quantity": {
+              "default": 1,
+              "description": "Quantity of the invoice item.",
+              "title": "Quantity",
+              "type": "integer"
+            },
+            "tax_rates": {
+              "description": "Tax rates for this invoice item.",
+              "examples": [["txr_xxxxxxxxxxxxxx"]],
+              "items": {
+                "type": "string"
+              },
+              "title": "Tax Rates",
+              "type": "array"
+            }
+          },
+          "title": "AddInvoiceItem",
+          "type": "object"
+        },
+        "title": "Add Invoice Items",
+        "type": "array"
+      },
+      "billing_thresholds": {
+        "additionalProperties": false,
+        "description": "Subscription-level billing thresholds for metered billing.",
+        "properties": {
+          "amount_gte": {
+            "description": "Monetary threshold (in smallest currency unit) to trigger billing.",
+            "examples": ["10000"],
+            "title": "Amount Gte",
+            "type": "integer"
+          },
+          "reset_billing_cycle_anchor": {
+            "description": "Reset the billing cycle anchor to the threshold bill date.",
+            "title": "Reset Billing Cycle Anchor",
+            "type": "boolean"
+          }
+        },
+        "title": "BillingThresholds",
+        "type": "object"
+      },
+      "proration_behavior": {
+        "description": "How to handle prorations on subscription changes.",
+        "enum": ["always_invoice", "create_prorations", "none"],
+        "title": "ProrationBehavior",
+        "type": "string"
+      },
+      "trial_settings": {
+        "additionalProperties": false,
+        "description": "Settings related to the subscription's trial period, specifically how it should end.",
+        "properties": {
+          "end_behavior": {
+            "additionalProperties": true,
+            "description": "Behavior when trial period ends, including `missing_payment_method` handling.",
+            "examples": [
+              {
+                "missing_payment_method": "cancel"
+              }
+            ],
+            "title": "End Behavior",
+            "type": "object"
+          }
+        },
+        "required": ["end_behavior"],
+        "title": "TrialSettings",
+        "type": "object"
+      },
+      "default_source": {
+        "description": "ID of default payment source (deprecated; use `default_payment_method`).",
+        "examples": ["card_xxxxxxxxxxxxxx", "src_xxxxxxxxxxxxxx"],
+        "title": "Default Source",
+        "type": "string"
+      }
+    },
+    "required": ["customer", "items"],
+    "title": "CreateDetailedSubscriptionRequest",
+    "type": "object"
+  },
+  "name": "create_subscription",
+  "outputSchema": {
+    "$defs": {
+      "AutomaticTaxLiabilityResponse": {
+        "properties": {
+          "account": {
+            "description": "The connected account being referenced when type is account.",
+            "title": "Account",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the account referenced. Can be 'account' or 'self'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AutomaticTaxLiabilityResponse",
+        "type": "object"
+      },
+      "AutomaticTaxResponse": {
+        "properties": {
+          "disabled_reason": {
+            "description": "The reason why Stripe disabled automatic tax, if applicable.",
+            "title": "Disabled Reason",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether Stripe automatically computes tax on this subscription.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "liability": {
+            "$ref": "#/$defs/AutomaticTaxLiabilityResponse",
+            "description": "The account that's liable for tax.",
+            "title": "Liability"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTaxResponse",
+        "type": "object"
+      },
+      "BillingCycleAnchorConfigResponse": {
+        "properties": {
+          "day_of_month": {
+            "description": "The day of the month of the billing cycle anchor.",
+            "title": "Day Of Month",
+            "type": "integer"
+          },
+          "hour": {
+            "description": "The hour of the day of the billing cycle anchor.",
+            "title": "Hour",
+            "type": "integer"
+          },
+          "minute": {
+            "description": "The minute of the hour of the billing cycle anchor.",
+            "title": "Minute",
+            "type": "integer"
+          },
+          "month": {
+            "description": "The month to start the billing cycle anchor calculation.",
+            "title": "Month",
+            "type": "integer"
+          },
+          "second": {
+            "description": "The second of the minute of the billing cycle anchor.",
+            "title": "Second",
+            "type": "integer"
+          }
+        },
+        "required": ["day_of_month"],
+        "title": "BillingCycleAnchorConfigResponse",
+        "type": "object"
+      },
+      "BillingModeFlexibleConfig": {
+        "properties": {
+          "proration_discounts": {
+            "description": "How proration discounts are displayed on invoices.",
+            "title": "Proration Discounts",
+            "type": "string"
+          }
+        },
+        "required": ["proration_discounts"],
+        "title": "BillingModeFlexibleConfig",
+        "type": "object"
+      },
+      "BillingModeResponse": {
+        "properties": {
+          "flexible": {
+            "$ref": "#/$defs/BillingModeFlexibleConfig",
+            "description": "Configuration for flexible billing mode behavior.",
+            "title": "Flexible"
+          },
+          "type": {
+            "description": "The billing mode type. Can be 'classic' or 'flexible'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "The timestamp when the billing mode was adopted.",
+            "title": "Updated At",
+            "type": "integer"
+          }
+        },
+        "required": ["type"],
+        "title": "BillingModeResponse",
+        "type": "object"
+      },
+      "BillingThresholdsResponse": {
+        "properties": {
+          "amount_gte": {
+            "description": "Monetary threshold that triggers the subscription to create an invoice.",
+            "title": "Amount Gte",
+            "type": "integer"
+          },
+          "reset_billing_cycle_anchor": {
+            "description": "Indicates if the billing_cycle_anchor should be reset when a threshold is reached.",
+            "title": "Reset Billing Cycle Anchor",
+            "type": "boolean"
+          }
+        },
+        "title": "BillingThresholdsResponse",
+        "type": "object"
+      },
+      "CancellationDetailsResponse": {
+        "properties": {
+          "comment": {
+            "description": "Additional comments about why the user canceled the subscription, if provided.",
+            "title": "Comment",
+            "type": "string"
+          },
+          "feedback": {
+            "description": "The customer submitted reason for why they canceled, if provided.",
+            "title": "Feedback",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why this subscription was canceled.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "CancellationDetailsResponse",
+        "type": "object"
+      },
+      "CouponAppliesTo": {
+        "properties": {
+          "products": {
+            "description": "List of product IDs this coupon applies to.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Products",
+            "type": "array"
+          }
+        },
+        "title": "CouponAppliesTo",
+        "type": "object"
+      },
+      "CouponResponse": {
+        "properties": {
+          "amount_off": {
+            "description": "Amount that will be taken off the subtotal of any invoices for this customer.",
+            "title": "Amount Off",
+            "type": "integer"
+          },
+          "applies_to": {
+            "$ref": "#/$defs/CouponAppliesTo",
+            "description": "Contains information about what the coupon applies to.",
+            "title": "Applies To"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code associated with amount_off.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "currency_options": {
+            "additionalProperties": true,
+            "description": "Coupons defined in each available currency option.",
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "duration": {
+            "description": "One of forever, once, or repeating. Describes how long a customer who applies this coupon will get the discount.",
+            "title": "Duration",
+            "type": "string"
+          },
+          "duration_in_months": {
+            "description": "If duration is repeating, the number of months the coupon applies.",
+            "title": "Duration In Months",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the coupon.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Whether the object exists in live mode or test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "max_redemptions": {
+            "description": "Maximum number of times this coupon can be redeemed, in total, across all customers.",
+            "title": "Max Redemptions",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "Name of the coupon displayed to customers on invoices or receipts.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percent_off": {
+            "description": "Percent that will be taken off the subtotal of any invoices for this customer for the duration of the coupon.",
+            "title": "Percent Off",
+            "type": "number"
+          },
+          "redeem_by": {
+            "description": "Date after which the coupon can no longer be redeemed.",
+            "title": "Redeem By",
+            "type": "integer"
+          },
+          "times_redeemed": {
+            "description": "Number of times this coupon has been applied to a customer.",
+            "title": "Times Redeemed",
+            "type": "integer"
+          },
+          "valid": {
+            "description": "Whether this coupon can still be applied to a customer.",
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "object", "created", "duration", "livemode", "times_redeemed", "valid"],
+        "title": "CouponResponse",
+        "type": "object"
+      },
+      "CreateDetailedSubscriptionResponse": {
+        "description": "Stripe Subscription response object for API version 2025-03-31 and later.\nNote: current_period_start and current_period_end removed from subscription level,\nnow only available at subscription item level (items.data.current_period_start/end).",
+        "properties": {
+          "canceled_at": {
+            "description": "If the subscription has been canceled, the date of that cancellation.",
+            "title": "Canceled At",
+            "type": "integer"
+          },
+          "pending_update": {
+            "$ref": "#/$defs/PendingUpdateResponse",
+            "description": "If specified, pending updates that will be applied to the subscription once the latest_invoice has been paid.",
+            "title": "Pending Update"
+          },
+          "current_period_end": {
+            "description": "End of the current period that the subscription has been invoiced for.",
+            "title": "Current Period End",
+            "type": "integer"
+          },
+          "cancel_at_period_end": {
+            "description": "If the subscription has been canceled with the at_period_end flag set to true, cancel_at_period_end on the subscription will be true.",
+            "title": "Cancel At Period End",
+            "type": "boolean"
+          },
+          "billing_mode": {
+            "$ref": "#/$defs/BillingModeResponse",
+            "description": "Controls how prorations are calculated and when invoices are created.",
+            "title": "Billing Mode"
+          },
+          "application": {
+            "description": "ID of the Connect Application that created the subscription.",
+            "title": "Application",
+            "type": "string"
+          },
+          "plan": {
+            "$ref": "#/$defs/PlanResponse",
+            "description": "The plan object (deprecated, use items.data.price instead).",
+            "title": "Plan"
+          },
+          "test_clock": {
+            "description": "ID of the test clock this subscription belongs to.",
+            "title": "Test Clock",
+            "type": "string"
+          },
+          "billing_cycle_anchor_config": {
+            "$ref": "#/$defs/BillingCycleAnchorConfigResponse",
+            "description": "Configure the subscription to have fixed values for calculating the billing cycle anchor.",
+            "title": "Billing Cycle Anchor Config"
+          },
+          "items": {
+            "$ref": "#/$defs/SubscriptionItemsListResponse",
+            "description": "List of subscription items, each with an attached price.",
+            "title": "Items"
+          },
+          "days_until_due": {
+            "description": "Number of days a customer has to pay invoices generated by this subscription.",
+            "title": "Days Until Due",
+            "type": "integer"
+          },
+          "description": {
+            "description": "The subscription's description, meant to be displayable to the customer.",
+            "title": "Description",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Possible values are incomplete, incomplete_expired, trialing, active, past_due, canceled, unpaid, or paused.",
+            "title": "Status",
+            "type": "string"
+          },
+          "pending_invoice_item_interval": {
+            "$ref": "#/$defs/PendingInvoiceItemIntervalResponse",
+            "description": "Specifies an interval for how often to bill for any pending invoice items.",
+            "title": "Pending Invoice Item Interval"
+          },
+          "next_pending_invoice_item_invoice": {
+            "description": "Specifies the approximate timestamp on which any pending invoice items will be billed according to the schedule provided at pending_invoice_item_interval.",
+            "title": "Next Pending Invoice Item Invoice",
+            "type": "integer"
+          },
+          "application_fee_percent": {
+            "description": "A non-negative decimal between 0 and 100, with at most two decimal places. This represents the percentage of the subscription invoice total that will be transferred to the application owner's Stripe account.",
+            "title": "Application Fee Percent",
+            "type": "number"
+          },
+          "discounts": {
+            "description": "Array of discounts applied to this subscription. Can be discount IDs or expanded discount objects.",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/DiscountResponse"
+                }
+              ]
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "automatic_tax": {
+            "$ref": "#/$defs/AutomaticTaxResponse",
+            "description": "Automatic tax settings for this subscription.",
+            "title": "Automatic Tax"
+          },
+          "trial_end": {
+            "description": "If the subscription has a trial, the end of that trial.",
+            "title": "Trial End",
+            "type": "integer"
+          },
+          "customer": {
+            "description": "ID of the customer who owns the subscription.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "start_date": {
+            "description": "Date when the subscription was first created. The date might differ from the created date due to backdating.",
+            "title": "Start Date",
+            "type": "integer"
+          },
+          "invoice_settings": {
+            "$ref": "#/$defs/InvoiceSettingsResponse",
+            "description": "All invoices will be billed using the specified settings.",
+            "title": "Invoice Settings"
+          },
+          "cancellation_details": {
+            "$ref": "#/$defs/CancellationDetailsResponse",
+            "description": "Details about why this subscription was cancelled.",
+            "title": "Cancellation Details"
+          },
+          "current_period_start": {
+            "description": "Start of the current period that the subscription has been invoiced for.",
+            "title": "Current Period Start",
+            "type": "integer"
+          },
+          "collection_method": {
+            "description": "Either charge_automatically, or send_invoice. When charging automatically, Stripe will attempt to pay this subscription at the end of the cycle using the default source attached to the customer.",
+            "title": "Collection Method",
+            "type": "string"
+          },
+          "ended_at": {
+            "description": "If the subscription has ended, the date the subscription ended.",
+            "title": "Ended At",
+            "type": "integer"
+          },
+          "on_behalf_of": {
+            "description": "The account (if any) the charge was made on behalf of for charges associated with this subscription.",
+            "title": "On Behalf Of",
+            "type": "string"
+          },
+          "default_tax_rates": {
+            "description": "The tax rates that will apply to any subscription item that does not have tax_rates set.",
+            "items": {
+              "$ref": "#/$defs/TaxRateResponse"
+            },
+            "title": "Default Tax Rates",
+            "type": "array"
+          },
+          "default_payment_method": {
+            "description": "ID of the default payment method for the subscription. It must belong to the customer associated with the subscription.",
+            "title": "Default Payment Method",
+            "type": "string"
+          },
+          "transfer_data": {
+            "$ref": "#/$defs/TransferDataResponse",
+            "description": "The account (if any) the subscription's payments will be attributed to for tax reporting, and where funds from each payment will be transferred to for each of the subscription's invoices.",
+            "title": "Transfer Data"
+          },
+          "quantity": {
+            "description": "The quantity of the plan (deprecated).",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "billing_cycle_anchor": {
+            "description": "Determines the date of the first full invoice, and, for plans with month or year intervals, the day of the month for subsequent invoices. The timestamp is in UTC format.",
+            "title": "Billing Cycle Anchor",
+            "type": "integer"
+          },
+          "pending_setup_intent": {
+            "description": "You can use this SetupIntent to collect user authentication when creating a subscription without immediate payment or updating a subscription's payment method.",
+            "title": "Pending Setup Intent",
+            "type": "string"
+          },
+          "trial_start": {
+            "description": "If the subscription has a trial, the beginning of that trial.",
+            "title": "Trial Start",
+            "type": "integer"
+          },
+          "discount": {
+            "$ref": "#/$defs/DiscountResponse",
+            "description": "Single discount object (deprecated, use discounts).",
+            "title": "Discount"
+          },
+          "customer_account": {
+            "description": "The customer account associated with the subscription.",
+            "title": "Customer Account",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object. This can be useful for storing additional information about the object in a structured format.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase. Must be a supported currency.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "payment_settings": {
+            "$ref": "#/$defs/PaymentSettingsResponse",
+            "description": "Payment settings for invoices associated with the subscription.",
+            "title": "Payment Settings"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "cancel_at": {
+            "description": "A date in the future at which the subscription will automatically get canceled.",
+            "title": "Cancel At",
+            "type": "integer"
+          },
+          "pause_collection": {
+            "$ref": "#/$defs/PauseCollectionResponse",
+            "description": "If specified, payment collection for this subscription will be paused.",
+            "title": "Pause Collection"
+          },
+          "schedule": {
+            "description": "The schedule attached to the subscription.",
+            "title": "Schedule",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Objects of the same type share the same value.",
+            "title": "Object",
+            "type": "string"
+          },
+          "billing_thresholds": {
+            "$ref": "#/$defs/BillingThresholdsResponse",
+            "description": "Define thresholds at which an invoice will be sent, and the subscription advanced to a new billing period.",
+            "title": "Billing Thresholds"
+          },
+          "trial_settings": {
+            "$ref": "#/$defs/TrialSettingsResponse",
+            "description": "Settings related to subscription trials.",
+            "title": "Trial Settings"
+          },
+          "default_source": {
+            "description": "ID of the default payment source for the subscription.",
+            "title": "Default Source",
+            "type": "string"
+          },
+          "latest_invoice": {
+            "description": "The most recent invoice this subscription has generated.",
+            "title": "Latest Invoice",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "automatic_tax",
+          "billing_cycle_anchor",
+          "billing_mode",
+          "cancel_at_period_end",
+          "collection_method",
+          "created",
+          "currency",
+          "customer",
+          "invoice_settings",
+          "items",
+          "livemode",
+          "metadata",
+          "start_date",
+          "status"
+        ],
+        "title": "CreateDetailedSubscriptionResponse",
+        "type": "object"
+      },
+      "CustomUnitAmountResponse": {
+        "properties": {
+          "maximum": {
+            "description": "The maximum unit amount the customer can specify for this item.",
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "description": "The minimum unit amount the customer can specify for this item.",
+            "title": "Minimum",
+            "type": "integer"
+          },
+          "preset": {
+            "description": "The starting unit amount which can be updated by the customer.",
+            "title": "Preset",
+            "type": "integer"
+          }
+        },
+        "title": "CustomUnitAmountResponse",
+        "type": "object"
+      },
+      "DiscountResponse": {
+        "properties": {
+          "checkout_session": {
+            "description": "The Checkout session that this coupon is applied to, if it is applied to a particular session in payment mode.",
+            "title": "Checkout Session",
+            "type": "string"
+          },
+          "coupon": {
+            "$ref": "#/$defs/CouponResponse",
+            "description": "A coupon contains information about a percent-off or amount-off discount you might want to apply to a customer.",
+            "title": "Coupon"
+          },
+          "customer": {
+            "description": "The ID of the customer associated with this discount.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "end": {
+            "description": "If the coupon has a duration of repeating, the date that this discount will end.",
+            "title": "End",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The ID of the discount object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "The invoice that the discount's coupon was applied to, if it was applied directly to a particular invoice.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "invoice_item": {
+            "description": "The invoice item id (or invoice line item id for invoice line items of type='subscription') that the discount's coupon was applied to, if it was applied directly to a particular invoice item or invoice line item.",
+            "title": "Invoice Item",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "promotion_code": {
+            "description": "The promotion code applied to create this discount.",
+            "title": "Promotion Code",
+            "type": "string"
+          },
+          "start": {
+            "description": "Date that the coupon was applied.",
+            "title": "Start",
+            "type": "integer"
+          },
+          "subscription": {
+            "description": "The subscription that this coupon is applied to, if it is applied to a particular subscription.",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "subscription_item": {
+            "description": "The subscription item that this coupon is applied to, if it is applied to a particular subscription item.",
+            "title": "Subscription Item",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "coupon", "start"],
+        "title": "DiscountResponse",
+        "type": "object"
+      },
+      "InvoiceSettingsIssuerResponse": {
+        "properties": {
+          "account": {
+            "description": "The connected account being referenced when type is account.",
+            "title": "Account",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the account referenced. Can be 'account' or 'self'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "InvoiceSettingsIssuerResponse",
+        "type": "object"
+      },
+      "InvoiceSettingsResponse": {
+        "properties": {
+          "account_tax_ids": {
+            "description": "The account tax IDs associated with the subscription.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Account Tax Ids",
+            "type": "array"
+          },
+          "issuer": {
+            "$ref": "#/$defs/InvoiceSettingsIssuerResponse",
+            "description": "The connected account that issues the invoice.",
+            "title": "Issuer"
+          }
+        },
+        "required": ["issuer"],
+        "title": "InvoiceSettingsResponse",
+        "type": "object"
+      },
+      "ItemBillingThresholdsResponse": {
+        "properties": {
+          "usage_gte": {
+            "description": "Usage threshold that triggers the subscription to create an invoice.",
+            "title": "Usage Gte",
+            "type": "integer"
+          }
+        },
+        "title": "ItemBillingThresholdsResponse",
+        "type": "object"
+      },
+      "PauseCollectionResponse": {
+        "properties": {
+          "behavior": {
+            "description": "The payment collection behavior for this subscription while paused.",
+            "title": "Behavior",
+            "type": "string"
+          },
+          "resumes_at": {
+            "description": "The time after which the subscription will resume collecting payments.",
+            "title": "Resumes At",
+            "type": "integer"
+          }
+        },
+        "required": ["behavior"],
+        "title": "PauseCollectionResponse",
+        "type": "object"
+      },
+      "PaymentSettingsResponse": {
+        "properties": {
+          "payment_method_options": {
+            "additionalProperties": true,
+            "description": "Payment-method-specific configuration to provide to invoices created by the subscription.",
+            "title": "Payment Method Options",
+            "type": "object"
+          },
+          "payment_method_types": {
+            "description": "The list of payment method types to provide to every invoice created by the subscription.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Payment Method Types",
+            "type": "array"
+          },
+          "save_default_payment_method": {
+            "description": "Either off, on_subscription, or on_subscription_and_invoice.",
+            "title": "Save Default Payment Method",
+            "type": "string"
+          }
+        },
+        "title": "PaymentSettingsResponse",
+        "type": "object"
+      },
+      "PendingInvoiceItemIntervalResponse": {
+        "properties": {
+          "interval": {
+            "description": "Specifies invoicing frequency. Either day, week, month or year.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "interval_count": {
+            "description": "The number of intervals between invoices.",
+            "title": "Interval Count",
+            "type": "integer"
+          }
+        },
+        "required": ["interval", "interval_count"],
+        "title": "PendingInvoiceItemIntervalResponse",
+        "type": "object"
+      },
+      "PendingUpdateResponse": {
+        "properties": {
+          "billing_cycle_anchor": {
+            "description": "If the update is applied, determines the date of the first full invoice, and, for plans with month or year intervals, the day of the month for subsequent invoices.",
+            "title": "Billing Cycle Anchor",
+            "type": "integer"
+          },
+          "expires_at": {
+            "description": "The point after which the changes reflected by this update will be discarded and no longer applied.",
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "subscription_items": {
+            "description": "List of subscription items, each with an attached plan, that will be set if the update is applied.",
+            "items": {
+              "$ref": "#/$defs/SubscriptionItemResponse"
+            },
+            "title": "Subscription Items",
+            "type": "array"
+          },
+          "trial_end": {
+            "description": "Unix timestamp representing the end of the trial period the customer will get before being charged for the first time, if the update is applied.",
+            "title": "Trial End",
+            "type": "integer"
+          },
+          "trial_from_plan": {
+            "description": "Indicates if a plan's trial_period_days should be applied to the subscription.",
+            "title": "Trial From Plan",
+            "type": "boolean"
+          }
+        },
+        "required": ["expires_at"],
+        "title": "PendingUpdateResponse",
+        "type": "object"
+      },
+      "PlanResponse": {
+        "description": "Deprecated plan object (use Price instead). Still returned in API responses for backwards compatibility.",
+        "properties": {
+          "active": {
+            "description": "Whether the plan can be used for new purchases.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "aggregate_usage": {
+            "description": "Specifies a usage aggregation strategy for plans of usage_type=metered.",
+            "title": "Aggregate Usage",
+            "type": "string"
+          },
+          "amount": {
+            "description": "Unit amount in cents to be charged.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "amount_decimal": {
+            "description": "Unit amount in cents with up to 12 decimal places.",
+            "title": "Amount Decimal",
+            "type": "string"
+          },
+          "billing_scheme": {
+            "description": "Describes how to compute the price per period.",
+            "title": "Billing Scheme",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "interval": {
+            "description": "Billing frequency. One of day, week, month or year.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "interval_count": {
+            "description": "Number of intervals between billings.",
+            "title": "Interval Count",
+            "type": "integer"
+          },
+          "livemode": {
+            "description": "Whether the object exists in live mode or test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "meter": {
+            "description": "Meter tracking the usage of a metered price.",
+            "title": "Meter",
+            "type": "string"
+          },
+          "nickname": {
+            "description": "Brief description of the plan, hidden from customers.",
+            "title": "Nickname",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "product": {
+            "description": "The ID of the product this plan is associated with.",
+            "title": "Product",
+            "type": "string"
+          },
+          "tiers_mode": {
+            "description": "Defines if the tiering price should be graduated or volume based.",
+            "title": "Tiers Mode",
+            "type": "string"
+          },
+          "transform_usage": {
+            "additionalProperties": true,
+            "description": "Apply a transformation to the reported usage or set quantity.",
+            "title": "Transform Usage",
+            "type": "object"
+          },
+          "trial_period_days": {
+            "description": "Default number of trial days when subscribing a customer to this plan.",
+            "title": "Trial Period Days",
+            "type": "integer"
+          },
+          "usage_type": {
+            "description": "Configures how the quantity per period should be determined.",
+            "title": "Usage Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "active",
+          "billing_scheme",
+          "created",
+          "currency",
+          "interval",
+          "interval_count",
+          "livemode",
+          "usage_type"
+        ],
+        "title": "PlanResponse",
+        "type": "object"
+      },
+      "PriceRecurringResponse": {
+        "properties": {
+          "aggregate_usage": {
+            "description": "Specifies a usage aggregation strategy for prices of usage_type=metered.",
+            "title": "Aggregate Usage",
+            "type": "string"
+          },
+          "interval": {
+            "description": "The frequency at which a subscription is billed. One of day, week, month or year.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "interval_count": {
+            "description": "The number of intervals (specified in the interval attribute) between subscription billings.",
+            "title": "Interval Count",
+            "type": "integer"
+          },
+          "meter": {
+            "description": "The meter tracking the usage of a metered price.",
+            "title": "Meter",
+            "type": "string"
+          },
+          "trial_period_days": {
+            "description": "Default number of trial days when subscribing a customer to this price using trial_from_plan=true.",
+            "title": "Trial Period Days",
+            "type": "integer"
+          },
+          "usage_type": {
+            "description": "Configures how the quantity per period should be determined. Can be either metered or licensed.",
+            "title": "Usage Type",
+            "type": "string"
+          }
+        },
+        "required": ["interval", "interval_count", "usage_type"],
+        "title": "PriceRecurringResponse",
+        "type": "object"
+      },
+      "PriceResponse": {
+        "properties": {
+          "active": {
+            "description": "Whether the price can be used for new purchases.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "billing_scheme": {
+            "description": "Describes how to compute the price per period. Either per_unit or tiered.",
+            "title": "Billing Scheme",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "currency_options": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Prices defined in each available currency option.",
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "custom_unit_amount": {
+            "$ref": "#/$defs/CustomUnitAmountResponse",
+            "description": "When set, provides configuration for the amount to be adjusted by the customer during Checkout Sessions and Payment Links.",
+            "title": "Custom Unit Amount"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "lookup_key": {
+            "description": "A lookup key used to retrieve prices dynamically from a static string.",
+            "title": "Lookup Key",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "nickname": {
+            "description": "A brief description of the price, hidden from customers.",
+            "title": "Nickname",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'price' for this object.",
+            "title": "Object",
+            "type": "string"
+          },
+          "product": {
+            "description": "The ID of the product this price is associated with.",
+            "title": "Product",
+            "type": "string"
+          },
+          "recurring": {
+            "$ref": "#/$defs/PriceRecurringResponse",
+            "description": "The recurring components of a price such as interval and usage_type.",
+            "title": "Recurring"
+          },
+          "tax_behavior": {
+            "description": "Specifies whether the price is considered inclusive of taxes or exclusive of taxes.",
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "tiers": {
+            "description": "Each element represents a pricing tier. This parameter requires billing_scheme to be set to tiered.",
+            "items": {
+              "$ref": "#/$defs/PriceTierResponse"
+            },
+            "title": "Tiers",
+            "type": "array"
+          },
+          "tiers_mode": {
+            "description": "Defines if the tiering price should be graduated or volume based.",
+            "title": "Tiers Mode",
+            "type": "string"
+          },
+          "transform_quantity": {
+            "$ref": "#/$defs/TransformQuantityResponse",
+            "description": "Apply a transformation to the reported usage or set quantity before computing the amount billed.",
+            "title": "Transform Quantity"
+          },
+          "type": {
+            "description": "One of one_time or recurring depending on whether the price is for a one-time purchase or a recurring (subscription) purchase.",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "The unit amount in cents to be charged, represented as a whole integer if possible.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "The unit amount in cents to be charged, represented as a decimal string with at most 12 decimal places.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "active",
+          "billing_scheme",
+          "created",
+          "currency",
+          "livemode",
+          "metadata",
+          "product",
+          "type"
+        ],
+        "title": "PriceResponse",
+        "type": "object"
+      },
+      "PriceTierResponse": {
+        "properties": {
+          "flat_amount": {
+            "description": "Price for the entire tier.",
+            "title": "Flat Amount",
+            "type": "integer"
+          },
+          "flat_amount_decimal": {
+            "description": "Same as flat_amount, but contains a decimal value with at most 12 decimal places.",
+            "title": "Flat Amount Decimal",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "Per unit price for units relevant to the tier.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Same as unit_amount, but contains a decimal value with at most 12 decimal places.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          },
+          "up_to": {
+            "description": "Up to and including to this quantity will be contained in the tier.",
+            "title": "Up To",
+            "type": "integer"
+          }
+        },
+        "title": "PriceTierResponse",
+        "type": "object"
+      },
+      "SubscriptionItemResponse": {
+        "properties": {
+          "billing_thresholds": {
+            "$ref": "#/$defs/ItemBillingThresholdsResponse",
+            "description": "Define thresholds at which an invoice will be sent, and the related subscription advanced to a new billing period.",
+            "title": "Billing Thresholds"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "current_period_end": {
+            "description": "End of the current period for this subscription item. At the end of this period, a new invoice will be created.",
+            "title": "Current Period End",
+            "type": "integer"
+          },
+          "current_period_start": {
+            "description": "Start of the current period for this subscription item.",
+            "title": "Current Period Start",
+            "type": "integer"
+          },
+          "discounts": {
+            "description": "The discounts applied to the subscription item. Can be discount IDs or expanded discount objects.",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/DiscountResponse"
+                }
+              ]
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "plan": {
+            "$ref": "#/$defs/PlanResponse",
+            "description": "The plan object (deprecated, use price instead).",
+            "title": "Plan"
+          },
+          "price": {
+            "$ref": "#/$defs/PriceResponse",
+            "description": "Prices define the unit cost, currency, and (optional) billing cycle for both recurring and one-time purchases of products.",
+            "title": "Price"
+          },
+          "quantity": {
+            "description": "The quantity of the plan to which the customer should be subscribed.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "subscription": {
+            "description": "The subscription this subscription_item belongs to.",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "tax_rates": {
+            "description": "The tax rates which apply to this subscription_item.",
+            "items": {
+              "$ref": "#/$defs/TaxRateResponse"
+            },
+            "title": "Tax Rates",
+            "type": "array"
+          }
+        },
+        "required": ["id", "object", "created", "metadata", "price", "subscription"],
+        "title": "SubscriptionItemResponse",
+        "type": "object"
+      },
+      "SubscriptionItemsListResponse": {
+        "properties": {
+          "data": {
+            "description": "Array of subscription items.",
+            "items": {
+              "$ref": "#/$defs/SubscriptionItemResponse"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "True if this list has another page of items after this one that can be fetched.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'list' for this object.",
+            "title": "Object",
+            "type": "string"
+          },
+          "total_count": {
+            "description": "The total count of items.",
+            "title": "Total Count",
+            "type": "integer"
+          },
+          "url": {
+            "description": "The URL where this list can be accessed.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "SubscriptionItemsListResponse",
+        "type": "object"
+      },
+      "TaxRateResponse": {
+        "properties": {
+          "active": {
+            "description": "Defaults to true. When set to false, this tax rate cannot be used with new applications or Checkout Sessions, but will still work for subscriptions and invoices that already have it set.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2).",
+            "title": "Country",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the tax rate for your internal use only. It will not be visible to your customers.",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "The display name of the tax rates as it will appear to your customer on their receipt email, PDF, and the hosted invoice page.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "effective_percentage": {
+            "description": "Actual tax rate percentage. This is the result of automatic tax calculations based on product taxability.",
+            "title": "Effective Percentage",
+            "type": "number"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "inclusive": {
+            "description": "This specifies if the tax rate is inclusive or exclusive.",
+            "title": "Inclusive",
+            "type": "boolean"
+          },
+          "jurisdiction": {
+            "description": "The jurisdiction for the tax rate. You can use this label field for tax reporting purposes.",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "jurisdiction_level": {
+            "description": "The level of the jurisdiction that imposes this tax rate. Will be null for manually defined tax rates.",
+            "title": "Jurisdiction Level",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percentage": {
+            "description": "This represents the tax rate percent out of 100.",
+            "title": "Percentage",
+            "type": "number"
+          },
+          "state": {
+            "description": "ISO 3166-2 subdivision code, without country prefix.",
+            "title": "State",
+            "type": "string"
+          },
+          "tax_type": {
+            "description": "The high-level tax type, such as vat or sales_tax.",
+            "title": "Tax Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "active", "created", "display_name", "inclusive", "livemode", "percentage"],
+        "title": "TaxRateResponse",
+        "type": "object"
+      },
+      "TransferDataResponse": {
+        "properties": {
+          "amount_percent": {
+            "description": "A non-negative decimal between 0 and 100, with at most two decimal places. This represents the percentage of the subscription invoice total that will be transferred to the destination account.",
+            "title": "Amount Percent",
+            "type": "number"
+          },
+          "destination": {
+            "description": "The account where funds from the payment will be transferred to upon payment success.",
+            "title": "Destination",
+            "type": "string"
+          }
+        },
+        "required": ["destination"],
+        "title": "TransferDataResponse",
+        "type": "object"
+      },
+      "TransformQuantityResponse": {
+        "properties": {
+          "divide_by": {
+            "description": "Divide usage by this number.",
+            "title": "Divide By",
+            "type": "integer"
+          },
+          "round": {
+            "description": "After division, either round the result up or down.",
+            "title": "Round",
+            "type": "string"
+          }
+        },
+        "required": ["divide_by", "round"],
+        "title": "TransformQuantityResponse",
+        "type": "object"
+      },
+      "TrialEndBehaviorResponse": {
+        "properties": {
+          "missing_payment_method": {
+            "description": "Indicates how the subscription should change when the trial ends if the user did not provide a payment method.",
+            "title": "Missing Payment Method",
+            "type": "string"
+          }
+        },
+        "required": ["missing_payment_method"],
+        "title": "TrialEndBehaviorResponse",
+        "type": "object"
+      },
+      "TrialSettingsResponse": {
+        "properties": {
+          "end_behavior": {
+            "$ref": "#/$defs/TrialEndBehaviorResponse",
+            "description": "Defines how the subscription should behave when the user's trial ends.",
+            "title": "End Behavior"
+          }
+        },
+        "required": ["end_behavior"],
+        "title": "TrialSettingsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateDetailedSubscriptionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

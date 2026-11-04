@@ -1,0 +1,48 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Delete a single Salesforce record by object type and record ID. Works with standard and custom objects.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "description": "The unique identifier of the record to delete. Must be a valid 15 or 18-character Salesforce ID format.",
+        "examples": ["001XXXXXXXXXXXXXXX", "003XXXXXXXXXXXXXXX", "006Wd000005FG3CIAW"],
+        "title": "Id",
+        "type": "string"
+      },
+      "sobject_name": {
+        "description": "The API name of the Salesforce object (sObject) to delete. Examples: Account, Contact, Opportunity, CustomObject__c. Must be a valid sObject type with proper permissions.",
+        "examples": ["Account", "Contact", "Opportunity", "Lead", "CustomObject__c"],
+        "title": "Sobject Name",
+        "type": "string"
+      }
+    },
+    "required": ["sobject_name", "id"],
+    "title": "DeleteSobjectRequest",
+    "type": "object"
+  },
+  "name": "delete_sobject",
+  "outputSchema": {
+    "$defs": {
+      "DeleteSobjectResponse": {
+        "description": "Response for DELETE sObject by ID. On success (HTTP 204), no body is returned.",
+        "properties": {},
+        "title": "DeleteSobjectResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteSobjectResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

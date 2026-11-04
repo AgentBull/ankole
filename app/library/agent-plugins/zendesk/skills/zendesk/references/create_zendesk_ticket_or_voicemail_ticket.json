@@ -1,0 +1,351 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a ticket in Zendesk via the voice/channel API endpoint. Use this action when you need to create tickets from phone calls, voicemails, or other voice channel interactions. Returns `ticket_id` and `ticket_url` for the created ticket. This endpoint is specifically for Zendesk Talk/voice channel ticket creation.",
+  "inputSchema": {
+    "properties": {
+      "assignee_id": {
+        "description": "The ID of the agent to assign to the ticket.",
+        "examples": [12345678],
+        "human_parameter_description": "The Zendesk user ID of the agent who should be assigned to work on this ticket.",
+        "human_parameter_name": "Assignee ID",
+        "title": "Assignee Id",
+        "type": "integer"
+      },
+      "custom_fields": {
+        "description": "Array of custom field objects with 'id' and 'value' properties.",
+        "examples": [
+          [
+            {
+              "id": 123,
+              "value": "custom value"
+            }
+          ]
+        ],
+        "human_parameter_description": "Custom field values specific to your Zendesk instance. Each object needs 'id' (the custom field ID) and 'value'.",
+        "human_parameter_name": "Custom Fields",
+        "items": {
+          "description": "Custom field ID and value pair.",
+          "properties": {
+            "id": {
+              "description": "The ID of the custom field",
+              "title": "Id",
+              "type": "integer"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ],
+              "description": "The value to set for the custom field. Type depends on field configuration.",
+              "title": "Value"
+            }
+          },
+          "required": ["id"],
+          "title": "CustomFieldInput",
+          "type": "object"
+        },
+        "title": "Custom Fields",
+        "type": "array"
+      },
+      "description": {
+        "description": "Long-form description / steps to reproduce. This becomes the initial comment on the ticket.",
+        "examples": ["User reports…", "Voicemail message recorded at 10:30 AM"],
+        "human_parameter_description": "Describe what's happening and include any steps to reproduce the problem. Add useful details like error messages, where it occurs, and when it started.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "display_to_agent": {
+        "description": "Optional agent ID who will see the newly created ticket. Use this to route the ticket to a specific agent for immediate attention.",
+        "examples": [12345678],
+        "human_parameter_description": "The agent ID who should see this ticket in their dashboard. Use this to route voicemails or high-priority tickets to specific agents.",
+        "human_parameter_name": "Display to Agent ID",
+        "title": "Display To Agent",
+        "type": "integer"
+      },
+      "external_id": {
+        "description": "An external ID to link this ticket to records in another system.",
+        "examples": ["EXT-12345"],
+        "human_parameter_description": "A unique identifier from an external system (e.g., CRM, ERP) for cross-referencing.",
+        "human_parameter_name": "External ID",
+        "title": "External Id",
+        "type": "string"
+      },
+      "group_id": {
+        "description": "The ID of the group to assign the ticket to.",
+        "examples": [12345678],
+        "human_parameter_description": "The Zendesk group ID the ticket should be assigned to. Groups are collections of agents.",
+        "human_parameter_name": "Group ID",
+        "title": "Group Id",
+        "type": "integer"
+      },
+      "priority": {
+        "default": "normal",
+        "description": "Zendesk priority. Must be one of: 'urgent', 'high', 'normal', 'low'. Defaults to 'normal'.",
+        "enum": ["urgent", "high", "normal", "low"],
+        "examples": ["high"],
+        "human_parameter_description": "How urgent this request is and how quickly it needs attention. Choose urgent, high, normal, or low based on impact and time sensitivity. Defaults to 'normal'.",
+        "human_parameter_name": "Priority",
+        "title": "Priority",
+        "type": "string"
+      },
+      "requester_email": {
+        "description": "Email of the requester. Must accompany `requester_name`. Ignored if requester_id is provided.",
+        "examples": ["jane@example.com"],
+        "human_parameter_description": "The requester's email address so they can receive ticket notifications. Include this only if you're also providing their name.",
+        "human_parameter_name": "Requester Email",
+        "title": "Requester Email",
+        "type": "string"
+      },
+      "requester_id": {
+        "description": "The ID of the user requesting support. If provided, requester_name and requester_email are ignored.",
+        "examples": [12345678],
+        "human_parameter_description": "The Zendesk user ID of the person reporting this issue. Use this if you know the user's ID, otherwise use requester_name/email.",
+        "human_parameter_name": "Requester ID",
+        "title": "Requester Id",
+        "type": "integer"
+      },
+      "requester_name": {
+        "description": "Name of the requester. If you supply this, you MUST also supply `requester_email`. Leave both blank to default to the authenticated user. Ignored if requester_id is provided.",
+        "examples": ["Jane Doe"],
+        "human_parameter_description": "Full name of the person reporting the issue or needing help. Provide this only if you're also adding their email so they receive updates.",
+        "human_parameter_name": "Requester Name",
+        "title": "Requester Name",
+        "type": "string"
+      },
+      "status": {
+        "description": "The state of the ticket. Allowed values: 'new', 'open', 'pending', 'hold', 'solved', 'closed'.",
+        "enum": ["new", "open", "pending", "hold", "solved", "closed"],
+        "examples": ["open"],
+        "human_parameter_description": "The current state of the ticket. Tickets typically start as 'new' and move through 'open', 'pending', 'hold', 'solved', and 'closed'.",
+        "human_parameter_name": "Status",
+        "title": "Status",
+        "type": "string"
+      },
+      "subject": {
+        "description": "Short summary of the issue. Keep it concise (e.g. 'Cannot log in' or 'Voicemail from customer').",
+        "examples": ["Unable to reset password", "Voicemail from +1-555-123-4567"],
+        "human_parameter_description": "A short, clear title for the issue so support understands it at a glance. Keep it brief, like 'Can't log in' or 'Voicemail from customer'.",
+        "human_parameter_name": "Subject",
+        "title": "Subject",
+        "type": "string"
+      },
+      "tags": {
+        "description": "Array of tags to apply to the ticket.",
+        "examples": [["urgent", "billing", "vip"]],
+        "human_parameter_description": "Labels to categorize or filter the ticket. Tags help with reporting and automation.",
+        "human_parameter_name": "Tags",
+        "items": {
+          "type": "string"
+        },
+        "title": "Tags",
+        "type": "array"
+      },
+      "ticket_type": {
+        "description": "The type of this ticket. Allowed values: 'problem', 'incident', 'question', 'task'.",
+        "enum": ["problem", "incident", "question", "task"],
+        "examples": ["question"],
+        "human_parameter_description": "Categorize the ticket: 'problem' for root cause issues, 'incident' for occurrences of a problem, 'question' for inquiries, 'task' for work items.",
+        "human_parameter_name": "Type",
+        "title": "Ticket Type",
+        "type": "string"
+      },
+      "via_id": {
+        "description": "The via ID for the channel through which the ticket was created.",
+        "examples": [1],
+        "human_parameter_description": "The channel via ID indicating how the ticket was created (e.g., phone, chat, email).",
+        "human_parameter_name": "Via ID",
+        "title": "Via Id",
+        "type": "integer"
+      },
+      "voice_comment": {
+        "additionalProperties": false,
+        "description": "Voice comment details for voicemail tickets.",
+        "human_parameter_description": "Voice comment details for voicemail tickets. Include call details, recording URL, and transcription.",
+        "human_parameter_name": "Voice Comment",
+        "properties": {
+          "answered_by_id": {
+            "description": "ID of the agent who answered (if call was answered)",
+            "title": "Answered By Id",
+            "type": "integer"
+          },
+          "call_duration": {
+            "description": "Duration of the call in seconds",
+            "title": "Call Duration",
+            "type": "integer"
+          },
+          "from": {
+            "description": "Caller phone number",
+            "title": "From",
+            "type": "string"
+          },
+          "location": {
+            "description": "Location of the caller",
+            "title": "Location",
+            "type": "string"
+          },
+          "recording_url": {
+            "description": "URL of the recorded voicemail",
+            "title": "Recording Url",
+            "type": "string"
+          },
+          "to": {
+            "description": "Called phone number (DID)",
+            "title": "To",
+            "type": "string"
+          },
+          "transcription_text": {
+            "description": "Transcription of the voicemail",
+            "title": "Transcription Text",
+            "type": "string"
+          }
+        },
+        "title": "VoiceComment",
+        "type": "object"
+      }
+    },
+    "required": ["subject", "description"],
+    "title": "CreateZendeskTicketOrVoicemailTicketRequest",
+    "type": "object"
+  },
+  "name": "create_zendesk_ticket_or_voicemail_ticket",
+  "outputSchema": {
+    "$defs": {
+      "CreateZendeskTicketOrVoicemailTicketResponse": {
+        "properties": {
+          "assignee_id": {
+            "description": "The ID of the agent assigned to the ticket",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "brand_id": {
+            "description": "The ID of the brand associated with the ticket",
+            "title": "Brand Id",
+            "type": "integer"
+          },
+          "created_at": {
+            "description": "When the ticket was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "The first comment on the ticket (read-only)",
+            "title": "Description",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External ID linking to records in another system",
+            "title": "External Id",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "The ID of the group assigned to the ticket",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "The ID of the organization of the requester",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "The urgency level of the ticket (urgent, high, normal, low)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "The ID of the user who requested support",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The state of the ticket (new, open, pending, hold, solved, closed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "The subject/title of the ticket",
+            "title": "Subject",
+            "type": "string"
+          },
+          "submitter_id": {
+            "description": "The ID of the user who submitted the ticket",
+            "title": "Submitter Id",
+            "type": "integer"
+          },
+          "success": {
+            "description": "Indicates whether the ticket creation was successful",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "List of tags applied to the ticket",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "ticket_id": {
+            "description": "ID of the created ticket",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "ticket_type": {
+            "description": "The type of the ticket (problem, incident, question, task)",
+            "title": "Ticket Type",
+            "type": "string"
+          },
+          "ticket_url": {
+            "description": "URL of the created ticket",
+            "title": "Ticket Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When the ticket was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "via": {
+            "description": "The channel through which the ticket was created",
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": ["success", "ticket_id", "ticket_url"],
+        "title": "CreateZendeskTicketOrVoicemailTicketResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateZendeskTicketOrVoicemailTicketResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

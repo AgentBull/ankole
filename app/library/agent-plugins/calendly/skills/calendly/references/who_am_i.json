@@ -1,0 +1,74 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Return the identity (name, email) of the connected Calendly account.",
+  "inputSchema": {
+    "description": "The current connected account's identity. Takes no parameters.",
+    "properties": {},
+    "title": "WhoAmIRequest",
+    "type": "object"
+  },
+  "name": "who_am_i",
+  "outputSchema": {
+    "$defs": {
+      "CalendlyWhoAmIData": {
+        "description": "Typed identity details for the connected account.",
+        "properties": {
+          "email": {
+            "description": "Email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "scheduling_url": {
+            "description": "Public scheduling URL.",
+            "title": "Scheduling Url",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Calendly user URI (id).",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri"],
+        "title": "CalendlyWhoAmIData",
+        "type": "object"
+      },
+      "WhoAmIResponse_CalendlyWhoAmIData_": {
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/CalendlyWhoAmIData",
+            "description": "Typed, toolkit-specific identity details.",
+            "title": "Data"
+          },
+          "display_name": {
+            "description": "Human-readable label identifying the connected account (email, handle, name, …). Null when the provider exposes no usable identifier.",
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "required": ["data"],
+        "title": "WhoAmIResponse[CalendlyWhoAmIData]",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/WhoAmIResponse_CalendlyWhoAmIData_",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

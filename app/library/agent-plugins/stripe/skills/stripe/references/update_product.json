@@ -1,0 +1,330 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to update an existing product in Stripe. Use when you need to modify product details like name, description, pricing, or availability.",
+  "inputSchema": {
+    "description": "Parameters for updating an existing product in Stripe.",
+    "properties": {
+      "active": {
+        "description": "Whether the product is available for purchase. Set to false to archive.",
+        "examples": [true, false],
+        "title": "Active",
+        "type": "boolean"
+      },
+      "default_price": {
+        "description": "The ID of the Price object that is the default price for this product.",
+        "examples": ["price_1NqXyZ2eZvKYlo2CluUa0oOq"],
+        "title": "Default Price",
+        "type": "string"
+      },
+      "description": {
+        "description": "The product's description, meant to be displayable to the customer. Use this field to optionally store a long form explanation of the product being sold for your own rendering purposes.",
+        "examples": ["Updated product description for testing", "High-quality, sustainably sourced cotton t-shirt."],
+        "title": "Description",
+        "type": "string"
+      },
+      "id": {
+        "description": "The unique identifier of the product to update.",
+        "examples": ["prod_TepW3APrEDWu1g", "prod_ABC123"],
+        "title": "Id",
+        "type": "string"
+      },
+      "images": {
+        "description": "A list of up to 8 URLs of images for this product, meant to be displayable to the customer.",
+        "examples": [["https://example.com/image1.png", "https://example.com/image2.jpg"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Images",
+        "type": "array"
+      },
+      "marketing_features": {
+        "description": "A list of up to 15 marketing features for this product. These are displayed in pricing tables.",
+        "examples": [["{\"name\": \"Unlimited Projects\"}", "{\"name\": \"Priority Support\"}"]],
+        "items": {
+          "description": "Represents a marketing feature to be displayed on pricing tables.",
+          "properties": {
+            "name": {
+              "description": "Name of the marketing feature (max 80 characters).",
+              "examples": ["24/7 support", "10GB storage"],
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          "required": ["name"],
+          "title": "MarketingFeature",
+          "type": "object"
+        },
+        "title": "Marketing Features",
+        "type": "array"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Set of key-value pairs that you can attach to an object. This can be useful for storing additional information about the object in a structured format. Individual keys can be unset by posting an empty value to them. All keys can be unset by posting an empty value to metadata.",
+        "examples": [
+          {
+            "order_id": "123",
+            "user_id": "456"
+          }
+        ],
+        "title": "Metadata",
+        "type": "object"
+      },
+      "name": {
+        "description": "The product's name, meant to be displayable to the customer.",
+        "examples": ["Premium Subscription Plan", "Organic Cotton T-Shirt"],
+        "title": "Name",
+        "type": "string"
+      },
+      "package_dimensions": {
+        "additionalProperties": false,
+        "description": "The dimensions of the product for shipping purposes.",
+        "examples": ["{\"height\": 5.0, \"length\": 10.0, \"width\": 3.0, \"weight\": 20.0}"],
+        "properties": {
+          "height": {
+            "description": "Package height in inches (max 2 decimal places).",
+            "examples": [5, 10.75],
+            "minimum": 0,
+            "title": "Height",
+            "type": "number"
+          },
+          "length": {
+            "description": "Package length in inches (max 2 decimal places).",
+            "examples": [10, 12.5],
+            "minimum": 0,
+            "title": "Length",
+            "type": "number"
+          },
+          "weight": {
+            "description": "Package weight in ounces (max 2 decimal places).",
+            "examples": [20, 32.5],
+            "minimum": 0,
+            "title": "Weight",
+            "type": "number"
+          },
+          "width": {
+            "description": "Package width in inches (max 2 decimal places).",
+            "examples": [3, 8.25],
+            "minimum": 0,
+            "title": "Width",
+            "type": "number"
+          }
+        },
+        "required": ["height", "length", "width", "weight"],
+        "title": "PackageDimensions",
+        "type": "object"
+      },
+      "shippable": {
+        "description": "Whether this product is shipped (i.e., physical goods).",
+        "examples": [true, false],
+        "title": "Shippable",
+        "type": "boolean"
+      },
+      "statement_descriptor": {
+        "description": "An arbitrary string to be displayed on your customer's credit card or bank statement. While most banks display this information consistently, some may display it incorrectly or not at all. This may be up to 22 characters.",
+        "examples": ["PREMIUM PLAN", "MYSHOP COM"],
+        "title": "Statement Descriptor",
+        "type": "string"
+      },
+      "tax_code": {
+        "description": "A tax code ID for determining tax rates on sales of this product.",
+        "examples": ["txcd_99999999", "txcd_10000000"],
+        "title": "Tax Code",
+        "type": "string"
+      },
+      "unit_label": {
+        "description": "A label that represents units of this product. When set, this will be included in customers' receipts, invoices, Checkout, and the customer portal. Use singular form. Up to 12 characters.",
+        "examples": ["seat", "license", "GB"],
+        "title": "Unit Label",
+        "type": "string"
+      },
+      "url": {
+        "description": "A URL of a publicly-accessible webpage for this product.",
+        "examples": ["https://example.com/premium-plan", "https://mystore.com/t-shirt-blue"],
+        "title": "Url",
+        "type": "string"
+      }
+    },
+    "required": ["id"],
+    "title": "UpdateProductRequest",
+    "type": "object"
+  },
+  "name": "update_product",
+  "outputSchema": {
+    "$defs": {
+      "MarketingFeatureResponse": {
+        "description": "Marketing feature entry for the product.",
+        "properties": {
+          "name": {
+            "description": "The marketing feature name. Up to 80 characters long.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "MarketingFeatureResponse",
+        "type": "object"
+      },
+      "PackageDimensionsResponse": {
+        "description": "Physical shipping dimensions for the product.",
+        "properties": {
+          "height": {
+            "description": "Height, in inches.",
+            "title": "Height",
+            "type": "number"
+          },
+          "length": {
+            "description": "Length, in inches.",
+            "title": "Length",
+            "type": "number"
+          },
+          "weight": {
+            "description": "Weight, in ounces.",
+            "title": "Weight",
+            "type": "number"
+          },
+          "width": {
+            "description": "Width, in inches.",
+            "title": "Width",
+            "type": "number"
+          }
+        },
+        "required": ["height", "length", "weight", "width"],
+        "title": "PackageDimensionsResponse",
+        "type": "object"
+      },
+      "UpdateProductResponse": {
+        "description": "Response from updating a product in Stripe. Represents the Product object returned by the API.",
+        "properties": {
+          "active": {
+            "description": "Whether the product is currently available for purchase.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "default_price": {
+            "description": "The ID of the Price object that is the default price for this product.",
+            "title": "Default Price",
+            "type": "string"
+          },
+          "description": {
+            "description": "The product's description, meant to be displayable to the customer.",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "images": {
+            "description": "A list of up to 8 URLs of images for this product, meant to be displayable to the customer.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Images",
+            "type": "array"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "marketing_features": {
+            "description": "A list of up to 15 marketing features for this product.",
+            "items": {
+              "$ref": "#/$defs/MarketingFeatureResponse"
+            },
+            "title": "Marketing Features",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "The product's name, meant to be displayable to the customer.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Objects of the same type share the same value.",
+            "title": "Object",
+            "type": "string"
+          },
+          "package_dimensions": {
+            "$ref": "#/$defs/PackageDimensionsResponse",
+            "description": "The dimensions of this product for shipping purposes.",
+            "title": "Package Dimensions"
+          },
+          "shippable": {
+            "description": "Whether this product is shipped (i.e., physical goods).",
+            "title": "Shippable",
+            "type": "boolean"
+          },
+          "statement_descriptor": {
+            "description": "Extra information about a product which will appear on your customer's credit card statement.",
+            "title": "Statement Descriptor",
+            "type": "string"
+          },
+          "tax_code": {
+            "description": "A tax code ID for categorization purposes.",
+            "title": "Tax Code",
+            "type": "string"
+          },
+          "unit_label": {
+            "description": "A label that represents units of this product.",
+            "title": "Unit Label",
+            "type": "string"
+          },
+          "updated": {
+            "description": "Time at which the object was last updated. Measured in seconds since the Unix epoch.",
+            "title": "Updated",
+            "type": "integer"
+          },
+          "url": {
+            "description": "A URL of a publicly-accessible webpage for this product.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "active",
+          "created",
+          "images",
+          "livemode",
+          "marketing_features",
+          "metadata",
+          "name",
+          "updated"
+        ],
+        "title": "UpdateProductResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateProductResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

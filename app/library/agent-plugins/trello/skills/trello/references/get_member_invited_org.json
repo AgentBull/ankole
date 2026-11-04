@@ -1,0 +1,76 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get a specific field of an organization to which the member has a pending invitation; returns data only if such an invitation exists.",
+  "inputSchema": {
+    "description": "Request schema for `GetMemberInvitedOrg`",
+    "properties": {
+      "field": {
+        "description": "The specific organization field to retrieve. Valid values: name, displayName, desc, url, website.",
+        "examples": ["name", "displayName", "desc", "url", "website"],
+        "title": "Field",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID or username of the Trello member. Use 'me' to reference the authenticated user.",
+        "title": "Id Member",
+        "type": "string"
+      }
+    },
+    "required": ["idMember", "field"],
+    "title": "GetMemberInvitedOrgRequest",
+    "type": "object"
+  },
+  "name": "get_member_invited_org",
+  "outputSchema": {
+    "$defs": {
+      "GetMemberInvitedOrgResponse": {
+        "description": "Response schema for `GetMemberInvitedOrg`.\n\nThis endpoint returns the raw value of the requested organization field directly from the API.\nThe response type varies depending on which field is requested:\n- String fields: name, displayName, desc, url, website, logoHash, logoUrl, idEnterprise, offering, dateLastActivity\n- Boolean fields: invited, enterpriseOwned\n- Integer/Number fields: billableMemberCount, activeMembershipCount, membershipCount\n- Array fields: idBoards, memberships, premiumFeatures, products, powerUps, invitations\n- Object fields: prefs, descData, limits",
+        "properties": {
+          "field_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "description": "The raw value of the requested organization field. Type varies by field: strings (name, displayName, desc, url, website, logoHash, logoUrl, dateLastActivity), booleans (invited), integers (billableMemberCount, activeMembershipCount), arrays (idBoards, memberships, premiumFeatures, products, powerUps), objects (prefs, descData, limits).",
+            "title": "Field Value"
+          }
+        },
+        "required": ["field_value"],
+        "title": "GetMemberInvitedOrgResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMemberInvitedOrgResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

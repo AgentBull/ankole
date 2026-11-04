@@ -1,0 +1,326 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List a page of comments on a Zendesk request, with optional time and author-role filters. The response includes pagination information and may include comment content, attachments and metadata.",
+  "inputSchema": {
+    "description": "Request parameters for listing comments on a Zendesk request.",
+    "properties": {
+      "page": {
+        "description": "Pagination parameter. Supports both traditional offset and cursor-based pagination: traditional uses `?page=2` (integer page number); cursor uses `?page[size]=50&page[after]=cursor` (deepObject with size, after, before). Mutually exclusive.",
+        "examples": ["2"],
+        "title": "Page",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Number of records to return per page. Maximum is 100 records per page for the request comments endpoint.",
+        "examples": [50],
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "request_id": {
+        "description": "The ID of the request to retrieve comments for.",
+        "examples": [33],
+        "human_parameter_description": "The numeric ID of the Zendesk request. You can find this ID in the request URL or from a request list.",
+        "human_parameter_name": "Request ID",
+        "title": "Request Id",
+        "type": "integer"
+      },
+      "role": {
+        "description": "Filter comments by the role of the author. One of 'agent' or 'end_user'. If not specified, all comments are returned regardless of author role.",
+        "enum": ["agent", "end_user"],
+        "examples": ["agent"],
+        "human_parameter_description": "Filter to show only comments by agents or end users. Leave blank to see all comments.",
+        "human_parameter_name": "Author Role",
+        "title": "Role",
+        "type": "string"
+      },
+      "since": {
+        "description": "Filters comments to include only those from the given datetime and later. Format as ISO 8601 UTC timestamp (e.g., '2024-01-15T00:00:00Z').",
+        "examples": ["2024-01-15T00:00:00Z"],
+        "human_parameter_description": "Only show comments created after this datetime. Useful for fetching only new comments since a certain time.",
+        "human_parameter_name": "Since",
+        "title": "Since",
+        "type": "string"
+      }
+    },
+    "required": ["request_id"],
+    "title": "GetRequestCommentsRequest",
+    "type": "object"
+  },
+  "name": "get_request_comments",
+  "outputSchema": {
+    "$defs": {
+      "CommentAttachment": {
+        "description": "Attachment object in a comment.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the file",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to access the attachment file",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "Name of the attached file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the attachment",
+            "title": "Id",
+            "type": "integer"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "Array of thumbnail attachments for images",
+            "items": {
+              "$ref": "#/$defs/CommentAttachment"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          }
+        },
+        "title": "CommentAttachment",
+        "type": "object"
+      },
+      "CommentMetadata": {
+        "description": "Metadata object for a comment.",
+        "properties": {
+          "system": {
+            "$ref": "#/$defs/CommentMetadataSystem",
+            "description": "System-generated information",
+            "title": "System"
+          },
+          "via": {
+            "$ref": "#/$defs/CommentVia",
+            "description": "Channel and source information",
+            "title": "Via"
+          }
+        },
+        "title": "CommentMetadata",
+        "type": "object"
+      },
+      "CommentMetadataSystem": {
+        "description": "System metadata for a comment.",
+        "properties": {
+          "client": {
+            "description": "Client/browser information",
+            "title": "Client",
+            "type": "string"
+          },
+          "ip_address": {
+            "description": "IP address of the client",
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "latitude": {
+            "description": "Latitude coordinate",
+            "title": "Latitude",
+            "type": "number"
+          },
+          "location": {
+            "description": "Geographic location",
+            "title": "Location",
+            "type": "string"
+          },
+          "longitude": {
+            "description": "Longitude coordinate",
+            "title": "Longitude",
+            "type": "number"
+          }
+        },
+        "title": "CommentMetadataSystem",
+        "type": "object"
+      },
+      "CommentVia": {
+        "description": "Via object describing how the comment was created.",
+        "properties": {
+          "channel": {
+            "description": "How the comment was created (e.g., 'web')",
+            "title": "Channel",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/CommentViaSource",
+            "description": "Additional source information",
+            "title": "Source"
+          }
+        },
+        "title": "CommentVia",
+        "type": "object"
+      },
+      "CommentViaSource": {
+        "description": "Source information in via object.",
+        "properties": {
+          "from": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Source sender information",
+            "title": "From",
+            "type": "object"
+          },
+          "rel": {
+            "description": "Relationship type",
+            "title": "Rel",
+            "type": "string"
+          },
+          "to": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Source recipient information",
+            "title": "To",
+            "type": "object"
+          }
+        },
+        "title": "CommentViaSource",
+        "type": "object"
+      },
+      "GetRequestCommentsResponse": {
+        "description": "Response containing list of comments for a Zendesk request.",
+        "properties": {
+          "comments": {
+            "description": "List of comments on the request",
+            "items": {
+              "$ref": "#/$defs/RequestComment"
+            },
+            "title": "Comments",
+            "type": "array"
+          },
+          "count": {
+            "description": "Total number of comments on the request",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for next page of results, null if no more pages",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results, null if on first page",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["comments"],
+        "title": "GetRequestCommentsResponse",
+        "type": "object"
+      },
+      "RequestComment": {
+        "description": "A single comment on a Zendesk request.",
+        "properties": {
+          "attachments": {
+            "description": "List of attachments associated with the comment",
+            "items": {
+              "$ref": "#/$defs/CommentAttachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "author_id": {
+            "description": "The ID of the author of the comment",
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "body": {
+            "description": "The body content of the comment",
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "The timestamp when the comment was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "html_body": {
+            "description": "The HTML formatted body of the comment",
+            "title": "Html Body",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the comment",
+            "title": "Id",
+            "type": "integer"
+          },
+          "metadata": {
+            "$ref": "#/$defs/CommentMetadata",
+            "description": "Additional metadata related to the comment",
+            "title": "Metadata"
+          },
+          "plain_body": {
+            "description": "The plain text body of the comment",
+            "title": "Plain Body",
+            "type": "string"
+          },
+          "public": {
+            "description": "Indicates if the comment is public (visible to end user)",
+            "title": "Public",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "The type of the comment (e.g., 'Comment')",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "RequestComment",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRequestCommentsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

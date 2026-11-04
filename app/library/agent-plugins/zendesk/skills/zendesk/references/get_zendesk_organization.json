@@ -1,0 +1,136 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get metadata for a specific Zendesk organization by ID. Response fields are available under data.organization_info. Does not return member/user lists.",
+  "inputSchema": {
+    "properties": {
+      "organization_id": {
+        "description": "Numeric ID of the organization to retrieve (e.g. 123456). Must be a non-null integer; cast to int if sourced from tools that return it as a string. Do not pass null (skip the call if ticket's organization_id is null). Obtain from zendesk.get_all_zendesk_organizations or zendesk.create_zendesk_organization; never derive from organization name.",
+        "examples": [123456],
+        "human_parameter_description": "Enter the numeric ID of the organization you want to look up in Zendesk. You can copy this from the organization's page or from a previous search or list.",
+        "human_parameter_name": "Organization ID",
+        "minimum": 1,
+        "title": "Organization Id",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id"],
+    "title": "GetZendeskOrganizationRequest",
+    "type": "object"
+  },
+  "name": "get_zendesk_organization",
+  "outputSchema": {
+    "$defs": {
+      "GetZendeskOrganizationResponse": {
+        "properties": {
+          "organization_info": {
+            "$ref": "#/$defs/OrganizationInfo",
+            "description": "Information about the organization",
+            "title": "Organization Info"
+          }
+        },
+        "required": ["organization_info"],
+        "title": "GetZendeskOrganizationResponse",
+        "type": "object"
+      },
+      "OrganizationInfo": {
+        "description": "Zendesk organization details.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the organization was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "description": "Additional details about the organization",
+            "title": "Details",
+            "type": "string"
+          },
+          "domain_names": {
+            "description": "Associated domain names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Domain Names",
+            "type": "array"
+          },
+          "external_id": {
+            "description": "Unique external ID for association with external records",
+            "title": "External Id",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "Auto-assignment group for new tickets",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the organization",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the organization",
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Internal notes about the organization",
+            "title": "Notes",
+            "type": "string"
+          },
+          "organization_fields": {
+            "additionalProperties": true,
+            "description": "Custom field values",
+            "title": "Organization Fields",
+            "type": "object"
+          },
+          "shared_comments": {
+            "description": "Whether end users can comment on each other's tickets",
+            "title": "Shared Comments",
+            "type": "boolean"
+          },
+          "shared_tickets": {
+            "description": "Whether end users can see each other's tickets",
+            "title": "Shared Tickets",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "Organization tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "updated_at": {
+            "description": "Timestamp when the organization was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the organization",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "url", "name", "created_at", "updated_at"],
+        "title": "OrganizationInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetZendeskOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

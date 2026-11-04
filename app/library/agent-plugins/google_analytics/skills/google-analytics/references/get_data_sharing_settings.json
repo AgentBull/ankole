@@ -1,0 +1,74 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve data sharing configuration for a Google Analytics account. Use when you need to check which data sharing settings are enabled for an account, including sharing with Google support, sales teams, products, and benchmarking.",
+  "inputSchema": {
+    "description": "Request model for retrieving data sharing settings for an account.",
+    "properties": {
+      "name": {
+        "description": "Required. The resource name of the data sharing settings to retrieve. Must be in the exact format: accounts/{account_id}/dataSharingSettings where account_id is a numeric identifier. IMPORTANT: Must start with 'accounts/' prefix, contain no forward slashes in the account_id, have no trailing slashes, and must end with '/dataSharingSettings'. Valid example: 'accounts/1000/dataSharingSettings'. Invalid examples: '1000' (missing prefix), 'accounts/1000' (missing suffix), 'accounts/1000/dataSharingSettings/' (trailing slash)",
+        "examples": ["accounts/1000/dataSharingSettings", "accounts/355474633/dataSharingSettings"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "GetDataSharingSettingsRequest",
+    "type": "object"
+  },
+  "name": "get_data_sharing_settings",
+  "outputSchema": {
+    "$defs": {
+      "GetDataSharingSettingsResponse": {
+        "description": "Response model for GetDataSharingSettings action.",
+        "properties": {
+          "name": {
+            "description": "Output only. Resource identifier following pattern 'accounts/{account}/dataSharingSettings'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "sharingWithGoogleAnySalesEnabled": {
+            "description": "Deprecated - always returns false.",
+            "title": "Sharing With Google Any Sales Enabled",
+            "type": "boolean"
+          },
+          "sharingWithGoogleAssignedSalesEnabled": {
+            "description": "Enables insights and optimization recommendations across Google products.",
+            "title": "Sharing With Google Assigned Sales Enabled",
+            "type": "boolean"
+          },
+          "sharingWithGoogleProductsEnabled": {
+            "description": "Allows data use to enhance other Google services.",
+            "title": "Sharing With Google Products Enabled",
+            "type": "boolean"
+          },
+          "sharingWithGoogleSupportEnabled": {
+            "description": "Permits technical support access to troubleshoot issues.",
+            "title": "Sharing With Google Support Enabled",
+            "type": "boolean"
+          },
+          "sharingWithOthersEnabled": {
+            "description": "Enables predictive modeling and benchmarking insights from aggregated, de-identified data.",
+            "title": "Sharing With Others Enabled",
+            "type": "boolean"
+          }
+        },
+        "title": "GetDataSharingSettingsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetDataSharingSettingsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

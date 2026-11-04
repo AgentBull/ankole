@@ -1,0 +1,261 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list ExpandedDataSets on a property. Use when you need to retrieve expanded data set configurations for a Google Analytics 360 property.",
+  "inputSchema": {
+    "description": "Request model for listing ExpandedDataSets on a property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. The maximum number of resources to return. If unspecified, at most 50 resources will be returned. The maximum value is 200",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous ListExpandedDataSets call. Provide this to retrieve the subsequent page",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The name of the property to list ExpandedDataSets for. Format: properties/{property_id}",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "AnalyticsadminPropertiesExpandeddatasetsListRequest",
+    "type": "object"
+  },
+  "name": "list_expanded_data_sets",
+  "outputSchema": {
+    "$defs": {
+      "AnalyticsadminPropertiesExpandeddatasetsListResponse": {
+        "description": "Response model for listing ExpandedDataSets.",
+        "properties": {
+          "expandedDataSets": {
+            "description": "List of ExpandedDataSet resources. Results are returned in a stable but arbitrary order",
+            "items": {
+              "$ref": "#/$defs/ExpandedDataSet"
+            },
+            "title": "Expanded Data Sets",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "A token for retrieving the next page of results. Omitted if no subsequent pages exist",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "AnalyticsadminPropertiesExpandeddatasetsListResponse",
+        "type": "object"
+      },
+      "DimensionFilter": {
+        "description": "Schema for a single dimension filter.",
+        "properties": {
+          "fieldName": {
+            "description": "The dimension name to filter on",
+            "title": "Field Name",
+            "type": "string"
+          },
+          "inListFilter": {
+            "$ref": "#/$defs/InListFilter",
+            "description": "A filter for matching a list of string values",
+            "title": "In List Filter"
+          },
+          "stringFilter": {
+            "$ref": "#/$defs/StringFilter",
+            "description": "A filter for string type dimensions",
+            "title": "String Filter"
+          }
+        },
+        "title": "DimensionFilter",
+        "type": "object"
+      },
+      "DimensionFilterExpression": {
+        "description": "Schema for dimension filter expression in an ExpandedDataSet.",
+        "properties": {
+          "andGroup": {
+            "$ref": "#/$defs/DimensionFilterExpressionGroup",
+            "description": "Logical AND of multiple filter expressions",
+            "title": "And Group"
+          },
+          "filter": {
+            "$ref": "#/$defs/DimensionFilter",
+            "description": "Single dimension filter",
+            "title": "Filter"
+          },
+          "notExpression": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "description": "Logical NOT (negation) of a filter expression",
+            "title": "Not Expression",
+            "type": "object"
+          },
+          "orExpression": {
+            "$ref": "#/$defs/DimensionFilterExpressionGroup",
+            "description": "Logical OR of multiple filter expressions",
+            "title": "Or Expression"
+          }
+        },
+        "title": "DimensionFilterExpression",
+        "type": "object"
+      },
+      "DimensionFilterExpressionGroup": {
+        "description": "Schema for a group of dimension filter expressions.",
+        "properties": {
+          "expressions": {
+            "description": "List of filter expressions in this group",
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Expressions",
+            "type": "array"
+          }
+        },
+        "title": "DimensionFilterExpressionGroup",
+        "type": "object"
+      },
+      "ExpandedDataSet": {
+        "description": "Schema for an ExpandedDataSet resource.",
+        "properties": {
+          "dataCollectionStartTime": {
+            "description": "Output only. Time when expanded data set began (or will begin) collecting data. Format: ISO 8601 timestamp",
+            "title": "Data Collection Start Time",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional. The description of the ExpandedDataSet. Maximum 50 characters",
+            "title": "Description",
+            "type": "string"
+          },
+          "dimensionFilterExpression": {
+            "$ref": "#/$defs/DimensionFilterExpression",
+            "description": "Immutable. A logical filter expression of ExpandedDataSet filters to reduce row volume",
+            "title": "Dimension Filter Expression"
+          },
+          "dimensionNames": {
+            "description": "Immutable. The list of dimensions included in the ExpandedDataSet",
+            "items": {
+              "type": "string"
+            },
+            "title": "Dimension Names",
+            "type": "array"
+          },
+          "displayName": {
+            "description": "Required. The display name of the ExpandedDataSet. Maximum 200 characters",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "metricNames": {
+            "description": "Immutable. The list of metrics included in the ExpandedDataSet",
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Names",
+            "type": "array"
+          },
+          "name": {
+            "description": "Output only. The resource name for this ExpandedDataSet resource. Format: properties/{property_id}/expandedDataSets/{expanded_data_set_id}",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "ExpandedDataSet",
+        "type": "object"
+      },
+      "InListFilter": {
+        "description": "Schema for in-list filter in dimension filter expression.",
+        "properties": {
+          "caseSensitive": {
+            "description": "If true, the match is case-sensitive",
+            "title": "Case Sensitive",
+            "type": "boolean"
+          },
+          "fieldName": {
+            "description": "The dimension name to filter on",
+            "title": "Field Name",
+            "type": "string"
+          },
+          "values": {
+            "description": "The list of string values to match",
+            "items": {
+              "type": "string"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "title": "InListFilter",
+        "type": "object"
+      },
+      "StringFilter": {
+        "description": "Schema for string filter in dimension filter expression.",
+        "properties": {
+          "caseSensitive": {
+            "description": "If true, the match is case-sensitive",
+            "title": "Case Sensitive",
+            "type": "boolean"
+          },
+          "fieldName": {
+            "description": "The dimension name to filter on",
+            "title": "Field Name",
+            "type": "string"
+          },
+          "matchType": {
+            "description": "How to match the string. Values: EXACT, BEGINS_WITH, ENDS_WITH, CONTAINS",
+            "title": "Match Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The string value to match",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "StringFilter",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AnalyticsadminPropertiesExpandeddatasetsListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

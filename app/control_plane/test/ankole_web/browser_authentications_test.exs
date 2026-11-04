@@ -384,7 +384,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
 
     console_shell =
       signed_in
-      |> get(AnkoleWeb.PodURL.site_origin(signed_in) <> "/site-admin-console")
+      |> get(console_url())
 
     assert html_response(console_shell, 200) =~
              ~s(<meta name="ankole-pod" content="#{tenant.id}">)
@@ -417,7 +417,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
       exited_first
       |> recycle()
       |> delete_req_header("accept")
-      |> get(AnkoleWeb.PodURL.site_origin(exited_first) <> "/site-admin-console")
+      |> get(console_url())
 
     expected_console_login_prefix =
       AnkoleWeb.PodURL.login_url(console_after_exit, tenant)
@@ -529,7 +529,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
 
     console_shell =
       signed_in
-      |> get(AnkoleWeb.PodURL.site_origin(signed_in) <> "/site-admin-console")
+      |> get(console_url())
 
     token = csrf(console_shell)
 

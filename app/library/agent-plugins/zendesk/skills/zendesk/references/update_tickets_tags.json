@@ -1,0 +1,62 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update tags on a Zendesk ticket via PUT request to /api/v2/tickets/{ticket_id}/tags. Use when you need to add, replace, or manage tags on an existing ticket. This operation replaces all existing tags with the provided list.",
+  "inputSchema": {
+    "description": "Request parameters for updating ticket tags in Zendesk.",
+    "properties": {
+      "tags": {
+        "description": "An array of tag names to set on the ticket. Using this endpoint replaces all existing tags on the ticket with the provided tags.",
+        "examples": [["curl-test-tag"], ["support", "urgent", "billing"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Tags",
+        "type": "array"
+      },
+      "ticket_id": {
+        "description": "The ID of the ticket to update tags for.",
+        "examples": [123456, 82],
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id", "tags"],
+    "title": "UpdateTicketsTagsRequest",
+    "type": "object"
+  },
+  "name": "update_tickets_tags",
+  "outputSchema": {
+    "$defs": {
+      "UpdateTicketsTagsResponse": {
+        "description": "Response containing the updated ticket tags.",
+        "properties": {
+          "tags": {
+            "description": "An array of tag names now associated with the ticket.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags"],
+        "title": "UpdateTicketsTagsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateTicketsTagsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

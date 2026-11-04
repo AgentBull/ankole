@@ -1,0 +1,126 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates a check item's attributes (name, position, state) or moves it to a different checklist on the same card, requiring the card ID, current checklist ID, and check item ID.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateChecklistItemByIds`",
+    "properties": {
+      "idCard": {
+        "description": "The ID or short link of the card containing the checklist item.",
+        "examples": ["65b0f0db1f8c31a90a4c481e", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idCheckItem": {
+        "description": "The ID of the check item to be updated.",
+        "examples": ["5f9f1b9b8f8c31a90a4c4830"],
+        "title": "Id Check Item",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "The ID of the target checklist to move the check item to. If omitted, the item remains in its current checklist.",
+        "examples": ["60c72a1b5d8f8c31a90a4c48f"],
+        "title": "Id Checklist",
+        "type": "string"
+      },
+      "idChecklistCurrent": {
+        "description": "The ID of the checklist that currently contains the check item to be updated.",
+        "examples": ["5f9f1b9b8f8c31a90a4c482f"],
+        "title": "Id Checklist Current",
+        "type": "string"
+      },
+      "name": {
+        "description": "The new name for the check item. Must be a string with a length from 1 to 16384 characters.",
+        "examples": ["Review new design mockups", "Finalize budget for Q3"],
+        "title": "Name",
+        "type": "string"
+      },
+      "pos": {
+        "description": "The new position for the check item within its checklist. Accepts 'top', 'bottom', or a positive number (float or integer). Higher numbers are further down the list.",
+        "examples": ["top", "bottom", "1024", "16384.5"],
+        "title": "Pos",
+        "type": "string"
+      },
+      "state": {
+        "description": "The new completion state of the check item. Valid values are 'complete', 'incomplete', 'true', or 'false'. 'true' is an alias for 'complete', and 'false' is an alias for 'incomplete'.",
+        "examples": ["complete", "incomplete", "true", "false"],
+        "title": "State",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "idChecklistCurrent", "idCheckItem"],
+    "title": "UpdateChecklistItemByIdsRequest",
+    "type": "object"
+  },
+  "name": "update_checklist_item_by_ids",
+  "outputSchema": {
+    "$defs": {
+      "UpdateChecklistItemByIdsResponse": {
+        "description": "Response schema for `UpdateChecklistItemByIds`",
+        "properties": {
+          "due": {
+            "description": "Due date for the check item in ISO 8601 format (e.g., '2021-02-12T07:00:00.000Z'). Can be null.",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Due date reminder setting for the check item. Can be null.",
+            "title": "Due Reminder",
+            "type": "number"
+          },
+          "id": {
+            "description": "Unique identifier for the check item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "The ID of the parent checklist containing this check item.",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member assigned to the check item. Can be null if no member is assigned.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name/text of the check item.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "description": "Additional name data for the check item. Often null.",
+            "title": "Name Data",
+            "type": "string"
+          },
+          "pos": {
+            "description": "The position of the check item in the checklist, used for ordering.",
+            "title": "Pos",
+            "type": "number"
+          },
+          "state": {
+            "description": "The completion state of the check item. Possible values: 'complete' or 'incomplete'.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "state", "idChecklist", "pos"],
+        "title": "UpdateChecklistItemByIdsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateChecklistItemByIdsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

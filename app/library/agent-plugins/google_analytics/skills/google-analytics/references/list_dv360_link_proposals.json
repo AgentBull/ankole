@@ -1,0 +1,140 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list DisplayVideo360AdvertiserLinkProposals on a property. Use when you need to retrieve Display & Video 360 advertiser link proposals associated with a Google Analytics property. Results support pagination for large datasets.",
+  "inputSchema": {
+    "description": "Request model for listing DisplayVideo360AdvertiserLinkProposals on a Google Analytics property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of resources to return. If unspecified, at most 50 resources will be returned. The maximum value is 200; higher values will be coerced to the maximum.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous ListDisplayVideo360AdvertiserLinkProposals call. Provide this to retrieve the subsequent page. When paginating, all other parameters must match the call that provided the page token.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The name of the property to list DisplayVideo360AdvertiserLinkProposals under. Format: properties/{property_id} (e.g., properties/489591273).",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "AnalyticsAdminPropertiesDisplayVideo360AdvertiserLinkProposalsListRequest",
+    "type": "object"
+  },
+  "name": "list_dv360_link_proposals",
+  "outputSchema": {
+    "$defs": {
+      "AnalyticsAdminPropertiesDisplayVideo360AdvertiserLinkProposalsListResponse": {
+        "description": "Response model for listing DisplayVideo360AdvertiserLinkProposals.",
+        "properties": {
+          "displayVideo360AdvertiserLinkProposals": {
+            "description": "List of DisplayVideo360AdvertiserLinkProposal resources.",
+            "items": {
+              "$ref": "#/$defs/DisplayVideo360AdvertiserLinkProposal"
+            },
+            "title": "Display Video360 Advertiser Link Proposals",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "Token for retrieving the subsequent page. Omitted if no further pages exist.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "AnalyticsAdminPropertiesDisplayVideo360AdvertiserLinkProposalsListResponse",
+        "type": "object"
+      },
+      "DisplayVideo360AdvertiserLinkProposal": {
+        "description": "Schema for a DisplayVideo360AdvertiserLinkProposal resource.",
+        "properties": {
+          "adsPersonalizationEnabled": {
+            "description": "Immutable. Enables personalized advertising features. Defaults to true if unset.",
+            "title": "Ads Personalization Enabled",
+            "type": "boolean"
+          },
+          "advertiserDisplayName": {
+            "description": "Output only. Display name of the Display & Video 360 advertiser (populated for proposals originating from DV360).",
+            "title": "Advertiser Display Name",
+            "type": "string"
+          },
+          "advertiserId": {
+            "description": "Immutable. Display & Video 360 advertiser identifier.",
+            "title": "Advertiser Id",
+            "type": "string"
+          },
+          "campaignDataSharingEnabled": {
+            "description": "Immutable. Enables campaign data import from Display & Video 360. Defaults to true if unset.",
+            "title": "Campaign Data Sharing Enabled",
+            "type": "boolean"
+          },
+          "costDataSharingEnabled": {
+            "description": "Immutable. Enables cost data import (requires campaignDataSharingEnabled). Defaults to true if unset.",
+            "title": "Cost Data Sharing Enabled",
+            "type": "boolean"
+          },
+          "linkProposalStatusDetails": {
+            "$ref": "#/$defs/LinkProposalStatusDetails",
+            "description": "Output only. Status information for the link proposal.",
+            "title": "Link Proposal Status Details"
+          },
+          "name": {
+            "description": "Output only. Resource identifier. Format: properties/{propertyId}/displayVideo360AdvertiserLinkProposals/{proposalId}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "validationEmail": {
+            "description": "Input only. Email address of target advertiser admin for verification purposes.",
+            "title": "Validation Email",
+            "type": "string"
+          }
+        },
+        "title": "DisplayVideo360AdvertiserLinkProposal",
+        "type": "object"
+      },
+      "LinkProposalStatusDetails": {
+        "description": "Schema for link proposal status details.",
+        "properties": {
+          "linkProposalInitiatingProduct": {
+            "description": "Indicates whether the link proposal originated from Google Analytics or the linked product (Display & Video 360).",
+            "title": "Link Proposal Initiating Product",
+            "type": "string"
+          },
+          "linkProposalState": {
+            "description": "Current state of the link proposal (e.g., AWAITING_REVIEW_FROM_GOOGLE_ANALYTICS, AWAITING_REVIEW_FROM_DISPLAY_AND_VIDEO_360, WITHDRAWN, DECLINED, EXPIRED, OBSOLETE).",
+            "title": "Link Proposal State",
+            "type": "string"
+          },
+          "requestorEmail": {
+            "description": "Email address of the user who initiated the link proposal.",
+            "title": "Requestor Email",
+            "type": "string"
+          }
+        },
+        "title": "LinkProposalStatusDetails",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AnalyticsAdminPropertiesDisplayVideo360AdvertiserLinkProposalsListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

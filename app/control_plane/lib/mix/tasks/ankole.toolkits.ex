@@ -123,20 +123,88 @@ defmodule Mix.Tasks.Ankole.Toolkits do
     end
   end
 
-  defp type_map(name, tools, schema) do
-    "export interface #{name} {\n" <>
+  defp type_map(name, tools, schema_key) do
+    definitions =
+      Enum.map_join(tools, "", fn tool ->
+        schema = tool_schema(tool, schema_key)
+        references = references(tool, schema_key, schema)
+
+        definitions = schema_definitions(schema)
+        used = used_references(schema, Map.new(definitions), MapSet.new())
+
+        definitions
+        |> Enum.filter(fn {ref, _} -> MapSet.member?(used, ref) end)
+        |> Enum.map_join("", fn {ref, definition} ->
+          "type #{references[ref]} = #{ts(definition, references)};\n"
+        end)
+      end)
+
+    definitions <>
+      "export interface #{name} {\n" <>
       (tools
        |> Enum.group_by(& &1.toolkit)
        |> Enum.sort()
        |> Enum.map_join("", fn {toolkit, tools} ->
          "  #{inspect(toolkit)}: {\n" <>
            Enum.map_join(tools, "", fn tool ->
-             "    #{inspect(tool.name)}: #{ts(if(schema == :output_schema, do: Ankole.Connectors.ToolSpec.public_output_schema(tool), else: Map.fetch!(tool, schema)))};\n"
+             schema = tool_schema(tool, schema_key)
+             "    #{inspect(tool.name)}: #{ts(schema, references(tool, schema_key, schema))};\n"
            end) <> "  };\n"
        end)) <> "}\n"
   end
 
-  defp compound(schema, key, branches, operator) do
+  defp tool_schema(tool, :output_schema),
+    do: Ankole.Connectors.ToolSpec.public_output_schema(tool)
+
+  defp tool_schema(tool, key), do: Map.fetch!(tool, key)
+
+  defp schema_definitions(schema) do
+    for owner <- ["$defs", "definitions"],
+        {name, definition} <- Enum.sort(schema[owner] || %{}) do
+      escaped = name |> String.replace("~", "~0") |> String.replace("/", "~1")
+      {"#/#{owner}/#{escaped}", definition}
+    end
+  end
+
+  defp used_references(schema, definitions, used) when is_map(schema) do
+    used =
+      case schema["$ref"] do
+        nil ->
+          used
+
+        ref ->
+          if MapSet.member?(used, ref),
+            do: used,
+            else:
+              used_references(Map.fetch!(definitions, ref), definitions, MapSet.put(used, ref))
+      end
+
+    schema
+    |> Map.drop(["$defs", "definitions", "examples", "default", "enum", "const"])
+    |> Enum.reduce(used, fn
+      {key, fields}, used when key in ["properties", "patternProperties"] ->
+        fields |> Map.values() |> Enum.reduce(used, &used_references(&1, definitions, &2))
+
+      {_, value}, used ->
+        used_references(value, definitions, used)
+    end)
+  end
+
+  defp used_references(values, definitions, used) when is_list(values),
+    do: Enum.reduce(values, used, &used_references(&1, definitions, &2))
+
+  defp used_references(_value, _definitions, used), do: used
+
+  defp references(tool, schema_key, schema) do
+    schema
+    |> schema_definitions()
+    |> Enum.with_index(1)
+    |> Map.new(fn {{ref, _}, index} ->
+      {ref, "Toolkit_#{tool.toolkit}_#{tool.name}_#{schema_key}_#{index}"}
+    end)
+  end
+
+  defp compound(schema, key, branches, operator, references) do
     base = Map.delete(schema, key)
 
     Enum.map_join(branches, operator, fn branch ->
@@ -158,37 +226,58 @@ defmodule Mix.Tasks.Ankole.Toolkits do
             Map.put(merged, "required", Enum.uniq(base["required"] ++ (branch["required"] || []))),
           else: merged
 
-      ts(merged)
+      ts(merged, references)
     end)
   end
 
-  defp ts(%{"const" => value}), do: Ankole.JSON.encode!(value)
-  defp ts(%{"enum" => values}), do: Enum.map_join(values, " | ", &Ankole.JSON.encode!/1)
-  defp ts(%{"oneOf" => schemas} = schema), do: compound(schema, "oneOf", schemas, " | ")
-  defp ts(%{"anyOf" => schemas} = schema), do: compound(schema, "anyOf", schemas, " | ")
-  defp ts(%{"allOf" => schemas} = schema), do: compound(schema, "allOf", schemas, " & ")
+  defp ts(%{"$ref" => ref}, references), do: Map.fetch!(references, ref)
+  defp ts(%{"const" => value}, _references), do: Ankole.JSON.encode!(value)
 
-  defp ts(%{"type" => types} = schema) when is_list(types),
-    do: Enum.map_join(types, " | ", &ts(Map.put(schema, "type", &1)))
+  defp ts(%{"enum" => values}, _references),
+    do: Enum.map_join(values, " | ", &Ankole.JSON.encode!/1)
 
-  defp ts(%{"type" => "array", "items" => items}), do: "Array<#{ts(items)}>"
+  defp ts(%{"oneOf" => schemas} = schema, references),
+    do: compound(schema, "oneOf", schemas, " | ", references)
 
-  defp ts(%{"type" => "object"} = schema) do
+  defp ts(%{"anyOf" => schemas} = schema, references),
+    do: compound(schema, "anyOf", schemas, " | ", references)
+
+  defp ts(%{"allOf" => schemas} = schema, references),
+    do: compound(schema, "allOf", schemas, " & ", references)
+
+  defp ts(%{"type" => types} = schema, references) when is_list(types),
+    do: Enum.map_join(types, " | ", &ts(Map.put(schema, "type", &1), references))
+
+  defp ts(%{"type" => "array", "items" => items}, references),
+    do: "Array<#{ts(items, references)}>"
+
+  defp ts(%{"type" => "object"} = schema, references) do
     properties = schema |> Map.get("properties", %{}) |> Enum.sort()
 
     fields =
       Enum.map_join(properties, " ", fn {name, value} ->
         inspect(name) <>
-          if(name in (schema["required"] || []), do: ": ", else: "?: ") <> ts(value) <> ";"
+          if(name in (schema["required"] || []), do: ": ", else: "?: ") <>
+          ts(value, references) <> ";"
       end)
 
     additional =
-      if schema["additionalProperties"] == false, do: "", else: " [key: string]: unknown;"
+      case schema["additionalProperties"] do
+        false ->
+          ""
+
+        value when is_map(value) and properties == [] ->
+          " [key: string]: #{ts(value, references)};"
+
+        _ ->
+          " [key: string]: unknown;"
+      end
 
     "{ " <> fields <> additional <> " }"
   end
 
-  defp ts(%{"type" => type}) when type in ["integer", "number"], do: "number"
-  defp ts(%{"type" => type}) when type in ["boolean", "string", "null"], do: type
-  defp ts(_), do: "unknown"
+  defp ts(%{"type" => type}, _references) when type in ["integer", "number"], do: "number"
+  defp ts(%{"type" => type}, _references) when type in ["boolean", "string", "null"], do: type
+  defp ts(false, _references), do: "never"
+  defp ts(_, _references), do: "unknown"
 end

@@ -1,0 +1,94 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to upload a new image to your Typeform account via base64 encoding or URL. Use when you need to add images for forms or presentations. Either 'image' (base64) or 'url' parameter must be provided.",
+  "inputSchema": {
+    "properties": {
+      "file_name": {
+        "description": "The name assigned to your image file",
+        "examples": ["test_image.jpg", "banner.png"],
+        "title": "File Name",
+        "type": "string"
+      },
+      "image": {
+        "description": "Base64 code for the image (exclude data:image descriptors). Either 'image' or 'url' must be provided.",
+        "title": "Image",
+        "type": "string"
+      },
+      "url": {
+        "description": "Direct link to an existing image online. Either 'image' or 'url' must be provided.",
+        "examples": ["https://images.unsplash.com/photo-1506905925346-21bda4d32df4"],
+        "title": "Url",
+        "type": "string"
+      }
+    },
+    "required": ["file_name"],
+    "title": "CreateImageRequest",
+    "type": "object"
+  },
+  "name": "create_image",
+  "outputSchema": {
+    "$defs": {
+      "CreateImageResponse": {
+        "properties": {
+          "avg_color": {
+            "description": "Average color of the image in hexadecimal format",
+            "title": "Avg Color",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "File name for the image",
+            "title": "File Name",
+            "type": "string"
+          },
+          "has_alpha": {
+            "description": "True if image has alpha channel (transparency), otherwise false",
+            "title": "Has Alpha",
+            "type": "boolean"
+          },
+          "height": {
+            "description": "Height of the image in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique ID for the image",
+            "title": "Id",
+            "type": "string"
+          },
+          "media_type": {
+            "description": "The MIME type of the image",
+            "title": "Media Type",
+            "type": "string"
+          },
+          "src": {
+            "description": "URL for the image",
+            "title": "Src",
+            "type": "string"
+          },
+          "width": {
+            "description": "Width of the image in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "src", "file_name", "width", "height", "media_type", "has_alpha", "avg_color"],
+        "title": "CreateImageResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateImageResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

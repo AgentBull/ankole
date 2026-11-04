@@ -1,0 +1,212 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of repository branches for a project. Use this when you need to get all branches or search for specific branches within a GitLab project.",
+  "inputSchema": {
+    "properties": {
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["5", "group_name%2Fproject_name"],
+        "title": "Project Id"
+      },
+      "regex": {
+        "description": "Return list of branches with names matching a re2 regular expression.",
+        "examples": [".*hotfix.*"],
+        "title": "Regex",
+        "type": "string"
+      },
+      "search": {
+        "description": "Return list of branches containing the search string. Use `^term` to find branches that begin with `term`, and `term$` to find branches that end with `term`.",
+        "examples": ["feature", "^release", "fix$"],
+        "title": "Search",
+        "type": "string"
+      }
+    },
+    "required": ["project_id"],
+    "title": "GetRepositoryBranchesRequest",
+    "type": "object"
+  },
+  "name": "get_repository_branches",
+  "outputSchema": {
+    "$defs": {
+      "Branch": {
+        "properties": {
+          "can_push": {
+            "title": "Can Push",
+            "type": "boolean"
+          },
+          "commit": {
+            "$ref": "#/$defs/Commit",
+            "title": "Commit"
+          },
+          "default": {
+            "title": "Default",
+            "type": "boolean"
+          },
+          "developers_can_merge": {
+            "title": "Developers Can Merge",
+            "type": "boolean"
+          },
+          "developers_can_push": {
+            "title": "Developers Can Push",
+            "type": "boolean"
+          },
+          "merged": {
+            "title": "Merged",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "protected": {
+            "title": "Protected",
+            "type": "boolean"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "merged",
+          "protected",
+          "default",
+          "developers_can_push",
+          "developers_can_merge",
+          "can_push",
+          "web_url",
+          "commit"
+        ],
+        "title": "Branch",
+        "type": "object"
+      },
+      "Commit": {
+        "properties": {
+          "author_email": {
+            "title": "Author Email",
+            "type": "string"
+          },
+          "author_name": {
+            "title": "Author Name",
+            "type": "string"
+          },
+          "authored_date": {
+            "title": "Authored Date",
+            "type": "string"
+          },
+          "committed_date": {
+            "title": "Committed Date",
+            "type": "string"
+          },
+          "committer_email": {
+            "title": "Committer Email",
+            "type": "string"
+          },
+          "committer_name": {
+            "title": "Committer Name",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "extended_trailers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Extended Trailers",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "parent_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Parent Ids",
+            "type": "array"
+          },
+          "short_id": {
+            "title": "Short Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trailers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Trailers",
+            "type": "object"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "short_id",
+          "created_at",
+          "title",
+          "message",
+          "author_name",
+          "author_email",
+          "authored_date",
+          "committer_name",
+          "committer_email",
+          "committed_date",
+          "web_url"
+        ],
+        "title": "Commit",
+        "type": "object"
+      },
+      "GetRepositoryBranchesResponse": {
+        "properties": {
+          "branches": {
+            "description": "A list of repository branches.",
+            "items": {
+              "$ref": "#/$defs/Branch"
+            },
+            "title": "Branches",
+            "type": "array"
+          }
+        },
+        "required": ["branches"],
+        "title": "GetRepositoryBranchesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRepositoryBranchesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

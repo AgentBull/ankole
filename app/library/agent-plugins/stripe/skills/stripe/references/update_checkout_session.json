@@ -1,0 +1,991 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to update a Stripe Checkout Session dynamically. Use when you need to modify customer information, line items, or shipping options on an existing checkout session. Line item updates require retransmitting the entire array.",
+  "inputSchema": {
+    "properties": {
+      "collected_information": {
+        "additionalProperties": false,
+        "description": "Customer data collected within the session. Only applies to embedded or custom checkout sessions.",
+        "properties": {
+          "shipping_details": {
+            "additionalProperties": false,
+            "description": "Shipping details collected from the customer. Only applicable for embedded or custom checkout sessions.",
+            "properties": {
+              "address": {
+                "additionalProperties": false,
+                "description": "Shipping address for the customer.",
+                "properties": {
+                  "city": {
+                    "description": "City, town, district, or village.",
+                    "examples": ["San Francisco", "New York"],
+                    "title": "City",
+                    "type": "string"
+                  },
+                  "country": {
+                    "description": "Two-letter ISO 3166-1 country code.",
+                    "examples": ["US", "CA", "GB"],
+                    "title": "Country",
+                    "type": "string"
+                  },
+                  "line1": {
+                    "description": "Street, PO Box, or company name.",
+                    "examples": ["123 Main St", "PO Box 456"],
+                    "title": "Line1",
+                    "type": "string"
+                  },
+                  "line2": {
+                    "description": "Apartment, suite, unit, or building number.",
+                    "examples": ["Apt 4B", "Suite 200"],
+                    "title": "Line2",
+                    "type": "string"
+                  },
+                  "postal_code": {
+                    "description": "ZIP or postal code.",
+                    "examples": ["94102", "10001"],
+                    "title": "Postal Code",
+                    "type": "string"
+                  },
+                  "state": {
+                    "description": "State, county, province, or region per ISO 3166-2.",
+                    "examples": ["CA", "NY"],
+                    "title": "State",
+                    "type": "string"
+                  }
+                },
+                "required": ["country", "line1"],
+                "title": "Address",
+                "type": "object"
+              },
+              "name": {
+                "description": "Customer name (maximum 255 characters).",
+                "examples": ["John Doe", "Jane Smith"],
+                "title": "Name",
+                "type": "string"
+              }
+            },
+            "required": ["address", "name"],
+            "title": "ShippingDetails",
+            "type": "object"
+          }
+        },
+        "title": "CollectedInformation",
+        "type": "object"
+      },
+      "line_items": {
+        "description": "List of purchased items. Must retransmit the entire array when updating. Items can be retained (by ID), updated (ID + new values), added (price/price_data), or removed (omit ID).",
+        "items": {
+          "properties": {
+            "adjustable_quantity": {
+              "additionalProperties": false,
+              "description": "Settings to allow customer to adjust the quantity.",
+              "properties": {
+                "enabled": {
+                  "description": "Whether customer can adjust the quantity.",
+                  "title": "Enabled",
+                  "type": "boolean"
+                },
+                "maximum": {
+                  "description": "Maximum purchasable quantity (default 99, max 999999).",
+                  "examples": [10, 100],
+                  "title": "Maximum",
+                  "type": "integer"
+                },
+                "minimum": {
+                  "description": "Minimum quantity required (default 0).",
+                  "examples": [1, 5],
+                  "title": "Minimum",
+                  "type": "integer"
+                }
+              },
+              "required": ["enabled"],
+              "title": "LineItemAdjustableQuantity",
+              "type": "object"
+            },
+            "id": {
+              "description": "Existing line item ID for updates or retention. Required to update or retain an existing line item.",
+              "title": "Id",
+              "type": "string"
+            },
+            "metadata": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Key-value pairs for storing structured information.",
+              "title": "Metadata",
+              "type": "object"
+            },
+            "price": {
+              "description": "Price ID for existing prices. Required if price_data is not provided.",
+              "title": "Price",
+              "type": "string"
+            },
+            "price_data": {
+              "additionalProperties": false,
+              "description": "Inline price data. Required if price is not provided.",
+              "properties": {
+                "currency": {
+                  "description": "Three-letter ISO currency code (lowercase).",
+                  "examples": ["usd", "eur", "gbp"],
+                  "title": "Currency",
+                  "type": "string"
+                },
+                "product": {
+                  "description": "Product ID for existing products.",
+                  "title": "Product",
+                  "type": "string"
+                },
+                "product_data": {
+                  "additionalProperties": false,
+                  "description": "Product data for creating a new product inline.",
+                  "properties": {
+                    "description": {
+                      "description": "Customer-facing description of the product.",
+                      "title": "Description",
+                      "type": "string"
+                    },
+                    "images": {
+                      "description": "Up to 8 product image URLs.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "title": "Images",
+                      "type": "array"
+                    },
+                    "metadata": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Key-value pairs for additional product information.",
+                      "title": "Metadata",
+                      "type": "object"
+                    },
+                    "name": {
+                      "description": "Displayable product name.",
+                      "examples": ["Premium Widget", "Standard Service"],
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "tax_code": {
+                      "description": "Tax category ID for this product.",
+                      "title": "Tax Code",
+                      "type": "string"
+                    },
+                    "unit_label": {
+                      "description": "Units label (maximum 12 characters).",
+                      "examples": ["item", "hour", "session"],
+                      "title": "Unit Label",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["name"],
+                  "title": "LineItemPriceDataProductData",
+                  "type": "object"
+                },
+                "recurring": {
+                  "additionalProperties": false,
+                  "description": "Recurring billing settings for subscriptions.",
+                  "properties": {
+                    "interval": {
+                      "description": "Billing frequency: 'day', 'week', 'month', or 'year'.",
+                      "examples": ["month", "year"],
+                      "title": "Interval",
+                      "type": "string"
+                    },
+                    "interval_count": {
+                      "description": "Number of intervals between billings (maximum 3 years).",
+                      "examples": [1, 3, 6, 12],
+                      "title": "Interval Count",
+                      "type": "integer"
+                    }
+                  },
+                  "required": ["interval"],
+                  "title": "LineItemPriceDataRecurring",
+                  "type": "object"
+                },
+                "tax_behavior": {
+                  "description": "Tax behavior: 'inclusive', 'exclusive', or 'unspecified'.",
+                  "examples": ["inclusive", "exclusive"],
+                  "title": "Tax Behavior",
+                  "type": "string"
+                },
+                "unit_amount": {
+                  "description": "Charge amount in smallest currency unit (e.g., cents).",
+                  "examples": [1000, 2500],
+                  "title": "Unit Amount",
+                  "type": "integer"
+                },
+                "unit_amount_decimal": {
+                  "description": "Charge amount in decimal cents (up to 12 decimal places).",
+                  "title": "Unit Amount Decimal",
+                  "type": "string"
+                }
+              },
+              "required": ["currency"],
+              "title": "LineItemPriceData",
+              "type": "object"
+            },
+            "quantity": {
+              "description": "Quantity of items being purchased.",
+              "examples": [1, 2, 5],
+              "title": "Quantity",
+              "type": "integer"
+            },
+            "tax_rates": {
+              "description": "List of applicable tax rate IDs.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tax Rates",
+              "type": "array"
+            }
+          },
+          "title": "LineItem",
+          "type": "object"
+        },
+        "title": "Line Items",
+        "type": "array"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Key-value pairs for storing additional structured information about the checkout session.",
+        "title": "Metadata",
+        "type": "object"
+      },
+      "session": {
+        "description": "The ID of the Checkout Session to update.",
+        "examples": ["cs_test_your_checkout_session_id_here"],
+        "title": "Session",
+        "type": "string"
+      },
+      "shipping_options": {
+        "description": "Shipping rate options (maximum 5).",
+        "items": {
+          "properties": {
+            "shipping_rate": {
+              "description": "Shipping Rate ID. Required if shipping_rate_data is not provided.",
+              "title": "Shipping Rate",
+              "type": "string"
+            },
+            "shipping_rate_data": {
+              "additionalProperties": false,
+              "description": "Inline shipping rate data. Required if shipping_rate is not provided.",
+              "properties": {
+                "delivery_estimate": {
+                  "additionalProperties": false,
+                  "description": "Estimated delivery time range.",
+                  "properties": {
+                    "maximum": {
+                      "additionalProperties": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "integer"
+                          }
+                        ]
+                      },
+                      "description": "Maximum delivery estimate with 'unit' and 'value'.",
+                      "title": "Maximum",
+                      "type": "object"
+                    },
+                    "minimum": {
+                      "additionalProperties": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "integer"
+                          }
+                        ]
+                      },
+                      "description": "Minimum delivery estimate with 'unit' (business_day/day/hour/month/week) and 'value' (integer > 0).",
+                      "title": "Minimum",
+                      "type": "object"
+                    }
+                  },
+                  "title": "DeliveryEstimate",
+                  "type": "object"
+                },
+                "display_name": {
+                  "description": "Customer-facing name (maximum 100 characters).",
+                  "examples": ["Standard Shipping", "Express Delivery"],
+                  "title": "Display Name",
+                  "type": "string"
+                },
+                "fixed_amount": {
+                  "additionalProperties": false,
+                  "description": "Fixed amount for shipping.",
+                  "properties": {
+                    "amount": {
+                      "description": "Shipping charge in smallest currency unit (e.g., cents).",
+                      "examples": [500, 1000],
+                      "title": "Amount",
+                      "type": "integer"
+                    },
+                    "currency": {
+                      "description": "Three-letter ISO currency code.",
+                      "examples": ["usd", "eur"],
+                      "title": "Currency",
+                      "type": "string"
+                    },
+                    "currency_options": {
+                      "additionalProperties": {
+                        "additionalProperties": {
+                          "type": "integer"
+                        },
+                        "type": "object"
+                      },
+                      "description": "Per-currency amount overrides.",
+                      "title": "Currency Options",
+                      "type": "object"
+                    }
+                  },
+                  "required": ["amount", "currency"],
+                  "title": "ShippingRateDataFixedAmount",
+                  "type": "object"
+                },
+                "metadata": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "Key-value pairs for additional information.",
+                  "title": "Metadata",
+                  "type": "object"
+                },
+                "tax_behavior": {
+                  "description": "Tax behavior: 'inclusive', 'exclusive', or 'unspecified'.",
+                  "examples": ["inclusive", "exclusive"],
+                  "title": "Tax Behavior",
+                  "type": "string"
+                },
+                "tax_code": {
+                  "description": "Tax category ID for shipping.",
+                  "title": "Tax Code",
+                  "type": "string"
+                },
+                "type": {
+                  "description": "Type of shipping rate. Must be 'fixed_amount'.",
+                  "examples": ["fixed_amount"],
+                  "title": "Type",
+                  "type": "string"
+                }
+              },
+              "required": ["display_name", "type"],
+              "title": "ShippingRateData",
+              "type": "object"
+            }
+          },
+          "title": "ShippingOption",
+          "type": "object"
+        },
+        "title": "Shipping Options",
+        "type": "array"
+      }
+    },
+    "required": ["session"],
+    "title": "UpdateCheckoutSessionRequest",
+    "type": "object"
+  },
+  "name": "update_checkout_session",
+  "outputSchema": {
+    "$defs": {
+      "Address": {
+        "properties": {
+          "city": {
+            "description": "City or town.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter country code.",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Address line 1.",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Address line 2.",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "ZIP or postal code.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State or province.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "Address",
+        "type": "object"
+      },
+      "AutomaticTaxResponse": {
+        "properties": {
+          "enabled": {
+            "description": "Whether automatic tax is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "liability": {
+            "additionalProperties": true,
+            "description": "Tax liability details.",
+            "title": "Liability",
+            "type": "object"
+          },
+          "status": {
+            "description": "Tax calculation status.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTaxResponse",
+        "type": "object"
+      },
+      "CollectedInformationResponse": {
+        "properties": {
+          "business_name": {
+            "description": "Business name collected.",
+            "title": "Business Name",
+            "type": "string"
+          },
+          "individual_name": {
+            "description": "Individual name collected.",
+            "title": "Individual Name",
+            "type": "string"
+          },
+          "shipping_details": {
+            "$ref": "#/$defs/ShippingDetailsResponse",
+            "description": "Shipping details collected.",
+            "title": "Shipping Details"
+          }
+        },
+        "title": "CollectedInformationResponse",
+        "type": "object"
+      },
+      "CustomerDetails": {
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "Customer's address.",
+            "title": "Address"
+          },
+          "business_name": {
+            "description": "Customer's business name.",
+            "title": "Business Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "Customer's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "individual_name": {
+            "description": "Customer's individual name.",
+            "title": "Individual Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Customer's full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Customer's phone number.",
+            "title": "Phone",
+            "type": "string"
+          },
+          "tax_exempt": {
+            "description": "Tax exemption status.",
+            "title": "Tax Exempt",
+            "type": "string"
+          },
+          "tax_ids": {
+            "description": "Customer's tax IDs.",
+            "items": {
+              "$ref": "#/$defs/TaxId"
+            },
+            "title": "Tax Ids",
+            "type": "array"
+          }
+        },
+        "title": "CustomerDetails",
+        "type": "object"
+      },
+      "LineItemDataResponse": {
+        "properties": {
+          "amount_discount": {
+            "description": "Total discount amount.",
+            "title": "Amount Discount",
+            "type": "integer"
+          },
+          "amount_subtotal": {
+            "description": "Total before discounts or taxes.",
+            "title": "Amount Subtotal",
+            "type": "integer"
+          },
+          "amount_tax": {
+            "description": "Total tax amount.",
+            "title": "Amount Tax",
+            "type": "integer"
+          },
+          "amount_total": {
+            "description": "Total after discounts and taxes.",
+            "title": "Amount Total",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Line item description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discounts": {
+            "description": "Discounts applied.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the line item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "Object type, always 'item'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "price": {
+            "additionalProperties": true,
+            "description": "Price object.",
+            "title": "Price",
+            "type": "object"
+          },
+          "quantity": {
+            "description": "Quantity purchased.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "taxes": {
+            "description": "Taxes applied.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Taxes",
+            "type": "array"
+          }
+        },
+        "required": ["id", "object", "amount_subtotal", "amount_total", "amount_discount", "amount_tax", "currency"],
+        "title": "LineItemDataResponse",
+        "type": "object"
+      },
+      "LineItemsResponse": {
+        "properties": {
+          "data": {
+            "description": "List of line items.",
+            "items": {
+              "$ref": "#/$defs/LineItemDataResponse"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether more elements are available.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "Object type, always 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to access this list.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "LineItemsResponse",
+        "type": "object"
+      },
+      "ShippingDetailsResponse": {
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "Recipient shipping address.",
+            "title": "Address"
+          },
+          "name": {
+            "description": "Recipient name.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["name", "address"],
+        "title": "ShippingDetailsResponse",
+        "type": "object"
+      },
+      "ShippingOptionResponse": {
+        "properties": {
+          "shipping_amount": {
+            "description": "Shipping amount in smallest currency unit.",
+            "title": "Shipping Amount",
+            "type": "integer"
+          },
+          "shipping_rate": {
+            "description": "ID of the Shipping Rate.",
+            "title": "Shipping Rate",
+            "type": "string"
+          }
+        },
+        "required": ["shipping_amount", "shipping_rate"],
+        "title": "ShippingOptionResponse",
+        "type": "object"
+      },
+      "TaxId": {
+        "properties": {
+          "type": {
+            "description": "Type of tax ID.",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "Tax ID value.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "TaxId",
+        "type": "object"
+      },
+      "TotalDetails": {
+        "properties": {
+          "amount_discount": {
+            "description": "Total discount amount.",
+            "title": "Amount Discount",
+            "type": "integer"
+          },
+          "amount_shipping": {
+            "description": "Total shipping amount.",
+            "title": "Amount Shipping",
+            "type": "integer"
+          },
+          "amount_tax": {
+            "description": "Total tax amount.",
+            "title": "Amount Tax",
+            "type": "integer"
+          }
+        },
+        "required": ["amount_discount", "amount_shipping", "amount_tax"],
+        "title": "TotalDetails",
+        "type": "object"
+      },
+      "UpdateCheckoutSessionResponse": {
+        "properties": {
+          "locale": {
+            "description": "Display locale for Checkout.",
+            "title": "Locale",
+            "type": "string"
+          },
+          "invoice_creation": {
+            "additionalProperties": true,
+            "description": "Invoice creation settings.",
+            "title": "Invoice Creation",
+            "type": "object"
+          },
+          "client_reference_id": {
+            "description": "Unique reference string for the session.",
+            "title": "Client Reference Id",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to the Checkout Session.",
+            "title": "Url",
+            "type": "string"
+          },
+          "payment_method_types": {
+            "description": "List of enabled payment method types.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Payment Method Types",
+            "type": "array"
+          },
+          "shipping_details": {
+            "$ref": "#/$defs/ShippingDetailsResponse",
+            "description": "Shipping information.",
+            "title": "Shipping Details"
+          },
+          "expires_at": {
+            "description": "Session expiration timestamp.",
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "ui_mode": {
+            "description": "UI mode: 'hosted', 'embedded', or 'custom'.",
+            "title": "Ui Mode",
+            "type": "string"
+          },
+          "consent_collection": {
+            "additionalProperties": true,
+            "description": "Consent collection settings.",
+            "title": "Consent Collection",
+            "type": "object"
+          },
+          "collected_information": {
+            "$ref": "#/$defs/CollectedInformationResponse",
+            "description": "Information collected from the customer.",
+            "title": "Collected Information"
+          },
+          "setup_intent": {
+            "description": "SetupIntent ID.",
+            "title": "Setup Intent",
+            "type": "string"
+          },
+          "payment_status": {
+            "description": "Payment status: 'paid', 'unpaid', or 'no_payment_required'.",
+            "title": "Payment Status",
+            "type": "string"
+          },
+          "customer_email": {
+            "description": "Prefilled customer email.",
+            "title": "Customer Email",
+            "type": "string"
+          },
+          "created": {
+            "description": "Creation timestamp in Unix epoch seconds.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "invoice": {
+            "description": "Invoice ID.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "status": {
+            "description": "Session status: 'open', 'complete', or 'expired'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "billing_address_collection": {
+            "description": "Billing address collection: 'auto' or 'required'.",
+            "title": "Billing Address Collection",
+            "type": "string"
+          },
+          "client_secret": {
+            "description": "Client secret for retrieval.",
+            "title": "Client Secret",
+            "type": "string"
+          },
+          "submit_type": {
+            "description": "Submit button type: 'auto', 'book', 'donate', or 'pay'.",
+            "title": "Submit Type",
+            "type": "string"
+          },
+          "consent": {
+            "additionalProperties": true,
+            "description": "Results of consent collection.",
+            "title": "Consent",
+            "type": "object"
+          },
+          "mode": {
+            "description": "Session mode: 'payment', 'setup', or 'subscription'.",
+            "title": "Mode",
+            "type": "string"
+          },
+          "automatic_tax": {
+            "$ref": "#/$defs/AutomaticTaxResponse",
+            "description": "Automatic tax settings.",
+            "title": "Automatic Tax"
+          },
+          "customer_details": {
+            "$ref": "#/$defs/CustomerDetails",
+            "description": "Customer details including tax information.",
+            "title": "Customer Details"
+          },
+          "custom_text": {
+            "additionalProperties": true,
+            "description": "Custom text displayed during checkout.",
+            "title": "Custom Text",
+            "type": "object"
+          },
+          "customer": {
+            "description": "Customer ID.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "amount_subtotal": {
+            "description": "Total before discounts or taxes.",
+            "title": "Amount Subtotal",
+            "type": "integer"
+          },
+          "payment_intent": {
+            "description": "PaymentIntent ID.",
+            "title": "Payment Intent",
+            "type": "string"
+          },
+          "total_details": {
+            "$ref": "#/$defs/TotalDetails",
+            "description": "Tax and discount details.",
+            "title": "Total Details"
+          },
+          "recovered_from": {
+            "description": "ID of original expired session.",
+            "title": "Recovered From",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "Custom fields for collecting additional information.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "success_url": {
+            "description": "Success redirect URL.",
+            "title": "Success Url",
+            "type": "string"
+          },
+          "amount_total": {
+            "description": "Total after discounts and taxes.",
+            "title": "Amount Total",
+            "type": "integer"
+          },
+          "after_expiration": {
+            "additionalProperties": true,
+            "description": "Configuration for session recovery after expiration.",
+            "title": "After Expiration",
+            "type": "object"
+          },
+          "shipping_options": {
+            "description": "Available shipping options.",
+            "items": {
+              "$ref": "#/$defs/ShippingOptionResponse"
+            },
+            "title": "Shipping Options",
+            "type": "array"
+          },
+          "customer_creation": {
+            "description": "Customer creation setting: 'always' or 'if_required'.",
+            "title": "Customer Creation",
+            "type": "string"
+          },
+          "allow_promotion_codes": {
+            "description": "Whether promotion codes are enabled.",
+            "title": "Allow Promotion Codes",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value pairs attached to the session.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "payment_link": {
+            "description": "Payment Link ID.",
+            "title": "Payment Link",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Whether in live mode or test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the Checkout Session.",
+            "title": "Id",
+            "type": "string"
+          },
+          "phone_number_collection": {
+            "additionalProperties": true,
+            "description": "Phone number collection settings.",
+            "title": "Phone Number Collection",
+            "type": "object"
+          },
+          "cancel_url": {
+            "description": "Cancel redirect URL.",
+            "title": "Cancel Url",
+            "type": "string"
+          },
+          "payment_method_collection": {
+            "description": "Payment method collection: 'always' or 'if_required'.",
+            "title": "Payment Method Collection",
+            "type": "string"
+          },
+          "object": {
+            "description": "Object type, always 'checkout.session'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "subscription": {
+            "description": "Subscription ID.",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "line_items": {
+            "$ref": "#/$defs/LineItemsResponse",
+            "description": "Line items purchased.",
+            "title": "Line Items"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "livemode",
+          "mode",
+          "status",
+          "payment_status",
+          "expires_at",
+          "automatic_tax"
+        ],
+        "title": "UpdateCheckoutSessionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateCheckoutSessionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update card checklist item state",
+  "inputSchema": {
+    "description": "Request schema for updating the state of a checklist item on a Trello card.",
+    "properties": {
+      "idCard": {
+        "description": "The ID or short link of the Trello card containing the checklist item.",
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idCheckItem": {
+        "description": "The ID of the check item within the checklist whose state needs to be updated.",
+        "title": "Id Check Item",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "The ID of the checklist on the card that contains the check item to be updated.",
+        "title": "Id Checklist",
+        "type": "string"
+      },
+      "value": {
+        "description": "The new state for the check item. Use 'complete' or 'true' to mark as complete, and 'incomplete' or 'false' to mark as incomplete.",
+        "examples": ["complete", "false", "incomplete", "true"],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "idChecklist", "idCheckItem"],
+    "title": "UpdateCardsChecklistItemsStateByIdCardByIdChecklistByIdCheckItemRequest",
+    "type": "object"
+  },
+  "name": "update_cards_checklist_items_state_by_id_card_by_id_c",
+  "outputSchema": {
+    "$defs": {
+      "UpdateCardsChecklistItemsStateByIdCardByIdChecklistByIdCheckItemResponse": {
+        "description": "Response schema for the updated checklist item state action.",
+        "properties": {
+          "due": {
+            "description": "The due date for the check item in ISO 8601 format (e.g., '2021-02-12T07:00:00.000Z'). Requires Business Class or higher. May be null.",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "The number of seconds before the due date to send a reminder. Requires Business Class or higher. May be null.",
+            "title": "Due Reminder",
+            "type": "number"
+          },
+          "id": {
+            "description": "The unique identifier (TrelloID) of the check item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "The ID (TrelloID) of the parent checklist containing this check item.",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "The ID (TrelloID) of the member assigned to this check item. Requires Business Class or higher. May be null.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "The text/title of the check item.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "description": "Additional data related to the check item name. Typically null.",
+            "title": "Name Data",
+            "type": "string"
+          },
+          "pos": {
+            "description": "The position of the check item within the checklist, used for ordering.",
+            "title": "Pos",
+            "type": "string"
+          },
+          "state": {
+            "description": "The completion state of the check item. Can be 'complete' or 'incomplete'.",
+            "enum": ["complete", "incomplete"],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idChecklist", "name", "state", "pos"],
+        "title": "UpdateCardsChecklistItemsStateByIdCardByIdChecklistByIdCheckItemResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateCardsChecklistItemsStateByIdCardByIdChecklistByIdCheckItemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

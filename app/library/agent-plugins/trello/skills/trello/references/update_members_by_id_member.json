@@ -1,0 +1,325 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing Trello member's profile information, preferences, or username.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateMembersByIdMember`",
+    "properties": {
+      "avatarSource": {
+        "description": "Source for the member's avatar. Valid values: 'gravatar', 'none', 'upload'.",
+        "examples": ["gravatar", "none", "upload"],
+        "title": "Avatar Source",
+        "type": "string"
+      },
+      "bio": {
+        "description": "Biography (0-16384 characters).",
+        "examples": ["Software developer passionate about Trello.", "Currently seeking new opportunities."],
+        "title": "Bio",
+        "type": "string"
+      },
+      "fullName": {
+        "description": "Full name (at least 1 character; no leading/trailing spaces).",
+        "examples": ["John Doe", "Jane A. Smith"],
+        "title": "Full Name",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID or username of the Trello member to update.",
+        "examples": ["65f089b29142572f51b73816", "john_doe_123"],
+        "title": "Id Member",
+        "type": "string"
+      },
+      "initials": {
+        "description": "Initials (1-4 characters; no leading/trailing spaces).",
+        "examples": ["JD", "JAS"],
+        "title": "Initials",
+        "type": "string"
+      },
+      "prefs__colorBlind": {
+        "description": "Toggle color blind mode. Valid values: 'true', 'false'.",
+        "examples": ["true", "false"],
+        "title": "Prefs  Color Blind",
+        "type": "string"
+      },
+      "prefs__locale": {
+        "description": "Preferred locale (0-255 characters).",
+        "examples": ["en-US", "fr-FR", "es"],
+        "title": "Prefs  Locale",
+        "type": "string"
+      },
+      "prefs__minutesBetweenSummaries": {
+        "description": "Time between email summaries. Valid values: '-1' (disabled), '1' (every minute), '60' (every hour).",
+        "examples": ["-1", "1", "60"],
+        "title": "Prefs  Minutes Between Summaries",
+        "type": "string"
+      },
+      "username": {
+        "description": "Desired username (at least 3 characters; lowercase letters, underscores, numbers only; must be unique).",
+        "examples": ["new_username_123", "jane_developer"],
+        "title": "Username",
+        "type": "string"
+      }
+    },
+    "required": ["idMember"],
+    "title": "UpdateMembersByIdMemberRequest",
+    "type": "object"
+  },
+  "name": "update_members_by_id_member",
+  "outputSchema": {
+    "$defs": {
+      "NonPublicInfo": {
+        "description": "Non-public member information",
+        "properties": {
+          "avatarHash": {
+            "description": "Non-public avatar hash",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "Non-public avatar URL",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Non-public full name",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "initials": {
+            "description": "Non-public initials",
+            "title": "Initials",
+            "type": "string"
+          }
+        },
+        "title": "NonPublicInfo",
+        "type": "object"
+      },
+      "UpdateMembersByIdMemberResponse": {
+        "description": "Response schema for `UpdateMembersByIdMember`",
+        "properties": {
+          "url": {
+            "description": "URL to the member's Trello profile",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "The member's username",
+            "title": "Username",
+            "type": "string"
+          },
+          "aaId": {
+            "description": "Atlassian account ID",
+            "title": "Aa Id",
+            "type": "string"
+          },
+          "idOrganizations": {
+            "description": "Array of organization/workspace IDs the member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Organizations",
+            "type": "array"
+          },
+          "aaEmail": {
+            "description": "Atlassian account email",
+            "title": "Aa Email",
+            "type": "string"
+          },
+          "nonPublicAvailable": {
+            "description": "Whether non-public information is available",
+            "title": "Non Public Available",
+            "type": "boolean"
+          },
+          "uploadedAvatarHash": {
+            "description": "Hash of the uploaded avatar",
+            "title": "Uploaded Avatar Hash",
+            "type": "string"
+          },
+          "idEnterprise": {
+            "description": "ID of the enterprise the member belongs to",
+            "title": "Id Enterprise",
+            "type": "string"
+          },
+          "idBoardsPinned": {
+            "description": "Array of board IDs the member has pinned",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards Pinned",
+            "type": "array"
+          },
+          "status": {
+            "description": "The member's status",
+            "title": "Status",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "Array of board IDs the member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "email": {
+            "description": "The member's email address (requires proper authentication scope)",
+            "title": "Email",
+            "type": "string"
+          },
+          "idEnterprisesDeactivated": {
+            "description": "Array of enterprise IDs where the member has been deactivated",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Enterprises Deactivated",
+            "type": "array"
+          },
+          "gravatarHash": {
+            "description": "The member's Gravatar hash (deprecated)",
+            "title": "Gravatar Hash",
+            "type": "string"
+          },
+          "confirmed": {
+            "description": "Whether the member has confirmed their email address",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "avatarUrl": {
+            "description": "URL to the member's avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "memberType": {
+            "description": "Type of member (e.g., 'normal')",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "products": {
+            "description": "Products/subscriptions associated with the member",
+            "items": {},
+            "title": "Products",
+            "type": "array"
+          },
+          "trophies": {
+            "description": "Array of trophy identifiers earned by the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Trophies",
+            "type": "array"
+          },
+          "loginTypes": {
+            "description": "Types of login methods available for the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Login Types",
+            "type": "array"
+          },
+          "prefs": {
+            "additionalProperties": true,
+            "description": "Member preferences object",
+            "title": "Prefs",
+            "type": "object"
+          },
+          "activityBlocked": {
+            "description": "Whether activity is blocked for this member",
+            "title": "Activity Blocked",
+            "type": "boolean"
+          },
+          "avatarHash": {
+            "description": "Hash value for the member's avatar",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "oneTimeMessagesDismissed": {
+            "description": "Types of one-time messages that have been dismissed by the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "One Time Messages Dismissed",
+            "type": "array"
+          },
+          "fullName": {
+            "description": "The member's full display name",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "aaEnrolledDate": {
+            "description": "Date the member enrolled in Atlassian account",
+            "title": "Aa Enrolled Date",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "idPremOrgsAdmin": {
+            "description": "Array of premium organization IDs where the member is an admin",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Prem Orgs Admin",
+            "type": "array"
+          },
+          "idMemberReferrer": {
+            "description": "ID of the member who referred this member",
+            "title": "Id Member Referrer",
+            "type": "string"
+          },
+          "avatarSource": {
+            "description": "Source of the avatar (deprecated field)",
+            "title": "Avatar Source",
+            "type": "string"
+          },
+          "bio": {
+            "description": "The member's biography text",
+            "title": "Bio",
+            "type": "string"
+          },
+          "premiumFeatures": {
+            "description": "Array of premium features available to the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Premium Features",
+            "type": "array"
+          },
+          "bioData": {
+            "additionalProperties": true,
+            "description": "Structured bio data including emoji information",
+            "title": "Bio Data",
+            "type": "object"
+          },
+          "nonPublic": {
+            "$ref": "#/$defs/NonPublicInfo",
+            "description": "Object containing non-public member information",
+            "title": "Non Public"
+          },
+          "initials": {
+            "description": "The member's initials",
+            "title": "Initials",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "UpdateMembersByIdMemberResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateMembersByIdMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,206 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Queries raw busy intervals for one or more calendars or groups over an exact time range. Returns per-calendar and per-group availability and errors, without event titles or details. Use googlecalendar.find_free_slots when you want default time bounds and computed free intervals; use googlecalendar.events_list when you need event records.",
+  "inputSchema": {
+    "properties": {
+      "calendarExpansionMax": {
+        "description": "Maximal number of calendars for which FreeBusy information is to be provided. Optional. Maximum value is 50.",
+        "human_parameter_description": "The maximum number of calendars to include in the free/busy results. Set this to cap results if you are querying many calendars.",
+        "human_parameter_name": "Max Calendar Size",
+        "title": "Calendar Expansion Max",
+        "type": "integer"
+      },
+      "groupExpansionMax": {
+        "description": "Maximal number of calendar identifiers to be provided for a single group. Optional. An error is returned for a group with more members than this value. Maximum value is 100.",
+        "human_parameter_description": "The maximum number of people to expand when a group is included. Use this to limit very large groups so the request stays manageable.",
+        "human_parameter_name": "Max Group Size",
+        "title": "Group Expansion Max",
+        "type": "integer"
+      },
+      "items": {
+        "description": "List of calendars and/or groups to query. Accepts either strings (e.g., ['primary', 'user@example.com']) or objects with an 'id' field (e.g., [{'id': 'primary'}]). String values are automatically converted to the proper format. Only calendars with at least freeBusyReader-level access are queried; omitting shared/secondary calendars can hide real conflicts. Batch all attendees into one call to avoid 403 rateLimitExceeded or 429 tooManyRequests errors.",
+        "human_parameter_description": "The calendars and/or groups you want to check for availability. Provide the calendar or group IDs (often email addresses) you want included. You can use simple strings like 'primary' or 'user@example.com'.",
+        "items": {
+          "properties": {
+            "id": {
+              "description": "The identifier of a calendar or a group.",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          "required": ["id"],
+          "title": "FreeBusyQueryItem",
+          "type": "object"
+        },
+        "title": "Items",
+        "type": "array"
+      },
+      "timeMax": {
+        "description": "The end of the interval for the query formatted as per RFC3339. Exclusive bound; must be greater than timeMin. Keep the timeMin–timeMax window within ~90 days; larger spans may return empty or degraded results.",
+        "format": "date-time",
+        "human_parameter_description": "The end of the time window to check calendar availability. Choose the date and time when you want the availability search to stop.",
+        "human_parameter_name": "End Time",
+        "title": "Time Max",
+        "type": "string"
+      },
+      "timeMin": {
+        "description": "The start of the interval for the query formatted as per RFC3339. Must be strictly less than timeMax. For full-day windows, use local 00:00 in the target timezone to avoid DST/off-by-one errors.",
+        "format": "date-time",
+        "human_parameter_description": "The start of the time window to check calendar availability. Pick the date and time when you want the availability search to begin.",
+        "human_parameter_name": "Start Time",
+        "title": "Time Min",
+        "type": "string"
+      },
+      "timeZone": {
+        "description": "Time zone used in the response. Optional. The default is UTC. Defaults to UTC, which skews working-hours analysis for users in other timezones; always supply a valid IANA timezone (e.g., 'America/New_York').",
+        "human_parameter_description": "The time zone to interpret your start and end times and display results. Leave empty if you want to use UTC.",
+        "human_parameter_name": "Time Zone",
+        "title": "Time Zone",
+        "type": "string"
+      }
+    },
+    "required": ["timeMin", "timeMax", "items"],
+    "title": "FreeBusyQueryRequest",
+    "type": "object"
+  },
+  "name": "free_busy_query",
+  "outputSchema": {
+    "$defs": {
+      "BusyItem": {
+        "properties": {
+          "end": {
+            "description": "End of the busy period, in RFC3339 timestamp format.",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start of the busy period, in RFC3339 timestamp format.",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "BusyItem",
+        "type": "object"
+      },
+      "CalendarInfo": {
+        "properties": {
+          "busy": {
+            "description": "List of time ranges during which this calendar should be regarded as busy.",
+            "items": {
+              "$ref": "#/$defs/BusyItem"
+            },
+            "title": "Busy",
+            "type": "array"
+          },
+          "errors": {
+            "description": "Optional error(s) (if computation for the calendar failed).",
+            "items": {
+              "$ref": "#/$defs/ErrorItem"
+            },
+            "title": "Errors",
+            "type": "array"
+          }
+        },
+        "title": "CalendarInfo",
+        "type": "object"
+      },
+      "ErrorItem": {
+        "properties": {
+          "domain": {
+            "description": "The domain of the error (e.g., 'global').",
+            "title": "Domain",
+            "type": "string"
+          },
+          "reason": {
+            "description": "The specific reason for the error (e.g., 'notFound').",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": ["domain", "reason"],
+        "title": "ErrorItem",
+        "type": "object"
+      },
+      "FreeBusyQueryResponse": {
+        "properties": {
+          "calendars": {
+            "additionalProperties": {
+              "$ref": "#/$defs/CalendarInfo"
+            },
+            "description": "List of free/busy information for calendars.",
+            "title": "Calendars",
+            "type": "object"
+          },
+          "display_url": {
+            "description": "URL to view this resource in the Google Calendar web UI. None for free/busy queries as they have no dedicated UI view.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "groups": {
+            "additionalProperties": {
+              "$ref": "#/$defs/GroupInfo"
+            },
+            "description": "Expansion of groups.",
+            "title": "Groups",
+            "type": "object"
+          },
+          "kind": {
+            "description": "Type of the resource. Always the fixed string 'calendar#freeBusy'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "timeMax": {
+            "description": "The end of the interval covered by the response, in RFC3339 timestamp format.",
+            "title": "Time Max",
+            "type": "string"
+          },
+          "timeMin": {
+            "description": "The start of the interval covered by the response, in RFC3339 timestamp format.",
+            "title": "Time Min",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "timeMin", "timeMax"],
+        "title": "FreeBusyQueryResponse",
+        "type": "object"
+      },
+      "GroupInfo": {
+        "properties": {
+          "calendars": {
+            "description": "List of calendars' identifiers within a group.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Calendars",
+            "type": "array"
+          },
+          "errors": {
+            "description": "Optional error(s) (if computation for the group failed).",
+            "items": {
+              "$ref": "#/$defs/ErrorItem"
+            },
+            "title": "Errors",
+            "type": "array"
+          }
+        },
+        "title": "GroupInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/FreeBusyQueryResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

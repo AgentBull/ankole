@@ -1,0 +1,128 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a push-notification channel for changes to the user's calendar list. Notifications signal changes rather than providing full change details, and delivery is not completely reliable.",
+  "inputSchema": {
+    "properties": {
+      "address": {
+        "description": "The HTTPS URL where notifications are delivered for this channel. Must have a valid SSL certificate.",
+        "examples": ["https://example.com/webhook"],
+        "human_parameter_description": "The URL where notifications should be sent. Must be a publicly accessible HTTPS endpoint that you control.",
+        "human_parameter_name": "Webhook Address",
+        "title": "Address",
+        "type": "string"
+      },
+      "expiration": {
+        "description": "Unix timestamp in milliseconds indicating when the API should stop sending notifications.",
+        "examples": [1735689600000],
+        "human_parameter_description": "Optional expiration time as Unix timestamp in milliseconds. If not provided, the channel will expire after the default TTL period.",
+        "human_parameter_name": "Expiration Time",
+        "title": "Expiration",
+        "type": "integer"
+      },
+      "id": {
+        "description": "A UUID or similar unique string that identifies this channel. Maximum 64 characters.",
+        "examples": ["01234567-89ab-cdef-0123456789ab"],
+        "human_parameter_description": "A unique identifier for this watch channel. Use a UUID or any unique string (max 64 characters) that you can track or use to stop the channel later.",
+        "human_parameter_name": "Channel ID",
+        "title": "Id",
+        "type": "string"
+      },
+      "params": {
+        "additionalProperties": false,
+        "description": "Additional parameters controlling delivery channel behavior.",
+        "human_parameter_description": "Optional settings that control how the channel behaves, such as how long it should stay active (TTL).",
+        "properties": {
+          "ttl": {
+            "description": "Time-to-live in seconds for the notification channel. Default is 604800 seconds (7 days).",
+            "examples": ["3600"],
+            "title": "Ttl",
+            "type": "string"
+          }
+        },
+        "title": "CalendarListWatchRequestParams",
+        "type": "object"
+      },
+      "token": {
+        "description": "An arbitrary string delivered to the target address with each notification. Maximum 256 characters. Used for channel verification and message routing.",
+        "examples": ["verification-token-123"],
+        "human_parameter_description": "Optional secret string that will be included with each notification, allowing your endpoint to verify the source.",
+        "human_parameter_name": "Verification Token",
+        "title": "Token",
+        "type": "string"
+      },
+      "type": {
+        "description": "The type of delivery mechanism used for this channel. Must be \"web_hook\" or \"webhook\".",
+        "examples": ["web_hook"],
+        "human_parameter_description": "How notifications will be delivered. Use 'web_hook' to receive HTTP callbacks at the address you provide.",
+        "human_parameter_name": "Channel Type",
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["id", "type", "address"],
+    "title": "CalendarListWatchRequest",
+    "type": "object"
+  },
+  "name": "calendar_list_watch",
+  "outputSchema": {
+    "$defs": {
+      "CalendarListWatchResponse": {
+        "properties": {
+          "display_url": {
+            "description": "Notification channels have no web UI representation.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "expiration": {
+            "description": "Date and time of notification channel expiration, expressed as a Unix timestamp in milliseconds represented as a string.",
+            "title": "Expiration",
+            "type": "string"
+          },
+          "id": {
+            "description": "A unique string that identifies this channel. Matches the ID provided in the request.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "api#channel",
+            "description": "Identifies this as a notification channel resource. Always \"api#channel\".",
+            "title": "Kind",
+            "type": "string"
+          },
+          "resourceId": {
+            "description": "An opaque ID that identifies the resource being watched on this channel. Stable across different API versions.",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "resourceUri": {
+            "description": "The canonical URI of the watched resource in the context of the current API version.",
+            "title": "Resource Uri",
+            "type": "string"
+          },
+          "token": {
+            "description": "The arbitrary verification token from the request, if provided.",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "id", "resourceId", "resourceUri"],
+        "title": "CalendarListWatchResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CalendarListWatchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

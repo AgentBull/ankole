@@ -1,0 +1,195 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to get metadata for dimensions, metrics, and comparisons for a GA4 property. Use to discover available fields before building a report — always derive dimension/metric apiNames from this output rather than hardcoding from GA4 UI labels, which differ. Available fields vary per property; skip validation and downstream report tools like google_analytics.run_report return 400 INVALID_ARGUMENT on incompatible or invalid field combinations. Response can contain hundreds of fields; filter to relevant subset before passing to downstream logic.",
+  "inputSchema": {
+    "description": "Request model for retrieving metadata of dimensions, metrics, and comparisons for a GA4 property.",
+    "properties": {
+      "name": {
+        "description": "Resource name of the metadata to retrieve. Format: properties/{property_id}/metadata. Use property_id=0 to return only universal (non-custom) metadata.",
+        "examples": ["properties/123456789/metadata"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "GetMetadataRequest",
+    "type": "object"
+  },
+  "name": "get_metadata",
+  "outputSchema": {
+    "$defs": {
+      "ComparisonMetadata": {
+        "properties": {
+          "apiName": {
+            "description": "Comparison's resource name.",
+            "title": "Api Name",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of this comparison.",
+            "title": "Description",
+            "type": "string"
+          },
+          "uiName": {
+            "description": "Display name in the UI.",
+            "title": "Ui Name",
+            "type": "string"
+          }
+        },
+        "required": ["apiName", "uiName"],
+        "title": "ComparisonMetadata",
+        "type": "object"
+      },
+      "DimensionMetadata": {
+        "properties": {
+          "apiName": {
+            "description": "Dimension's API name.",
+            "title": "Api Name",
+            "type": "string"
+          },
+          "category": {
+            "description": "Display category grouping.",
+            "title": "Category",
+            "type": "string"
+          },
+          "customDefinition": {
+            "description": "True if custom to this property.",
+            "title": "Custom Definition",
+            "type": "boolean"
+          },
+          "deprecatedApiNames": {
+            "description": "Deprecated API names still supported.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Deprecated Api Names",
+            "type": "array"
+          },
+          "description": {
+            "description": "How the dimension is used/calculated.",
+            "title": "Description",
+            "type": "string"
+          },
+          "uiName": {
+            "description": "Display name in the UI.",
+            "title": "Ui Name",
+            "type": "string"
+          }
+        },
+        "required": ["apiName", "uiName"],
+        "title": "DimensionMetadata",
+        "type": "object"
+      },
+      "GetMetadataResponse": {
+        "description": "Response model for GetMetadata action.",
+        "properties": {
+          "comparisons": {
+            "description": "List of comparison metadata.",
+            "items": {
+              "$ref": "#/$defs/ComparisonMetadata"
+            },
+            "title": "Comparisons",
+            "type": "array"
+          },
+          "dimensions": {
+            "description": "List of dimension metadata.",
+            "items": {
+              "$ref": "#/$defs/DimensionMetadata"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "metrics": {
+            "description": "List of metric metadata.",
+            "items": {
+              "$ref": "#/$defs/MetricMetadata"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "name": {
+            "description": "Resource name of this metadata set.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "title": "GetMetadataResponse",
+        "type": "object"
+      },
+      "MetricMetadata": {
+        "properties": {
+          "apiName": {
+            "description": "Metric's API name.",
+            "title": "Api Name",
+            "type": "string"
+          },
+          "blockedReasons": {
+            "description": "Blocked reasons if access is blocked.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocked Reasons",
+            "type": "array"
+          },
+          "category": {
+            "description": "Display category grouping.",
+            "title": "Category",
+            "type": "string"
+          },
+          "customDefinition": {
+            "description": "True if custom to this property.",
+            "title": "Custom Definition",
+            "type": "boolean"
+          },
+          "deprecatedApiNames": {
+            "description": "Deprecated API names still supported.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Deprecated Api Names",
+            "type": "array"
+          },
+          "description": {
+            "description": "How the metric is used/calculated.",
+            "title": "Description",
+            "type": "string"
+          },
+          "expression": {
+            "default": "",
+            "description": "Expression for derived metrics; empty for others.",
+            "title": "Expression",
+            "type": "string"
+          },
+          "type": {
+            "description": "Metric type (MetricType enum).",
+            "title": "Type",
+            "type": "string"
+          },
+          "uiName": {
+            "description": "Display name in the UI.",
+            "title": "Ui Name",
+            "type": "string"
+          }
+        },
+        "required": ["apiName", "uiName", "type"],
+        "title": "MetricMetadata",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMetadataResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

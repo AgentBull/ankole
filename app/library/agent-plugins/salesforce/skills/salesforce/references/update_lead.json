@@ -1,0 +1,281 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing lead in Salesforce with the specified changes. Only provided fields will be updated.",
+  "inputSchema": {
+    "properties": {
+      "annual_revenue": {
+        "description": "Updated annual revenue. Leave unset to keep unchanged. Negative values are passed through to Salesforce as-is (useful for adjustments/write-offs).",
+        "examples": [1000000, 5000000, 10000000],
+        "human_parameter_description": "Provide the company's annual revenue as a number. Leave blank to keep the current value.",
+        "human_parameter_name": "Annual Revenue",
+        "title": "Annual Revenue",
+        "type": "number"
+      },
+      "city": {
+        "default": "",
+        "description": "Updated city. Leave empty to keep unchanged.",
+        "examples": ["San Francisco", "New York", "Chicago"],
+        "human_parameter_description": "Enter the city for the lead's address. Leave blank to keep it as is.",
+        "human_parameter_name": "City",
+        "title": "City",
+        "type": "string"
+      },
+      "company": {
+        "default": "",
+        "description": "Updated company name. Leave empty to keep unchanged.",
+        "examples": ["Acme Corp", "Tech Solutions Inc", "Global Industries"],
+        "human_parameter_description": "Enter the lead's company name if it has changed. Leave blank to keep it as is.",
+        "human_parameter_name": "Company",
+        "title": "Company",
+        "type": "string"
+      },
+      "country": {
+        "default": "",
+        "description": "Updated country. Leave empty to keep unchanged.",
+        "examples": ["USA", "United States", "Canada"],
+        "human_parameter_description": "Enter the country for the lead's address. Leave blank to keep it as is.",
+        "human_parameter_name": "Country",
+        "title": "Country",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Custom fields to update on the lead. Pass a dictionary where keys are the Salesforce API names of custom fields (e.g., 'Level__c', 'Languages__c') and values are the field values to set. Custom field names typically end with '__c'.",
+        "examples": [
+          {
+            "Languages__c": "English;Spanish",
+            "Level__c": "Primary"
+          },
+          {
+            "Custom_Score__c": 85
+          }
+        ],
+        "human_parameter_description": "Enter custom field values as a JSON object. Use the Salesforce API name for each field (usually ending in '__c'). For example: {\"Level__c\": \"Primary\", \"Languages__c\": \"English\"}",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "description": {
+        "default": "",
+        "description": "Updated description. Leave empty to keep unchanged.",
+        "examples": ["Updated lead information", "Follow-up scheduled"],
+        "human_parameter_description": "Add any notes or context about this lead, such as follow-up plans. Leave blank to keep the current description.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "email": {
+        "default": "",
+        "description": "Updated email address. Leave empty to keep unchanged.",
+        "examples": ["john.smith@example.com", "lead@company.com"],
+        "human_parameter_description": "Enter the lead's new email address if it needs updating. Leave blank to keep the existing one.",
+        "human_parameter_name": "Email Address",
+        "title": "Email",
+        "type": "string"
+      },
+      "first_name": {
+        "default": "",
+        "description": "Updated first name. Leave empty to keep unchanged.",
+        "examples": ["John", "Jane", "Michael"],
+        "human_parameter_description": "Type the lead's new first name. Leave blank to keep their current first name.",
+        "human_parameter_name": "First Name",
+        "title": "First Name",
+        "type": "string"
+      },
+      "industry": {
+        "default": "",
+        "description": "Updated industry. Leave empty to keep unchanged.",
+        "examples": ["Technology", "Healthcare", "Finance", "Retail"],
+        "human_parameter_description": "Enter the industry the company operates in (e.g., Technology, Healthcare). Leave blank to keep it as is.",
+        "human_parameter_name": "Industry",
+        "title": "Industry",
+        "type": "string"
+      },
+      "last_name": {
+        "default": "",
+        "description": "Updated last name. Leave empty to keep unchanged.",
+        "examples": ["Smith", "Johnson", "Williams"],
+        "human_parameter_description": "Type the lead's new last name. Leave blank to keep their current last name.",
+        "human_parameter_name": "Last Name",
+        "title": "Last Name",
+        "type": "string"
+      },
+      "lead_id": {
+        "description": "The Salesforce ID of the lead to update.",
+        "examples": ["00QWd000005V3RmMAK", "00QXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "Enter the Salesforce ID of the lead you want to update. You can copy this from the lead's record URL or from a previous search.",
+        "human_parameter_name": "Lead ID",
+        "title": "Lead Id",
+        "type": "string"
+      },
+      "lead_source": {
+        "default": "",
+        "description": "Updated lead source. Leave empty to keep unchanged.",
+        "examples": ["Web", "Phone Inquiry", "Partner Referral"],
+        "human_parameter_description": "Specify how you acquired this lead (e.g., Web, Phone Inquiry, Referral). Leave blank to keep the current source.",
+        "human_parameter_name": "Lead Source",
+        "title": "Lead Source",
+        "type": "string"
+      },
+      "number_of_employees": {
+        "description": "Updated number of employees. Leave unset to keep unchanged.",
+        "examples": [10, 50, 100, 500, 1000],
+        "human_parameter_description": "Enter how many people work at the company. Leave blank to keep the current value.",
+        "human_parameter_name": "Number of Employees",
+        "title": "Number Of Employees",
+        "type": "integer"
+      },
+      "phone": {
+        "default": "",
+        "description": "Updated phone number. Leave empty to keep unchanged.",
+        "examples": ["(555) 123-4567", "+1-800-555-0123"],
+        "human_parameter_description": "Enter the lead's new phone number so you can reach them. Leave blank to keep the current number.",
+        "human_parameter_name": "Phone Number",
+        "title": "Phone",
+        "type": "string"
+      },
+      "postal_code": {
+        "default": "",
+        "description": "Updated postal/zip code. Leave empty to keep unchanged.",
+        "examples": ["94105", "10001", "60601"],
+        "human_parameter_description": "Enter the postal or ZIP code for the lead's address. Leave blank to keep it as is.",
+        "human_parameter_name": "Postal Code",
+        "title": "Postal Code",
+        "type": "string"
+      },
+      "rating": {
+        "default": "",
+        "description": "Updated rating. Leave empty to keep unchanged. Must match a valid picklist value configured in the org; invalid values cause a validation error. Represents lead quality (Hot/Warm/Cold), not pipeline stage.",
+        "examples": ["Hot", "Warm", "Cold"],
+        "human_parameter_description": "Set the lead's rating (e.g., Hot, Warm, Cold) to reflect priority. Leave blank to keep the current rating.",
+        "human_parameter_name": "Rating",
+        "title": "Rating",
+        "type": "string"
+      },
+      "state": {
+        "default": "",
+        "description": "Updated state/province. Leave empty to keep unchanged.",
+        "examples": ["CA", "NY", "IL"],
+        "human_parameter_description": "Enter the state or province for the lead's address. Leave blank to keep it as is.",
+        "human_parameter_name": "State",
+        "title": "State",
+        "type": "string"
+      },
+      "status": {
+        "default": "",
+        "description": "Updated status. Leave empty to keep unchanged. Must match a valid picklist value configured in the org; invalid values cause a validation error. Represents pipeline stage, not lead quality rating.",
+        "examples": ["New", "Working - Contacted", "Qualified", "Closed - Converted"],
+        "human_parameter_description": "Choose the new status for this lead (e.g., New, Working, Qualified). Leave blank to keep the current status.",
+        "human_parameter_name": "Status",
+        "title": "Status",
+        "type": "string"
+      },
+      "street": {
+        "default": "",
+        "description": "Updated street address. Leave empty to keep unchanged.",
+        "examples": ["123 Main St", "456 Oak Avenue, Suite 200"],
+        "human_parameter_description": "Enter the street portion of the lead's mailing address. Leave blank to keep it as is.",
+        "human_parameter_name": "Street Address",
+        "title": "Street",
+        "type": "string"
+      },
+      "title": {
+        "default": "",
+        "description": "Updated job title. Leave empty to keep unchanged.",
+        "examples": ["CEO", "VP of Sales", "Marketing Manager"],
+        "human_parameter_description": "Provide the lead's new job title, such as 'Marketing Manager'. Leave blank to keep the current title.",
+        "human_parameter_name": "Job Title",
+        "title": "Title",
+        "type": "string"
+      },
+      "website": {
+        "default": "",
+        "description": "Updated website. Leave empty to keep unchanged.",
+        "examples": ["https://www.example.com", "www.company.com"],
+        "human_parameter_description": "Provide the lead's company website URL. Leave blank to keep the current website.",
+        "human_parameter_name": "Website",
+        "title": "Website",
+        "type": "string"
+      }
+    },
+    "required": ["lead_id"],
+    "title": "UpdateLeadRequest",
+    "type": "object"
+  },
+  "name": "update_lead",
+  "outputSchema": {
+    "$defs": {
+      "SalesforceError": {
+        "description": "Salesforce error object returned when an operation fails.",
+        "properties": {
+          "fields": {
+            "description": "Array of field names that caused the error.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable error message describing what went wrong.",
+            "title": "Message",
+            "type": "string"
+          },
+          "statusCode": {
+            "description": "Salesforce-specific error code (e.g., MALFORMED_ID, INVALID_FIELD, REQUIRED_FIELD_MISSING, REQUEST_LIMIT_EXCEEDED).",
+            "title": "Status Code",
+            "type": "string"
+          }
+        },
+        "required": ["statusCode", "message", "fields"],
+        "title": "SalesforceError",
+        "type": "object"
+      },
+      "UpdateLeadResponse": {
+        "description": "Response from updating a Lead record by ID using Salesforce REST API PATCH method.\n\nIn API version 46.0 and later, the endpoint returns HTTP 200 OK with a response body\ncontaining id, success, errors, and created fields. In API v45.0 and earlier, it\nreturns HTTP 204 No Content with an empty response body.",
+        "properties": {
+          "created": {
+            "description": "Indicates whether a new record was created. Always false for PATCH updates (true only for upsert operations that create new records).",
+            "title": "Created",
+            "type": "boolean"
+          },
+          "errors": {
+            "description": "Array of error objects. Empty array if the operation was successful.",
+            "items": {
+              "$ref": "#/$defs/SalesforceError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The Salesforce record ID of the updated Lead.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the update operation was successful.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "success", "errors", "created"],
+        "title": "UpdateLeadResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateLeadResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

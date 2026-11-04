@@ -1,0 +1,229 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List all collaborators (CC'd users) on a Zendesk ticket. Use when you need to see who is currently CC'd on a ticket, such as when coordinating with multiple stakeholders or before adding/removing collaborators. Each collaborator is a user object with basic profile information. Paginate through results using page and per_page parameters.",
+  "inputSchema": {
+    "description": "Request parameters for listing collaborators on a Zendesk ticket.",
+    "properties": {
+      "page": {
+        "description": "Page number for pagination (starts at 1).",
+        "examples": [1],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of collaborators per page (max 100).",
+        "examples": [25],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "ticket_id": {
+        "description": "The numeric ID of the ticket whose collaborators to retrieve.",
+        "examples": [123456],
+        "human_parameter_description": "The Zendesk ticket ID for which you want to list all collaborators (CC'd users). You can find this in the ticket URL.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "GetTicketCollaboratorsRequest",
+    "type": "object"
+  },
+  "name": "get_ticket_collaborators",
+  "outputSchema": {
+    "$defs": {
+      "CollaboratorUser": {
+        "description": "User object representing a ticket collaborator.",
+        "properties": {
+          "active": {
+            "description": "True if the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Timestamp when the user was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_role_id": {
+            "description": "Custom role ID",
+            "title": "Custom Role Id",
+            "type": "integer"
+          },
+          "email": {
+            "description": "User's email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External system ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "locale": {
+            "description": "User's locale",
+            "title": "Locale",
+            "type": "string"
+          },
+          "name": {
+            "description": "User's full name",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "ID of the user's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "phone": {
+            "description": "User's phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "photo": {
+            "$ref": "#/$defs/PhotoAttachment",
+            "description": "User profile photo object",
+            "title": "Photo"
+          },
+          "role": {
+            "description": "User role (end-user, agent, admin)",
+            "title": "Role",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User's timezone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the user was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          },
+          "verified": {
+            "description": "True if the email is verified",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "title": "CollaboratorUser",
+        "type": "object"
+      },
+      "GetTicketCollaboratorsResponse": {
+        "description": "Response containing list of collaborators on a Zendesk ticket.",
+        "properties": {
+          "count": {
+            "description": "Total number of collaborators",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for the next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for the previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "users": {
+            "description": "List of collaborators (CC'd users) on the ticket",
+            "items": {
+              "$ref": "#/$defs/CollaboratorUser"
+            },
+            "title": "Users",
+            "type": "array"
+          }
+        },
+        "required": ["users", "count"],
+        "title": "GetTicketCollaboratorsResponse",
+        "type": "object"
+      },
+      "PhotoAttachment": {
+        "description": "Photo attachment object for user profile photos.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type (e.g., image/png)",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL where the photo can be downloaded",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "True if photo is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Photo filename",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Photo attachment ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "True if inline attachment",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "API URL to access attachment details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "PhotoAttachment",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTicketCollaboratorsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

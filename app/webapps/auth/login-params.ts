@@ -1,5 +1,6 @@
 import { compactRecord } from '@agentbull/active-support'
 import type { LoginProvidersData } from '../common/api/generated/types.gen'
+import { localReturnPath } from '../common/pod-url'
 
 export interface LoginContext {
   oauthRequest?: string
@@ -91,15 +92,6 @@ export function loginContextKey(context?: LoginContext): string {
 
 /** The post-logout sign-in button only follows a local, non-looping destination. */
 export function signInReturnTo(value: string | null, origin: string): string {
-  if (value?.startsWith('/') && !value.startsWith('//')) {
-    try {
-      const url = new URL(value, origin)
-      if (url.origin === origin && !url.pathname.startsWith('//') && !url.pathname.startsWith('/sessions/logged-out')) {
-        return url.pathname + url.search + url.hash
-      }
-    } catch {
-      // Invalid URLs use the normal sign-in entry.
-    }
-  }
-  return '/sessions/new'
+  const path = localReturnPath(value, origin)
+  return path && !path.startsWith('/sessions/logged-out') ? path : '/sessions/new'
 }

@@ -1,0 +1,65 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Change a public comment to private on a Zendesk ticket audit. Use when you need to convert a previously public-facing comment to an internal note that is not visible to the end user. This action makes the comment private by updating the ticket audit. This is useful when information was shared publicly by mistake and needs to be restricted to agents only. Note: This action only works on existing audits and cannot be undone once the comment is made private.",
+  "inputSchema": {
+    "description": "Request parameters for making a ticket audit comment private.",
+    "properties": {
+      "ticket_audit_id": {
+        "description": "The ID of the ticket audit containing the comment to make private.",
+        "examples": [26943293434908],
+        "human_parameter_description": "The ID of the specific audit whose comment should be made private. You can find this by listing ticket audits.",
+        "human_parameter_name": "Audit ID",
+        "title": "Ticket Audit Id",
+        "type": "integer"
+      },
+      "ticket_id": {
+        "description": "The ID of the ticket containing the audit.",
+        "examples": [78],
+        "human_parameter_description": "The unique ID of the Zendesk ticket that contains the audit you want to make private.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id", "ticket_audit_id"],
+    "title": "MakeTicketCommentPrivateRequest",
+    "type": "object"
+  },
+  "name": "make_ticket_comment_private",
+  "outputSchema": {
+    "$defs": {
+      "MakeTicketCommentPrivateResponse": {
+        "description": "Response from making a ticket comment private.",
+        "properties": {
+          "message": {
+            "description": "Optional message confirming the operation.",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the comment was successfully made private.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "MakeTicketCommentPrivateResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/MakeTicketCommentPrivateResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

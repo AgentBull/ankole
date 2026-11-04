@@ -1,0 +1,131 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a specific routing form by its UUID, including its questions and other configuration details.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a specific routing form by its UUID.",
+    "properties": {
+      "uuid": {
+        "description": "The unique identifier (UUID) of the routing form to retrieve.",
+        "examples": ["cCHLAd369cc32c96707e"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "GetRoutingFormRequest",
+    "type": "object"
+  },
+  "name": "get_routing_form",
+  "outputSchema": {
+    "$defs": {
+      "GetRoutingFormResponse": {
+        "description": "Response schema containing the details of the retrieved routing form.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/RoutingFormResource",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "GetRoutingFormResponse",
+        "type": "object"
+      },
+      "Question": {
+        "description": "A question object that is part of the routing form.",
+        "properties": {
+          "answer_choices": {
+            "description": "Array of possible answer choices for select-type questions. Null for other question types.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Answer Choices",
+            "type": "array"
+          },
+          "name": {
+            "description": "The text of the question displayed to users.",
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "description": "Whether the question is required to be answered.",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "The type of question (e.g., 'select', 'email', 'text').",
+            "title": "Type",
+            "type": "string"
+          },
+          "uuid": {
+            "description": "Unique identifier for the question.",
+            "title": "Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["uuid", "name", "type", "required"],
+        "title": "Question",
+        "type": "object"
+      },
+      "RoutingFormResource": {
+        "description": "The routing form resource object containing all routing form details.",
+        "properties": {
+          "created_at": {
+            "description": "The date and time the routing form was created in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the routing form.",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization": {
+            "description": "URI of the organization that owns this routing form.",
+            "title": "Organization",
+            "type": "string"
+          },
+          "questions": {
+            "description": "Array of question objects that make up the routing form.",
+            "items": {
+              "$ref": "#/$defs/Question"
+            },
+            "title": "Questions",
+            "type": "array"
+          },
+          "status": {
+            "description": "The publication status of the routing form (e.g., 'published').",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "The date and time the routing form was last updated in ISO 8601 format.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the routing form.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "organization", "name", "status", "questions", "created_at", "updated_at"],
+        "title": "RoutingFormResource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRoutingFormResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

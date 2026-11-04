@@ -1,0 +1,326 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Moves an existing Trello board to a specified, existing Trello organization, which can affect the board's visibility and member access.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateBoardsIdOrganizationByIdBoard`",
+    "properties": {
+      "idBoard": {
+        "description": "The ID of the Trello board to be moved to a new organization.",
+        "title": "Id Board",
+        "type": "string"
+      },
+      "value": {
+        "description": "The ID of the new Trello organization to which the board will be moved. Must be a string with a length between 0 and 16384 characters. An empty string may be used to attempt to remove the board from its current organization, if the Trello API supports this behavior.",
+        "examples": ["5f9f7b5f0ae8c60022012345", ""],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard"],
+    "title": "UpdateBoardsIdOrganizationByIdBoardRequest",
+    "type": "object"
+  },
+  "name": "update_boards_id_organization_by_id_board",
+  "outputSchema": {
+    "$defs": {
+      "BoardPrefs": {
+        "description": "Board preferences and settings",
+        "properties": {
+          "background": {
+            "description": "Background setting for the board",
+            "title": "Background",
+            "type": "string"
+          },
+          "backgroundBottomColor": {
+            "description": "Bottom background color",
+            "title": "Background Bottom Color",
+            "type": "string"
+          },
+          "backgroundBrightness": {
+            "description": "Background brightness setting",
+            "title": "Background Brightness",
+            "type": "string"
+          },
+          "backgroundColor": {
+            "description": "Background color",
+            "title": "Background Color",
+            "type": "string"
+          },
+          "backgroundImage": {
+            "description": "Background image URL",
+            "title": "Background Image",
+            "type": "string"
+          },
+          "backgroundTopColor": {
+            "description": "Top background color",
+            "title": "Background Top Color",
+            "type": "string"
+          },
+          "calendarFeedEnabled": {
+            "description": "Whether calendar feed is enabled",
+            "title": "Calendar Feed Enabled",
+            "type": "boolean"
+          },
+          "canBeOrg": {
+            "description": "Whether the board can be organization-visible",
+            "title": "Can Be Org",
+            "type": "boolean"
+          },
+          "canBePrivate": {
+            "description": "Whether the board can be made private",
+            "title": "Can Be Private",
+            "type": "boolean"
+          },
+          "canBePublic": {
+            "description": "Whether the board can be made public",
+            "title": "Can Be Public",
+            "type": "boolean"
+          },
+          "canInvite": {
+            "description": "Whether members can invite others",
+            "title": "Can Invite",
+            "type": "boolean"
+          },
+          "cardAging": {
+            "description": "Card aging setting",
+            "title": "Card Aging",
+            "type": "string"
+          },
+          "cardCovers": {
+            "description": "Whether card covers are enabled",
+            "title": "Card Covers",
+            "type": "boolean"
+          },
+          "comments": {
+            "description": "Comments permission setting",
+            "title": "Comments",
+            "type": "string"
+          },
+          "hideVotes": {
+            "description": "Whether votes are hidden on the board",
+            "title": "Hide Votes",
+            "type": "boolean"
+          },
+          "invitations": {
+            "description": "Invitations permission setting",
+            "title": "Invitations",
+            "type": "string"
+          },
+          "isTemplate": {
+            "description": "Whether the board is a template",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "permissionLevel": {
+            "description": "Permission level for the board (e.g., 'private', 'org', 'public')",
+            "title": "Permission Level",
+            "type": "string"
+          },
+          "selfJoin": {
+            "description": "Whether users can join the board themselves",
+            "title": "Self Join",
+            "type": "boolean"
+          },
+          "voting": {
+            "description": "Voting permission setting",
+            "title": "Voting",
+            "type": "string"
+          }
+        },
+        "title": "BoardPrefs",
+        "type": "object"
+      },
+      "LabelNames": {
+        "description": "Label color names for the board",
+        "properties": {
+          "black": {
+            "description": "Name for black label",
+            "title": "Black",
+            "type": "string"
+          },
+          "blue": {
+            "description": "Name for blue label",
+            "title": "Blue",
+            "type": "string"
+          },
+          "green": {
+            "description": "Name for green label",
+            "title": "Green",
+            "type": "string"
+          },
+          "lime": {
+            "description": "Name for lime label",
+            "title": "Lime",
+            "type": "string"
+          },
+          "orange": {
+            "description": "Name for orange label",
+            "title": "Orange",
+            "type": "string"
+          },
+          "pink": {
+            "description": "Name for pink label",
+            "title": "Pink",
+            "type": "string"
+          },
+          "purple": {
+            "description": "Name for purple label",
+            "title": "Purple",
+            "type": "string"
+          },
+          "red": {
+            "description": "Name for red label",
+            "title": "Red",
+            "type": "string"
+          },
+          "sky": {
+            "description": "Name for sky label",
+            "title": "Sky",
+            "type": "string"
+          },
+          "yellow": {
+            "description": "Name for yellow label",
+            "title": "Yellow",
+            "type": "string"
+          }
+        },
+        "title": "LabelNames",
+        "type": "object"
+      },
+      "UpdateBoardsIdOrganizationByIdBoardResponse": {
+        "description": "Response schema for `UpdateBoardsIdOrganizationByIdBoard` - returns complete board object",
+        "properties": {
+          "closed": {
+            "description": "Whether the board is closed",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "dateLastActivity": {
+            "description": "Timestamp of the last activity on the board",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "dateLastView": {
+            "description": "Timestamp when the board was last viewed",
+            "title": "Date Last View",
+            "type": "string"
+          },
+          "desc": {
+            "description": "Description of the board",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "description": "Description data object",
+            "title": "Desc Data"
+          },
+          "id": {
+            "description": "Unique identifier for the board",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "ID of the member who created the board",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "idOrganization": {
+            "description": "ID of the organization the board belongs to",
+            "title": "Id Organization",
+            "type": "string"
+          },
+          "invitations": {
+            "description": "Pending invitations to the board",
+            "items": {},
+            "title": "Invitations",
+            "type": "array"
+          },
+          "invited": {
+            "description": "Whether the user has been invited to the board",
+            "title": "Invited",
+            "type": "boolean"
+          },
+          "labelNames": {
+            "$ref": "#/$defs/LabelNames",
+            "description": "Label color names for the board",
+            "title": "Label Names"
+          },
+          "limits": {
+            "description": "Board limits and restrictions",
+            "title": "Limits"
+          },
+          "memberships": {
+            "description": "Board memberships and member permissions",
+            "items": {},
+            "title": "Memberships",
+            "type": "array"
+          },
+          "name": {
+            "description": "Name of the board",
+            "title": "Name",
+            "type": "string"
+          },
+          "pinned": {
+            "description": "Whether the board is pinned",
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "powerUps": {
+            "description": "List of enabled power-ups on the board",
+            "items": {
+              "type": "string"
+            },
+            "title": "Power Ups",
+            "type": "array"
+          },
+          "prefs": {
+            "$ref": "#/$defs/BoardPrefs",
+            "description": "Board preferences and settings",
+            "title": "Prefs"
+          },
+          "shortLink": {
+            "description": "Short link identifier for the board",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "Short URL to the board",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "starred": {
+            "description": "Whether the board is starred by the user",
+            "title": "Starred",
+            "type": "boolean"
+          },
+          "subscribed": {
+            "description": "Whether the user is subscribed to the board",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "Full URL to the board",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "UpdateBoardsIdOrganizationByIdBoardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateBoardsIdOrganizationByIdBoardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

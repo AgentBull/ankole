@@ -1,0 +1,350 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetch JSON for specific node IDs from a Figma file to avoid full-file payload limits. Use when you already know target node IDs (from shallow file fetch or component listings) or when full-file JSON has hit payload limits. Prefer depth=1 for fast discovery.",
+  "inputSchema": {
+    "description": "Request schema for GetFileNodes.",
+    "properties": {
+      "depth": {
+        "description": "How deep into each requested node subtree to traverse. Use depth=1 for fast structure discovery (only immediate children), increase only when needed. Omit to get full subtree.",
+        "examples": [1, 2],
+        "title": "Depth",
+        "type": "integer"
+      },
+      "file_key": {
+        "description": "Figma file key or branch key extracted from URL. Example: 'abc123XYZ' from figma.com/design/abc123XYZ/My-Design.",
+        "examples": ["abc123XYZ"],
+        "title": "File Key",
+        "type": "string"
+      },
+      "geometry": {
+        "description": "Set to 'paths' to include vector path data in the response. Omit for standard node data without geometry.",
+        "examples": ["paths"],
+        "title": "Geometry",
+        "type": "string"
+      },
+      "ids": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Node IDs to retrieve. Provide as comma-separated string (e.g., '1:5,1:6') or as list of strings (e.g., ['1:5', '1:6']). Use this when you already know target node IDs from a shallow file fetch or component/style listings.",
+        "examples": ["1:5,1:6", ["1:5", "1:6"]],
+        "title": "Ids"
+      },
+      "plugin_data": {
+        "description": "Plugin IDs (comma-separated) or 'shared' to include plugin data. Omit to exclude plugin data.",
+        "examples": ["shared", "plugin-id-1,plugin-id-2"],
+        "title": "Plugin Data",
+        "type": "string"
+      },
+      "version": {
+        "description": "Specific version ID to retrieve. Omit for current version.",
+        "examples": ["1234567890"],
+        "title": "Version",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "ids"],
+    "title": "GetFileNodesRequest",
+    "type": "object"
+  },
+  "name": "get_file_nodes",
+  "outputSchema": {
+    "$defs": {
+      "ComponentMetadata": {
+        "description": "Component metadata within a node subtree.",
+        "properties": {
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Component description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "File containing the component.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "key": {
+            "description": "Unique component identifier.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Component name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Component node ID.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "Component thumbnail URL.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "title": "ComponentMetadata",
+        "type": "object"
+      },
+      "ComponentSetMetadata": {
+        "description": "Component set metadata within a node subtree.",
+        "properties": {
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Component set description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "File containing the component set.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "key": {
+            "description": "Unique component set identifier.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Component set name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Component set node ID.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "Component set thumbnail URL.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "title": "ComponentSetMetadata",
+        "type": "object"
+      },
+      "GetFileNodesResponse": {
+        "description": "Response from Figma Get File Nodes API.",
+        "properties": {
+          "editorType": {
+            "description": "Type of editor (e.g., 'design', 'figjam', 'slides').",
+            "title": "Editor Type",
+            "type": "string"
+          },
+          "err": {
+            "description": "Error message if the request failed.",
+            "title": "Err",
+            "type": "string"
+          },
+          "lastModified": {
+            "description": "ISO 8601 timestamp of the most recent modification.",
+            "title": "Last Modified",
+            "type": "string"
+          },
+          "name": {
+            "description": "The file's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodes": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/NodeData"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Map of node IDs to node data. Each entry contains the document subtree plus metadata (components, styles, etc.). Entries may be null if the node was not found or user lacks access.",
+            "title": "Nodes",
+            "type": "object"
+          },
+          "role": {
+            "description": "User's permission level in the file (e.g., 'owner', 'editor', 'viewer').",
+            "title": "Role",
+            "type": "string"
+          },
+          "thumbnailUrl": {
+            "description": "URL pointing to a preview image of the file.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "version": {
+            "description": "Current version identifier of the file.",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["nodes"],
+        "title": "GetFileNodesResponse",
+        "type": "object"
+      },
+      "NodeData": {
+        "description": "Individual node data from the nodes map.",
+        "properties": {
+          "componentSets": {
+            "additionalProperties": {
+              "$ref": "#/$defs/ComponentSetMetadata"
+            },
+            "description": "Map of component set metadata within this node subtree.",
+            "title": "Component Sets",
+            "type": "object"
+          },
+          "components": {
+            "additionalProperties": {
+              "$ref": "#/$defs/ComponentMetadata"
+            },
+            "description": "Map of component metadata for components within this node subtree.",
+            "title": "Components",
+            "type": "object"
+          },
+          "document": {
+            "$ref": "#/$defs/NodeDocument",
+            "description": "The requested node and its subtree. Null if node was not found or user lacks access.",
+            "title": "Document"
+          },
+          "schemaVersion": {
+            "description": "Schema version number for this node data.",
+            "title": "Schema Version",
+            "type": "number"
+          },
+          "styles": {
+            "additionalProperties": {
+              "$ref": "#/$defs/StyleMetadata"
+            },
+            "description": "Map of style metadata within this node subtree.",
+            "title": "Styles",
+            "type": "object"
+          }
+        },
+        "title": "NodeData",
+        "type": "object"
+      },
+      "NodeDocument": {
+        "additionalProperties": true,
+        "description": "Node document structure with flexible schema.\n\nThe Figma API returns complex nested node structures with arbitrary\nproperties depending on node type. Using extra=\"allow\" to accept\nall fields from the API response.",
+        "properties": {
+          "id": {
+            "description": "Node unique identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Node name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Node type (PAGE, FRAME, GROUP, etc.).",
+            "title": "Type",
+            "type": "string"
+          },
+          "visible": {
+            "description": "Node visibility.",
+            "title": "Visible",
+            "type": "boolean"
+          }
+        },
+        "title": "NodeDocument",
+        "type": "object"
+      },
+      "StyleMetadata": {
+        "description": "Style metadata within a node subtree.",
+        "properties": {
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Style description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "File containing the style.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "key": {
+            "description": "Unique style identifier.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Style name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Style node ID.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "style_type": {
+            "description": "Style type (FILL, TEXT, EFFECT, GRID).",
+            "title": "Style Type",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "Style thumbnail URL.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "title": "StyleMetadata",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetFileNodesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

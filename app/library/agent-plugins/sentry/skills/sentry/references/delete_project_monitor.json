@@ -1,0 +1,64 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a Sentry monitor, or optionally only its specified environments, for a given project.",
+  "inputSchema": {
+    "description": "Request schema for deleting a Sentry monitor or its specific environments.",
+    "properties": {
+      "environment": {
+        "description": "Optional. A list of environment names. If provided, only the monitor configurations for these specific environments will be deleted. If this parameter is omitted or an empty list is passed, the entire monitor and all its environment configurations will be deleted.",
+        "examples": ["production", "staging"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "monitor_id_or_slug": {
+        "description": "The unique identifier (ID or slug) of the Sentry monitor to be deleted.",
+        "examples": ["my-cron-job-monitor", "user-stats-check", "abcdef123456"],
+        "title": "Monitor Id Or Slug",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID or slug) of the Sentry organization to which the project and monitor belong.",
+        "examples": ["sentry-org", "my-company", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The unique identifier (ID or slug) of the Sentry project to which the monitor belongs.",
+        "examples": ["internal-project", "frontend-app", "9876543"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug", "monitor_id_or_slug"],
+    "title": "DeleteProjectMonitorRequest",
+    "type": "object"
+  },
+  "name": "delete_project_monitor",
+  "outputSchema": {
+    "$defs": {
+      "DeleteProjectMonitorResponse": {
+        "description": "Response schema for the `DeleteProjectMonitor` action.\n\nEmpty response body. The DELETE operation returns HTTP 202 (Accepted) with no content\nwhen successful, indicating the deletion request has been accepted for processing.",
+        "properties": {},
+        "title": "DeleteProjectMonitorResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteProjectMonitorResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

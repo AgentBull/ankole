@@ -1,0 +1,201 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to query an audience list. Use when you need to retrieve user rows from a GA4 audience list with pagination.",
+  "inputSchema": {
+    "description": "Request model for querying a Google Analytics audience list.",
+    "properties": {
+      "limit": {
+        "description": "Optional. Number of rows to return; default 10,000; maximum 250,000.",
+        "examples": [1000],
+        "maximum": 250000,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "name": {
+        "description": "Required. Audience list resource to query. Format: properties/{property}/audienceLists/{audienceList}.",
+        "examples": ["properties/1234/audienceLists/abcd-5678"],
+        "title": "Name",
+        "type": "string"
+      },
+      "offset": {
+        "description": "Optional. Zero-based row offset for pagination.",
+        "examples": [0],
+        "minimum": 0,
+        "title": "Offset",
+        "type": "integer"
+      }
+    },
+    "required": ["name"],
+    "title": "QueryAudienceListRequest",
+    "type": "object"
+  },
+  "name": "query_audience_list",
+  "outputSchema": {
+    "$defs": {
+      "AudienceDimension": {
+        "properties": {
+          "dimensionName": {
+            "description": "API name of the audience dimension.",
+            "title": "Dimension Name",
+            "type": "string"
+          }
+        },
+        "title": "AudienceDimension",
+        "type": "object"
+      },
+      "AudienceDimensionValue": {
+        "properties": {
+          "value": {
+            "description": "String value for the dimension.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["value"],
+        "title": "AudienceDimensionValue",
+        "type": "object"
+      },
+      "AudienceList": {
+        "properties": {
+          "audience": {
+            "description": "Audience resource: properties/{property}/audiences/{audience}.",
+            "title": "Audience",
+            "type": "string"
+          },
+          "audienceDisplayName": {
+            "description": "Human-readable audience name.",
+            "title": "Audience Display Name",
+            "type": "string"
+          },
+          "beginCreatingTime": {
+            "description": "When creation started (RFC3339 timestamp).",
+            "title": "Begin Creating Time",
+            "type": "string"
+          },
+          "creationQuotaTokensCharged": {
+            "description": "Tokens charged to create the list.",
+            "title": "Creation Quota Tokens Charged",
+            "type": "integer"
+          },
+          "dimensions": {
+            "description": "Dimensions requested/displayed in query response.",
+            "items": {
+              "$ref": "#/$defs/AudienceDimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "errorMessage": {
+            "description": "Error details when creation fails.",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name: properties/{property}/audienceLists/{audienceList}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "percentageCompleted": {
+            "description": "0-100 creation progress percentage.",
+            "title": "Percentage Completed",
+            "type": "number"
+          },
+          "recurringAudienceList": {
+            "description": "Source recurring audience list, if any.",
+            "title": "Recurring Audience List",
+            "type": "string"
+          },
+          "rowCount": {
+            "description": "Total rows in the list.",
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "state": {
+            "description": "State of the list: STATE_UNSPECIFIED | CREATING | ACTIVE | FAILED.",
+            "title": "State",
+            "type": "string"
+          },
+          "webhookNotification": {
+            "$ref": "#/$defs/WebhookNotification",
+            "description": "Webhook config for notifications.",
+            "title": "Webhook Notification"
+          }
+        },
+        "required": ["name", "audience", "dimensions"],
+        "title": "AudienceList",
+        "type": "object"
+      },
+      "AudienceRow": {
+        "properties": {
+          "dimensionValues": {
+            "description": "One value per requested dimension for the user.",
+            "items": {
+              "$ref": "#/$defs/AudienceDimensionValue"
+            },
+            "title": "Dimension Values",
+            "type": "array"
+          }
+        },
+        "required": ["dimensionValues"],
+        "title": "AudienceRow",
+        "type": "object"
+      },
+      "QueryAudienceListResponse": {
+        "properties": {
+          "audienceList": {
+            "$ref": "#/$defs/AudienceList",
+            "description": "Configuration of the list being queried.",
+            "title": "Audience List"
+          },
+          "audienceRows": {
+            "description": "Rows for each user; one row per user. May be omitted when rowCount is 0.",
+            "items": {
+              "$ref": "#/$defs/AudienceRow"
+            },
+            "title": "Audience Rows",
+            "type": "array"
+          },
+          "rowCount": {
+            "description": "Total rows in the full result set (independent of limit/offset).",
+            "title": "Row Count",
+            "type": "integer"
+          }
+        },
+        "required": ["audienceList", "rowCount"],
+        "title": "QueryAudienceListResponse",
+        "type": "object"
+      },
+      "WebhookNotification": {
+        "properties": {
+          "channelToken": {
+            "description": "Up to 64 chars; returned in X-Goog-Channel-Token header.",
+            "title": "Channel Token",
+            "type": "string"
+          },
+          "uri": {
+            "description": "HTTPS endpoint to receive POST notifications; required to use webhooks.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "title": "WebhookNotification",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/QueryAudienceListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

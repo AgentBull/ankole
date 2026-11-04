@@ -1,0 +1,211 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates a member's role on a specific Trello board using the board and member IDs.",
+  "inputSchema": {
+    "description": "Request schema for updating a member's attributes on a specific Trello board.",
+    "properties": {
+      "email": {
+        "description": "New board-specific email address for the member; does not change their global Trello account email.",
+        "title": "Email",
+        "type": "string"
+      },
+      "fullName": {
+        "description": "New board-specific full name for the member; must be >=1 character and not start/end with a space.",
+        "title": "Full Name",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "ID of the board.",
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "ID of the member to update.",
+        "title": "Id Member",
+        "type": "string"
+      },
+      "type": {
+        "description": "New role for the member on this board, determining their permissions.",
+        "examples": ["admin", "normal", "observer"],
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard", "idMember"],
+    "title": "UpdateBoardsMembersByIdBoardByIdMemberRequest",
+    "type": "object"
+  },
+  "name": "update_boards_members_by_id_board_by_id_member",
+  "outputSchema": {
+    "$defs": {
+      "NonPublicMemberData": {
+        "description": "Non-public member information.",
+        "properties": {
+          "avatarHash": {
+            "description": "Non-public avatar hash",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Non-public full name",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "initials": {
+            "description": "Non-public initials",
+            "title": "Initials",
+            "type": "string"
+          }
+        },
+        "title": "NonPublicMemberData",
+        "type": "object"
+      },
+      "UpdateBoardsMembersByIdBoardByIdMemberResponse": {
+        "description": "Member object returned when adding or updating a member on a board.",
+        "properties": {
+          "activityBlocked": {
+            "description": "Whether the member's activity is blocked",
+            "title": "Activity Blocked",
+            "type": "boolean"
+          },
+          "avatarHash": {
+            "description": "Hash used to construct the member's avatar URL",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "The URL of this member's avatar. Returns null if avatar privacy is not set to public",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "bio": {
+            "description": "The member's biography or description",
+            "title": "Bio",
+            "type": "string"
+          },
+          "bioData": {
+            "additionalProperties": true,
+            "description": "Structured bio data with custom emoji information",
+            "title": "Bio Data",
+            "type": "object"
+          },
+          "confirmed": {
+            "description": "Whether the user has confirmed their email address for their account",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "fullName": {
+            "description": "The full name related to the account, if it is public. If fullName privacy is not set to public, returns the same value as username",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "List of board IDs this member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idEnterprise": {
+            "description": "Enterprise identifier if the member belongs to an enterprise",
+            "title": "Id Enterprise",
+            "type": "string"
+          },
+          "idEnterprisesDeactivated": {
+            "description": "Array of enterprise IDs where the member has been deactivated",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Enterprises Deactivated",
+            "type": "array"
+          },
+          "idMemberReferrer": {
+            "description": "ID of the member who referred this member",
+            "title": "Id Member Referrer",
+            "type": "string"
+          },
+          "idOrganizations": {
+            "description": "List of workspace/organization IDs this member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Organizations",
+            "type": "array"
+          },
+          "idPremOrgsAdmin": {
+            "description": "Array of premium organization IDs where this member is an admin",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Prem Orgs Admin",
+            "type": "array"
+          },
+          "initials": {
+            "description": "The initials related to the account, if it is public",
+            "title": "Initials",
+            "type": "string"
+          },
+          "memberType": {
+            "description": "Type of member (e.g., normal, admin, ghost)",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "nonPublic": {
+            "$ref": "#/$defs/NonPublicMemberData",
+            "description": "Object containing non-public member information",
+            "title": "Non Public"
+          },
+          "nonPublicAvailable": {
+            "description": "Whether non-public member data is available",
+            "title": "Non Public Available",
+            "type": "boolean"
+          },
+          "products": {
+            "description": "Array of product IDs or features the member has access to",
+            "items": {},
+            "title": "Products",
+            "type": "array"
+          },
+          "status": {
+            "description": "The member's status (e.g., disconnected, active)",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "The member's Trello profile URL",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of this account",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "UpdateBoardsMembersByIdBoardByIdMemberResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateBoardsMembersByIdBoardByIdMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

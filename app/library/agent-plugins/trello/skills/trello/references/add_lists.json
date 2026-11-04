@@ -1,0 +1,165 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new list on a specified Trello board, with options to copy an existing list, set its position, initial state (archived/subscribed), and does not modify existing lists or move cards.",
+  "inputSchema": {
+    "description": "Request schema for creating a new list on a Trello board.",
+    "properties": {
+      "closed": {
+        "description": "Indicates whether the list should be created as closed (archived). Set to `true` for closed, or `false` for open.",
+        "examples": ["true", "false"],
+        "title": "Closed",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The ID of the board to which the new list should be added. This is a required parameter.",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idListSource": {
+        "description": "The ID of an existing list to copy when creating the new list. If provided, the new list will be a copy of this source list.",
+        "examples": ["5abbe4b7ddc1b351ef961234"],
+        "title": "Id List Source",
+        "type": "string"
+      },
+      "name": {
+        "description": "The name for the new list. Must be a string with a length from 1 to 16384 characters. This is a required parameter.",
+        "examples": ["To Do", "In Progress"],
+        "title": "Name",
+        "type": "string"
+      },
+      "pos": {
+        "description": "The position of the new list on the board. Valid values are `top`, `bottom`, or a positive number (e.g., '1', '2.5').",
+        "examples": ["top", "bottom", "1024"],
+        "title": "Pos",
+        "type": "string"
+      },
+      "subscribed": {
+        "description": "Indicates whether the user creating the list should be automatically subscribed to it. Set to `true` to subscribe, or `false` otherwise.",
+        "examples": ["true", "false"],
+        "title": "Subscribed",
+        "type": "string"
+      }
+    },
+    "title": "AddListsRequest",
+    "type": "object"
+  },
+  "name": "add_lists",
+  "outputSchema": {
+    "$defs": {
+      "AddListsResponse": {
+        "description": "Response schema for `AddLists`, containing the details of the newly created list.",
+        "properties": {
+          "closed": {
+            "description": "Whether the list is archived/closed",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "creationMethod": {
+            "description": "The method by which the list was created",
+            "title": "Creation Method",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier for the list (24-character hex string)",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board the list belongs to",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/$defs/ListLimits",
+            "description": "Object containing limit information for the list",
+            "title": "Limits"
+          },
+          "name": {
+            "description": "The name of the list",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "The position of the list on the board",
+            "title": "Pos",
+            "type": "number"
+          },
+          "softLimit": {
+            "description": "Soft limit for the number of cards in the list (can be null)",
+            "title": "Soft Limit",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Whether the current user is subscribed to the list",
+            "title": "Subscribed",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "name", "closed", "idBoard", "pos"],
+        "title": "AddListsResponse",
+        "type": "object"
+      },
+      "AttachmentLimits": {
+        "description": "Attachment limits for the list.",
+        "properties": {
+          "perBoard": {
+            "$ref": "#/$defs/AttachmentPerBoardLimits",
+            "description": "Per-board attachment limits",
+            "title": "Per Board"
+          }
+        },
+        "title": "AttachmentLimits",
+        "type": "object"
+      },
+      "AttachmentPerBoardLimits": {
+        "description": "Per-board attachment limits.",
+        "properties": {
+          "disableAt": {
+            "description": "Threshold at which attachments will be disabled",
+            "title": "Disable At",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Current status of attachment limits (e.g., 'ok')",
+            "title": "Status",
+            "type": "string"
+          },
+          "warnAt": {
+            "description": "Threshold at which a warning will be shown",
+            "title": "Warn At",
+            "type": "integer"
+          }
+        },
+        "title": "AttachmentPerBoardLimits",
+        "type": "object"
+      },
+      "ListLimits": {
+        "description": "Object containing limit information for the list.",
+        "properties": {
+          "attachments": {
+            "$ref": "#/$defs/AttachmentLimits",
+            "description": "Attachment limits for the list",
+            "title": "Attachments"
+          }
+        },
+        "title": "ListLimits",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddListsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

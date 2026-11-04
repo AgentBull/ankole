@@ -1,0 +1,56 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a specific check item from a checklist on a Trello card; this operation is irreversible and only affects the specified item, not the entire checklist.",
+  "inputSchema": {
+    "description": "Request schema for deleting a specific check item from a checklist.",
+    "properties": {
+      "idCheckItem": {
+        "description": "The ID of the check item to be deleted.",
+        "examples": ["5abbe4b7ddc1b351e04c0d1b"],
+        "title": "Id Check Item",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "The ID of the checklist that contains the check item to be deleted.",
+        "examples": ["5abbe4b7ddc1b351e04c0d1a"],
+        "title": "Id Checklist",
+        "type": "string"
+      }
+    },
+    "required": ["idChecklist", "idCheckItem"],
+    "title": "DeleteChecklistItemRequest",
+    "type": "object"
+  },
+  "name": "delete_checklist_item",
+  "outputSchema": {
+    "$defs": {
+      "DeleteChecklistItemResponse": {
+        "description": "Response schema for DELETE checkItem endpoint. Returns a minimal response with limits info upon successful deletion (HTTP 200).",
+        "properties": {
+          "limits": {
+            "additionalProperties": true,
+            "description": "Rate limit information returned by Trello API. Usually an empty object on successful deletion.",
+            "title": "Limits",
+            "type": "object"
+          }
+        },
+        "title": "DeleteChecklistItemResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteChecklistItemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,506 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves data for a Figma Design file or selected nodes, with options to specify a version and limit tree depth. By default it returns a simplified view that omits invisible nodes and empty values; choose full detail for the raw Figma response. Use node IDs and depth to reduce response size for large files.",
+  "inputSchema": {
+    "description": "Request schema for GetFileJson with simplification options.",
+    "properties": {
+      "branch_data": {
+        "description": "Include branch metadata",
+        "title": "Branch Data",
+        "type": "boolean"
+      },
+      "depth": {
+        "description": "Tree traversal depth (e.g., 2 for pages and top-level children). Omitting depth on large files can produce extremely large responses or timeouts; scope with `ids` and set depth to the minimum needed.",
+        "title": "Depth",
+        "type": "integer"
+      },
+      "file_key": {
+        "description": "File key extracted from a Figma Design file URL. SUPPORTED: figma.com/design/{file_key}/... or figma.com/file/{file_key}/... NOT SUPPORTED: FigJam boards (figma.com/board/{file_key}) and Slides (figma.com/slides/{file_key}). Example valid key: 'abc123XYZ' from URL figma.com/design/abc123XYZ/My-Design.",
+        "title": "File Key",
+        "type": "string"
+      },
+      "geometry": {
+        "description": "Set to \"paths\" to include vector data",
+        "title": "Geometry",
+        "type": "string"
+      },
+      "ids": {
+        "description": "Comma-separated node IDs to fetch specific nodes (uses /nodes endpoint). Node IDs can be extracted from Figma URLs: figma.com/design/{file_key}/{name}?node-id={node_id}. Example: '1:2,1:3' for multiple nodes. Must be a string, not an array — passing an array causes validation failure. URL node IDs use hyphens (e.g., '1-2'); convert to colons (e.g., '1:2') before passing here.",
+        "title": "Ids",
+        "type": "string"
+      },
+      "plugin_data": {
+        "description": "Comma-separated plugin IDs to include plugin data",
+        "title": "Plugin Data",
+        "type": "string"
+      },
+      "response_detail": {
+        "default": "minimal",
+        "description": "Level of detail in the response. 'minimal' (default) simplifies file data for AI consumption. 'full' returns the raw Figma API response.",
+        "enum": ["minimal", "full"],
+        "title": "Response Detail",
+        "type": "string"
+      },
+      "version": {
+        "description": "Specific version ID; current version if omitted",
+        "title": "Version",
+        "type": "string"
+      }
+    },
+    "required": ["file_key"],
+    "title": "GetFileJsonRequest",
+    "type": "object"
+  },
+  "name": "get_file_json",
+  "outputSchema": {
+    "$defs": {
+      "BranchMetadata": {
+        "description": "Metadata for a branch.",
+        "properties": {
+          "key": {
+            "description": "Branch file key.",
+            "title": "Key",
+            "type": "string"
+          },
+          "last_modified": {
+            "description": "ISO 8601 timestamp of last modification.",
+            "title": "Last Modified",
+            "type": "string"
+          },
+          "link_access": {
+            "description": "Link access level for the branch.",
+            "title": "Link Access",
+            "type": "string"
+          },
+          "name": {
+            "description": "Branch name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "URL to branch thumbnail.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          }
+        },
+        "required": ["key", "name", "thumbnail_url", "last_modified", "link_access"],
+        "title": "BranchMetadata",
+        "type": "object"
+      },
+      "ComponentMetadata": {
+        "description": "Metadata for a component.",
+        "properties": {
+          "containing_frame": {
+            "$ref": "#/$defs/FrameInfo",
+            "description": "Frame data if component is nested within one.",
+            "title": "Containing Frame"
+          },
+          "created_at": {
+            "description": "UTC ISO 8601 creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Publisher-provided component summary.",
+            "title": "Description",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "Figma file identifier containing the component.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "key": {
+            "description": "Unique component identifier.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Component designation.",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Component node ID within the file.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "URL to component thumbnail image.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "UTC ISO 8601 modification timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "User who created or last updated the component.",
+            "title": "User"
+          }
+        },
+        "title": "ComponentMetadata",
+        "type": "object"
+      },
+      "ComponentSetMetadata": {
+        "description": "Metadata for a component set.",
+        "properties": {
+          "containing_frame": {
+            "$ref": "#/$defs/FrameInfo",
+            "description": "Containing frame metadata.",
+            "title": "Containing Frame"
+          },
+          "created_at": {
+            "description": "UTC ISO 8601 creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Publisher description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "Figma file containing the component set.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "key": {
+            "description": "Unique component set identifier.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Component set name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Component set node ID.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "URL to component set thumbnail.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "UTC ISO 8601 modification timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "User who created or last updated the component set.",
+            "title": "User"
+          }
+        },
+        "title": "ComponentSetMetadata",
+        "type": "object"
+      },
+      "ContainingComponentSet": {
+        "description": "Component set containing a component.",
+        "properties": {
+          "name": {
+            "description": "Name of the component set node; null if not applicable.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "ID of the component set node; null if not applicable.",
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "title": "ContainingComponentSet",
+        "type": "object"
+      },
+      "ContainingStateGroup": {
+        "description": "Deprecated: Use ContainingComponentSet. State group containing a component.",
+        "properties": {
+          "name": {
+            "description": "Name of the state group node; null if not applicable.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "ID of the state group node; null if not applicable.",
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "title": "ContainingStateGroup",
+        "type": "object"
+      },
+      "DocumentNode": {
+        "description": "Root DOCUMENT node containing the file's structure and all design elements.",
+        "properties": {
+          "children": {
+            "description": "Array of PAGE Node objects representing the pages in the file, sorted back-to-front. Each page has the same structure as Node with type='PAGE'.",
+            "items": {},
+            "title": "Children",
+            "type": "array"
+          },
+          "id": {
+            "description": "A string uniquely identifying this node within the document.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name given to the node by the user in the tool.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of the node, always 'DOCUMENT' for the root node.",
+            "title": "Type",
+            "type": "string"
+          },
+          "visible": {
+            "description": "Whether or not the node is visible on the canvas. Default is true.",
+            "title": "Visible",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "name", "type", "children"],
+        "title": "DocumentNode",
+        "type": "object"
+      },
+      "FrameInfo": {
+        "description": "Frame information for containing frame metadata.",
+        "properties": {
+          "backgroundColor": {
+            "description": "Background color of the frame node (RGBA); null if not set.",
+            "title": "Background Color",
+            "type": "string"
+          },
+          "containingComponentSet": {
+            "$ref": "#/$defs/ContainingComponentSet",
+            "description": "Details of the component set for this frame, if applicable; null if not part of a component set.",
+            "title": "Containing Component Set"
+          },
+          "containingStateGroup": {
+            "$ref": "#/$defs/ContainingStateGroup",
+            "description": "Deprecated: Use containingComponentSet. Details of the state group for this frame, if any.",
+            "title": "Containing State Group"
+          },
+          "name": {
+            "description": "Name of the frame node; null if not applicable.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "ID of the frame node containing the component; null if not applicable.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "pageId": {
+            "description": "ID of the page containing this frame.",
+            "title": "Page Id",
+            "type": "string"
+          },
+          "pageName": {
+            "description": "Name of the page containing this frame.",
+            "title": "Page Name",
+            "type": "string"
+          }
+        },
+        "required": ["pageId", "pageName"],
+        "title": "FrameInfo",
+        "type": "object"
+      },
+      "GetFileJsonResponse": {
+        "description": "Response from Figma Get File JSON API.",
+        "properties": {
+          "branches": {
+            "description": "Array of branch metadata objects (returned when branch_data=true query parameter is used).",
+            "items": {
+              "$ref": "#/$defs/BranchMetadata"
+            },
+            "title": "Branches",
+            "type": "array"
+          },
+          "componentSets": {
+            "additionalProperties": {
+              "$ref": "#/$defs/ComponentSetMetadata"
+            },
+            "description": "Mapping of component set IDs to component set metadata.",
+            "title": "Component Sets",
+            "type": "object"
+          },
+          "components": {
+            "additionalProperties": {
+              "$ref": "#/$defs/ComponentMetadata"
+            },
+            "description": "Mapping from node IDs to component metadata, helping identify which components each instance references.",
+            "title": "Components",
+            "type": "object"
+          },
+          "document": {
+            "$ref": "#/$defs/DocumentNode",
+            "description": "Root DOCUMENT node containing the file's structure and all design elements.",
+            "title": "Document"
+          },
+          "editorType": {
+            "description": "Type of editor (e.g., 'design', 'figjam', 'slides').",
+            "title": "Editor Type",
+            "type": "string"
+          },
+          "lastModified": {
+            "description": "ISO 8601 timestamp of the most recent modification.",
+            "title": "Last Modified",
+            "type": "string"
+          },
+          "linkAccess": {
+            "description": "File link share permission level (inherit, view, edit, org_view, org_edit).",
+            "title": "Link Access",
+            "type": "string"
+          },
+          "mainFileKey": {
+            "description": "Key of main file (present if file is a branch).",
+            "title": "Main File Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "The file's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "description": "User's permission level in the file (e.g., 'owner', 'editor', 'viewer').",
+            "title": "Role",
+            "type": "string"
+          },
+          "schemaVersion": {
+            "description": "Schema version number, typically 0.",
+            "title": "Schema Version",
+            "type": "number"
+          },
+          "styles": {
+            "additionalProperties": {
+              "$ref": "#/$defs/StyleMetadata"
+            },
+            "description": "Mapping from style IDs to style metadata.",
+            "title": "Styles",
+            "type": "object"
+          },
+          "thumbnailUrl": {
+            "description": "URL pointing to a preview image of the file.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "version": {
+            "description": "Current version identifier of the file.",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "title": "GetFileJsonResponse",
+        "type": "object"
+      },
+      "StyleMetadata": {
+        "description": "Metadata for a style.",
+        "properties": {
+          "containing_frame": {
+            "$ref": "#/$defs/FrameInfo",
+            "description": "Frame containment data.",
+            "title": "Containing Frame"
+          },
+          "created_at": {
+            "description": "UTC ISO 8601 creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Publisher-provided description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "Figma file containing the style.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "key": {
+            "description": "Unique style identifier.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Style designation.",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Style node ID.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "style_type": {
+            "description": "Style category (FILL, TEXT, EFFECT, GRID).",
+            "title": "Style Type",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "URL to style thumbnail.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "UTC ISO 8601 modification timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "User who created or last updated the style.",
+            "title": "User"
+          }
+        },
+        "title": "StyleMetadata",
+        "type": "object"
+      },
+      "User": {
+        "description": "Figma user information.",
+        "properties": {
+          "handle": {
+            "description": "User's display name or handle.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique stable identifier for the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "img_url": {
+            "description": "URL of the user's profile image.",
+            "title": "Img Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "handle", "img_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetFileJsonResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

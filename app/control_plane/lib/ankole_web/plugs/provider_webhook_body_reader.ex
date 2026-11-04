@@ -18,25 +18,32 @@ defmodule AnkoleWeb.Plugs.ProviderWebhookBodyReader do
           conn,
         opts
       ) do
-    case Plug.Conn.read_body(conn, opts) do
-      {:ok, chunk, conn} -> {:ok, chunk, keep(conn, chunk)}
-      {:more, chunk, conn} -> {:more, chunk, keep(conn, chunk)}
-      {:error, _reason} = error -> error
-    end
+    read_webhook_body(conn, opts)
   end
 
   def read_body(
         %Plug.Conn{method: "POST", path_info: ["webhooks", "connectors" | _]} = conn,
         opts
       ) do
+    read_webhook_body(conn, opts)
+  end
+
+  def read_body(
+        %Plug.Conn{method: "POST", path_info: ["webhooks", "cloud", "connectors" | _]} = conn,
+        opts
+      ) do
+    read_webhook_body(conn, opts)
+  end
+
+  def read_body(conn, opts), do: Plug.Conn.read_body(conn, opts)
+
+  defp read_webhook_body(conn, opts) do
     case Plug.Conn.read_body(conn, opts) do
       {:ok, chunk, conn} -> {:ok, chunk, keep(conn, chunk)}
       {:more, chunk, conn} -> {:more, chunk, keep(conn, chunk)}
       {:error, _} = error -> error
     end
   end
-
-  def read_body(conn, opts), do: Plug.Conn.read_body(conn, opts)
 
   @spec body(Plug.Conn.t()) :: binary()
   def body(%Plug.Conn{private: private}), do: Map.get(private, @private_key, "")

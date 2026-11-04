@@ -1,0 +1,240 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get a specific comment from a Zendesk request. Use when you need to retrieve a single comment by its ID for a given request, such as displaying a specific comment detail or checking comment metadata. This action is read-only and idempotent.",
+  "inputSchema": {
+    "description": "Request parameters for getting a specific comment from a Zendesk request.",
+    "properties": {
+      "request_id": {
+        "description": "The ID of the request",
+        "examples": [33],
+        "human_parameter_description": "The unique ID of the Zendesk request. You can find this ID in the request URL or from a list requests action.",
+        "human_parameter_name": "Request ID",
+        "title": "Request Id",
+        "type": "integer"
+      },
+      "ticket_comment_id": {
+        "description": "The ID of the ticket comment",
+        "examples": [35436],
+        "human_parameter_description": "The unique ID of the specific comment within the request. This can be found by listing comments on the request first.",
+        "human_parameter_name": "Ticket Comment ID",
+        "title": "Ticket Comment Id",
+        "type": "integer"
+      }
+    },
+    "required": ["request_id", "ticket_comment_id"],
+    "title": "GetRequestsCommentRequest",
+    "type": "object"
+  },
+  "name": "get_requests_comment",
+  "outputSchema": {
+    "$defs": {
+      "CommentAttachment": {
+        "description": "Attachment object in a comment.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the file",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to access the attachment file",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "Name of the attached file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Attachment identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "Array of thumbnail attachments for images",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          }
+        },
+        "title": "CommentAttachment",
+        "type": "object"
+      },
+      "CommentDetail": {
+        "description": "Detailed comment object returned from the API.",
+        "properties": {
+          "attachments": {
+            "description": "Attachments, if any",
+            "items": {
+              "$ref": "#/$defs/CommentAttachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "audit_id": {
+            "description": "The id of the ticket audit record",
+            "title": "Audit Id",
+            "type": "integer"
+          },
+          "author_id": {
+            "description": "The id of the comment author",
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "body": {
+            "description": "The comment string",
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "The time the comment was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "html_body": {
+            "description": "The comment formatted as HTML",
+            "title": "Html Body",
+            "type": "string"
+          },
+          "id": {
+            "description": "Automatically assigned when the comment is created",
+            "title": "Id",
+            "type": "integer"
+          },
+          "metadata": {
+            "$ref": "#/$defs/CommentMetadata",
+            "description": "System information (web client, IP address, etc.) and comment flags",
+            "title": "Metadata"
+          },
+          "plain_body": {
+            "description": "The comment presented as plain text",
+            "title": "Plain Body",
+            "type": "string"
+          },
+          "public": {
+            "description": "true if a public comment; false if an internal note",
+            "title": "Public",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "`Comment` or `VoiceComment`. The JSON object for adding voice comments to tickets is different.",
+            "title": "Type",
+            "type": "string"
+          },
+          "uploads": {
+            "description": "List of tokens received from uploading files for comment attachments",
+            "items": {
+              "type": "string"
+            },
+            "title": "Uploads",
+            "type": "array"
+          }
+        },
+        "title": "CommentDetail",
+        "type": "object"
+      },
+      "CommentMetadata": {
+        "description": "Metadata object for a comment.",
+        "properties": {
+          "system": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "System-generated information (client, IP address, location, etc.)",
+            "title": "System",
+            "type": "object"
+          },
+          "via": {
+            "$ref": "#/$defs/Via",
+            "description": "Describes how the object was created",
+            "title": "Via"
+          }
+        },
+        "title": "CommentMetadata",
+        "type": "object"
+      },
+      "GetRequestsCommentResponse": {
+        "description": "Response containing a single comment from a Zendesk request.",
+        "properties": {
+          "comment": {
+            "$ref": "#/$defs/CommentDetail",
+            "description": "The requested comment object",
+            "title": "Comment"
+          }
+        },
+        "title": "GetRequestsCommentResponse",
+        "type": "object"
+      },
+      "Via": {
+        "description": "Via object describing how the comment was created.",
+        "properties": {
+          "channel": {
+            "description": "How the comment was created (via type)",
+            "title": "Channel",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/ViaSource",
+            "description": "Additional source information",
+            "title": "Source"
+          }
+        },
+        "title": "Via",
+        "type": "object"
+      },
+      "ViaSource": {
+        "description": "Source information in via object.",
+        "properties": {
+          "from": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Source sender information (address, name, phone, etc.)",
+            "title": "From",
+            "type": "object"
+          },
+          "rel": {
+            "description": "Relationship type (e.g., direct_message, voicemail, trigger)",
+            "title": "Rel",
+            "type": "string"
+          },
+          "to": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Source recipient information",
+            "title": "To",
+            "type": "object"
+          }
+        },
+        "title": "ViaSource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRequestsCommentResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

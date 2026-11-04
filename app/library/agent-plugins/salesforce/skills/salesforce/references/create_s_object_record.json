@@ -1,0 +1,228 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a new Salesforce SObject record. Use when you need to create any type of standard or custom Salesforce object record by specifying the object type and field values.",
+  "inputSchema": {
+    "properties": {
+      "fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of field API names and their values to set on the new record. Keys must be valid field API names for the specified object type. Required fields for the object must be included. Custom field names typically end with '__c'.",
+        "examples": [
+          {
+            "Industry": "Technology",
+            "Name": "Acme Corp"
+          },
+          {
+            "Email": "john@example.com",
+            "FirstName": "John",
+            "LastName": "Doe"
+          },
+          {
+            "CloseDate": "2024-12-31",
+            "Name": "Q1 Deal",
+            "StageName": "Prospecting"
+          }
+        ],
+        "title": "Fields",
+        "type": "object"
+      },
+      "sobject_type": {
+        "description": "The API name of the Salesforce object type to create (e.g., 'Account', 'Contact', 'Opportunity', 'Lead', 'Case', 'Task'). This is case-sensitive and must match the exact API name in Salesforce.",
+        "examples": ["Account", "Contact", "Opportunity", "Lead", "Case", "Task"],
+        "title": "Sobject Type",
+        "type": "string"
+      }
+    },
+    "required": ["sobject_type", "fields"],
+    "title": "CreateSObjectRecordRequest",
+    "type": "object"
+  },
+  "name": "create_s_object_record",
+  "outputSchema": {
+    "$defs": {
+      "CreateSObjectRecordResponse": {
+        "description": "Response from Salesforce SObject creation API.",
+        "properties": {
+          "errors": {
+            "description": "Array of error objects. Empty array when success is true. Contains error details when success is false, including error codes, messages, and affected fields.",
+            "items": {
+              "$ref": "#/$defs/SalesforceError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The unique Salesforce ID (15 or 18 characters) assigned to the newly created record. Only present when success is true.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the create operation was successful. Returns true if the record was created successfully, false otherwise.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "CreateSObjectRecordResponse",
+        "type": "object"
+      },
+      "DuplicateResult": {
+        "description": "Represents the duplicate detection result from Salesforce.",
+        "properties": {
+          "allowSave": {
+            "description": "Whether the record can be saved despite duplicates. When true, the caller can choose to proceed with the save operation by using the Sforce-Duplicate-Rule-Header.",
+            "title": "Allow Save",
+            "type": "boolean"
+          },
+          "duplicateRule": {
+            "description": "The name of the duplicate rule that was triggered (e.g., 'Standard_Account_Duplicate_Rule').",
+            "title": "Duplicate Rule",
+            "type": "string"
+          },
+          "duplicateRuleEntityType": {
+            "description": "The entity type of the duplicate rule (e.g., 'Account', 'Contact', 'Lead').",
+            "title": "Duplicate Rule Entity Type",
+            "type": "string"
+          },
+          "errorMessage": {
+            "description": "The error message from the duplicate rule (e.g., 'You are creating a duplicate record.').",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "matchResults": {
+            "description": "List of match results. Each contains matchRecords with the actual matched record data including Ids. Access matched IDs via: matchResults[i].matchRecords[j].record['Id'].",
+            "items": {
+              "$ref": "#/$defs/MatchResult"
+            },
+            "title": "Match Results",
+            "type": "array"
+          }
+        },
+        "title": "DuplicateResult",
+        "type": "object"
+      },
+      "MatchRecord": {
+        "description": "Represents a matched duplicate record detected by a matching rule.",
+        "properties": {
+          "additionalInformation": {
+            "description": "Additional information about the match.",
+            "items": {},
+            "title": "Additional Information",
+            "type": "array"
+          },
+          "fieldDiffs": {
+            "description": "Field differences between the records.",
+            "items": {},
+            "title": "Field Diffs",
+            "type": "array"
+          },
+          "matchConfidence": {
+            "description": "Confidence score for the match (0-100).",
+            "title": "Match Confidence",
+            "type": "number"
+          },
+          "record": {
+            "additionalProperties": true,
+            "description": "The matched record data. Contains 'Id' for the record ID, 'attributes' with 'type' and 'url', and other fields from the CompactLayout.",
+            "title": "Record",
+            "type": "object"
+          }
+        },
+        "title": "MatchRecord",
+        "type": "object"
+      },
+      "MatchResult": {
+        "description": "Represents a match result from Salesforce duplicate detection.",
+        "properties": {
+          "entityType": {
+            "description": "The type of the matched entity (e.g., 'Contact', 'Lead', 'Account').",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "errors": {
+            "description": "Any errors related to this match.",
+            "items": {},
+            "title": "Errors",
+            "type": "array"
+          },
+          "matchEngine": {
+            "description": "The matching engine used (e.g., 'FuzzyMatchEngine').",
+            "title": "Match Engine",
+            "type": "string"
+          },
+          "matchRecords": {
+            "description": "List of matched duplicate records. Each record contains the actual matched record data including its Id.",
+            "items": {
+              "$ref": "#/$defs/MatchRecord"
+            },
+            "title": "Match Records",
+            "type": "array"
+          },
+          "rule": {
+            "description": "The name of the matching rule that found duplicates (e.g., 'Standard_Account_Match_Rule_v1_0').",
+            "title": "Rule",
+            "type": "string"
+          },
+          "size": {
+            "default": 0,
+            "description": "Number of duplicate matches found.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "success": {
+            "default": false,
+            "description": "Whether the match operation was successful.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "MatchResult",
+        "type": "object"
+      },
+      "SalesforceError": {
+        "description": "Represents a Salesforce API error object.",
+        "properties": {
+          "duplicateResult": {
+            "$ref": "#/$defs/DuplicateResult",
+            "description": "Details about duplicate detection when errorCode is DUPLICATES_DETECTED. Contains information about matched records and whether save is allowed.",
+            "title": "Duplicate Result"
+          },
+          "errorCode": {
+            "description": "Machine-readable error code identifier (e.g., REQUIRED_FIELD_MISSING, MALFORMED_ID, INVALID_SESSION_ID, DUPLICATES_DETECTED).",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Array of field names where the error occurred. Present for field-level validation errors.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable description of the error that occurred.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["message"],
+        "title": "SalesforceError",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateSObjectRecordResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

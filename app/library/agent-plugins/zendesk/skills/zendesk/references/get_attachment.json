@@ -1,0 +1,204 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve details of a single Zendesk attachment by ID, including available file metadata, URLs, and thumbnails.",
+  "inputSchema": {
+    "description": "Request parameters for getting a single Zendesk attachment by ID.",
+    "properties": {
+      "attachment_id": {
+        "description": "The numeric ID of the attachment to retrieve. You can find attachment IDs in ticket comments or via the attachments list endpoint.",
+        "examples": [26942782002716],
+        "human_parameter_description": "The unique identifier of the attachment you want to view. You can find this ID from ticket comment attachments or from the attachment list.",
+        "human_parameter_name": "Attachment ID",
+        "title": "Attachment Id",
+        "type": "integer"
+      }
+    },
+    "required": ["attachment_id"],
+    "title": "GetAttachmentRequest",
+    "type": "object"
+  },
+  "name": "get_attachment",
+  "outputSchema": {
+    "$defs": {
+      "Attachment": {
+        "description": "Attachment object representing a file in Zendesk.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the file",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to access the attachment file content",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "Whether the attachment has been soft-deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Name of the attached file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels; null for non-image files",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique attachment identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "Whether the attachment is displayed inline in the article body (true) or as a downloadable file (false)",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malware_access_override": {
+            "description": "If true, allows access to attachments flagged as malware",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malware_scan_result": {
+            "description": "Malware scan result: malware_found, malware_not_found, pending, or skipped",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mapped_content_url": {
+            "description": "URL the attachment has been mapped to",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "Array of thumbnail attachments for images",
+            "items": {
+              "$ref": "#/$defs/Thumbnail"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          },
+          "url": {
+            "description": "URL to access the attachment details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels; null for non-image files",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "Attachment",
+        "type": "object"
+      },
+      "GetAttachmentResponse": {
+        "description": "Response containing a single Zendesk attachment.",
+        "properties": {
+          "attachment": {
+            "$ref": "#/$defs/Attachment",
+            "description": "The attachment object",
+            "title": "Attachment"
+          }
+        },
+        "required": ["attachment"],
+        "title": "GetAttachmentResponse",
+        "type": "object"
+      },
+      "Thumbnail": {
+        "description": "Thumbnail attachment object for image previews.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the file",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to access the thumbnail file",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "Whether attachment has been removed",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Name of the thumbnail file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels; null if unknown",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Attachment identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "Whether attachment is excluded from attachment list",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malware_access_override": {
+            "description": "Controls download access for flagged attachments",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malware_scan_result": {
+            "description": "Scan outcome: malware_found, malware_not_found, etc.",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mapped_content_url": {
+            "description": "URL the attachment has been mapped to",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL to access the thumbnail details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels; null if unknown",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "Thumbnail",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetAttachmentResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

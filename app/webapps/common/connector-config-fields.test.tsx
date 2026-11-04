@@ -18,6 +18,7 @@ function render(configured: string[]) {
       slug: 'workspace',
       display_name: 'Workspace',
       auth_scheme: 'platform_app',
+      mode: 'local',
       is_default: true,
       status: 'active',
       configured_credential_fields: configured,
@@ -42,6 +43,7 @@ function render(configured: string[]) {
           display_name: 'Slack',
           toolkits: [],
           auth_schemes: ['platform_app', 'identity_app'],
+          personal_credentials: false,
           credential_fields: fields.slice(0, 3).map(field => ({ key: field.path })),
           public_fields: []
         }

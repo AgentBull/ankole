@@ -1,0 +1,179 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves style usage analytics (insertions, detachments) for a Figma library, grouped by 'style' or 'team'; if providing a date range, ensure end_date is not before start_date.",
+  "inputSchema": {
+    "description": "Request schema for retrieving style analytics data from a Figma library.",
+    "properties": {
+      "cursor": {
+        "description": "Opaque cursor for pagination, from a previous response's `cursor` field to fetch the next page; omit for first page.",
+        "examples": ["MTY3ODg4NjQwMDAwMA=="],
+        "title": "Cursor",
+        "type": "string"
+      },
+      "end_date": {
+        "description": "End date for the analytics data range (YYYY-MM-DD). Data includes up to the end of this date's week. Defaults to the most recently computed week if unspecified.",
+        "examples": ["2023-12-31"],
+        "title": "End Date",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "Unique identifier (key) of the Figma library. Must be a published library file from an Enterprise plan organization.",
+        "examples": ["Hx0k0N9mC9SikO0hZ4C4sC"],
+        "title": "File Key",
+        "type": "string"
+      },
+      "group_by": {
+        "description": "Dimension by which to group the library style analytics data. Use 'style' for per-style metrics or 'team' for per-team metrics.",
+        "enum": ["style", "team"],
+        "examples": ["style", "team"],
+        "title": "Group By",
+        "type": "string"
+      },
+      "start_date": {
+        "description": "Start date for the analytics data range (YYYY-MM-DD). Data includes from the start of this date's week. Defaults to one year prior if unspecified.",
+        "examples": ["2023-01-01"],
+        "title": "Start Date",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "group_by"],
+    "title": "GetLibraryAnalyticsStyleActionDataRequest",
+    "type": "object"
+  },
+  "name": "get_library_analytics_style_action_data",
+  "outputSchema": {
+    "$defs": {
+      "GetLibraryAnalyticsStyleActionDataResponse": {
+        "description": "Response schema for `GetLibraryAnalyticsStyleActionData`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Structured analytics data, including rows, `next_page` flag, and `cursor` for pagination if applicable.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetLibraryAnalyticsStyleActionDataResponse",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "cursor": {
+            "description": "Opaque cursor for fetching the next page, present if `next_page` is true. Use in `cursor` parameter of subsequent requests.",
+            "title": "Cursor",
+            "type": "string"
+          },
+          "next_page": {
+            "description": "Indicates if a subsequent page of data can be fetched.",
+            "title": "Next Page",
+            "type": "boolean"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Row"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/Row1"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "Array of analytics data entries. Structure depends on `group_by`: `Row` for 'style', `Row1` for 'team'.",
+            "title": "Rows"
+          }
+        },
+        "required": ["rows", "next_page"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Row": {
+        "properties": {
+          "detachments": {
+            "description": "Total times this style was detached during the week.",
+            "title": "Detachments",
+            "type": "number"
+          },
+          "insertions": {
+            "description": "Total times this style was inserted (applied) during the week.",
+            "title": "Insertions",
+            "type": "number"
+          },
+          "style_key": {
+            "description": "Unique and stable identifier for the style.",
+            "title": "Style Key",
+            "type": "string"
+          },
+          "style_name": {
+            "description": "Human-readable name of the style.",
+            "title": "Style Name",
+            "type": "string"
+          },
+          "style_type": {
+            "description": "Type of the style (e.g., FILL, TEXT).",
+            "title": "Style Type",
+            "type": "string"
+          },
+          "week": {
+            "description": "Week identifier for this data row (typically start date of the week, YYYY-MM-DD).",
+            "title": "Week",
+            "type": "string"
+          }
+        },
+        "required": ["week", "style_key", "style_name", "style_type", "detachments", "insertions"],
+        "title": "Row",
+        "type": "object"
+      },
+      "Row1": {
+        "properties": {
+          "detachments": {
+            "description": "Total style detachments by this team during the week.",
+            "title": "Detachments",
+            "type": "number"
+          },
+          "insertions": {
+            "description": "Total style insertions (applications) by this team during the week.",
+            "title": "Insertions",
+            "type": "number"
+          },
+          "team_name": {
+            "description": "Name of the team that performed actions with library styles.",
+            "title": "Team Name",
+            "type": "string"
+          },
+          "week": {
+            "description": "Week identifier for this data row (typically start date of the week, YYYY-MM-DD).",
+            "title": "Week",
+            "type": "string"
+          },
+          "workspace_name": {
+            "description": "Name of the Figma workspace the team belongs to, if applicable.",
+            "title": "Workspace Name",
+            "type": "string"
+          }
+        },
+        "required": ["week", "team_name", "detachments", "insertions"],
+        "title": "Row1",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetLibraryAnalyticsStyleActionDataResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

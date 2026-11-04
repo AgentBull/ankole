@@ -1,0 +1,76 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetches only the boards a specific Trello member has starred, identified by their ID or username.",
+  "inputSchema": {
+    "description": "Request schema for `GetMembersBoardStarsByIdMember`",
+    "properties": {
+      "idMember": {
+        "description": "The ID or username of the Trello member.",
+        "examples": ["johndoe", "60d5f0c9c03a0b002b0f0a0a"],
+        "title": "Id Member",
+        "type": "string"
+      }
+    },
+    "required": ["idMember"],
+    "title": "GetMembersBoardStarsByIdMemberRequest",
+    "type": "object"
+  },
+  "name": "get_members_board_stars_by_id_member",
+  "outputSchema": {
+    "$defs": {
+      "BoardStar": {
+        "description": "Represents a board starred by a member",
+        "properties": {
+          "id": {
+            "description": "The unique identifier for the board star",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board being starred",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "pos": {
+            "description": "The position of the starred board in the member's list",
+            "title": "Pos",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "idBoard", "pos"],
+        "title": "BoardStar",
+        "type": "object"
+      },
+      "GetMembersBoardStarsByIdMemberResponse": {
+        "description": "Response schema for `GetMembersBoardStarsByIdMember`",
+        "properties": {
+          "board_stars": {
+            "description": "Array of BoardStars objects representing the boards starred by the member",
+            "items": {
+              "$ref": "#/$defs/BoardStar"
+            },
+            "title": "Board Stars",
+            "type": "array"
+          }
+        },
+        "required": ["board_stars"],
+        "title": "GetMembersBoardStarsByIdMemberResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMembersBoardStarsByIdMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

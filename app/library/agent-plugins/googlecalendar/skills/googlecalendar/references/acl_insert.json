@@ -1,0 +1,123 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates an access control rule for a calendar. Use when you need to grant sharing permissions to a user, group, or domain.",
+  "inputSchema": {
+    "properties": {
+      "calendar_id": {
+        "description": "Calendar identifier. To retrieve calendar IDs call the calendarList.list method. If you want to access the primary calendar of the currently logged in user, use the \"primary\" keyword.",
+        "examples": ["primary", "user@example.com"],
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "role": {
+        "description": "The role assigned to the scope. Possible values: \"none\" - Provides no access; \"freeBusyReader\" - Provides read access to free/busy information; \"reader\" - Provides read access to the calendar; \"writer\" - Provides read and write access to the calendar; \"owner\" - Provides ownership of the calendar.",
+        "enum": ["none", "freeBusyReader", "reader", "writer", "owner"],
+        "examples": ["reader", "writer", "owner"],
+        "title": "Role",
+        "type": "string"
+      },
+      "scope": {
+        "additionalProperties": false,
+        "description": "The extent to which calendar access is granted by this ACL rule. Specifies who gets the access (user, group, domain, or default).",
+        "properties": {
+          "type": {
+            "description": "The type of the scope. Possible values: \"default\" - The public scope (any user); \"user\" - Limits the scope to a single user; \"group\" - Limits the scope to a group; \"domain\" - Limits the scope to a domain.",
+            "enum": ["default", "user", "group", "domain"],
+            "examples": ["user", "group", "domain", "default"],
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The email address of a user or group, or the name of a domain, depending on the scope type. Omitted for type 'default'. For type 'user' or 'group', must be a valid email address (e.g., 'user@example.com'). For type 'domain', must be a domain name (e.g., 'example.com'). The value 'me' is NOT a valid email - use the actual email address of the user.",
+            "examples": ["user@example.com", "group@example.com", "example.com"],
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "Scope",
+        "type": "object"
+      },
+      "send_notifications": {
+        "description": "Whether to send notifications about the calendar sharing change. Optional. The default is true.",
+        "examples": [true, false],
+        "title": "Send Notifications",
+        "type": "boolean"
+      }
+    },
+    "required": ["calendar_id", "role", "scope"],
+    "title": "AclInsertRequest",
+    "type": "object"
+  },
+  "name": "acl_insert",
+  "outputSchema": {
+    "$defs": {
+      "AclInsertResponse": {
+        "properties": {
+          "display_url": {
+            "description": "URL to view this resource in the Google Calendar web UI. None for ACL rules as they have no direct web UI.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the resource.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identifier of the ACL rule.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of the resource. Always \"calendar#aclRule\".",
+            "title": "Kind",
+            "type": "string"
+          },
+          "role": {
+            "description": "The role assigned to the scope. Possible values: \"none\", \"freeBusyReader\", \"reader\", \"writer\", \"owner\".",
+            "title": "Role",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/$defs/AclInsertResponseScope",
+            "description": "The scope of the rule with 'type' and optional 'value' fields.",
+            "title": "Scope"
+          }
+        },
+        "title": "AclInsertResponse",
+        "type": "object"
+      },
+      "AclInsertResponseScope": {
+        "properties": {
+          "type": {
+            "description": "The type of the scope. Possible values: \"default\", \"user\", \"group\", or \"domain\".",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The email address of a user or group, or the name of a domain, depending on the scope type. Omitted for type 'default'.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "AclInsertResponseScope",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AclInsertResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

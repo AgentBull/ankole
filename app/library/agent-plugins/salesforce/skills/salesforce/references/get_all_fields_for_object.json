@@ -1,0 +1,386 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves all fields (standard and custom) for a Salesforce object with complete metadata including field types, constraints, picklist values, and relationships.",
+  "inputSchema": {
+    "properties": {
+      "object_name": {
+        "description": "API name of the Salesforce object to describe. Use standard object names (Account, Contact, Lead, Opportunity) or custom object API names ending in __c.",
+        "examples": ["Contact", "Account", "Lead", "Custom_Object__c"],
+        "human_parameter_description": "Enter the API name of the Salesforce object you want to inspect. Standard objects use names like 'Account' or 'Contact'. Custom objects end with '__c'.",
+        "human_parameter_name": "Object Name",
+        "title": "Object Name",
+        "type": "string"
+      }
+    },
+    "required": ["object_name"],
+    "title": "GetAllFieldsForObjectRequest",
+    "type": "object"
+  },
+  "name": "get_all_fields_for_object",
+  "outputSchema": {
+    "$defs": {
+      "FieldMetadata": {
+        "additionalProperties": true,
+        "description": "Metadata for a single field on the Salesforce object.",
+        "properties": {
+          "defaultValue": {
+            "description": "Default value for the field.",
+            "title": "Default Value"
+          },
+          "autoNumber": {
+            "default": false,
+            "description": "Whether this is an auto-number field.",
+            "title": "Auto Number",
+            "type": "boolean"
+          },
+          "relationshipName": {
+            "description": "Name of the relationship for reference/lookup fields.",
+            "title": "Relationship Name",
+            "type": "string"
+          },
+          "custom": {
+            "description": "True if this is a custom field (ends with __c), false for standard fields.",
+            "title": "Custom",
+            "type": "boolean"
+          },
+          "byteLength": {
+            "description": "Maximum size in bytes.",
+            "title": "Byte Length",
+            "type": "integer"
+          },
+          "idLookup": {
+            "default": false,
+            "description": "Whether this field can be used to look up records.",
+            "title": "Id Lookup",
+            "type": "boolean"
+          },
+          "caseSensitive": {
+            "default": false,
+            "description": "Whether string comparisons are case-sensitive.",
+            "title": "Case Sensitive",
+            "type": "boolean"
+          },
+          "updateable": {
+            "default": false,
+            "description": "Whether the field can be modified on existing records.",
+            "title": "Updateable",
+            "type": "boolean"
+          },
+          "defaultValueFormula": {
+            "description": "Formula for calculating default value.",
+            "title": "Default Value Formula",
+            "type": "string"
+          },
+          "nillable": {
+            "default": true,
+            "description": "Whether the field can contain null values.",
+            "title": "Nillable",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "API name of the field.",
+            "title": "Name",
+            "type": "string"
+          },
+          "calculatedFormula": {
+            "description": "The formula expression if this is a formula field.",
+            "title": "Calculated Formula",
+            "type": "string"
+          },
+          "scale": {
+            "description": "Number of decimal places for numeric fields.",
+            "title": "Scale",
+            "type": "integer"
+          },
+          "createable": {
+            "default": false,
+            "description": "Whether the field can be set when creating a record.",
+            "title": "Createable",
+            "type": "boolean"
+          },
+          "precision": {
+            "description": "Total number of digits for numeric fields.",
+            "title": "Precision",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Data type of the field (e.g., 'string', 'boolean', 'int', 'double', 'date', 'datetime', 'picklist', 'multipicklist', 'reference', 'id', 'textarea', etc.).",
+            "title": "Type",
+            "type": "string"
+          },
+          "picklistValues": {
+            "description": "Available options for picklist and multipicklist fields.",
+            "items": {
+              "$ref": "#/$defs/PicklistValue"
+            },
+            "title": "Picklist Values",
+            "type": "array"
+          },
+          "restrictedPicklist": {
+            "default": false,
+            "description": "Whether the picklist only allows values from the defined list.",
+            "title": "Restricted Picklist",
+            "type": "boolean"
+          },
+          "nameField": {
+            "default": false,
+            "description": "Whether this is the Name field for the object.",
+            "title": "Name Field",
+            "type": "boolean"
+          },
+          "groupable": {
+            "default": false,
+            "description": "Whether the field can be used in SOQL GROUP BY clauses.",
+            "title": "Groupable",
+            "type": "boolean"
+          },
+          "htmlFormatted": {
+            "default": false,
+            "description": "Whether the field contains HTML content.",
+            "title": "Html Formatted",
+            "type": "boolean"
+          },
+          "unique": {
+            "default": false,
+            "description": "Whether the field requires unique values.",
+            "title": "Unique",
+            "type": "boolean"
+          },
+          "compoundFieldName": {
+            "description": "Name of the compound field this field belongs to (e.g., address components).",
+            "title": "Compound Field Name",
+            "type": "string"
+          },
+          "sortable": {
+            "default": false,
+            "description": "Whether the field can be used in SOQL ORDER BY clauses.",
+            "title": "Sortable",
+            "type": "boolean"
+          },
+          "calculated": {
+            "default": false,
+            "description": "Whether this is a formula field.",
+            "title": "Calculated",
+            "type": "boolean"
+          },
+          "length": {
+            "description": "Maximum length for string/textarea fields.",
+            "title": "Length",
+            "type": "integer"
+          },
+          "externalId": {
+            "description": "Whether the field is marked as an external ID.",
+            "title": "External Id",
+            "type": "boolean"
+          },
+          "deprecatedAndHidden": {
+            "default": false,
+            "description": "Whether the field is deprecated and hidden.",
+            "title": "Deprecated And Hidden",
+            "type": "boolean"
+          },
+          "inlineHelpText": {
+            "description": "Help text displayed for this field.",
+            "title": "Inline Help Text",
+            "type": "string"
+          },
+          "relationshipOrder": {
+            "description": "Order of this relationship in master-detail hierarchies.",
+            "title": "Relationship Order",
+            "type": "integer"
+          },
+          "filterable": {
+            "default": false,
+            "description": "Whether the field can be used in SOQL WHERE clauses.",
+            "title": "Filterable",
+            "type": "boolean"
+          },
+          "referenceTo": {
+            "description": "List of object types this field can reference (for lookup/master-detail fields).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Reference To",
+            "type": "array"
+          },
+          "label": {
+            "description": "Display label for the field in the UI.",
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": ["name", "label", "type", "custom"],
+        "title": "FieldMetadata",
+        "type": "object"
+      },
+      "GetAllFieldsForObjectResponse": {
+        "additionalProperties": true,
+        "description": "Response containing complete metadata for a Salesforce object including all fields.",
+        "properties": {
+          "createable": {
+            "default": false,
+            "description": "Whether records can be created.",
+            "title": "Createable",
+            "type": "boolean"
+          },
+          "custom": {
+            "description": "Whether this is a custom object (true) or standard (false).",
+            "title": "Custom",
+            "type": "boolean"
+          },
+          "custom_fields_count": {
+            "description": "Number of custom fields on this object.",
+            "title": "Custom Fields Count",
+            "type": "integer"
+          },
+          "deletable": {
+            "default": false,
+            "description": "Whether records can be deleted.",
+            "title": "Deletable",
+            "type": "boolean"
+          },
+          "feedEnabled": {
+            "default": false,
+            "description": "Whether Chatter feeds are enabled.",
+            "title": "Feed Enabled",
+            "type": "boolean"
+          },
+          "fields": {
+            "description": "List of all fields on this object, including standard and custom fields.",
+            "items": {
+              "$ref": "#/$defs/FieldMetadata"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "keyPrefix": {
+            "description": "Three-character prefix for record IDs of this object.",
+            "title": "Key Prefix",
+            "type": "string"
+          },
+          "label": {
+            "description": "Display label for the object.",
+            "title": "Label",
+            "type": "string"
+          },
+          "labelPlural": {
+            "description": "Plural display label.",
+            "title": "Label Plural",
+            "type": "string"
+          },
+          "mergeable": {
+            "default": false,
+            "description": "Whether records can be merged.",
+            "title": "Mergeable",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "API name of the object.",
+            "title": "Name",
+            "type": "string"
+          },
+          "queryable": {
+            "default": false,
+            "description": "Whether the object can be queried via SOQL.",
+            "title": "Queryable",
+            "type": "boolean"
+          },
+          "replicateable": {
+            "default": false,
+            "description": "Whether the object can be replicated.",
+            "title": "Replicateable",
+            "type": "boolean"
+          },
+          "retrieveable": {
+            "default": false,
+            "description": "Whether individual records can be retrieved.",
+            "title": "Retrieveable",
+            "type": "boolean"
+          },
+          "searchable": {
+            "default": false,
+            "description": "Whether the object can be searched via SOSL.",
+            "title": "Searchable",
+            "type": "boolean"
+          },
+          "standard_fields_count": {
+            "description": "Number of standard fields on this object.",
+            "title": "Standard Fields Count",
+            "type": "integer"
+          },
+          "total_fields": {
+            "description": "Total number of fields on this object.",
+            "title": "Total Fields",
+            "type": "integer"
+          },
+          "triggerable": {
+            "default": false,
+            "description": "Whether Apex triggers are supported.",
+            "title": "Triggerable",
+            "type": "boolean"
+          },
+          "undeletable": {
+            "default": false,
+            "description": "Whether deleted records can be restored.",
+            "title": "Undeletable",
+            "type": "boolean"
+          },
+          "updateable": {
+            "default": false,
+            "description": "Whether records can be updated.",
+            "title": "Updateable",
+            "type": "boolean"
+          }
+        },
+        "required": ["name", "label", "labelPlural", "custom", "fields"],
+        "title": "GetAllFieldsForObjectResponse",
+        "type": "object"
+      },
+      "PicklistValue": {
+        "additionalProperties": true,
+        "description": "Individual picklist value option.",
+        "properties": {
+          "active": {
+            "default": true,
+            "description": "Whether this picklist value is currently active.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "defaultValue": {
+            "default": false,
+            "description": "Whether this is the default value for the picklist.",
+            "title": "Default Value",
+            "type": "boolean"
+          },
+          "label": {
+            "description": "Display label for this picklist value.",
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "description": "API value stored when this option is selected.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["label", "value"],
+        "title": "PicklistValue",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetAllFieldsForObjectResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

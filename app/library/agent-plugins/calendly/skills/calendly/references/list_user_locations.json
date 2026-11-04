@@ -1,0 +1,106 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve configured meeting location information for a given Calendly user. Use when you need to see all available location options configured by a user for their meetings.",
+  "inputSchema": {
+    "description": "Request model for listing configured meeting locations for a user.",
+    "properties": {
+      "user": {
+        "description": "URI of the user whose locations to list. This should be the full Calendly user URI (e.g., 'https://api.calendly.com/users/AAAAAAAAAAAAAAAA').",
+        "examples": ["https://api.calendly.com/users/5dc7b7a8-1d8c-4fcc-8b63-5f5a17eea4a3"],
+        "title": "User",
+        "type": "string"
+      }
+    },
+    "required": ["user"],
+    "title": "ListUserLocationsRequest",
+    "type": "object"
+  },
+  "name": "list_user_locations",
+  "outputSchema": {
+    "$defs": {
+      "ListUserLocationsResponse": {
+        "description": "Response model containing a collection of user locations.",
+        "properties": {
+          "collection": {
+            "description": "Array of location resource objects configured for the user.",
+            "items": {
+              "$ref": "#/$defs/LocationResource"
+            },
+            "title": "Collection",
+            "type": "array"
+          }
+        },
+        "required": ["collection"],
+        "title": "ListUserLocationsResponse",
+        "type": "object"
+      },
+      "LocationResource": {
+        "description": "Location resource object containing location configuration details.",
+        "properties": {
+          "additional_info": {
+            "description": "Additional details or instructions for the location.",
+            "title": "Additional Info",
+            "type": "string"
+          },
+          "connected": {
+            "description": "Indicates whether the conferencing integration is connected (applicable for conference types).",
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Timestamp when the location was created (ISO 8601 format in UTC).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of location (e.g., 'physical', 'ask_invitee', 'custom', 'outbound_call', 'inbound_call', 'zoom_conference', 'google_conference', 'microsoft_teams_conference', 'webex_conference', 'gotomeeting_conference').",
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "description": "The actual location value (address for physical, phone number for calls, or meeting URL).",
+            "title": "Location",
+            "type": "string"
+          },
+          "phone_number": {
+            "description": "Phone number for phone call locations.",
+            "title": "Phone Number",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current status of the location configuration (e.g., 'active', 'inactive').",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the location was last updated (ISO 8601 format in UTC).",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the location.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["kind"],
+        "title": "LocationResource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListUserLocationsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

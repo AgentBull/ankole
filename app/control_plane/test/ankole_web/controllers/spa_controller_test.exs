@@ -18,7 +18,9 @@ defmodule AnkoleWeb.SpaControllerTest do
   test "GET / redirects to setup until setup completes", %{conn: conn} do
     conn = get(conn, ~p"/")
 
-    expected = if @host_policy, do: AnkoleWeb.PodURL.site_origin(conn) <> "/setup", else: "/setup"
+    expected =
+      if @host_policy, do: AnkoleWeb.SiteAdminConsole.origin(conn) <> "/setup", else: "/setup"
+
     assert redirected_to(conn) == expected
   end
 
@@ -94,7 +96,7 @@ defmodule AnkoleWeb.SpaControllerTest do
        } do
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
-    conn = get(conn, ~p"/site-admin-console/settings")
+    conn = get(conn, console_url("/settings"))
     location = redirected_to(conn)
 
     refute location =~ "/site-admin-console"
@@ -102,8 +104,10 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert uri.path == "/sessions/new"
     query = URI.decode_query(uri.query)
 
-    assert {:ok, "/site-admin-console/settings"} =
+    assert {:ok, return_path} =
              AnkoleWeb.Session.unseal_console_return(query["console_return"], tenant.id)
+
+    assert return_path == console_path("/settings")
 
     if @host_policy do
       assert String.starts_with?(uri.host, "accounts.")
@@ -193,11 +197,11 @@ defmodule AnkoleWeb.SpaControllerTest do
           {site_auth_conn, site_scoped_admin.uid},
           {tenant_auth_conn, tenant_scoped_admin.uid}
         ] do
-      shell = get(signed_conn, ~p"/site-admin-console")
+      shell = get(signed_conn, console_url(""))
       html = html_response(shell, 200)
 
       assert html =~
-               ~s(<meta name="ankole-site-admin-console-path" content="/site-admin-console">)
+               ~s(<meta name="ankole-site-admin-console-path" content="#{AnkoleWeb.SiteAdminConsole.path()}">)
 
       assert html =~ ~s(<meta name="ankole-principal" content="#{expected_uid}">)
 
@@ -224,15 +228,17 @@ defmodule AnkoleWeb.SpaControllerTest do
         external_id: "ext-member"
       })
 
-    assert get(member_conn, ~p"/site-admin-console/tenants").status == 403
+    assert get(member_conn, console_url("/tenants")).status == 403
 
-    switched = get(member_conn, "/site-admin-console/tenants?sort=name&switch=1")
+    switched = get(member_conn, console_url("/tenants?sort=name&switch=1"))
     redirect_uri = URI.parse(redirected_to(switched))
     query = URI.decode_query(redirect_uri.query || "")
     assert query["switch"] == "1"
 
-    assert {:ok, "/site-admin-console/tenants?sort=name"} =
+    assert {:ok, return_path} =
              AnkoleWeb.Session.unseal_console_return(query["console_return"], tenant.id)
+
+    assert return_path == console_path("/tenants?sort=name")
   end
 
   test "multi-account browser resolves siteadmin authentication for Console when active_authentication_id belongs to another Pod",
@@ -309,7 +315,7 @@ defmodule AnkoleWeb.SpaControllerTest do
     other_ref = Ankole.BrowserSessions.reference(other_auth)
     assert AnkoleWeb.Session.authentication_reference(conn) == other_ref
 
-    shell = get(conn, ~p"/site-admin-console")
+    shell = get(conn, console_url(""))
     html = html_response(shell, 200)
     encoded_admin_ref = Ankole.BrowserSessions.encode_reference(admin_ref)
 
@@ -321,7 +327,7 @@ defmodule AnkoleWeb.SpaControllerTest do
              other_ref
 
     [_, meta_csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, html)
-    origin = AnkoleWeb.PodURL.site_origin(shell)
+    origin = AnkoleWeb.Plugs.RequestHost.origin(shell)
 
     pinned_post =
       shell
@@ -360,7 +366,7 @@ defmodule AnkoleWeb.SpaControllerTest do
         provider_id: "lark-main",
         external_id: "ordinary-ext"
       })
-      |> get(~p"/site-admin-console")
+      |> get(console_url(""))
 
     assert conn.status == 403
     assert conn.resp_body == "Site administrator access required"
@@ -445,7 +451,7 @@ defmodule AnkoleWeb.SpaControllerTest do
         "targets" => %{tenant.id => true}
       })
 
-    conn = conn |> active_admin_conn() |> get(~p"/site-admin-console")
+    conn = conn |> active_admin_conn() |> get(console_url(""))
     assert Ankole.Features.boolean_value("fixture.shell")
 
     assert html_response(conn, 200) =~
@@ -526,7 +532,7 @@ defmodule AnkoleWeb.SpaControllerTest do
 
       login_shell =
         anon_request
-        |> get("/site-admin-console")
+        |> get(console_url(""))
         |> follow_login_redirect()
         |> follow_login_redirect()
 
@@ -538,7 +544,7 @@ defmodule AnkoleWeb.SpaControllerTest do
           do: put_req_header(admin, "accept-language", accept_language),
           else: admin
 
-      assert admin_request |> get("/site-admin-console") |> html_response(200) =~
+      assert admin_request |> get(console_url("")) |> html_response(200) =~
                ~s(<html lang="ko-KR" translate="no" class="notranslate">)
     end
 

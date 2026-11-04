@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes the link between an external user (from an integration provider like GitHub, Slack, GitLab, or MS Teams) and a Sentry user within the specified organization. This removes the association but does not delete the Sentry user itself. Requires org:admin or org:write permissions.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteExternalUserFromOrganization`",
+    "properties": {
+      "external_user_id": {
+        "description": "The unique numerical identifier of the external user linkage to delete. This ID is returned when creating an external user via the 'create_external_user_for_organization' action.",
+        "examples": [123, 456],
+        "title": "External User Id",
+        "type": "integer"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or human-readable slug of the Sentry organization from which to delete the external user link.",
+        "examples": ["the-acme-corp", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "external_user_id"],
+    "title": "DeleteExternalUserFromOrganizationRequest",
+    "type": "object"
+  },
+  "name": "delete_external_user_from_organization",
+  "outputSchema": {
+    "$defs": {
+      "DeleteExternalUserFromOrganizationResponse": {
+        "description": "Response schema for `DeleteExternalUserFromOrganization`.\n\nReturns 204 No Content on successful deletion with no response body.",
+        "properties": {},
+        "title": "DeleteExternalUserFromOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteExternalUserFromOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

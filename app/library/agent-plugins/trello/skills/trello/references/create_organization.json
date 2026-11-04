@@ -1,0 +1,115 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new Trello organization (Workspace) with a `displayName` (required), and optionally a description, website, and various preferences (e.g., board visibility, member invitation restrictions).",
+  "inputSchema": {
+    "description": "Request schema for `CreateOrganization`",
+    "properties": {
+      "desc": {
+        "description": "The description for the organization. Max length: 16384 characters.",
+        "examples": ["This is the main marketing team for ACME Corp.", "Development team for Project Alpha."],
+        "title": "Desc",
+        "type": "string"
+      },
+      "displayName": {
+        "description": "The human-readable name for the organization. Min length: 1 character. Cannot begin or end with a space. This field is required.",
+        "examples": ["Marketing Team", "Project Alpha Development"],
+        "title": "Display Name",
+        "type": "string"
+      },
+      "name": {
+        "description": "The unique, URL-friendly programmatic name for the organization. Must be lowercase, start with a letter, and contain only lowercase letters, numbers, and underscores. Max length: 16384 characters. If not provided, Trello will generate one based on the displayName.",
+        "examples": ["acme_corp_marketing", "project_alpha_dev_team"],
+        "title": "Name",
+        "type": "string"
+      },
+      "prefs__associatedDomain": {
+        "description": "The Google Workspace (formerly G Suite) domain to associate with the organization. This enables features like restricting membership to users from this domain.",
+        "examples": ["example.com", "mycompany.org"],
+        "title": "Prefs  Associated Domain",
+        "type": "string"
+      },
+      "prefs__boardVisibilityRestrict__org": {
+        "description": "Controls creation of organization-visible boards. Allowed values: 'admin' (only admins can create), 'none' (cannot be created), 'org' (any member can create).",
+        "examples": ["admin", "org", "none"],
+        "title": "Prefs  Board Visibility Restrict  Org",
+        "type": "string"
+      },
+      "prefs__boardVisibilityRestrict__private": {
+        "description": "Controls creation of private boards. Allowed values: 'admin' (only admins can create), 'none' (cannot be created), 'org' (any member can create).",
+        "examples": ["admin", "org", "none"],
+        "title": "Prefs  Board Visibility Restrict  Private",
+        "type": "string"
+      },
+      "prefs__boardVisibilityRestrict__public": {
+        "description": "Controls creation of public boards. Allowed values: 'admin' (only admins can create), 'none' (cannot be created), 'org' (any member can create).",
+        "examples": ["admin", "org", "none"],
+        "title": "Prefs  Board Visibility Restrict  Public",
+        "type": "string"
+      },
+      "prefs__externalMembersDisabled": {
+        "description": "Determines if external members (guests) are disabled for the organization. Set to 'true' to disable, 'false' to enable.",
+        "examples": ["true", "false"],
+        "title": "Prefs  External Members Disabled",
+        "type": "string"
+      },
+      "prefs__googleAppsVersion": {
+        "description": "The version of Google Workspace integration. Allowed values: '1' or '2'.",
+        "examples": ["1", "2"],
+        "title": "Prefs  Google Apps Version",
+        "type": "string"
+      },
+      "prefs__orgInviteRestrict": {
+        "description": "Specifies restrictions on who can be invited to the organization, e.g., a comma-separated list of email domains ('@example.com,@mycompany.com') or specific email addresses. If not set, any Trello user can be invited.",
+        "examples": ["@mycompany.com", "user@example.com,@another.org", ""],
+        "title": "Prefs  Org Invite Restrict",
+        "type": "string"
+      },
+      "prefs__permissionLevel": {
+        "description": "The default permission level for new boards created within the organization. Allowed values: 'private' or 'public'.",
+        "examples": ["private", "public"],
+        "title": "Prefs  Permission Level",
+        "type": "string"
+      },
+      "website": {
+        "description": "The URL of the organization's website. Must start with 'http://' or 'https://'. Can be null or an empty string if no website.",
+        "examples": ["https://www.example.com", "http://myteam.org", ""],
+        "title": "Website",
+        "type": "string"
+      }
+    },
+    "title": "CreateOrganizationRequest",
+    "type": "object"
+  },
+  "name": "create_organization",
+  "outputSchema": {
+    "$defs": {
+      "CreateOrganizationResponse": {
+        "description": "Response schema for `CreateOrganization` - POST /organizations returns only the organization ID",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the created organization",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "CreateOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

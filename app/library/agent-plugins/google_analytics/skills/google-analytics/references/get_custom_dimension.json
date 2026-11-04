@@ -1,0 +1,74 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a single CustomDimension by its resource name. Use when you need detailed information about a specific custom dimension including its display name, scope, and parameter name.",
+  "inputSchema": {
+    "description": "Request model for retrieving a single CustomDimension.",
+    "properties": {
+      "name": {
+        "description": "Required. The resource name of the CustomDimension to retrieve. Must be in the exact format: properties/{property_id}/customDimensions/{customDimension_id} where both property_id and customDimension_id are numeric identifiers. IMPORTANT: Must start with 'properties/' prefix, contain exactly one '/customDimensions/' segment, have no trailing slashes, and no additional path segments. Valid example: 'properties/489591273/customDimensions/13661238280'. Invalid examples: '489591273/13661238280' (missing prefix), 'properties/489591273/customDimensions/13661238280/' (trailing slash), 'properties/489591273/customDimensions/13661238280/extra' (extra segments)",
+        "examples": ["properties/489591273/customDimensions/13661238280", "properties/1000/customDimensions/5678"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "GetCustomDimensionRequest",
+    "type": "object"
+  },
+  "name": "get_custom_dimension",
+  "outputSchema": {
+    "$defs": {
+      "GetCustomDimensionResponse": {
+        "description": "Response model for GetCustomDimension action representing a CustomDimension resource.",
+        "properties": {
+          "description": {
+            "description": "Description for this custom dimension. Max length of 150 characters.",
+            "title": "Description",
+            "type": "string"
+          },
+          "disallowAdsPersonalization": {
+            "description": "If set to true, sets this dimension as NPA and excludes it from ads personalization. This is currently only supported by user-scoped custom dimensions.",
+            "title": "Disallow Ads Personalization",
+            "type": "boolean"
+          },
+          "displayName": {
+            "description": "Display name for this custom dimension as shown in the Analytics UI. Max length of 82 characters, alphanumeric plus space and underscore starting with a letter.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name of this CustomDimension. Format: properties/{property}/customDimensions/{customDimension}",
+            "title": "Name",
+            "type": "string"
+          },
+          "parameterName": {
+            "description": "Immutable tagging parameter name for this custom dimension. If this is a user-scoped dimension, then this is the user property name. If this is an event-scoped dimension, then this is the event parameter name. If this is an item-scoped dimension, then this is the parameter name found in the eCommerce items array.",
+            "title": "Parameter Name",
+            "type": "string"
+          },
+          "scope": {
+            "description": "Immutable scope of this dimension. Values: DIMENSION_SCOPE_UNSPECIFIED, EVENT, USER, ITEM",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "title": "GetCustomDimensionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCustomDimensionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -354,7 +354,10 @@ defmodule AnkoleWeb.Session do
 
   defp valid_console_return_to?(path) do
     base = AnkoleWeb.SiteAdminConsole.path()
-    path == base or String.starts_with?(path, [base <> "/", base <> "?"])
+
+    if base == "/",
+      do: path == safe_return_to(path),
+      else: path == base or String.starts_with?(path, [base <> "/", base <> "?"])
   end
 
   def current_authentication(conn) do

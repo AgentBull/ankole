@@ -1,0 +1,104 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a CustomDimension for a Google Analytics property. Use when you need to add a new custom dimension to track specific user properties, event parameters, or eCommerce item parameters.",
+  "inputSchema": {
+    "description": "Request model for creating a CustomDimension.",
+    "properties": {
+      "description": {
+        "description": "Optional. Description for this custom dimension. Max length of 150 characters",
+        "examples": ["Custom dimension to track user segments"],
+        "title": "Description",
+        "type": "string"
+      },
+      "disallowAdsPersonalization": {
+        "description": "Optional. If set to true, sets this dimension as NPA and excludes it from ads personalization. This is currently only supported by user-scoped custom dimensions",
+        "title": "Disallow Ads Personalization",
+        "type": "boolean"
+      },
+      "displayName": {
+        "description": "Required. Display name for this custom dimension as shown in the Analytics UI. Max length of 82 characters, alphanumeric plus space and underscore starting with a letter",
+        "examples": ["User Segment", "Event Category"],
+        "title": "Display Name",
+        "type": "string"
+      },
+      "parameterName": {
+        "description": "Required. Immutable. Tagging parameter name for this custom dimension. For user-scoped dimensions, this is the user property name. For event-scoped dimensions, this is the event parameter name. For item-scoped dimensions, this is the parameter name in the eCommerce items array. May only contain alphanumeric and underscore characters, starting with a letter. Max length of 24 characters for user-scoped dimensions, 40 characters for event-scoped dimensions",
+        "examples": ["user_segment", "event_category"],
+        "title": "Parameter Name",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The property in which to create the CustomDimension. Format: properties/{property_id}",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      },
+      "scope": {
+        "description": "Required. Immutable. The scope of this dimension. Must be one of: EVENT, USER, or ITEM",
+        "enum": ["DIMENSION_SCOPE_UNSPECIFIED", "EVENT", "USER", "ITEM"],
+        "examples": ["EVENT"],
+        "title": "Scope",
+        "type": "string"
+      }
+    },
+    "required": ["parent", "displayName", "parameterName", "scope"],
+    "title": "CreateCustomDimensionRequest",
+    "type": "object"
+  },
+  "name": "create_custom_dimension",
+  "outputSchema": {
+    "$defs": {
+      "CreateCustomDimensionResponse": {
+        "description": "Response model for the created CustomDimension resource.",
+        "properties": {
+          "description": {
+            "description": "Description of the custom dimension. Max length of 150 characters",
+            "title": "Description",
+            "type": "string"
+          },
+          "disallowAdsPersonalization": {
+            "description": "If true, marks this dimension as NPA and excludes it from ads personalization",
+            "title": "Disallow Ads Personalization",
+            "type": "boolean"
+          },
+          "displayName": {
+            "description": "Display name for this custom dimension as shown in the Analytics UI. Max length of 82 characters",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Output only. Resource name for this CustomDimension resource. Format: properties/{property}/customDimensions/{customDimension}",
+            "title": "Name",
+            "type": "string"
+          },
+          "parameterName": {
+            "description": "Immutable tagging parameter name for this custom dimension",
+            "title": "Parameter Name",
+            "type": "string"
+          },
+          "scope": {
+            "description": "Immutable. The scope of this dimension. Values: DIMENSION_SCOPE_UNSPECIFIED, EVENT, USER, ITEM",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "title": "CreateCustomDimensionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateCustomDimensionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently and irreversibly deletes a Trello checklist and all its items using the `idChecklist`.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteChecklistsByIdChecklist`",
+    "properties": {
+      "idChecklist": {
+        "description": "The ID of the checklist to be deleted.",
+        "examples": ["5f9f1b9b9c9c9c9c9c9c9c9c"],
+        "title": "Id Checklist",
+        "type": "string"
+      }
+    },
+    "required": ["idChecklist"],
+    "title": "DeleteChecklistsByIdChecklistRequest",
+    "type": "object"
+  },
+  "name": "delete_checklists_by_id_checklist",
+  "outputSchema": {
+    "$defs": {
+      "DeleteChecklistsByIdChecklistResponse": {
+        "description": "Response schema for `DeleteChecklistsByIdChecklist`\n\nThe DELETE /checklists/{id} endpoint returns HTTP 200 OK with an empty or minimal\nresponse body upon successful deletion. This is the standard behavior for Trello DELETE operations.",
+        "properties": {},
+        "title": "DeleteChecklistsByIdChecklistResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteChecklistsByIdChecklistResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

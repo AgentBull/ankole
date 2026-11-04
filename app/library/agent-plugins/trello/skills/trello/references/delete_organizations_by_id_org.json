@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a Trello organization and all its associated data; this action is irreversible and requires caution.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteOrganizationsByIdOrg`",
+    "properties": {
+      "idOrg": {
+        "description": "The ID or unique name of the Trello organization.",
+        "examples": ["605c72ef1234567890abcdef", "my-cool-organization-name"],
+        "title": "Id Org",
+        "type": "string"
+      }
+    },
+    "required": ["idOrg"],
+    "title": "DeleteOrganizationsByIdOrgRequest",
+    "type": "object"
+  },
+  "name": "delete_organizations_by_id_org",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationsByIdOrgResponse": {
+        "description": "Empty response object returned on successful deletion of a Trello organization.\n\nThe Trello DELETE /1/organizations/{id} endpoint returns HTTP 200 OK with an empty\nresponse body upon successful deletion. This is consistent with the documented behavior\nof other DELETE operations in the Trello API.",
+        "properties": {},
+        "title": "DeleteOrganizationsByIdOrgResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationsByIdOrgResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

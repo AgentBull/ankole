@@ -1,0 +1,237 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetches metadata for a specific component using its unique identifier. Use when you need to retrieve published component details from a team library.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a Figma component by its unique key.",
+    "properties": {
+      "key": {
+        "description": "The unique identifier of the component.",
+        "examples": ["dbe971cca11feeb98c3c74357bdc4d20678f2f88"],
+        "title": "Key",
+        "type": "string"
+      }
+    },
+    "required": ["key"],
+    "title": "GetComponent2Request",
+    "type": "object"
+  },
+  "name": "get_component2",
+  "outputSchema": {
+    "$defs": {
+      "ContainingComponentSet": {
+        "properties": {
+          "name": {
+            "description": "The name of the parent component set node, if applicable.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "The unique identifier of the parent component set node, if applicable.",
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "title": "ContainingComponentSet",
+        "type": "object"
+      },
+      "ContainingFrame": {
+        "properties": {
+          "backgroundColor": {
+            "description": "The background color of the frame, if set, in RGBA format.",
+            "title": "Background Color",
+            "type": "string"
+          },
+          "containingComponentSet": {
+            "$ref": "#/$defs/ContainingComponentSet",
+            "description": "Details of the component set that this frame is part of, if applicable.",
+            "title": "Containing Component Set"
+          },
+          "containingStateGroup": {
+            "$ref": "#/$defs/ContainingStateGroup",
+            "description": "Deprecated: This field is deprecated. Use `containingComponentSet` instead for information about the component set containing this frame.",
+            "title": "Containing State Group"
+          },
+          "name": {
+            "description": "The name of the frame node.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "The unique identifier of the frame node within the file.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "pageId": {
+            "description": "The unique identifier of the page containing this frame.",
+            "title": "Page Id",
+            "type": "string"
+          },
+          "pageName": {
+            "description": "The name of the page containing this frame.",
+            "title": "Page Name",
+            "type": "string"
+          }
+        },
+        "required": ["pageId", "pageName"],
+        "title": "ContainingFrame",
+        "type": "object"
+      },
+      "ContainingStateGroup": {
+        "properties": {
+          "name": {
+            "description": "The name of the state group node, if applicable.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "The unique identifier of the state group node, if applicable.",
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "title": "ContainingStateGroup",
+        "type": "object"
+      },
+      "Error": {
+        "enum": [false],
+        "title": "Error",
+        "type": "boolean"
+      },
+      "GetComponent2Response": {
+        "description": "Response schema for `GetComponent2`, providing metadata for a component.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "The main data payload of the response, containing details of the component.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetComponent2Response",
+        "type": "object"
+      },
+      "Meta": {
+        "properties": {
+          "containing_frame": {
+            "$ref": "#/$defs/ContainingFrame",
+            "description": "Data on the frame a component resides in.",
+            "title": "Containing Frame"
+          },
+          "created_at": {
+            "description": "The UTC ISO 8601 time when the component was created.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the component as entered by the publisher.",
+            "title": "Description",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "The unique identifier of the Figma file that contains the component.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "key": {
+            "description": "The unique identifier for the component.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the component.",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "The unique identifier of the component node within the Figma file.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "A URL to a thumbnail image of the component.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "The UTC ISO 8601 time when the component was last updated.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Information about the user who published the component.",
+            "title": "User"
+          }
+        },
+        "required": ["key", "file_key", "node_id", "name", "description", "created_at", "updated_at", "user"],
+        "title": "Meta",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "error": {
+            "$ref": "#/$defs/Error",
+            "description": "For successful requests, this value is always `false`.",
+            "title": "Error"
+          },
+          "meta": {
+            "$ref": "#/$defs/Meta",
+            "description": "An arrangement of published UI elements that can be instantiated across figma files.",
+            "title": "Meta"
+          },
+          "status": {
+            "$ref": "#/$defs/Status",
+            "description": "The status of the request.",
+            "title": "Status"
+          }
+        },
+        "required": ["status", "error", "meta"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Status": {
+        "enum": [200],
+        "title": "Status",
+        "type": "integer"
+      },
+      "User": {
+        "properties": {
+          "handle": {
+            "description": "The name of the user, often their username or display name.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique stable identifier of the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "img_url": {
+            "description": "URL of the user's profile image.",
+            "title": "Img Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "handle", "img_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetComponent2Response",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

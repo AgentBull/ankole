@@ -1,0 +1,137 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves values and statistics for a specified tag key on a Sentry issue, optionally filtered by environment. Use it to analyze tag value frequency and when values were seen.",
+  "inputSchema": {
+    "description": "Request schema for listing tag values for an issue.",
+    "properties": {
+      "environment": {
+        "description": "The name of environments to filter by.",
+        "examples": [["production"], ["staging", "production"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "issue_id": {
+        "description": "The ID of the issue to retrieve tag values for.",
+        "examples": [6942006846, 123456],
+        "title": "Issue Id",
+        "type": "integer"
+      },
+      "key": {
+        "description": "The tag key to look the values up for (e.g., 'level', 'environment', 'browser').",
+        "examples": ["level", "environment", "browser", "os"],
+        "title": "Key",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["example", "my-organization"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "issue_id", "key"],
+    "title": "ListATagsValuesForAnIssueRequest",
+    "type": "object"
+  },
+  "name": "list_a_tags_values_for_an_issue",
+  "outputSchema": {
+    "$defs": {
+      "ListATagsValuesForAnIssueResponse": {
+        "description": "Response schema containing tag values and metadata.",
+        "properties": {
+          "key": {
+            "description": "The tag identifier.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable tag name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "topValues": {
+            "description": "Most frequent tag values with their occurrence statistics.",
+            "items": {
+              "$ref": "#/$defs/TopValueItem"
+            },
+            "title": "Top Values",
+            "type": "array"
+          },
+          "totalValues": {
+            "description": "Total occurrences across all values.",
+            "title": "Total Values",
+            "type": "integer"
+          },
+          "uniqueValues": {
+            "description": "Count of distinct values for this tag.",
+            "title": "Unique Values",
+            "type": "integer"
+          }
+        },
+        "required": ["key", "name"],
+        "title": "ListATagsValuesForAnIssueResponse",
+        "type": "object"
+      },
+      "TopValueItem": {
+        "description": "Schema for individual tag value statistics.",
+        "properties": {
+          "count": {
+            "description": "Frequency count of this value.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "firstSeen": {
+            "description": "ISO 8601 timestamp of initial occurrence.",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "key": {
+            "description": "Value identifier for the tag.",
+            "title": "Key",
+            "type": "string"
+          },
+          "lastSeen": {
+            "description": "ISO 8601 timestamp of most recent occurrence.",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name for the value.",
+            "title": "Name",
+            "type": "string"
+          },
+          "query": {
+            "description": "Query string associated with this tag value.",
+            "title": "Query",
+            "type": "string"
+          },
+          "value": {
+            "description": "Actual tag value.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["key", "name", "value", "count"],
+        "title": "TopValueItem",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListATagsValuesForAnIssueResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,348 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of promotion codes from a Stripe account with optional filters for active status, code value, coupon association, and customer restrictions. Supports cursor-based pagination.",
+  "inputSchema": {
+    "description": "Parameters for listing promotion codes, with filtering and pagination options.",
+    "properties": {
+      "active": {
+        "description": "Filter promotion codes by active status. If true, returns only active codes; if false, returns only inactive codes.",
+        "examples": [true, false],
+        "title": "Active",
+        "type": "boolean"
+      },
+      "code": {
+        "description": "Only return promotion codes that have this case-insensitive code.",
+        "examples": ["SUMMER2023", "WELCOME10"],
+        "title": "Code",
+        "type": "string"
+      },
+      "coupon": {
+        "description": "Only return promotion codes for this coupon ID.",
+        "examples": ["coupon_123xyz"],
+        "title": "Coupon",
+        "type": "string"
+      },
+      "created": {
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "description": "Filter based on creation timestamp. Supports sub-parameters: 'gt' (greater than), 'gte' (greater than or equal), 'lt' (less than), 'lte' (less than or equal) with Unix timestamp values.",
+        "examples": [
+          {
+            "gte": 1609459200,
+            "lte": 1640995200
+          },
+          {
+            "gt": 1609459200
+          }
+        ],
+        "title": "Created",
+        "type": "object"
+      },
+      "customer": {
+        "description": "Only return promotion codes that are restricted to this customer ID.",
+        "examples": ["cus_123xyz"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "customer_account": {
+        "description": "Only return promotion codes that are restricted to this account representing the customer.",
+        "examples": ["acct_123xyz"],
+        "title": "Customer Account",
+        "type": "string"
+      },
+      "ending_before": {
+        "description": "Cursor for pagination - returns objects before this object ID.",
+        "examples": ["promo_123xyz"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of promotion code objects to return (1-100). Default is 10.",
+        "examples": [10, 25, 100],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "starting_after": {
+        "description": "Cursor for pagination - returns objects after this object ID.",
+        "examples": ["promo_456abc"],
+        "title": "Starting After",
+        "type": "string"
+      }
+    },
+    "title": "GetPromotionCodesRequest",
+    "type": "object"
+  },
+  "name": "get_promotion_codes",
+  "outputSchema": {
+    "$defs": {
+      "CouponData": {
+        "description": "Details of a Stripe coupon associated with a promotion code.",
+        "properties": {
+          "amount_off": {
+            "description": "Amount (in cents) to be deducted from the subtotal of any invoices for this customer.",
+            "title": "Amount Off",
+            "type": "integer"
+          },
+          "created": {
+            "description": "Creation timestamp in Unix epoch seconds.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Currency for amount_off (ISO 4217 code).",
+            "title": "Currency",
+            "type": "string"
+          },
+          "duration": {
+            "description": "How long the discount will be in effect (once, repeating, or forever).",
+            "title": "Duration",
+            "type": "string"
+          },
+          "duration_in_months": {
+            "description": "Number of months the coupon applies (only if duration is 'repeating').",
+            "title": "Duration In Months",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the coupon.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Indicates if this is in production (true) or test mode (false).",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "max_redemptions": {
+            "description": "Maximum number of times this coupon can be redeemed.",
+            "title": "Max Redemptions",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "Name of the coupon displayed to customers.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "Object type; always 'coupon' for coupons.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percent_off": {
+            "description": "Percent that will be taken off the subtotal of any invoices.",
+            "title": "Percent Off",
+            "type": "number"
+          },
+          "redeem_by": {
+            "description": "Date after which the coupon can no longer be redeemed.",
+            "title": "Redeem By",
+            "type": "integer"
+          },
+          "times_redeemed": {
+            "description": "Number of times this coupon has been applied to a customer.",
+            "title": "Times Redeemed",
+            "type": "integer"
+          },
+          "valid": {
+            "description": "Taking account of the above properties, whether this coupon can still be applied to a customer.",
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "object", "created", "duration", "livemode", "times_redeemed", "valid"],
+        "title": "CouponData",
+        "type": "object"
+      },
+      "CurrencyOption": {
+        "description": "Per-currency restriction details.",
+        "properties": {
+          "minimum_amount": {
+            "description": "Minimum amount required to redeem this promotion code for this currency (in smallest currency unit).",
+            "title": "Minimum Amount",
+            "type": "integer"
+          }
+        },
+        "title": "CurrencyOption",
+        "type": "object"
+      },
+      "GetPromotionCodesResponse": {
+        "description": "Response containing a list of promotion codes and pagination details.",
+        "properties": {
+          "data": {
+            "description": "Array of promotion code objects. Empty if no promotion codes match or exist.",
+            "items": {
+              "$ref": "#/$defs/PromotionCodeData"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "True if more promotion code objects are available via pagination.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "Object type; always 'list' for a list of promotion codes.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the retrieved list, typically '/v1/promotion_codes'.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "GetPromotionCodesResponse",
+        "type": "object"
+      },
+      "PromotionCodeData": {
+        "description": "Details of a Stripe promotion code.",
+        "properties": {
+          "active": {
+            "description": "Whether the promotion code is currently active (depends on coupon validity).",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "code": {
+            "description": "Customer-facing code (alphanumeric: a-z, A-Z, 0-9).",
+            "title": "Code",
+            "type": "string"
+          },
+          "coupon": {
+            "$ref": "#/$defs/CouponData",
+            "description": "The associated coupon object with full details.",
+            "title": "Coupon"
+          },
+          "created": {
+            "description": "Creation timestamp in Unix epoch seconds.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "customer": {
+            "description": "ID of customer eligible for redemption, or null if available to all.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "customer_account": {
+            "description": "ID of associated customer account, or null.",
+            "title": "Customer Account",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "Final redemption date as Unix timestamp, or null if no expiration.",
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the promotion code.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Indicates if this is in production (true) or test mode (false).",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "max_redemptions": {
+            "description": "Maximum number of times this code can be redeemed, or null for unlimited.",
+            "title": "Max Redemptions",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "Object type; always 'promotion_code' for promotion codes.",
+            "title": "Object",
+            "type": "string"
+          },
+          "restrictions": {
+            "$ref": "#/$defs/Restrictions",
+            "description": "Redemption restrictions.",
+            "title": "Restrictions"
+          },
+          "times_redeemed": {
+            "description": "Number of times this code has been redeemed.",
+            "title": "Times Redeemed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "active",
+          "code",
+          "coupon",
+          "created",
+          "livemode",
+          "restrictions",
+          "times_redeemed"
+        ],
+        "title": "PromotionCodeData",
+        "type": "object"
+      },
+      "Restrictions": {
+        "description": "Redemption restrictions for a promotion code.",
+        "properties": {
+          "currency_options": {
+            "additionalProperties": {
+              "$ref": "#/$defs/CurrencyOption"
+            },
+            "description": "Per-currency restrictions. Keys are three-letter ISO currency codes.",
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "first_time_transaction": {
+            "description": "Whether this code can only be used for first-time transactions.",
+            "title": "First Time Transaction",
+            "type": "boolean"
+          },
+          "minimum_amount": {
+            "description": "Minimum order amount required (in cents).",
+            "title": "Minimum Amount",
+            "type": "integer"
+          },
+          "minimum_amount_currency": {
+            "description": "Currency for minimum_amount (ISO 4217 code).",
+            "title": "Minimum Amount Currency",
+            "type": "string"
+          }
+        },
+        "required": ["first_time_transaction"],
+        "title": "Restrictions",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetPromotionCodesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

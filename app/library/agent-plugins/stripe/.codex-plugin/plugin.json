@@ -1,0 +1,6 @@
+{
+  "name": "stripe",
+  "version": "1.0.0",
+  "description": "Use stripe tools and event subscriptions with Ankole connections.",
+  "skills": "./skills/"
+}

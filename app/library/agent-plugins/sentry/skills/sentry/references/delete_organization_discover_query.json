@@ -1,0 +1,68 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently removes a specific saved Discover query (a configuration for exploring event data) from a Sentry organization. This action requires one of the following scopes: org:admin, org:read, or org:write. The Discover saved queries feature is only available on Business and Enterprise plans.",
+  "inputSchema": {
+    "description": "Request schema for deleting a saved Discover query within a Sentry organization.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization to which the Discover query belongs.",
+        "examples": ["my-org-slug", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "query_id": {
+        "description": "The unique integer identifier of the saved Discover query that you intend to delete.",
+        "examples": [101, 202],
+        "title": "Query Id",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id_or_slug", "query_id"],
+    "title": "DeleteOrganizationDiscoverQueryRequest",
+    "type": "object"
+  },
+  "name": "delete_organization_discover_query",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationDiscoverQueryResponse": {
+        "description": "Response schema for successful deletion of a Discover query.",
+        "properties": {
+          "message": {
+            "default": "Saved Discover query deleted successfully.",
+            "description": "A human-readable message confirming the deletion.",
+            "title": "Message",
+            "type": "string"
+          },
+          "query_id": {
+            "description": "The ID of the deleted Discover query.",
+            "title": "Query Id",
+            "type": "integer"
+          },
+          "success": {
+            "default": true,
+            "description": "Indicates whether the deletion operation was successful.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["query_id"],
+        "title": "DeleteOrganizationDiscoverQueryResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationDiscoverQueryResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

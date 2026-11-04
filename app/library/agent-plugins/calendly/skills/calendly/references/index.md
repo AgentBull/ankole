@@ -1,0 +1,52 @@
+# calendly operations
+
+Choose the operation below, then read only its linked contract.
+
+- [cancel_scheduled_event](cancel_scheduled_event.json): Tool to cancel a scheduled Calendly event by creating a cancellation record. Use when you need to permanently cancel an existing, active event. The cancellation will trigger notifications to all invitees.
+- [create_event_type](create_event_type.json): Tool to create a new one-on-one event type (kind: solo) in Calendly. Use when you need to programmatically create a new event type for scheduling meetings.
+- [create_one_off_event_type](create_one_off_event_type.json): Creates a temporary Calendly one-off event type for a host, with a duration and date setting for the meeting availability.
+- [create_scheduling_link](create_scheduling_link.json): Create a single-use scheduling link. Creates a scheduling link that can be used to book an event. The link allows invitees to schedule up to the specified maximum number of events. Once the limit is reached, the link becomes inactive.
+- [create_share](create_share.json): Creates a customizable, one-time share link for a Calendly event type, allowing specific overrides to its settings (e.g., duration, availability, location) without altering the original event type.
+- [create_single_use_scheduling_link](create_single_use_scheduling_link.json): Creates a one-time, single-use scheduling link for an active Calendly event type, expiring after one booking.
+- [delete_invitee_data](delete_invitee_data.json): Permanently removes all invitee data associated with the provided emails from past organization events, for data privacy compliance (requires Enterprise subscription; deletion may take up to one week).
+- [delete_invitee_no_show](delete_invitee_no_show.json): Deletes an Invitee No-Show record by its `uuid` to reverse an invitee's 'no-show' status; the `uuid` must refer to an existing record.
+- [delete_organization_membership](delete_organization_membership.json): Tool to remove a user from a Calendly organization by membership UUID. Use when you need to revoke a user's access to an organization. Requires admin rights; organization owners cannot be removed.
+- [delete_scheduled_event_data](delete_scheduled_event_data.json): For Enterprise users, initiates deletion of an organization's scheduled event data between a `start_time` and `end_time` (inclusive, where `start_time` must be <= `end_time`); actual data deletion may take up to 7 days to complete.
+- [get_event](get_event.json): Use to retrieve a specific Calendly scheduled event by its UUID, provided the event exists in the user's Calendly account.
+- [get_event_invitee](get_event_invitee.json): Retrieves detailed information about a specific invitee of a scheduled event, using their unique UUIDs.
+- [get_event_type](get_event_type.json): Retrieves details for a specific Calendly event type, identified by its UUID, which must be valid and correspond to an existing event type.
+- [get_event_type_availability](get_event_type_availability.json): Tool to retrieve availability schedules configured for a specific Calendly event type. Use when you need to get the availability rules including day-of-week schedules and date-specific overrides.
+- [get_group](get_group.json): Retrieves all attributes of a specific Calendly group by its UUID; the group must exist.
+- [get_group_relationship](get_group_relationship.json): Retrieves a specific Calendly group relationship by its valid and existing UUID, providing details on user-group associations and membership.
+- [get_invitee_no_show](get_invitee_no_show.json): Retrieves details for a specific Invitee No Show record by its UUID; an Invitee No Show is marked when an invitee does not attend a scheduled event.
+- [get_organization](get_organization.json): Tool to retrieve information about a specific Calendly organization. Use when you need to get organization details such as name, slug, or timestamps.
+- [get_organization_invitation](get_organization_invitation.json): Retrieves a specific Calendly organization invitation using its UUID and the parent organization's UUID.
+- [get_organization_membership](get_organization_membership.json): Retrieves a specific Calendly organization membership by its UUID, returning all its attributes.
+- [get_routing_form](get_routing_form.json): Retrieves a specific routing form by its UUID, including its questions and other configuration details.
+- [get_routing_form_submission](get_routing_form_submission.json): Tool to retrieve details about a specific routing form submission by its UUID. Use when you need submission details including questions, answers, and routing results.
+- [get_user](get_user.json): Retrieves comprehensive details for an existing Calendly user.
+- [get_user_availability_schedule](get_user_availability_schedule.json): Retrieves a user availability schedule by its UUID, including its availability rules and whether it is the user's default schedule.
+- [invitee_no_show](invitee_no_show.json): Tool to mark an invitee as a no-show for a scheduled event. Use when an invitee fails to attend their scheduled meeting and you need to record their absence in Calendly.
+- [list_activity_log_entries](list_activity_log_entries.json): Retrieves a list of activity log entries for a specified Calendly organization (requires an active Enterprise subscription), supporting filtering, sorting, and pagination.
+- [list_event_invitees](list_event_invitees.json): Retrieves a list of invitees for a specified Calendly event UUID, with options to filter by status or email, and sort by creation time.
+- [list_event_type_available_times](list_event_type_available_times.json): Fetches available time slots for a Calendly event type within a future time range of at most seven days; results are not paginated.
+- [list_event_type_memberships](list_event_type_memberships.json): Tool to retrieve a list of event type hosts (memberships) for a specific event type. Use when you need to see which users are configured as hosts for an event type.
+- [list_event_types](list_event_types.json): Lists event types associated with a specified user or organization, with filtering and pagination. Use scheduling_url from results directly rather than constructing event type URLs.
+- [list_group_relationships](list_group_relationships.json): Lists Calendly group relationships, with optional organization, owner, and group filters and pagination.
+- [list_groups](list_groups.json): Returns a list of groups for a specified Calendly organization URI, supporting pagination.
+- [list_organization_invitations](list_organization_invitations.json): Retrieves a list of invitations for a specific organization, identified by its UUID.
+- [list_organization_memberships](list_organization_memberships.json): Retrieves a list of organization memberships.
+- [list_outgoing_communications](list_outgoing_communications.json): Retrieves a list of outgoing SMS communications for a specified organization; requires an Enterprise subscription and if filtering by creation date, both `min_created_at` and `max_created_at` must be provided to form a valid range.
+- [list_routing_form_submissions](list_routing_form_submissions.json): Lists a page of submissions for a specific routing form, including questions and answers and, when available, routing results and tracking data.
+- [list_routing_forms](list_routing_forms.json): Retrieves routing forms for a specified organization; routing forms are questionnaires used to direct invitees to appropriate booking pages or external URLs.
+- [list_scheduled_events](list_scheduled_events.json): Tool to retrieve a list of scheduled Calendly events. Use when you need to view events for a specific user, organization, or group. Provide one scope parameter, or organization plus user or group to list that member's or group's events as an organization admin/owner. Use user alone for your own personal events.
+- [list_user_availability_schedules](list_user_availability_schedules.json): Retrieves all availability schedules for the specified Calendly user.
+- [list_user_busy_times](list_user_busy_times.json): Fetches a user's busy time intervals (internal and external calendar events) in ascending order for a period up to 7 days; keyset pagination is not supported.
+- [list_user_locations](list_user_locations.json): Tool to retrieve configured meeting location information for a given Calendly user. Use when you need to see all available location options configured by a user for their meetings.
+- [organization_invitation](organization_invitation.json): Tool to invite a user to a Calendly organization via email. Use when you need to send an organization invitation to a new user. Requires organization owner or admin privileges.
+- [post_invitee](post_invitee.json): Tool to create a new Event Invitee with standard notifications, calendar invites, reschedules, and workflows. Use when programmatically scheduling meetings via API. Requires paid Calendly plan (Standard+).
+- [remove_user_from_organization](remove_user_from_organization.json): Removes a user (who is not an owner) from an organization by their membership UUID, requiring administrative privileges.
+- [revoke_user_s_organization_invitation](revoke_user_s_organization_invitation.json): Revokes a pending and revokable (not yet accepted or expired) organization invitation using its UUID and the organization's UUID, rendering the invitation link invalid.
+- [update_event_type](update_event_type.json): Tool to update an existing one-on-one event type (kind: solo) in Calendly. Use when you need to modify event type settings such as name, duration, location, or description. NOTE: Currently only supports one-on-one event types.
+- [update_event_type_availability](update_event_type_availability.json): Tool to update an event type availability schedule in Calendly. Use when you need to change the timezone or availability rules for an event type. WARNING: Updating rules will overwrite all existing rules - retrieve existing rules first using GET /event_type_availability_schedules.
+- [who_am_i](who_am_i.json): Return the identity (name, email) of the connected Calendly account.

@@ -1,0 +1,389 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of Sentry projects for a specific team within an organization, supporting pagination via a cursor.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a list of projects associated with a Sentry team.",
+    "properties": {
+      "cursor": {
+        "description": "Pagination cursor for navigating through project lists; if omitted, the first page is returned.",
+        "examples": ["cD0yMDIxLTAxLTE1VDAwJTNBMDElM0EwMC4wMDBaJm89DESCJnA9MTA"],
+        "title": "Cursor",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the Sentry organization.",
+        "examples": ["my-organization-slug", "acme-corp", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "team_id_or_slug": {
+        "description": "The ID or slug of the Sentry team.",
+        "examples": ["my-team-slug", "frontend-developers", "9876543"],
+        "title": "Team Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "team_id_or_slug"],
+    "title": "RetrieveTeamProjectsRequest",
+    "type": "object"
+  },
+  "name": "retrieve_team_projects",
+  "outputSchema": {
+    "$defs": {
+      "LatestRelease": {
+        "description": "Latest release information.",
+        "properties": {
+          "version": {
+            "description": "Release version identifier",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["version"],
+        "title": "LatestRelease",
+        "type": "object"
+      },
+      "Project": {
+        "description": "Sentry project information.",
+        "properties": {
+          "hasSessions": {
+            "description": "Session monitoring availability",
+            "title": "Has Sessions",
+            "type": "boolean"
+          },
+          "access": {
+            "description": "User's permission scopes for project",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "firstTransactionEvent": {
+            "description": "Whether transaction data exists",
+            "title": "First Transaction Event",
+            "type": "boolean"
+          },
+          "hasTraceMetrics": {
+            "description": "Trace metrics availability",
+            "title": "Has Trace Metrics",
+            "type": "boolean"
+          },
+          "isBookmarked": {
+            "description": "Whether user bookmarked the project",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "hasInsightsVitals": {
+            "description": "Vitals insights availability",
+            "title": "Has Insights Vitals",
+            "type": "boolean"
+          },
+          "dateCreated": {
+            "description": "Project creation timestamp",
+            "format": "date-time",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly project name",
+            "title": "Slug",
+            "type": "string"
+          },
+          "hasInsightsScreenLoad": {
+            "description": "Screen load insights availability",
+            "title": "Has Insights Screen Load",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Human-readable project name",
+            "title": "Name",
+            "type": "string"
+          },
+          "hasLogs": {
+            "description": "Log aggregation support",
+            "title": "Has Logs",
+            "type": "boolean"
+          },
+          "hasInsightsMCP": {
+            "description": "MCP insights availability",
+            "title": "Has Insights Mcp",
+            "type": "boolean"
+          },
+          "hasFeedbacks": {
+            "description": "User feedback support",
+            "title": "Has Feedbacks",
+            "type": "boolean"
+          },
+          "platforms": {
+            "description": "List of associated platforms",
+            "items": {
+              "type": "string"
+            },
+            "title": "Platforms",
+            "type": "array"
+          },
+          "hasInsightsDb": {
+            "description": "Database insights availability",
+            "title": "Has Insights Db",
+            "type": "boolean"
+          },
+          "isMember": {
+            "description": "Whether user is a project member",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "hasProfiles": {
+            "description": "Profiling data availability",
+            "title": "Has Profiles",
+            "type": "boolean"
+          },
+          "hasMonitors": {
+            "description": "Cron monitor support",
+            "title": "Has Monitors",
+            "type": "boolean"
+          },
+          "latestDeploys": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Recent deployment info",
+            "title": "Latest Deploys"
+          },
+          "firstEvent": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp of first error event",
+            "title": "First Event"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Programming platform/language",
+            "title": "Platform"
+          },
+          "hasInsightsAppStart": {
+            "description": "App startup insights availability",
+            "title": "Has Insights App Start",
+            "type": "boolean"
+          },
+          "hasInsightsAgentMonitoring": {
+            "description": "Agent monitoring availability",
+            "title": "Has Insights Agent Monitoring",
+            "type": "boolean"
+          },
+          "hasFlags": {
+            "description": "Feature flags support",
+            "title": "Has Flags",
+            "type": "boolean"
+          },
+          "latestRelease": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/LatestRelease"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Latest release info",
+            "title": "Latest Release"
+          },
+          "environments": {
+            "description": "Configured environments",
+            "items": {
+              "type": "string"
+            },
+            "title": "Environments",
+            "type": "array"
+          },
+          "teams": {
+            "description": "All associated teams",
+            "items": {
+              "$ref": "#/$defs/TeamInfo"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
+          "hasAccess": {
+            "description": "Whether user can access project",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "hasInsightsAssets": {
+            "description": "Asset insights availability",
+            "title": "Has Insights Assets",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique project identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "hasUserReports": {
+            "description": "User crash report support",
+            "title": "Has User Reports",
+            "type": "boolean"
+          },
+          "hasNewFeedbacks": {
+            "description": "New feedback status",
+            "title": "Has New Feedbacks",
+            "type": "boolean"
+          },
+          "hasInsightsQueues": {
+            "description": "Queue insights availability",
+            "title": "Has Insights Queues",
+            "type": "boolean"
+          },
+          "hasReplays": {
+            "description": "Session replay availability",
+            "title": "Has Replays",
+            "type": "boolean"
+          },
+          "hasInsightsCaches": {
+            "description": "Cache insights availability",
+            "title": "Has Insights Caches",
+            "type": "boolean"
+          },
+          "team": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TeamInfo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Primary team assignment",
+            "title": "Team"
+          },
+          "features": {
+            "description": "Enabled feature flags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "hasInsightsHttp": {
+            "description": "HTTP insights availability",
+            "title": "Has Insights Http",
+            "type": "boolean"
+          },
+          "hasMinifiedStackTrace": {
+            "description": "Minified stack trace support",
+            "title": "Has Minified Stack Trace",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "platform",
+          "platforms",
+          "dateCreated",
+          "isBookmarked",
+          "isMember",
+          "features",
+          "access",
+          "hasAccess",
+          "firstEvent",
+          "firstTransactionEvent",
+          "hasSessions",
+          "hasProfiles",
+          "hasReplays",
+          "hasFlags",
+          "hasMonitors",
+          "hasFeedbacks",
+          "hasNewFeedbacks",
+          "hasMinifiedStackTrace",
+          "hasInsightsHttp",
+          "hasInsightsDb",
+          "hasInsightsAssets",
+          "hasInsightsAppStart",
+          "hasInsightsScreenLoad",
+          "hasInsightsVitals",
+          "hasInsightsCaches",
+          "hasInsightsQueues",
+          "hasInsightsAgentMonitoring",
+          "hasInsightsMCP",
+          "hasLogs",
+          "hasTraceMetrics",
+          "hasUserReports",
+          "environments",
+          "latestRelease",
+          "latestDeploys",
+          "team",
+          "teams"
+        ],
+        "title": "Project",
+        "type": "object"
+      },
+      "RetrieveTeamProjectsResponse": {
+        "description": "Response schema for `RetrieveTeamProjects`, containing the list of projects.",
+        "items": {
+          "$ref": "#/$defs/Project"
+        },
+        "title": "RetrieveTeamProjectsResponse",
+        "type": "array"
+      },
+      "TeamInfo": {
+        "description": "Team information within a project.",
+        "properties": {
+          "id": {
+            "description": "Team identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Team name",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly team name",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "slug"],
+        "title": "TeamInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveTeamProjectsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

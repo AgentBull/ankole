@@ -1,0 +1,258 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing account in Salesforce with the specified changes. Only provided fields will be updated.",
+  "inputSchema": {
+    "properties": {
+      "account_id": {
+        "description": "The Salesforce ID of the account to update.",
+        "examples": ["001Wd00000BSLklIAH", "001XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique Salesforce ID of the account you want to update. You can copy it from the account's URL in Salesforce.",
+        "human_parameter_name": "Account ID",
+        "title": "Account Id",
+        "type": "string"
+      },
+      "account_source": {
+        "default": "",
+        "description": "Updated account source. Leave empty to keep unchanged.",
+        "examples": ["Web", "Partner", "Trade Show"],
+        "human_parameter_description": "Where this account originated from (e.g., Web, Partner, Trade Show) to track lead source.",
+        "human_parameter_name": "Account Source",
+        "title": "Account Source",
+        "type": "string"
+      },
+      "annual_revenue": {
+        "description": "Updated annual revenue. Leave empty to keep unchanged.",
+        "examples": [2000000, 10000000],
+        "human_parameter_description": "Provide the company’s annual revenue amount to update their latest figure. Use a number only.",
+        "human_parameter_name": "Annual Revenue",
+        "title": "Annual Revenue",
+        "type": "number"
+      },
+      "billing_city": {
+        "default": "",
+        "description": "Updated billing city. Leave empty to keep unchanged.",
+        "examples": ["Los Angeles", "Boston"],
+        "human_parameter_description": "City for the billing address.",
+        "human_parameter_name": "Billing City",
+        "title": "Billing City",
+        "type": "string"
+      },
+      "billing_country": {
+        "default": "",
+        "description": "Updated billing country. Leave empty to keep unchanged. If your org has State and Country/Territory picklists enabled, provide the exact picklist value (e.g., 'United States' instead of 'USA').",
+        "examples": ["United States", "Canada"],
+        "human_parameter_description": "Country for the billing address. Use the exact picklist value if required (e.g., 'United States').",
+        "human_parameter_name": "Billing Country",
+        "title": "Billing Country",
+        "type": "string"
+      },
+      "billing_postal_code": {
+        "default": "",
+        "description": "Updated billing postal code. Leave empty to keep unchanged.",
+        "examples": ["90001", "02101"],
+        "human_parameter_description": "Postal or ZIP code for the billing address to ensure mail reaches the right place.",
+        "human_parameter_name": "Billing Postal Code",
+        "title": "Billing Postal Code",
+        "type": "string"
+      },
+      "billing_state": {
+        "default": "",
+        "description": "Updated billing state. Leave empty to keep unchanged. If your org has State and Country/Territory picklists enabled, provide the exact picklist value (e.g., 'California' instead of 'CA').",
+        "examples": ["California", "Massachusetts"],
+        "human_parameter_description": "State or province for the billing address. Use the exact picklist value if your org requires it (e.g., 'California').",
+        "human_parameter_name": "Billing State",
+        "title": "Billing State",
+        "type": "string"
+      },
+      "billing_street": {
+        "default": "",
+        "description": "Updated billing street. Leave empty to keep unchanged.",
+        "examples": ["789 Corporate Way"],
+        "human_parameter_description": "Street line of the billing address used for invoices and billing.",
+        "human_parameter_name": "Billing Street",
+        "title": "Billing Street",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values. Custom field names typically end with '__c' (e.g., 'Level__c', 'Languages__c'). Values can be strings, numbers, booleans, or null depending on the field type.",
+        "examples": [
+          {
+            "Languages__c": "English;Spanish",
+            "Level__c": "Gold"
+          },
+          {
+            "Custom_Rating__c": 5,
+            "Is_Active__c": true
+          }
+        ],
+        "human_parameter_description": "Provide custom field values as key-value pairs. Use the API name of the custom field (ending in '__c') as the key. Example: {'Level__c': 'Gold', 'Custom_Score__c': 100}",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "description": {
+        "default": "",
+        "description": "Updated description. Leave empty to keep unchanged.",
+        "examples": ["Updated company description", "New business focus"],
+        "human_parameter_description": "Add a brief summary or notes about the account to give your team helpful context.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "fax": {
+        "default": "",
+        "description": "Updated fax number. Leave empty to keep unchanged.",
+        "examples": ["(555) 987-6544"],
+        "human_parameter_description": "The company’s fax number, if you use it for communications.",
+        "human_parameter_name": "Fax Number",
+        "title": "Fax",
+        "type": "string"
+      },
+      "industry": {
+        "default": "",
+        "description": "Updated industry. Leave empty to keep unchanged.",
+        "examples": ["Technology", "Healthcare", "Finance", "Manufacturing"],
+        "human_parameter_description": "Specify the industry the company operates in (e.g., Technology, Healthcare) to keep reporting accurate.",
+        "human_parameter_name": "Industry",
+        "title": "Industry",
+        "type": "string"
+      },
+      "name": {
+        "default": "",
+        "description": "Updated account name. Leave empty to keep unchanged.",
+        "examples": ["Updated Company Name", "New Corporate Entity"],
+        "human_parameter_description": "Enter the new name for the account if you want to rename it; leave it empty to keep the current name.",
+        "human_parameter_name": "Account Name",
+        "title": "Name",
+        "type": "string"
+      },
+      "number_of_employees": {
+        "description": "Updated number of employees. Leave empty to keep unchanged.",
+        "examples": [100, 1000],
+        "human_parameter_description": "Provide how many employees the company has to keep sizing info current. Use a whole number.",
+        "human_parameter_name": "Number of Employees",
+        "title": "Number Of Employees",
+        "type": "integer"
+      },
+      "parent_id": {
+        "default": "",
+        "description": "Updated parent account ID. Leave empty to keep unchanged.",
+        "examples": ["001XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "If this account should be linked under a parent, provide the parent account’s Salesforce ID so they’re connected.",
+        "human_parameter_name": "Parent Account ID",
+        "title": "Parent Id",
+        "type": "string"
+      },
+      "phone": {
+        "default": "",
+        "description": "Updated phone number. Leave empty to keep unchanged.",
+        "examples": ["(555) 987-6543", "+1-800-555-9999"],
+        "human_parameter_description": "The main phone number for the company. Include the country code if applicable.",
+        "human_parameter_name": "Phone Number",
+        "title": "Phone",
+        "type": "string"
+      },
+      "shipping_city": {
+        "default": "",
+        "description": "Updated shipping city. Leave empty to keep unchanged.",
+        "examples": ["Los Angeles", "Boston"],
+        "human_parameter_description": "City for the shipping address.",
+        "human_parameter_name": "Shipping City",
+        "title": "Shipping City",
+        "type": "string"
+      },
+      "shipping_country": {
+        "default": "",
+        "description": "Updated shipping country. Leave empty to keep unchanged.",
+        "examples": ["USA", "Canada"],
+        "human_parameter_description": "Country for the shipping address.",
+        "human_parameter_name": "Shipping Country",
+        "title": "Shipping Country",
+        "type": "string"
+      },
+      "shipping_postal_code": {
+        "default": "",
+        "description": "Updated shipping postal code. Leave empty to keep unchanged.",
+        "examples": ["90001", "02101"],
+        "human_parameter_description": "Postal or ZIP code for the shipping address.",
+        "human_parameter_name": "Shipping Postal Code",
+        "title": "Shipping Postal Code",
+        "type": "string"
+      },
+      "shipping_state": {
+        "default": "",
+        "description": "Updated shipping state. Leave empty to keep unchanged.",
+        "examples": ["CA", "MA"],
+        "human_parameter_description": "State or province for the shipping address. Use the format your org expects (full name or abbreviation).",
+        "human_parameter_name": "Shipping State",
+        "title": "Shipping State",
+        "type": "string"
+      },
+      "shipping_street": {
+        "default": "",
+        "description": "Updated shipping street. Leave empty to keep unchanged.",
+        "examples": ["789 Warehouse Rd"],
+        "human_parameter_description": "Street line of the shipping address used for deliveries or shipments.",
+        "human_parameter_name": "Shipping Street",
+        "title": "Shipping Street",
+        "type": "string"
+      },
+      "sic_desc": {
+        "default": "",
+        "description": "Updated SIC description. Leave empty to keep unchanged.",
+        "examples": ["Software Development", "Financial Services"],
+        "human_parameter_description": "A short description of the company’s industry or SIC to clarify what they do.",
+        "human_parameter_name": "SIC Description",
+        "title": "Sic Desc",
+        "type": "string"
+      },
+      "type": {
+        "default": "",
+        "description": "Updated account type. Leave empty to keep unchanged.",
+        "examples": ["Analyst", "Competitor", "Customer", "Partner", "Prospect"],
+        "human_parameter_description": "Choose how this account should be categorized (e.g., Customer, Partner, Prospect). Update it to reflect the relationship.",
+        "human_parameter_name": "Account Type",
+        "title": "Type",
+        "type": "string"
+      },
+      "website": {
+        "default": "",
+        "description": "Updated website URL. Leave empty to keep unchanged.",
+        "examples": ["https://www.newwebsite.com"],
+        "human_parameter_description": "The company’s website address (for example, https://www.example.com) so teammates can quickly visit it.",
+        "human_parameter_name": "Website",
+        "title": "Website",
+        "type": "string"
+      }
+    },
+    "required": ["account_id"],
+    "title": "UpdateAccountRequest",
+    "type": "object"
+  },
+  "name": "update_account",
+  "outputSchema": {
+    "$defs": {
+      "UpdateAccountResponse": {
+        "description": "Response for successful account update.\n\nHTTP 204 No Content - Salesforce returns empty body on successful update.\nError responses (4xx/5xx) are handled via raise_for_status().",
+        "properties": {},
+        "title": "UpdateAccountResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateAccountResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

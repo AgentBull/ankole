@@ -1,0 +1,288 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves components published in a specific Figma team's library; the team must have published components, otherwise an empty list is returned.",
+  "inputSchema": {
+    "description": "Request schema for `GetTeamComponents` action. Defines the parameters to fetch a paginated list of components from a specific team's library.",
+    "properties": {
+      "after": {
+        "description": "Opaque cursor indicating the point after which to retrieve components. Used for pagination. Exclusive with the `before` parameter. The cursor value is an internally tracked integer that doesn't correspond to any specific Figma IDs.",
+        "examples": ["1609459200000"],
+        "title": "After",
+        "type": "integer"
+      },
+      "before": {
+        "description": "Opaque cursor indicating the point before which to retrieve components. Used for pagination. Exclusive with the `after` parameter. The cursor value is an internally tracked integer that doesn't correspond to any specific Figma IDs.",
+        "examples": ["1609459300000"],
+        "title": "Before",
+        "type": "integer"
+      },
+      "page_size": {
+        "default": 30,
+        "description": "Number of components to return per page. Maximum value is 1000.",
+        "examples": ["30", "50", "100"],
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "team_id": {
+        "description": "The unique identifier of the Figma team from which to retrieve published components. IMPORTANT: Team IDs cannot be obtained programmatically via the Figma API. To find your team_id: navigate to your team page in the Figma web app (https://www.figma.com/files/team/YOUR_TEAM_ID/Team-Name), the team_id is the numeric string after '/team/' in the URL.",
+        "examples": ["876543210987654321"],
+        "title": "Team Id",
+        "type": "string"
+      }
+    },
+    "required": ["team_id"],
+    "title": "GetTeamComponentsRequest",
+    "type": "object"
+  },
+  "name": "get_team_components",
+  "outputSchema": {
+    "$defs": {
+      "Component": {
+        "properties": {
+          "containing_frame": {
+            "$ref": "#/$defs/ContainingFrame",
+            "description": "Details about the frame in which the component is located within the library, if applicable.",
+            "title": "Containing Frame"
+          },
+          "created_at": {
+            "description": "The timestamp (UTC ISO 8601 format) indicating when the component was created.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "A description of the component, typically provided by its publisher.",
+            "title": "Description",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "The unique identifier of the Figma file where this component is defined.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "key": {
+            "description": "The unique, globally identifiable key for the component.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the component as it appears in Figma.",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "The unique identifier of the component node within its Figma file.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "URL for a thumbnail image preview of the component. May not always be present.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "The timestamp (UTC ISO 8601 format) indicating when the component was last updated.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Information about the Figma user who created or last updated the component.",
+            "title": "User"
+          }
+        },
+        "required": ["key", "file_key", "node_id", "name", "description", "created_at", "updated_at", "user"],
+        "title": "Component",
+        "type": "object"
+      },
+      "ContainingComponentSet": {
+        "properties": {
+          "name": {
+            "description": "The name assigned to the component set node.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "The unique identifier of the component set node.",
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "title": "ContainingComponentSet",
+        "type": "object"
+      },
+      "ContainingFrame": {
+        "properties": {
+          "backgroundColor": {
+            "description": "The background color of the frame node, if set.",
+            "title": "Background Color",
+            "type": "string"
+          },
+          "containingComponentSet": {
+            "$ref": "#/$defs/ContainingComponentSet",
+            "description": "Details of the component set that contains this frame node, if applicable.",
+            "title": "Containing Component Set"
+          },
+          "containingStateGroup": {
+            "$ref": "#/$defs/ContainingStateGroup",
+            "description": "Deprecated. Use `containingComponentSet` for more accurate component structure information.",
+            "title": "Containing State Group"
+          },
+          "name": {
+            "description": "The name of the frame node.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "The unique identifier of the frame node within the Figma file.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "pageId": {
+            "description": "The unique identifier of the page that contains this frame node.",
+            "title": "Page Id",
+            "type": "string"
+          },
+          "pageName": {
+            "description": "The name of the page that contains this frame node.",
+            "title": "Page Name",
+            "type": "string"
+          }
+        },
+        "required": ["pageId", "pageName"],
+        "title": "ContainingFrame",
+        "type": "object"
+      },
+      "ContainingStateGroup": {
+        "properties": {
+          "name": {
+            "description": "The name assigned to the state group node.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "The unique identifier of the state group node.",
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "title": "ContainingStateGroup",
+        "type": "object"
+      },
+      "Cursor": {
+        "properties": {
+          "after": {
+            "title": "After",
+            "type": "number"
+          },
+          "before": {
+            "title": "Before",
+            "type": "number"
+          }
+        },
+        "title": "Cursor",
+        "type": "object"
+      },
+      "Error": {
+        "enum": [false],
+        "title": "Error",
+        "type": "boolean"
+      },
+      "GetTeamComponentsResponse": {
+        "description": "Response schema for `GetTeamComponents` action. Contains the list of components and pagination details.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "The main data payload of the response, including status, error indicator, and the retrieved components along with pagination cursors.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetTeamComponentsResponse",
+        "type": "object"
+      },
+      "Meta": {
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/$defs/Component"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "cursor": {
+            "$ref": "#/$defs/Cursor",
+            "description": "Contains opaque cursors for pagination, allowing navigation to the next or previous set of components.",
+            "title": "Cursor"
+          }
+        },
+        "required": ["components"],
+        "title": "Meta",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "error": {
+            "$ref": "#/$defs/Error",
+            "description": "Indicates if an error occurred. For successful requests, this value is `false`.",
+            "title": "Error"
+          },
+          "meta": {
+            "$ref": "#/$defs/Meta",
+            "title": "Meta"
+          },
+          "status": {
+            "$ref": "#/$defs/Status",
+            "description": "HTTP status code of the response. A value of 200 indicates success.",
+            "title": "Status"
+          }
+        },
+        "required": ["status", "error", "meta"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Status": {
+        "enum": [200],
+        "title": "Status",
+        "type": "integer"
+      },
+      "User": {
+        "properties": {
+          "handle": {
+            "description": "The user's Figma display name or handle.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique, stable identifier for the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "img_url": {
+            "description": "URL for the user's profile image.",
+            "title": "Img Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "handle", "img_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTeamComponentsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

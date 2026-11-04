@@ -1,0 +1,150 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve the complete release resource associated with a project tag.",
+  "inputSchema": {
+    "properties": {
+      "include_html_description": {
+        "description": "Whether to include the rendered HTML release description.",
+        "title": "Include Html Description",
+        "type": "boolean"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The numeric ID or namespace/project path of the project. URL-encoding is handled automatically.",
+        "examples": [5, "namespace/project-name"],
+        "title": "Project Id"
+      },
+      "tag_name": {
+        "description": "The Git tag associated with the release.",
+        "examples": ["v1.0.0"],
+        "minLength": 1,
+        "title": "Tag Name",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "tag_name"],
+    "title": "GetProjectReleaseRequest",
+    "type": "object"
+  },
+  "name": "get_project_release",
+  "outputSchema": {
+    "$defs": {
+      "GetProjectReleaseResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "_links": {
+            "additionalProperties": true,
+            "description": "GitLab links related to the release.",
+            "title": " Links",
+            "type": "object"
+          },
+          "assets": {
+            "additionalProperties": true,
+            "description": "Release sources and asset links, when available.",
+            "title": "Assets",
+            "type": "object"
+          },
+          "author": {
+            "additionalProperties": true,
+            "description": "The release author, when available.",
+            "title": "Author",
+            "type": "object"
+          },
+          "commit": {
+            "additionalProperties": true,
+            "description": "The release commit, when available.",
+            "title": "Commit",
+            "type": "object"
+          },
+          "commit_path": {
+            "description": "The GitLab path to the release commit, when available.",
+            "title": "Commit Path",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "The release creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "The release description, when set.",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_html": {
+            "description": "The rendered release description when requested and available.",
+            "title": "Description Html",
+            "type": "string"
+          },
+          "evidences": {
+            "description": "Release evidence records, when available.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Evidences",
+            "type": "array"
+          },
+          "milestones": {
+            "description": "Milestones associated with the release, when available.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Milestones",
+            "type": "array"
+          },
+          "name": {
+            "description": "The release name, when set.",
+            "title": "Name",
+            "type": "string"
+          },
+          "released_at": {
+            "description": "The release timestamp, when set.",
+            "title": "Released At",
+            "type": "string"
+          },
+          "tag_name": {
+            "description": "The tag associated with the release.",
+            "title": "Tag Name",
+            "type": "string"
+          },
+          "tag_path": {
+            "description": "The GitLab path to the release tag, when available.",
+            "title": "Tag Path",
+            "type": "string"
+          },
+          "upcoming_release": {
+            "description": "Whether the release date is in the future.",
+            "title": "Upcoming Release",
+            "type": "boolean"
+          }
+        },
+        "required": ["tag_name"],
+        "title": "GetProjectReleaseResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetProjectReleaseResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

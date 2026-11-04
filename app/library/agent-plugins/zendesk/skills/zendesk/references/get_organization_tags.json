@@ -1,0 +1,54 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List all tags associated with a specific Zendesk organization. Use when you need to retrieve the tags assigned to a particular organization for ticket categorization, filtering, or reporting purposes.",
+  "inputSchema": {
+    "description": "Request parameters for listing organization tags.",
+    "properties": {
+      "organization_id": {
+        "description": "The numeric ID of the organization whose tags to retrieve. Must be a non-null integer; cast to int if sourced from tools that return it as a string. Do not pass null (skip the call if organization_id is null). Obtain from zendesk.get_all_zendesk_organizations or zendesk.get_zendesk_organization.",
+        "examples": [26943134365468, 123456],
+        "minimum": 1,
+        "title": "Organization Id",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id"],
+    "title": "GetOrganizationTagsRequest",
+    "type": "object"
+  },
+  "name": "get_organization_tags",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationTagsResponse": {
+        "description": "Response containing tags for a specific organization.",
+        "properties": {
+          "tags": {
+            "description": "An array of tag names associated with the organization.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags"],
+        "title": "GetOrganizationTagsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationTagsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

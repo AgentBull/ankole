@@ -1,0 +1,137 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new label for a GitLab project with specified name, color, and optional attributes. Use this action when you need to create a new label for organizing issues and merge requests within a project. Labels help categorize and filter project items, making project management more efficient.",
+  "inputSchema": {
+    "properties": {
+      "archived": {
+        "description": "If true, marks the label as archived. Default value: false.",
+        "title": "Archived",
+        "type": "boolean"
+      },
+      "color": {
+        "description": "The color of the label given in 6-digit hex notation with leading '#' sign (e.g., #FFAABB) or CSS color names.",
+        "examples": ["#FF0000", "#00FF00", "red"],
+        "title": "Color",
+        "type": "string"
+      },
+      "description": {
+        "description": "The description of the label.",
+        "examples": ["Critical bugs that need immediate attention"],
+        "title": "Description",
+        "type": "string"
+      },
+      "id": {
+        "description": "The ID or URL-encoded path of the project (e.g., '12345', 'my-group/my-project', or 'my-group%2Fmy-project').",
+        "examples": ["12345", "my-group/my-project"],
+        "title": "Id",
+        "type": "string"
+      },
+      "name": {
+        "description": "The name of the label.",
+        "examples": ["bug", "feature", "documentation"],
+        "title": "Name",
+        "type": "string"
+      },
+      "priority": {
+        "description": "The priority of the label. Must be greater than or equal to zero or null to remove priority.",
+        "examples": [1, 5, 10],
+        "title": "Priority",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "name", "color"],
+    "title": "CreateLabelRequest",
+    "type": "object"
+  },
+  "name": "create_label",
+  "outputSchema": {
+    "$defs": {
+      "CreateLabelResponse": {
+        "properties": {
+          "archived": {
+            "description": "Indicates if the label is archived.",
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "closed_issues_count": {
+            "description": "The count of closed issues with this label.",
+            "title": "Closed Issues Count",
+            "type": "integer"
+          },
+          "color": {
+            "description": "The color of the label in hex notation.",
+            "title": "Color",
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the label.",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_html": {
+            "description": "The HTML description of the label.",
+            "title": "Description Html",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the label.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_project_label": {
+            "description": "Indicates if this is a project-level label.",
+            "title": "Is Project Label",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The name of the label.",
+            "title": "Name",
+            "type": "string"
+          },
+          "open_issues_count": {
+            "description": "The count of open issues with this label.",
+            "title": "Open Issues Count",
+            "type": "integer"
+          },
+          "open_merge_requests_count": {
+            "description": "The count of open merge requests with this label.",
+            "title": "Open Merge Requests Count",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "The priority of the label.",
+            "title": "Priority",
+            "type": "integer"
+          },
+          "subscribed": {
+            "description": "Indicates if the user is subscribed to the label.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "text_color": {
+            "description": "The text color of the label in hex notation.",
+            "title": "Text Color",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "color", "text_color", "subscribed", "is_project_label", "archived"],
+        "title": "CreateLabelResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateLabelResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

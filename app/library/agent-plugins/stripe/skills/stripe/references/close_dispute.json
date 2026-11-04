@@ -1,0 +1,537 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to close a dispute. Use when you want to dismiss a dispute and acknowledge it as lost, indicating no evidence will be submitted. This action is irreversible.",
+  "inputSchema": {
+    "description": "Request model for closing a dispute.",
+    "properties": {
+      "dispute": {
+        "description": "The unique identifier for the dispute to close. Typically starts with 'du_'.",
+        "examples": ["du_1ShRXCQvM72TjFrbDgp87FQx"],
+        "title": "Dispute",
+        "type": "string"
+      }
+    },
+    "required": ["dispute"],
+    "title": "CloseDisputeRequest",
+    "type": "object"
+  },
+  "name": "close_dispute",
+  "outputSchema": {
+    "$defs": {
+      "AmazonPay": {
+        "description": "Amazon Pay payment method details.",
+        "properties": {
+          "dispute_type": {
+            "description": "Type of Amazon Pay dispute.",
+            "title": "Dispute Type",
+            "type": "string"
+          }
+        },
+        "title": "AmazonPay",
+        "type": "object"
+      },
+      "BalanceTransaction": {
+        "description": "Balance transaction object.",
+        "properties": {
+          "amount": {
+            "description": "Gross amount of the transaction in cents.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "net": {
+            "description": "Net amount of the transaction in cents (amount - fees).",
+            "title": "Net",
+            "type": "integer"
+          },
+          "object": {
+            "description": "String representing the object's type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the transaction.",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "description": "Transaction type.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "amount", "currency", "created", "net", "status", "type"],
+        "title": "BalanceTransaction",
+        "type": "object"
+      },
+      "CardPaymentMethodDetails": {
+        "description": "Card payment method details.",
+        "properties": {
+          "brand": {
+            "description": "Card brand.",
+            "title": "Brand",
+            "type": "string"
+          },
+          "case_type": {
+            "description": "Card case type.",
+            "title": "Case Type",
+            "type": "string"
+          },
+          "network_reason_code": {
+            "description": "Network reason code for the dispute.",
+            "title": "Network Reason Code",
+            "type": "string"
+          }
+        },
+        "title": "CardPaymentMethodDetails",
+        "type": "object"
+      },
+      "CloseDisputeResponse": {
+        "description": "Response model containing the closed dispute information.",
+        "properties": {
+          "amount": {
+            "description": "Disputed amount in cents (or smallest currency unit). Usually the amount of the charge, but can differ.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "balance_transactions": {
+            "description": "List of zero, one, or two balance transactions that show funds withdrawn and reinstated.",
+            "items": {
+              "$ref": "#/$defs/BalanceTransaction"
+            },
+            "title": "Balance Transactions",
+            "type": "array"
+          },
+          "charge": {
+            "description": "ID of the charge that's disputed.",
+            "title": "Charge",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "enhanced_eligibility_types": {
+            "description": "List of eligibility types included in enhanced_evidence field of the evidence object.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Enhanced Eligibility Types",
+            "type": "array"
+          },
+          "evidence": {
+            "$ref": "#/$defs/Evidence",
+            "title": "Evidence"
+          },
+          "evidence_details": {
+            "$ref": "#/$defs/EvidenceDetails",
+            "title": "Evidence Details"
+          },
+          "id": {
+            "description": "Unique identifier for the dispute.",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_charge_refundable": {
+            "description": "If true, it's still possible to refund the disputed payment. Once refunded, the dispute is fully accepted.",
+            "title": "Is Charge Refundable",
+            "type": "boolean"
+          },
+          "livemode": {
+            "description": "True if in live mode, false if in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Set of key-value pairs attached to the object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'dispute'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "payment_intent": {
+            "description": "ID of the PaymentIntent that's disputed, if applicable.",
+            "title": "Payment Intent",
+            "type": "string"
+          },
+          "payment_method_details": {
+            "$ref": "#/$defs/PaymentMethodDetails",
+            "description": "Additional dispute information specific to payment method type.",
+            "title": "Payment Method Details"
+          },
+          "reason": {
+            "description": "Reason given by cardholder for dispute. Possible values: bank_cannot_process, check_returned, credit_not_processed, customer_initiated, debit_not_authorized, duplicate, fraudulent, general, incorrect_account_details, insufficient_funds, product_not_received, product_unacceptable, subscription_canceled, unrecognized.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current status of the dispute. Possible values: warning_needs_response, warning_under_review, warning_closed, needs_response, under_review, won, lost, prevented.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "balance_transactions",
+          "charge",
+          "created",
+          "currency",
+          "evidence",
+          "evidence_details",
+          "is_charge_refundable",
+          "livemode",
+          "metadata",
+          "reason",
+          "status"
+        ],
+        "title": "CloseDisputeResponse",
+        "type": "object"
+      },
+      "EnhancedEligibility": {
+        "description": "Enhanced eligibility details for evidence programs.",
+        "properties": {
+          "visa_compelling_evidence_3": {
+            "description": "Visa compelling evidence 3 eligibility status.",
+            "title": "Visa Compelling Evidence 3",
+            "type": "string"
+          }
+        },
+        "title": "EnhancedEligibility",
+        "type": "object"
+      },
+      "EnhancedEvidence": {
+        "description": "Enhanced evidence object for disputes.",
+        "properties": {
+          "visa_compelling_evidence_3": {
+            "$ref": "#/$defs/VisaCompellingEvidence3",
+            "description": "Visa compelling evidence type 3.",
+            "title": "Visa Compelling Evidence 3"
+          },
+          "visa_compliance": {
+            "$ref": "#/$defs/VisaCompliance",
+            "description": "Visa compliance information.",
+            "title": "Visa Compliance"
+          }
+        },
+        "title": "EnhancedEvidence",
+        "type": "object"
+      },
+      "Evidence": {
+        "description": "Evidence provided to respond to a dispute.",
+        "properties": {
+          "access_activity_log": {
+            "description": "Activity logs showing account access.",
+            "title": "Access Activity Log",
+            "type": "string"
+          },
+          "billing_address": {
+            "description": "Billing address.",
+            "title": "Billing Address",
+            "type": "string"
+          },
+          "cancellation_policy": {
+            "description": "Cancellation policy file ID.",
+            "title": "Cancellation Policy",
+            "type": "string"
+          },
+          "cancellation_policy_disclosure": {
+            "description": "Explanation of cancellation policy disclosure.",
+            "title": "Cancellation Policy Disclosure",
+            "type": "string"
+          },
+          "cancellation_rebuttal": {
+            "description": "Justification for not honoring a cancellation.",
+            "title": "Cancellation Rebuttal",
+            "type": "string"
+          },
+          "customer_communication": {
+            "description": "Customer communication file ID.",
+            "title": "Customer Communication",
+            "type": "string"
+          },
+          "customer_email_address": {
+            "description": "Customer email address.",
+            "title": "Customer Email Address",
+            "type": "string"
+          },
+          "customer_name": {
+            "description": "Customer name.",
+            "title": "Customer Name",
+            "type": "string"
+          },
+          "customer_purchase_ip": {
+            "description": "IP address that the customer used when making the purchase.",
+            "title": "Customer Purchase Ip",
+            "type": "string"
+          },
+          "customer_signature": {
+            "description": "Customer signature file ID.",
+            "title": "Customer Signature",
+            "type": "string"
+          },
+          "duplicate_charge_documentation": {
+            "description": "Documentation for a duplicate charge.",
+            "title": "Duplicate Charge Documentation",
+            "type": "string"
+          },
+          "duplicate_charge_explanation": {
+            "description": "Explanation for a duplicate charge.",
+            "title": "Duplicate Charge Explanation",
+            "type": "string"
+          },
+          "duplicate_charge_id": {
+            "description": "ID of the charge that this charge is a duplicate of.",
+            "title": "Duplicate Charge Id",
+            "type": "string"
+          },
+          "enhanced_evidence": {
+            "$ref": "#/$defs/EnhancedEvidence",
+            "description": "Enhanced evidence object.",
+            "title": "Enhanced Evidence"
+          },
+          "product_description": {
+            "description": "Description of the product or service sold.",
+            "title": "Product Description",
+            "type": "string"
+          },
+          "receipt": {
+            "description": "Receipt file ID.",
+            "title": "Receipt",
+            "type": "string"
+          },
+          "refund_policy": {
+            "description": "Refund policy file ID.",
+            "title": "Refund Policy",
+            "type": "string"
+          },
+          "refund_policy_disclosure": {
+            "description": "Explanation of refund policy disclosure.",
+            "title": "Refund Policy Disclosure",
+            "type": "string"
+          },
+          "refund_refusal_explanation": {
+            "description": "Reason for not issuing a refund.",
+            "title": "Refund Refusal Explanation",
+            "type": "string"
+          },
+          "service_date": {
+            "description": "Date when the service was provided.",
+            "title": "Service Date",
+            "type": "string"
+          },
+          "service_documentation": {
+            "description": "Documentation for the service provided.",
+            "title": "Service Documentation",
+            "type": "string"
+          },
+          "shipping_address": {
+            "description": "Shipping address.",
+            "title": "Shipping Address",
+            "type": "string"
+          },
+          "shipping_carrier": {
+            "description": "Name of the carrier for shipment.",
+            "title": "Shipping Carrier",
+            "type": "string"
+          },
+          "shipping_date": {
+            "description": "Date when the product was shipped.",
+            "title": "Shipping Date",
+            "type": "string"
+          },
+          "shipping_documentation": {
+            "description": "Shipping documentation file ID.",
+            "title": "Shipping Documentation",
+            "type": "string"
+          },
+          "shipping_tracking_number": {
+            "description": "Tracking number for the shipment.",
+            "title": "Shipping Tracking Number",
+            "type": "string"
+          },
+          "uncategorized_file": {
+            "description": "Uncategorized file evidence.",
+            "title": "Uncategorized File",
+            "type": "string"
+          },
+          "uncategorized_text": {
+            "description": "Uncategorized text evidence.",
+            "title": "Uncategorized Text",
+            "type": "string"
+          }
+        },
+        "title": "Evidence",
+        "type": "object"
+      },
+      "EvidenceDetails": {
+        "description": "Information about evidence submission.",
+        "properties": {
+          "due_by": {
+            "description": "Date by which evidence must be submitted (Unix timestamp).",
+            "title": "Due By",
+            "type": "integer"
+          },
+          "enhanced_eligibility": {
+            "$ref": "#/$defs/EnhancedEligibility",
+            "description": "Eligibility details for qualifying evidence programs.",
+            "title": "Enhanced Eligibility"
+          },
+          "has_evidence": {
+            "description": "Whether evidence has been staged for this dispute.",
+            "title": "Has Evidence",
+            "type": "boolean"
+          },
+          "past_due": {
+            "description": "Whether the last evidence submission was submitted past the due date.",
+            "title": "Past Due",
+            "type": "boolean"
+          },
+          "submission_count": {
+            "description": "Number of times evidence has been submitted.",
+            "title": "Submission Count",
+            "type": "integer"
+          }
+        },
+        "required": ["has_evidence", "past_due", "submission_count"],
+        "title": "EvidenceDetails",
+        "type": "object"
+      },
+      "Klarna": {
+        "description": "Klarna payment method details.",
+        "properties": {
+          "reason_code": {
+            "description": "Klarna reason code.",
+            "title": "Reason Code",
+            "type": "string"
+          }
+        },
+        "title": "Klarna",
+        "type": "object"
+      },
+      "PaymentMethodDetails": {
+        "description": "Additional dispute information specific to payment method type.",
+        "properties": {
+          "amazon_pay": {
+            "$ref": "#/$defs/AmazonPay",
+            "description": "Amazon Pay payment method details.",
+            "title": "Amazon Pay"
+          },
+          "card": {
+            "$ref": "#/$defs/CardPaymentMethodDetails",
+            "description": "Card payment method details.",
+            "title": "Card"
+          },
+          "klarna": {
+            "$ref": "#/$defs/Klarna",
+            "description": "Klarna payment method details.",
+            "title": "Klarna"
+          },
+          "paypal": {
+            "$ref": "#/$defs/Paypal",
+            "description": "PayPal payment method details.",
+            "title": "Paypal"
+          },
+          "type": {
+            "description": "Payment method type.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "PaymentMethodDetails",
+        "type": "object"
+      },
+      "Paypal": {
+        "description": "PayPal payment method details.",
+        "properties": {
+          "case_id": {
+            "description": "PayPal case ID.",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "reason_code": {
+            "description": "PayPal reason code.",
+            "title": "Reason Code",
+            "type": "string"
+          }
+        },
+        "title": "Paypal",
+        "type": "object"
+      },
+      "VisaCompellingEvidence3": {
+        "description": "Visa compelling evidence 3 object.",
+        "properties": {
+          "disputed_transaction": {
+            "additionalProperties": true,
+            "description": "Details about the disputed transaction.",
+            "title": "Disputed Transaction",
+            "type": "object"
+          },
+          "prior_undisputed_transactions": {
+            "description": "List of prior undisputed transactions.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Prior Undisputed Transactions",
+            "type": "array"
+          }
+        },
+        "title": "VisaCompellingEvidence3",
+        "type": "object"
+      },
+      "VisaCompliance": {
+        "description": "Visa compliance object.",
+        "properties": {
+          "attempted_charge_indicator": {
+            "description": "Indicator for attempted charge.",
+            "title": "Attempted Charge Indicator",
+            "type": "string"
+          }
+        },
+        "title": "VisaCompliance",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CloseDisputeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

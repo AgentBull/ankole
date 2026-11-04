@@ -1,0 +1,444 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Searches Salesforce contacts by name, email, phone, account name, or title using partial matches. Multiple criteria are combined with OR; without criteria, it returns recent contacts up to the requested limit.",
+  "inputSchema": {
+    "properties": {
+      "account_name": {
+        "description": "Search by associated account name. Supports partial matches.",
+        "examples": ["Acme Corp", "Tech Solutions"],
+        "human_parameter_description": "Provide the company or account name the contact is associated with to narrow results. Partial names work too.",
+        "human_parameter_name": "Account Name",
+        "title": "Account Name",
+        "type": "string"
+      },
+      "email": {
+        "description": "Search by email address. Supports partial matches.",
+        "examples": ["john@company.com", "@gmail.com", "john"],
+        "human_parameter_description": "Enter the contact's email address or any part of it to find matches.",
+        "human_parameter_name": "Email Address",
+        "title": "Email",
+        "type": "string"
+      },
+      "fields": {
+        "default": "Id,Name,FirstName,LastName,Email,Phone,MobilePhone,Title,AccountId,Account.Name",
+        "description": "Comma-separated list of Contact fields to retrieve. Custom and non-default fields are excluded unless explicitly listed here.",
+        "examples": [
+          "Id,Name,Email,Phone",
+          "Id,Name,FirstName,LastName,Email,Title,AccountId,Account.Name,CreatedDate"
+        ],
+        "human_parameter_description": "Choose which contact details to return. Keep the default for common info, or list the fields you need separated by commas.",
+        "title": "Fields",
+        "type": "string"
+      },
+      "limit": {
+        "default": 50,
+        "description": "Maximum number of contacts to return. Maximum allowed is 2000; when totalSize exceeds limit, paginate to retrieve full results.",
+        "human_parameter_description": "Set the maximum number of contacts to return. Lower values are faster; higher values show more results.",
+        "human_parameter_name": "Limit",
+        "maximum": 2000,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "name": {
+        "description": "Search by contact name (first name, last name, or full name). Supports partial matches.",
+        "examples": ["John Smith", "Jane", "Doe"],
+        "human_parameter_description": "Type the contact's name you want to find. You can use a full name or just part of the first or last name.",
+        "human_parameter_name": "Contact Name",
+        "title": "Name",
+        "type": "string"
+      },
+      "phone": {
+        "description": "Search by phone number. Supports partial matches.",
+        "examples": ["555-1234", "(555)", "1234"],
+        "human_parameter_description": "Enter a phone number or part of it to search for contacts. This checks both main and mobile numbers.",
+        "human_parameter_name": "Phone Number",
+        "title": "Phone",
+        "type": "string"
+      },
+      "title": {
+        "description": "Search by job title. Supports partial matches.",
+        "examples": ["Manager", "Director", "Sales"],
+        "human_parameter_description": "Enter the contact's job title to filter your search, like Manager or Sales. Partial titles are okay.",
+        "human_parameter_name": "Job Title",
+        "title": "Title",
+        "type": "string"
+      }
+    },
+    "title": "SearchContactsRequest",
+    "type": "object"
+  },
+  "name": "search_contacts",
+  "outputSchema": {
+    "$defs": {
+      "ContactAttributes": {
+        "additionalProperties": true,
+        "description": "Metadata about the record necessary for deserialization and RESTful traversal.",
+        "properties": {
+          "type": {
+            "description": "The Salesforce object type, always 'Contact' for contact records.",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "REST API endpoint path to access this specific contact record.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "ContactAttributes",
+        "type": "object"
+      },
+      "ContactRecord": {
+        "additionalProperties": true,
+        "description": "Salesforce Contact record. Supports custom fields via extra='allow'.",
+        "properties": {
+          "IsDeleted": {
+            "description": "Indicates whether the contact record has been deleted and is in the Recycle Bin.",
+            "title": "Is Deleted",
+            "type": "boolean"
+          },
+          "MailingLatitude": {
+            "description": "Latitude for the mailing address of the contact.",
+            "title": "Mailing Latitude",
+            "type": "number"
+          },
+          "OtherGeocodeAccuracy": {
+            "description": "Geocode accuracy for the alternate address of the contact.",
+            "title": "Other Geocode Accuracy",
+            "type": "string"
+          },
+          "CleanStatus": {
+            "description": "Data quality/cleansing status of the contact record.",
+            "title": "Clean Status",
+            "type": "string"
+          },
+          "Salutation": {
+            "description": "Honorific added to the contact's name (e.g., Mr., Ms., Dr.).",
+            "title": "Salutation",
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/$defs/ContactAttributes",
+            "description": "Metadata about the record necessary for deserialization and RESTful traversal.",
+            "title": "Attributes"
+          },
+          "Phone": {
+            "description": "Primary phone number for the contact.",
+            "title": "Phone",
+            "type": "string"
+          },
+          "MailingPostalCode": {
+            "description": "Postal code for the mailing address of the contact.",
+            "title": "Mailing Postal Code",
+            "type": "string"
+          },
+          "DoNotCall": {
+            "description": "Indicates whether the contact prefers not to be called.",
+            "title": "Do Not Call",
+            "type": "boolean"
+          },
+          "Jigsaw": {
+            "description": "Data.com key associated with the contact.",
+            "title": "Jigsaw",
+            "type": "string"
+          },
+          "LeadSource": {
+            "description": "Source from which the contact originated.",
+            "title": "Lead Source",
+            "type": "string"
+          },
+          "MailingGeocodeAccuracy": {
+            "description": "Geocode accuracy for the mailing address of the contact.",
+            "title": "Mailing Geocode Accuracy",
+            "type": "string"
+          },
+          "OtherCountry": {
+            "description": "Country for the alternate address of the contact.",
+            "title": "Other Country",
+            "type": "string"
+          },
+          "Birthdate": {
+            "description": "Birth date of the contact in ISO 8601 format (YYYY-MM-DD).",
+            "title": "Birthdate",
+            "type": "string"
+          },
+          "Description": {
+            "description": "Additional information about the contact.",
+            "title": "Description",
+            "type": "string"
+          },
+          "AccountId": {
+            "description": "ID of the account associated with this contact.",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "CreatedDate": {
+            "description": "Timestamp when the contact was created in ISO 8601 format.",
+            "title": "Created Date",
+            "type": "string"
+          },
+          "MailingStreet": {
+            "description": "Street address for the mailing address of the contact.",
+            "title": "Mailing Street",
+            "type": "string"
+          },
+          "OwnerId": {
+            "description": "ID of the user who owns the contact record.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "MailingCountry": {
+            "description": "Country for the mailing address of the contact.",
+            "title": "Mailing Country",
+            "type": "string"
+          },
+          "Fax": {
+            "description": "Fax number for the contact.",
+            "title": "Fax",
+            "type": "string"
+          },
+          "LastActivityDate": {
+            "description": "Date of the most recent activity associated with the contact in ISO 8601 format (YYYY-MM-DD).",
+            "title": "Last Activity Date",
+            "type": "string"
+          },
+          "IndividualId": {
+            "description": "ID of the Individual record associated with this contact for data privacy management.",
+            "title": "Individual Id",
+            "type": "string"
+          },
+          "LastModifiedById": {
+            "description": "ID of the user who last modified the contact record.",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "OtherPostalCode": {
+            "description": "Postal code for the alternate address of the contact.",
+            "title": "Other Postal Code",
+            "type": "string"
+          },
+          "HasOptedOutOfEmail": {
+            "description": "Indicates whether the contact has opted out of receiving email communications.",
+            "title": "Has Opted Out Of Email",
+            "type": "boolean"
+          },
+          "MasterRecordId": {
+            "description": "ID of the master record if this contact was merged with another contact.",
+            "title": "Master Record Id",
+            "type": "string"
+          },
+          "OtherPhone": {
+            "description": "Additional phone number for the contact.",
+            "title": "Other Phone",
+            "type": "string"
+          },
+          "OtherStreet": {
+            "description": "Street address for the alternate address of the contact.",
+            "title": "Other Street",
+            "type": "string"
+          },
+          "OtherState": {
+            "description": "State or province for the alternate address of the contact.",
+            "title": "Other State",
+            "type": "string"
+          },
+          "MailingLongitude": {
+            "description": "Longitude for the mailing address of the contact.",
+            "title": "Mailing Longitude",
+            "type": "number"
+          },
+          "MailingState": {
+            "description": "State or province for the mailing address of the contact.",
+            "title": "Mailing State",
+            "type": "string"
+          },
+          "CreatedById": {
+            "description": "ID of the user who created the contact record.",
+            "title": "Created By Id",
+            "type": "string"
+          },
+          "OtherLongitude": {
+            "description": "Longitude for the alternate address of the contact.",
+            "title": "Other Longitude",
+            "type": "number"
+          },
+          "EmailBouncedDate": {
+            "description": "Date and time when the contact's email bounced in ISO 8601 format.",
+            "title": "Email Bounced Date",
+            "type": "string"
+          },
+          "SystemModstamp": {
+            "description": "Timestamp when the contact record was last modified by any user or automated process in ISO 8601 format.",
+            "title": "System Modstamp",
+            "type": "string"
+          },
+          "JigsawContactId": {
+            "description": "Contact ID from Data.com integration.",
+            "title": "Jigsaw Contact Id",
+            "type": "string"
+          },
+          "HasOptedOutOfFax": {
+            "description": "Indicates whether the contact has opted out of receiving fax communications.",
+            "title": "Has Opted Out Of Fax",
+            "type": "boolean"
+          },
+          "LastCUUpdateDate": {
+            "description": "Last Stay-in-Touch save date. This is a legacy field from a deprecated feature (retired Summer '17).",
+            "title": "Last Cu Update Date",
+            "type": "string"
+          },
+          "IsEmailBounced": {
+            "description": "Indicates whether the contact's email has bounced.",
+            "title": "Is Email Bounced",
+            "type": "boolean"
+          },
+          "FirstName": {
+            "description": "First name of the contact. Can contain up to 40 characters.",
+            "title": "First Name",
+            "type": "string"
+          },
+          "Id": {
+            "description": "Unique identifier for the contact record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "PhotoUrl": {
+            "description": "Path to be combined with the Salesforce instance URL to generate a URL for the contact's social network profile image.",
+            "title": "Photo Url",
+            "type": "string"
+          },
+          "LastName": {
+            "description": "Last name of the contact. Can contain up to 80 characters.",
+            "title": "Last Name",
+            "type": "string"
+          },
+          "Email": {
+            "description": "Email address for the contact.",
+            "title": "Email",
+            "type": "string"
+          },
+          "ReportsToId": {
+            "description": "ID of the contact's manager or person they report to.",
+            "title": "Reports To Id",
+            "type": "string"
+          },
+          "OtherLatitude": {
+            "description": "Latitude for the alternate address of the contact.",
+            "title": "Other Latitude",
+            "type": "number"
+          },
+          "EmailBouncedReason": {
+            "description": "Reason why the contact's email bounced.",
+            "title": "Email Bounced Reason",
+            "type": "string"
+          },
+          "AssistantName": {
+            "description": "Name of the contact's assistant.",
+            "title": "Assistant Name",
+            "type": "string"
+          },
+          "Name": {
+            "description": "Concatenation of FirstName, MiddleName, LastName, and Suffix. Up to 203 characters including whitespaces.",
+            "title": "Name",
+            "type": "string"
+          },
+          "LastCURequestDate": {
+            "description": "Last Stay-in-Touch request date. This is a legacy field from a deprecated feature (retired Summer '17).",
+            "title": "Last Cu Request Date",
+            "type": "string"
+          },
+          "OtherCity": {
+            "description": "City for the alternate address of the contact.",
+            "title": "Other City",
+            "type": "string"
+          },
+          "HomePhone": {
+            "description": "Home phone number for the contact.",
+            "title": "Home Phone",
+            "type": "string"
+          },
+          "MailingCity": {
+            "description": "City for the mailing address of the contact.",
+            "title": "Mailing City",
+            "type": "string"
+          },
+          "Department": {
+            "description": "Department where the contact works.",
+            "title": "Department",
+            "type": "string"
+          },
+          "AssistantPhone": {
+            "description": "Phone number for the contact's assistant.",
+            "title": "Assistant Phone",
+            "type": "string"
+          },
+          "MobilePhone": {
+            "description": "Mobile phone number for the contact.",
+            "title": "Mobile Phone",
+            "type": "string"
+          },
+          "Title": {
+            "description": "Job title of the contact.",
+            "title": "Title",
+            "type": "string"
+          },
+          "LastModifiedDate": {
+            "description": "Timestamp when the contact was last modified in ISO 8601 format.",
+            "title": "Last Modified Date",
+            "type": "string"
+          }
+        },
+        "title": "ContactRecord",
+        "type": "object"
+      },
+      "SearchContactsResponse": {
+        "additionalProperties": true,
+        "description": "Response from Salesforce SOQL query containing contact search results.",
+        "properties": {
+          "done": {
+            "description": "Indicates whether all results have been retrieved. If false, additional records are available via nextRecordsUrl.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "nextRecordsUrl": {
+            "description": "URL to fetch the next page of results. Only present when done is false and more records are available.",
+            "title": "Next Records Url",
+            "type": "string"
+          },
+          "records": {
+            "description": "Array of Contact records matching the search query.",
+            "items": {
+              "$ref": "#/$defs/ContactRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "totalSize": {
+            "description": "Total number of records that match the query.",
+            "title": "Total Size",
+            "type": "integer"
+          }
+        },
+        "required": ["totalSize", "done"],
+        "title": "SearchContactsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SearchContactsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

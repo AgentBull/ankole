@@ -122,6 +122,11 @@ defmodule AnkoleWeb.PodURL do
     if slug == "", do: "/pages/" <> short, else: "/pages/" <> slug <> "-" <> short
   end
 
+  def conversation_path(id) when is_binary(id) do
+    short = short_id(id) || raise ArgumentError, "invalid Conversation ID: #{inspect(id)}"
+    "/conversations/" <> short
+  end
+
   def path(conn) do
     segments =
       case conn.path_info do
@@ -173,7 +178,7 @@ defmodule AnkoleWeb.PodURL do
   defp browser_path(["conversations", value]) do
     case short_id(value) do
       nil -> {:error, :not_found}
-      short -> {:ok, "/conversations/" <> short}
+      short -> {:ok, conversation_path(short)}
     end
   end
 

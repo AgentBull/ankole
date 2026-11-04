@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently removes a specified attachment from a Trello card; this action is irreversible and requires that both the card and the attachment exist.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteCardAttachment`",
+    "properties": {
+      "idAttachment": {
+        "description": "The ID of the attachment to be deleted from the card. This is a unique identifier for the attachment.",
+        "examples": ["60d5f0b9c4f8c3000b9b0e1a"],
+        "title": "Id Attachment",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "The ID or short link of the card from which the attachment will be deleted. Card IDs can be short (e.g., 'FY2OWrnc') or long (e.g., '571d07b591c8b68aeb4f6acc').",
+        "examples": ["FY2OWrnc", "571d07b591c8b68aeb4f6acc"],
+        "title": "Id Card",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "idAttachment"],
+    "title": "DeleteCardAttachmentRequest",
+    "type": "object"
+  },
+  "name": "delete_card_attachment",
+  "outputSchema": {
+    "$defs": {
+      "DeleteCardAttachmentResponse": {
+        "description": "Response schema for `DeleteCardAttachment`. Returns an empty response body with HTTP 200 OK status code when the attachment is successfully deleted.",
+        "properties": {},
+        "title": "DeleteCardAttachmentResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteCardAttachmentResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

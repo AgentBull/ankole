@@ -1,0 +1,96 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new label with a specified name (required) and color on a Trello board (idBoard required); this action defines the label but does not apply it to cards.",
+  "inputSchema": {
+    "description": "Request schema for `AddLabels`",
+    "properties": {
+      "color": {
+        "description": "Color for the new label. Valid values: green, yellow, orange, red, purple, blue, sky, lime, pink, black (and their _dark/_light variants). If not specified, the label will have no color (color=null).",
+        "examples": ["green", "purple", "sky", "black", "red", "blue"],
+        "title": "Color",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "ID of the board for the new label. Must be a 24-character hexadecimal TrelloID (e.g., '60d5f2d97f5f8c008d3e9d6b'). Note: The 8-character shortLink from board URLs is NOT accepted by this endpoint. Required by the Trello API.",
+        "examples": ["60d5f2d97f5f8c008d3e9d6b", "5abbe4b7ddc1b351ef961414"],
+        "pattern": "^[0-9a-fA-F]{24}$",
+        "title": "Id Board",
+        "type": "string"
+      },
+      "name": {
+        "description": "Name for the new label (0-16384 characters). **Required by the Trello API.** An empty string creates a color-only visual label.",
+        "examples": ["High Priority", "Design Task", "Client Feedback"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "title": "AddLabelsRequest",
+    "type": "object"
+  },
+  "name": "add_labels",
+  "outputSchema": {
+    "$defs": {
+      "AddLabelsResponse": {
+        "description": "Response schema for `AddLabels`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/AddLabelsResponseData",
+            "description": "The full details of the newly created label.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "AddLabelsResponse",
+        "type": "object"
+      },
+      "AddLabelsResponseData": {
+        "description": "Details of the newly created label.",
+        "properties": {
+          "color": {
+            "description": "The color of the label (e.g., 'green', 'red', 'blue', 'purple', 'orange', 'yellow', 'sky', 'lime', 'pink', 'black'). Null if no color was specified.",
+            "title": "Color",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the newly created label (24-character hex string).",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board the label belongs to.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the label. May be an empty string for color-only labels.",
+            "title": "Name",
+            "type": "string"
+          },
+          "uses": {
+            "default": 0,
+            "description": "Number of cards currently using this label.",
+            "title": "Uses",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "idBoard", "name"],
+        "title": "AddLabelsResponseData",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddLabelsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,694 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to update a Stripe charge object with provided parameters. Use when you need to modify charge details such as description, metadata, fraud assessment, receipt email, shipping information, or transfer group.",
+  "inputSchema": {
+    "description": "Request model for updating a Stripe charge.",
+    "properties": {
+      "charge_id": {
+        "description": "The ID of the charge to update.",
+        "examples": ["ch_3ShVwYQvM72TjFrb0zJ8wi2q"],
+        "title": "Charge Id",
+        "type": "string"
+      },
+      "customer": {
+        "description": "The ID of an existing customer to associate with this charge. Only updatable if the charge has no existing customer.",
+        "examples": ["cus_1234567890"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "description": {
+        "description": "An arbitrary string to attach to the charge. Displayed in the Stripe Dashboard and on customer receipts.",
+        "examples": ["Updated charge via API test"],
+        "title": "Description",
+        "type": "string"
+      },
+      "fraud_details": {
+        "additionalProperties": false,
+        "description": "Fraud details for the charge.",
+        "properties": {
+          "user_report": {
+            "description": "Either 'safe' or 'fraudulent'. Indicates your assessment of the charge's riskiness.",
+            "examples": ["safe", "fraudulent"],
+            "title": "User Report",
+            "type": "string"
+          }
+        },
+        "required": ["user_report"],
+        "title": "FraudDetailsRequest",
+        "type": "object"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Set of key-value pairs for storing structured information. Individual keys can be unset by posting empty values.",
+        "examples": [
+          {
+            "test_key": "test_value",
+            "updated_at": "2025-12-23"
+          }
+        ],
+        "title": "Metadata",
+        "type": "object"
+      },
+      "receipt_email": {
+        "description": "The email address to send the receipt to. Updating this will trigger a new receipt email to be sent.",
+        "examples": ["customer@example.com"],
+        "title": "Receipt Email",
+        "type": "string"
+      },
+      "shipping": {
+        "additionalProperties": false,
+        "description": "Shipping information for the charge.",
+        "properties": {
+          "address": {
+            "additionalProperties": false,
+            "description": "Shipping address.",
+            "properties": {
+              "city": {
+                "description": "City, district, suburb, town, or village.",
+                "title": "City",
+                "type": "string"
+              },
+              "country": {
+                "description": "Two-letter country code (ISO 3166-1 alpha-2).",
+                "title": "Country",
+                "type": "string"
+              },
+              "line1": {
+                "description": "Address line 1 (e.g., street address, PO Box, or company name).",
+                "title": "Line1",
+                "type": "string"
+              },
+              "line2": {
+                "description": "Address line 2 (e.g., apartment, suite, unit, or building).",
+                "title": "Line2",
+                "type": "string"
+              },
+              "postal_code": {
+                "description": "ZIP or postal code.",
+                "title": "Postal Code",
+                "type": "string"
+              },
+              "state": {
+                "description": "State, county, province, or region.",
+                "title": "State",
+                "type": "string"
+              }
+            },
+            "title": "Address",
+            "type": "object"
+          },
+          "carrier": {
+            "description": "The delivery service that shipped a physical product (e.g., Fedex, UPS, USPS).",
+            "title": "Carrier",
+            "type": "string"
+          },
+          "name": {
+            "description": "Recipient name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Recipient phone number including extension.",
+            "title": "Phone",
+            "type": "string"
+          },
+          "tracking_number": {
+            "description": "The shipment tracking number. Use commas to separate multiple tracking numbers.",
+            "title": "Tracking Number",
+            "type": "string"
+          }
+        },
+        "required": ["name", "address"],
+        "title": "ShippingRequest",
+        "type": "object"
+      },
+      "transfer_group": {
+        "description": "A string that identifies this transaction as part of a group for connected accounts. Can only be set once.",
+        "examples": ["ORDER_95"],
+        "title": "Transfer Group",
+        "type": "string"
+      }
+    },
+    "required": ["charge_id"],
+    "title": "UpdateChargeRequest",
+    "type": "object"
+  },
+  "name": "update_charge",
+  "outputSchema": {
+    "$defs": {
+      "Address": {
+        "description": "Address information.",
+        "properties": {
+          "city": {
+            "description": "City, district, suburb, town, or village.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2).",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Address line 1 (e.g., street, PO Box, or company name).",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Address line 2 (e.g., apartment, suite, unit, or building).",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "ZIP or postal code.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State, county, province, or region.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "Address",
+        "type": "object"
+      },
+      "BillingDetails": {
+        "description": "Billing information associated with the payment method.",
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "Billing address.",
+            "title": "Address"
+          },
+          "email": {
+            "description": "Email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Billing phone number (including extension).",
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "title": "BillingDetails",
+        "type": "object"
+      },
+      "FraudDetails": {
+        "description": "Information on fraud assessments for the charge.",
+        "properties": {
+          "stripe_report": {
+            "description": "Assessments from Stripe. If set, the value is fraudulent.",
+            "title": "Stripe Report",
+            "type": "string"
+          },
+          "user_report": {
+            "description": "Assessments reported by you. If set, possible values are safe and fraudulent.",
+            "title": "User Report",
+            "type": "string"
+          }
+        },
+        "title": "FraudDetails",
+        "type": "object"
+      },
+      "Outcome": {
+        "description": "Details about whether the payment was accepted, and why.",
+        "properties": {
+          "network_status": {
+            "description": "Possible values are approved_by_network, declined_by_network, not_sent_to_network, and reversed_after_approval.",
+            "title": "Network Status",
+            "type": "string"
+          },
+          "reason": {
+            "description": "An enumerated value providing a more detailed explanation of the outcome's type.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "risk_level": {
+            "description": "Stripe Radar's evaluation of the riskiness of the payment. Possible values for evaluated payments are normal, elevated, highest.",
+            "title": "Risk Level",
+            "type": "string"
+          },
+          "risk_score": {
+            "description": "Stripe Radar's evaluation of the riskiness of the payment. Possible values are between 0 and 100.",
+            "title": "Risk Score",
+            "type": "integer"
+          },
+          "rule": {
+            "description": "The ID of the Radar rule that matched the payment, if applicable.",
+            "title": "Rule",
+            "type": "string"
+          },
+          "seller_message": {
+            "description": "A human-readable description of the outcome type and reason, designed for you (the recipient of the payment), not your customer.",
+            "title": "Seller Message",
+            "type": "string"
+          },
+          "type": {
+            "description": "Possible values are authorized, manual_review, issuer_declined, blocked, and invalid.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "Outcome",
+        "type": "object"
+      },
+      "PaymentMethodDetails": {
+        "description": "Details about the payment method at the time of the transaction.",
+        "properties": {
+          "ach_debit": {
+            "additionalProperties": true,
+            "description": "Details for ACH debit payments.",
+            "title": "Ach Debit",
+            "type": "object"
+          },
+          "card": {
+            "additionalProperties": true,
+            "description": "Details for card payments.",
+            "title": "Card",
+            "type": "object"
+          },
+          "sepa_debit": {
+            "additionalProperties": true,
+            "description": "Details for SEPA debit payments.",
+            "title": "Sepa Debit",
+            "type": "object"
+          },
+          "type": {
+            "description": "The type of transaction-specific details of the payment method used in the payment.",
+            "title": "Type",
+            "type": "string"
+          },
+          "us_bank_account": {
+            "additionalProperties": true,
+            "description": "Details for US bank account payments.",
+            "title": "Us Bank Account",
+            "type": "object"
+          }
+        },
+        "required": ["type"],
+        "title": "PaymentMethodDetails",
+        "type": "object"
+      },
+      "Refund": {
+        "description": "Refund object details.",
+        "properties": {
+          "amount": {
+            "description": "Amount, in cents (or other smallest currency unit).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "balance_transaction": {
+            "description": "Balance transaction that describes the impact on your account balance.",
+            "title": "Balance Transaction",
+            "type": "string"
+          },
+          "charge": {
+            "description": "ID of the charge that was refunded.",
+            "title": "Charge",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Set of key-value pairs that you can attach to an object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Objects of the same type share the same value.",
+            "title": "Object",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for the refund, either user-provided or generated automatically.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "receipt_number": {
+            "description": "This is the transaction number that appears on email receipts sent for this refund.",
+            "title": "Receipt Number",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the refund.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "amount", "created", "currency"],
+        "title": "Refund",
+        "type": "object"
+      },
+      "RefundsList": {
+        "description": "A list of refunds that have been applied to the charge.",
+        "properties": {
+          "data": {
+            "description": "Array of refund objects.",
+            "items": {
+              "$ref": "#/$defs/Refund"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether or not there are more elements available after this set.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Objects of the same type share the same value. Always has the value list.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL for accessing this list.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data"],
+        "title": "RefundsList",
+        "type": "object"
+      },
+      "Shipping": {
+        "description": "Shipping information for the charge.",
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "Shipping address.",
+            "title": "Address"
+          },
+          "carrier": {
+            "description": "The delivery service that shipped a physical product, such as Fedex, UPS, USPS, etc.",
+            "title": "Carrier",
+            "type": "string"
+          },
+          "name": {
+            "description": "Recipient name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Recipient phone (including extension).",
+            "title": "Phone",
+            "type": "string"
+          },
+          "tracking_number": {
+            "description": "The tracking number for a physical product, obtained from the delivery service.",
+            "title": "Tracking Number",
+            "type": "string"
+          }
+        },
+        "title": "Shipping",
+        "type": "object"
+      },
+      "TransferData": {
+        "description": "Transfer data for destination charges.",
+        "properties": {
+          "amount": {
+            "description": "The amount transferred to the destination account, if specified.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "destination": {
+            "description": "ID of an existing, connected Stripe account to transfer funds to if transfer_data was specified in the charge request.",
+            "title": "Destination",
+            "type": "string"
+          }
+        },
+        "required": ["destination"],
+        "title": "TransferData",
+        "type": "object"
+      },
+      "UpdateChargeResponse": {
+        "description": "Response model containing the updated charge object.",
+        "properties": {
+          "transfer_group": {
+            "description": "A string that identifies this transaction as part of a group.",
+            "title": "Transfer Group",
+            "type": "string"
+          },
+          "billing_details": {
+            "$ref": "#/$defs/BillingDetails",
+            "description": "Billing information associated with the payment method at the time of the transaction.",
+            "title": "Billing Details"
+          },
+          "disputed": {
+            "description": "Whether the charge has been disputed.",
+            "title": "Disputed",
+            "type": "boolean"
+          },
+          "refunds": {
+            "$ref": "#/$defs/RefundsList",
+            "description": "A list of refunds that have been applied to the charge.",
+            "title": "Refunds"
+          },
+          "failure_code": {
+            "description": "Error code explaining reason for charge failure if available.",
+            "title": "Failure Code",
+            "type": "string"
+          },
+          "application": {
+            "description": "ID of the Connect application that created the charge.",
+            "title": "Application",
+            "type": "string"
+          },
+          "failure_balance_transaction": {
+            "description": "ID of the balance transaction that describes the reversal of the balance on your account due to payment failure.",
+            "title": "Failure Balance Transaction",
+            "type": "string"
+          },
+          "refunded": {
+            "description": "Whether the charge has been fully refunded. If the charge is only partially refunded, this attribute will still be false.",
+            "title": "Refunded",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the object. Often useful for displaying to users.",
+            "title": "Description",
+            "type": "string"
+          },
+          "paid": {
+            "description": "true if the charge succeeded, or was successfully authorized for later capture.",
+            "title": "Paid",
+            "type": "boolean"
+          },
+          "failure_message": {
+            "description": "Message to user further explaining reason for charge failure if available.",
+            "title": "Failure Message",
+            "type": "string"
+          },
+          "amount_refunded": {
+            "description": "Amount in cents (or other smallest currency unit) refunded (can be less than the amount attribute on the charge if a partial refund was issued).",
+            "title": "Amount Refunded",
+            "type": "integer"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The status of the payment is either succeeded, pending, or failed.",
+            "title": "Status",
+            "type": "string"
+          },
+          "payment_method_details": {
+            "$ref": "#/$defs/PaymentMethodDetails",
+            "description": "Details about the payment method at the time of the transaction.",
+            "title": "Payment Method Details"
+          },
+          "customer": {
+            "description": "ID of the customer this charge is for if one exists.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "application_fee": {
+            "description": "The application fee (if any) for the charge.",
+            "title": "Application Fee",
+            "type": "string"
+          },
+          "review": {
+            "description": "ID of the review associated with this charge if one exists.",
+            "title": "Review",
+            "type": "string"
+          },
+          "calculated_statement_descriptor": {
+            "description": "The full statement descriptor that is passed to card networks, and that is displayed on your customer's credit card statement.",
+            "title": "Calculated Statement Descriptor",
+            "type": "string"
+          },
+          "payment_intent": {
+            "description": "ID of the PaymentIntent associated with this charge, if one exists.",
+            "title": "Payment Intent",
+            "type": "string"
+          },
+          "application_fee_amount": {
+            "description": "The amount of the application fee (if any) requested for the charge.",
+            "title": "Application Fee Amount",
+            "type": "integer"
+          },
+          "on_behalf_of": {
+            "description": "The account (if any) the charge was made on behalf of without triggering an automatic transfer.",
+            "title": "On Behalf Of",
+            "type": "string"
+          },
+          "receipt_url": {
+            "description": "This is the URL to view the receipt for this charge. The receipt is kept up-to-date to the latest state of the charge.",
+            "title": "Receipt Url",
+            "type": "string"
+          },
+          "receipt_number": {
+            "description": "This is the transaction number that appears on email receipts sent for this charge.",
+            "title": "Receipt Number",
+            "type": "string"
+          },
+          "balance_transaction": {
+            "description": "ID of the balance transaction that describes the impact of this charge on your account balance (not including refunds or disputes).",
+            "title": "Balance Transaction",
+            "type": "string"
+          },
+          "transfer_data": {
+            "$ref": "#/$defs/TransferData",
+            "description": "An optional dictionary including the account to automatically transfer to as part of a destination charge.",
+            "title": "Transfer Data"
+          },
+          "amount_captured": {
+            "description": "Amount in cents (or other smallest currency unit) captured (can be less than the amount attribute on the charge if a partial capture was made).",
+            "title": "Amount Captured",
+            "type": "integer"
+          },
+          "receipt_email": {
+            "description": "This is the email address that the receipt for this charge was sent to.",
+            "title": "Receipt Email",
+            "type": "string"
+          },
+          "statement_descriptor_suffix": {
+            "description": "Provides information about the charge that customers see on their statements.",
+            "title": "Statement Descriptor Suffix",
+            "type": "string"
+          },
+          "shipping": {
+            "$ref": "#/$defs/Shipping",
+            "description": "Shipping information for the charge.",
+            "title": "Shipping"
+          },
+          "statement_descriptor": {
+            "description": "For card charges, use statement_descriptor_suffix instead. Otherwise, you can use this value as the complete description of a charge on your customer's credit card statement.",
+            "title": "Statement Descriptor",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Set of key-value pairs that you can attach to an object. This can be useful for storing additional information about the object in a structured format.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "fraud_details": {
+            "$ref": "#/$defs/FraudDetails",
+            "description": "Information on fraud assessments for the charge.",
+            "title": "Fraud Details"
+          },
+          "amount": {
+            "description": "Amount intended to be collected by this payment. A positive integer representing how much to charge in the smallest currency unit.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase. Must be a supported currency.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "payment_method": {
+            "description": "ID of the payment method used in this charge.",
+            "title": "Payment Method",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Objects of the same type share the same value.",
+            "title": "Object",
+            "type": "string"
+          },
+          "captured": {
+            "description": "If the charge was created without capturing, this Boolean represents whether it is still uncaptured or has since been captured.",
+            "title": "Captured",
+            "type": "boolean"
+          },
+          "outcome": {
+            "$ref": "#/$defs/Outcome",
+            "description": "Details about whether the payment was accepted, and why.",
+            "title": "Outcome"
+          },
+          "source_transfer": {
+            "description": "The transfer ID which created this charge. Only present if the charge came from another Stripe account.",
+            "title": "Source Transfer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "captured",
+          "created",
+          "currency",
+          "disputed",
+          "livemode",
+          "paid",
+          "refunded",
+          "status"
+        ],
+        "title": "UpdateChargeResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateChargeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

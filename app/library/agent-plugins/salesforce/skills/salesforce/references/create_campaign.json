@@ -1,0 +1,228 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new campaign in Salesforce. Only `name` is universally required, but org-level validation rules commonly enforce `type`, `status`, `start_date`, and `end_date` as well — omitting them may cause creation to fail.",
+  "inputSchema": {
+    "properties": {
+      "actual_cost": {
+        "default": 0,
+        "description": "Actual cost spent on the campaign.",
+        "examples": [8500, 4200.75, 22000],
+        "human_parameter_description": "How much has actually been spent on the campaign. Useful for comparing against the budget.",
+        "human_parameter_name": "Actual Cost",
+        "title": "Actual Cost",
+        "type": "number"
+      },
+      "budgeted_cost": {
+        "default": 0,
+        "description": "Budgeted cost for the campaign.",
+        "examples": [10000, 5000.5, 25000],
+        "human_parameter_description": "How much you plan to spend on this campaign. Helps with budgeting and calculating ROI later.",
+        "human_parameter_name": "Budgeted Cost",
+        "title": "Budgeted Cost",
+        "type": "number"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field names and their values. Custom field names should end with '__c' (e.g., 'Priority__c', 'Region__c'). Values can be strings, numbers, booleans, or dates depending on the field type.",
+        "examples": [
+          {
+            "Priority__c": "High",
+            "Region__c": "North America"
+          },
+          {
+            "Custom_Score__c": 85.5,
+            "Is_Priority__c": true
+          }
+        ],
+        "human_parameter_description": "Add any custom fields defined in your Salesforce org. Provide a dictionary where keys are the API names of your custom fields (ending in __c) and values are the data to set.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "description": {
+        "default": "",
+        "description": "Detailed description of the campaign.",
+        "examples": [
+          "This campaign targets new customers in the Northeast region",
+          "Q4 promotional campaign for existing customers"
+        ],
+        "human_parameter_description": "Add notes about the campaign's goals, audience, offers, or messaging. This gives your team helpful context.",
+        "human_parameter_name": "Campaign Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "end_date": {
+        "default": "",
+        "description": "Campaign end date in YYYY-MM-DD format.",
+        "examples": ["2024-01-31", "2024-06-30"],
+        "human_parameter_description": "The date the campaign ends (YYYY-MM-DD). Use this to define the campaign’s timeframe.",
+        "human_parameter_name": "End Date",
+        "title": "End Date",
+        "type": "string"
+      },
+      "expected_response": {
+        "default": 0,
+        "description": "Expected response rate as a percentage.",
+        "examples": [5, 10.5, 15],
+        "human_parameter_description": "The response rate you expect as a percentage. Sets a target you can measure against after launch.",
+        "human_parameter_name": "Expected Response",
+        "title": "Expected Response",
+        "type": "number"
+      },
+      "expected_revenue": {
+        "default": 0,
+        "description": "Expected revenue from the campaign.",
+        "examples": [50000, 25000, 100000],
+        "human_parameter_description": "How much revenue you expect this campaign to generate. Used for forecasting and ROI tracking.",
+        "human_parameter_name": "Expected Revenue",
+        "title": "Expected Revenue",
+        "type": "number"
+      },
+      "is_active": {
+        "default": false,
+        "description": "Whether the campaign is currently active. Depending on org configuration, setting to `true` may require valid `start_date`/`end_date` ranges; violations raise a non-retriable `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY` error.",
+        "examples": [true, false],
+        "human_parameter_description": "Turn this on if the campaign is currently active. Leave it off for planned or completed campaigns.",
+        "human_parameter_name": "Is Active",
+        "title": "Is Active",
+        "type": "boolean"
+      },
+      "name": {
+        "description": "Campaign name (required field in Salesforce).",
+        "examples": ["Summer Sale 2024", "Q4 Email Campaign", "Product Launch"],
+        "human_parameter_description": "The name of the campaign you want to create. Pick a clear, recognizable title so your team can find and report on it easily.",
+        "human_parameter_name": "Campaign Name",
+        "title": "Name",
+        "type": "string"
+      },
+      "number_sent": {
+        "default": 0,
+        "description": "Number of individuals targeted by the campaign.",
+        "examples": [1000, 5000, 10000],
+        "human_parameter_description": "The number of people you plan to contact (or have contacted) in this campaign. Helps calculate metrics like response rate.",
+        "human_parameter_name": "Number Sent",
+        "title": "Number Sent",
+        "type": "number"
+      },
+      "parent_id": {
+        "default": "",
+        "description": "ID of the parent campaign if this is a child campaign.",
+        "examples": ["701XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "If this is a child campaign, provide the ID of its parent campaign to link them together. You can copy the parent campaign’s ID from Salesforce.",
+        "human_parameter_name": "Parent Campaign ID",
+        "title": "Parent Id",
+        "type": "string"
+      },
+      "start_date": {
+        "default": "",
+        "description": "Campaign start date in YYYY-MM-DD format.",
+        "examples": ["2024-01-01", "2024-06-15"],
+        "human_parameter_description": "The date the campaign begins (YYYY-MM-DD). This helps schedule and track the campaign timeline.",
+        "human_parameter_name": "Start Date",
+        "title": "Start Date",
+        "type": "string"
+      },
+      "status": {
+        "default": "",
+        "description": "Current status of the campaign.",
+        "examples": ["Planned", "In Progress", "Completed", "Aborted"],
+        "human_parameter_description": "Set the campaign’s current status (such as Planned, In Progress, or Completed) so others know where it stands.",
+        "human_parameter_name": "Campaign Status",
+        "title": "Status",
+        "type": "string"
+      },
+      "type": {
+        "default": "",
+        "description": "Type of campaign.",
+        "examples": [
+          "Conference",
+          "Webinar",
+          "Email",
+          "Telemarketing",
+          "Advertisement",
+          "Partners",
+          "Public Relations",
+          "Other"
+        ],
+        "human_parameter_description": "Choose the kind of campaign (for example, Email, Webinar, or Conference) to categorize it for reporting.",
+        "human_parameter_name": "Campaign Type",
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "CreateCampaignRequest",
+    "type": "object"
+  },
+  "name": "create_campaign",
+  "outputSchema": {
+    "$defs": {
+      "CreateCampaignResponse": {
+        "description": "Response from creating a campaign in Salesforce.",
+        "properties": {
+          "errors": {
+            "description": "Array of error objects. Empty array when the operation is successful. Contains error details when success is false.",
+            "items": {
+              "$ref": "#/$defs/ErrorDetail"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The unique Salesforce ID of the newly created Campaign record. This field is present when success is true.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the create operation was successful. Returns true for successful operations, false otherwise.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success", "errors"],
+        "title": "CreateCampaignResponse",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "description": "Represents an error detail from a Salesforce API response.",
+        "properties": {
+          "errorCode": {
+            "description": "A string identifier for the specific type of error (e.g., MALFORMED_ID, FIELD_CUSTOM_VALIDATION_EXCEPTION, REQUIRED_FIELD_MISSING).",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Array of field names that caused the error. May be empty if the error is not specific to particular fields.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "A descriptive text message explaining what went wrong with the operation.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["errorCode", "message", "fields"],
+        "title": "ErrorDetail",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateCampaignResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

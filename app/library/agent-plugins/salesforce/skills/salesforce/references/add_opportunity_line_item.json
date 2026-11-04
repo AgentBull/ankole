@@ -1,0 +1,182 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Adds a product (line item) to an opportunity. The product must exist in a pricebook entry that's associated with the opportunity's pricebook.",
+  "inputSchema": {
+    "properties": {
+      "custom_fields": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": "Dictionary of custom field API names and their values. Custom field names typically end with '__c'.",
+        "examples": [
+          {
+            "Discount_Code__c": "Q4PROMO",
+            "Line_Item_Category__c": "Services"
+          },
+          {
+            "External_Line_Item_ID__c": "OLI-1234"
+          }
+        ],
+        "human_parameter_description": "Provide any custom fields for OpportunityLineItem. Use the API field name (ending in '__c') as the key.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "description": {
+        "default": "",
+        "description": "Optional description for this line item.",
+        "examples": ["Premium support package", "Volume discount applied", "Custom configuration included"],
+        "human_parameter_description": "Optional notes about this line item to help teammates or the customer understand what’s included.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "discount": {
+        "description": "Discount percentage (0-100). Cannot be used with TotalPrice.",
+        "examples": [10, 25, 5.5],
+        "human_parameter_description": "The percentage discount to apply to the unit price. Use only if you’re pricing by unit, not when setting a total price.",
+        "human_parameter_name": "Discount",
+        "title": "Discount",
+        "type": "number"
+      },
+      "opportunity_id": {
+        "description": "The Salesforce ID of the opportunity to add a product to.",
+        "examples": ["006XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce ID of the opportunity you want to add this product to. Paste the record ID (usually starts with 006) for that specific opportunity.",
+        "human_parameter_name": "Opportunity ID",
+        "title": "Opportunity Id",
+        "type": "string"
+      },
+      "pricebook_entry_id": {
+        "description": "The ID of the PricebookEntry that contains the product and price information. This links to a specific product in a specific pricebook. Entry must be active and match the opportunity's pricebook and currency; mismatches cause REQUIRED_FIELD_MISSING or INVALID_CROSS_REFERENCE_KEY errors. Use SALESFORCE_LIST_PRICEBOOK_ENTRIES to find valid entries.",
+        "examples": ["01uXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The product and price you’re adding to the opportunity. Provide the Pricebook Entry ID (usually starts with 01u) from the correct pricebook.",
+        "human_parameter_name": "Pricebook Entry ID",
+        "title": "Pricebook Entry Id",
+        "type": "string"
+      },
+      "quantity": {
+        "description": "The quantity of the product to add.",
+        "examples": [1, 5, 10, 100],
+        "human_parameter_description": "How many units of the product you want to add. Enter a number like 1, 5, or 10.",
+        "human_parameter_name": "Quantity",
+        "title": "Quantity",
+        "type": "number"
+      },
+      "service_date": {
+        "description": "Service date for the product in YYYY-MM-DD format.",
+        "examples": ["2025-12-31", "2025-09-15"],
+        "human_parameter_description": "The date the service is delivered or the product is used. Enter in YYYY-MM-DD format.",
+        "human_parameter_name": "Service Date",
+        "title": "Service Date",
+        "type": "string"
+      },
+      "total_price": {
+        "description": "The total price for this line item. Cannot be used with UnitPrice or Discount.",
+        "examples": [500, 1000, 12500],
+        "human_parameter_description": "The full amount you want to charge for this line item. Use this when you know the total; don’t combine with unit price or discount.",
+        "human_parameter_name": "Total Price",
+        "title": "Total Price",
+        "type": "number"
+      },
+      "unit_price": {
+        "description": "The sales price per unit. Provide either unit_price or total_price — Salesforce does NOT auto-fill the price from the pricebook entry on insert, and omitting both fails with FIELD_INTEGRITY_EXCEPTION.",
+        "examples": [99.99, 1500, 25.5],
+        "human_parameter_description": "The price per unit you want to charge for this product. Provide this or a total price; don’t use both.",
+        "human_parameter_name": "Unit Price",
+        "title": "Unit Price",
+        "type": "number"
+      }
+    },
+    "required": ["opportunity_id", "pricebook_entry_id", "quantity"],
+    "title": "AddOpportunityLineItemRequest",
+    "type": "object"
+  },
+  "name": "add_opportunity_line_item",
+  "outputSchema": {
+    "$defs": {
+      "AddOpportunityLineItemResponse": {
+        "description": "Response from Salesforce after creating an OpportunityLineItem.",
+        "properties": {
+          "errors": {
+            "description": "Array of error objects. Empty array when the operation is successful.",
+            "items": {
+              "$ref": "#/$defs/ErrorDetail"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The unique Salesforce ID of the newly created OpportunityLineItem record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the operation was successful (true) or failed (false).",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "success", "errors"],
+        "title": "AddOpportunityLineItemResponse",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "description": "Represents an error returned by Salesforce API.",
+        "properties": {
+          "fields": {
+            "description": "Array of field names associated with the error. Empty array for record-level errors.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable description of the error that occurred.",
+            "title": "Message",
+            "type": "string"
+          },
+          "statusCode": {
+            "description": "The error code identifying the type of error (e.g., REQUIRED_FIELD_MISSING, UNABLE_TO_LOCK_ROW, MALFORMED_ID, INSUFFICIENT_ACCESS_ON_CROSS_REFERENCE_ENTITY).",
+            "title": "Status Code",
+            "type": "string"
+          }
+        },
+        "required": ["statusCode", "message", "fields"],
+        "title": "ErrorDetail",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddOpportunityLineItemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

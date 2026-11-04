@@ -62,6 +62,7 @@ import {
   pageAPI,
   pagesQuery,
   pageChildrenQuery,
+  cachedPageMap,
   cachedPages,
   limitPageTitle,
   type Page,
@@ -548,13 +549,13 @@ function NavigationTree({
     tree: pageTree,
     id: `root:${scope}`,
     availability: (sourceID, operation) => {
-      const source = cachedPages(client).find(page => page.id === sourceID)
+      const source = cachedPageMap(client).get(sourceID)
       return operation === 'inside' && source && canMovePage(source) && (scope === 'space' ? canCreateSpace : owner)
         ? 'available'
         : 'not-available'
     },
     onDrop: ({ source }) => {
-      const page = cachedPages(client).find(candidate => candidate.id === source)
+      const page = cachedPageMap(client).get(source)
       if (!page) return
       actions.move(page, rootRequest(scope, owner))
       if (!open) onToggleRoot()
@@ -709,14 +710,9 @@ function PageTreeRow({
     label,
     canDrag: canMove,
     availability: (sourceID, operation) =>
-      dropAvailability(
-        cachedPages(client),
-        cachedPages(client).find(candidate => candidate.id === sourceID),
-        page,
-        operation
-      ),
+      dropAvailability(cachedPages(client), cachedPageMap(client).get(sourceID), page, operation),
     onDrop: ({ source, operation }) => {
-      const moving = cachedPages(client).find(candidate => candidate.id === source)
+      const moving = cachedPageMap(client).get(source)
       if (!moving) return
       actions.move(moving, dropRequest(page, operation))
       if (operation === 'inside' && !open) togglePage(page.id)

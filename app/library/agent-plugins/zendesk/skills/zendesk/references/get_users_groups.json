@@ -1,0 +1,173 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List groups a specific Zendesk user belongs to, with page and per-page parameters, optional exclusion of deleted groups, and sorting. Use it to audit team memberships or retrieve a user's support groups.",
+  "inputSchema": {
+    "description": "Request parameters for listing groups for a specific Zendesk user.",
+    "properties": {
+      "exclude_deleted": {
+        "description": "Whether to exclude deleted groups from the response.",
+        "examples": [false],
+        "title": "Exclude Deleted",
+        "type": "boolean"
+      },
+      "include_boundary_indicators": {
+        "description": "When true, includes `has_more` indicator in the cursor pagination response meta. Only valid with cursor pagination (page[size], page[after], page[before]).",
+        "examples": [true],
+        "title": "Include Boundary Indicators",
+        "type": "boolean"
+      },
+      "include_item_cursors": {
+        "description": "When true, includes cursor values for each item in the cursor pagination response. Only valid with cursor pagination (page[size], page[after], page[before]).",
+        "examples": [true],
+        "title": "Include Item Cursors",
+        "type": "boolean"
+      },
+      "page": {
+        "description": "Pagination parameter. Supports both traditional offset and cursor-based pagination: traditional uses `?page=2` (integer page number); cursor uses `?page[size]=50&page[after]=cursor`. These are mutually exclusive.",
+        "examples": ["2"],
+        "title": "Page",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Number of records to return per page. Default and maximum values vary by endpoint.",
+        "examples": [50],
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort": {
+        "description": "Field to sort results by. Prefix with `-` for descending order. Example: `?sort=name` or `?sort=-created_at`",
+        "examples": ["name"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "user_id": {
+        "description": "The numeric ID of the user. Returns groups that this user belongs to.",
+        "examples": [35436],
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id"],
+    "title": "GetUsersGroupsRequest",
+    "type": "object"
+  },
+  "name": "get_users_groups",
+  "outputSchema": {
+    "$defs": {
+      "GetUsersGroupsResponse": {
+        "description": "Response containing list of groups for a Zendesk user.",
+        "properties": {
+          "after_cursor": {
+            "description": "Cursor for next page (cursor pagination only)",
+            "title": "After Cursor",
+            "type": "string"
+          },
+          "before_cursor": {
+            "description": "Cursor for previous page (cursor pagination only)",
+            "title": "Before Cursor",
+            "type": "string"
+          },
+          "count": {
+            "description": "Total count of groups (offset pagination only)",
+            "title": "Count",
+            "type": "integer"
+          },
+          "groups": {
+            "description": "List of groups the user belongs to",
+            "items": {
+              "$ref": "#/$defs/ZendeskGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether more results are available (cursor pagination only)",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_page": {
+            "description": "URL for next page of results (offset pagination)",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results (offset pagination)",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["groups"],
+        "title": "GetUsersGroupsResponse",
+        "type": "object"
+      },
+      "ZendeskGroup": {
+        "description": "Zendesk group object.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the group was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether this is the default group",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "deleted": {
+            "description": "Whether the group is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Group description",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique group ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_public": {
+            "description": "Whether the group is public",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Group name",
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the group was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the group",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "title": "ZendeskGroup",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUsersGroupsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

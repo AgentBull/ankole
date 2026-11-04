@@ -9,6 +9,8 @@ defmodule AnkoleWeb.Plugs.RequestHost do
   @callback login_url(Ankole.Tenants.Tenant.t() | nil, map()) :: String.t()
   @callback membership_login_url(Plug.Conn.t(), Ankole.Tenants.Tenant.t(), atom(), map()) ::
               {:ok, String.t()} | {:error, atom()}
+  @callback site_admin_console_origin() :: String.t()
+  @optional_callbacks site_admin_console_origin: 0
   @policy Application.compile_env(:ankole, :host_policy)
 
   @doc "Returns the origin of the proxy-normalized request."

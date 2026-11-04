@@ -1,0 +1,94 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Removes a user (who is not an owner) from an organization by their membership UUID, requiring administrative privileges.",
+  "inputSchema": {
+    "description": "Request schema for removing a user from an organization.",
+    "properties": {
+      "uuid": {
+        "description": "The UUID of the organization membership to remove. This is the unique identifier from the membership URI (e.g., from 'https://api.calendly.com/organization_memberships/UUID'). Get membership UUIDs by calling list_organization_memberships. Note: Cannot remove organization owners - use this for admin or user roles only.",
+        "examples": ["34190604-bb77-4f51-8486-7e096b18b12d"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "RemoveUserFromOrganizationRequest",
+    "type": "object"
+  },
+  "name": "remove_user_from_organization",
+  "outputSchema": {
+    "$defs": {
+      "ErrorDetail": {
+        "description": "Detailed error information for validation errors.",
+        "properties": {
+          "code": {
+            "description": "Error code for the parameter validation failure.",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "description": "Specific error message about the parameter.",
+            "title": "Message",
+            "type": "string"
+          },
+          "parameter": {
+            "description": "Name of the parameter that caused the error.",
+            "title": "Parameter",
+            "type": "string"
+          }
+        },
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "RemoveUserFromOrganizationResponse": {
+        "description": "Response schema for removing a user from an organization.\n\nFor successful operations (204), the response body is empty and all fields will be None.\nFor error responses (400, 401, 403, 404, 500), the response contains error details.",
+        "properties": {
+          "details": {
+            "description": "Array of detailed error information, typically included for validation errors.",
+            "items": {
+              "$ref": "#/$defs/ErrorDetail"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable error message describing what went wrong.",
+            "title": "Message",
+            "type": "string"
+          },
+          "status_code": {
+            "description": "HTTP status code of the response.",
+            "title": "Status Code",
+            "type": "integer"
+          },
+          "success": {
+            "description": "Indicates whether the operation was successful. True for 204 responses, False for errors.",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "Error title indicating the type of error (e.g., 'Invalid Argument', 'Unauthenticated', 'Forbidden', 'Not Found', 'Unknown').",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "RemoveUserFromOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RemoveUserFromOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

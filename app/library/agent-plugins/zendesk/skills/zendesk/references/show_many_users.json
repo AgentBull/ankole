@@ -1,0 +1,432 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve multiple Zendesk users by their numeric IDs or external IDs. Use when you have a list of user IDs (from ticket payloads, search results, etc.) and need to fetch full user details for multiple users at once. Accepts up to 100 IDs per request. Provide either `ids` or `external_ids`, not both.",
+  "inputSchema": {
+    "description": "Request parameters for showing multiple users by ID or external ID.",
+    "properties": {
+      "external_ids": {
+        "description": "Comma-separated list of up to 100 external IDs to retrieve users by. Provide either ids or external_ids, not both.",
+        "examples": ["abc,def"],
+        "human_parameter_description": "Enter the external IDs you want to retrieve users by, separated by commas (e.g., abc,def). You can specify up to 100 external IDs at once.",
+        "human_parameter_name": "External IDs",
+        "title": "External Ids",
+        "type": "string"
+      },
+      "ids": {
+        "description": "Comma-separated list of up to 100 user IDs to retrieve (e.g., '1,2,3'). Provide either ids or external_ids, not both.",
+        "examples": ["1,2,3"],
+        "human_parameter_description": "Enter the user IDs you want to retrieve, separated by commas (e.g., 1,2,3). You can specify up to 100 IDs at once.",
+        "human_parameter_name": "User IDs",
+        "title": "Ids",
+        "type": "string"
+      },
+      "include": {
+        "description": "A comma-separated list of sideloads to include. Available sideloads: 'roles', 'organizations', 'fields', 'photo'. See Zendesk docs for sideloading details.",
+        "examples": ["roles,organizations"],
+        "human_parameter_description": "Choose related data to include with each user, such as roles or organizations. Separate multiple with commas.",
+        "human_parameter_name": "Include Sideloads",
+        "title": "Include",
+        "type": "string"
+      },
+      "include_deleted": {
+        "description": "If true, returns inactive or deleted users in the response.",
+        "examples": [false],
+        "human_parameter_description": "Enable this option to include inactive or deleted users in the results.",
+        "human_parameter_name": "Include Deleted",
+        "title": "Include Deleted",
+        "type": "boolean"
+      }
+    },
+    "title": "ShowManyUsersRequest",
+    "type": "object"
+  },
+  "name": "show_many_users",
+  "outputSchema": {
+    "$defs": {
+      "AttachmentThumbnail": {
+        "description": "Attachment thumbnail object for user photos.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type (e.g., image/png)",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL where the thumbnail can be downloaded",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "True if attachment is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Thumbnail filename",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Thumbnail attachment ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "True if inline attachment",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "mapped_content_url": {
+            "description": "Mapped URL for the thumbnail",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "API URL to access attachment details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "AttachmentThumbnail",
+        "type": "object"
+      },
+      "ShowManyUsersResponse": {
+        "description": "Response containing users matching the requested IDs.",
+        "properties": {
+          "count": {
+            "description": "Total number of users returned",
+            "title": "Count",
+            "type": "integer"
+          },
+          "users": {
+            "description": "List of users matching the requested IDs or external IDs",
+            "items": {
+              "$ref": "#/$defs/ZendeskUserDetailed"
+            },
+            "title": "Users",
+            "type": "array"
+          }
+        },
+        "required": ["users"],
+        "title": "ShowManyUsersResponse",
+        "type": "object"
+      },
+      "UserPhotoAttachment": {
+        "description": "User photo object represented as an Attachment.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type (e.g., image/png)",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL where the thumbnail can be downloaded",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "True if attachment is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Thumbnail filename",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Thumbnail attachment ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "True if inline attachment",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malware_access_override": {
+            "description": "True if malware-flagged file can be downloaded",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malware_scan_result": {
+            "description": "Malware scan result status",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mapped_content_url": {
+            "description": "Mapped URL for the thumbnail",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "List of thumbnail versions",
+            "items": {
+              "$ref": "#/$defs/AttachmentThumbnail"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          },
+          "url": {
+            "description": "API URL to access attachment details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "UserPhotoAttachment",
+        "type": "object"
+      },
+      "ZendeskUserDetailed": {
+        "description": "Detailed Zendesk user object.",
+        "properties": {
+          "locale": {
+            "description": "User locale",
+            "title": "Locale",
+            "type": "string"
+          },
+          "remote_photo_url": {
+            "description": "Remote photo URL",
+            "title": "Remote Photo Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Notes on the user profile",
+            "title": "Notes",
+            "type": "string"
+          },
+          "role_type": {
+            "description": "Role type ID",
+            "title": "Role Type",
+            "type": "integer"
+          },
+          "external_id": {
+            "description": "External system ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the user was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "iana_time_zone": {
+            "description": "IANA timezone",
+            "title": "Iana Time Zone",
+            "type": "string"
+          },
+          "two_factor_auth_enabled": {
+            "description": "True if 2FA is enabled",
+            "title": "Two Factor Auth Enabled",
+            "type": "boolean"
+          },
+          "details": {
+            "description": "User details",
+            "title": "Details",
+            "type": "string"
+          },
+          "only_private_comments": {
+            "description": "True if user can only make private comments",
+            "title": "Only Private Comments",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "List of user tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Timestamp when the user was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "phone": {
+            "description": "User phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Locale ID",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User's full name",
+            "title": "Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's primary email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "alias": {
+            "description": "User alias",
+            "title": "Alias",
+            "type": "string"
+          },
+          "shared_agent": {
+            "description": "True if agent is shared",
+            "title": "Shared Agent",
+            "type": "boolean"
+          },
+          "custom_role_id": {
+            "description": "Custom role ID",
+            "title": "Custom Role Id",
+            "type": "integer"
+          },
+          "restricted_agent": {
+            "description": "True if agent is restricted",
+            "title": "Restricted Agent",
+            "type": "boolean"
+          },
+          "moderator": {
+            "description": "True if user is a moderator",
+            "title": "Moderator",
+            "type": "boolean"
+          },
+          "role": {
+            "description": "User role (end-user, agent, admin)",
+            "title": "Role",
+            "type": "string"
+          },
+          "report_csv": {
+            "description": "True if user can access CSV reports",
+            "title": "Report Csv",
+            "type": "boolean"
+          },
+          "last_login_at": {
+            "description": "Timestamp of last login",
+            "title": "Last Login At",
+            "type": "string"
+          },
+          "signature": {
+            "description": "User signature",
+            "title": "Signature",
+            "type": "string"
+          },
+          "verified": {
+            "description": "True if user is verified",
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "suspended": {
+            "description": "True if user is suspended",
+            "title": "Suspended",
+            "type": "boolean"
+          },
+          "user_fields": {
+            "additionalProperties": true,
+            "description": "Custom user fields with admin-defined keys and dynamic values",
+            "title": "User Fields",
+            "type": "object"
+          },
+          "active": {
+            "description": "True if the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "photo": {
+            "$ref": "#/$defs/UserPhotoAttachment",
+            "description": "User photo object",
+            "title": "Photo"
+          },
+          "ticket_restriction": {
+            "description": "Ticket restriction level",
+            "title": "Ticket Restriction",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User timezone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "shared_phone_number": {
+            "description": "True if phone number is shared",
+            "title": "Shared Phone Number",
+            "type": "boolean"
+          },
+          "shared": {
+            "description": "True if user is shared",
+            "title": "Shared",
+            "type": "boolean"
+          },
+          "chat_only": {
+            "description": "True if user is chat-only (Zendesk Chat)",
+            "title": "Chat Only",
+            "type": "boolean"
+          },
+          "default_group_id": {
+            "description": "Default group ID",
+            "title": "Default Group Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "Organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "ZendeskUserDetailed",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ShowManyUsersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

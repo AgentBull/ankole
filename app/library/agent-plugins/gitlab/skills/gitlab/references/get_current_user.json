@@ -1,0 +1,418 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves information about the currently authenticated user. Use this action when you need to get details about the user who owns the authentication token, such as their profile information, permissions, and settings.",
+  "inputSchema": {
+    "description": "No parameters are required for this request.",
+    "properties": {},
+    "title": "GetCurrentUserRequest",
+    "type": "object"
+  },
+  "name": "get_current_user",
+  "outputSchema": {
+    "$defs": {
+      "CreatorUser": {
+        "properties": {
+          "avatar_url": {
+            "description": "URL to the creator's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the user who created this account.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "The full name of the creator.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "The state of the creator's account.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of the creator.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "URL to the creator's profile page.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "name", "state", "web_url"],
+        "title": "CreatorUser",
+        "type": "object"
+      },
+      "GetCurrentUserResponse": {
+        "properties": {
+          "last_sign_in_at": {
+            "description": "Timestamp of the user's last sign-in.",
+            "format": "date-time",
+            "title": "Last Sign In At",
+            "type": "string"
+          },
+          "skype": {
+            "description": "The user's Skype ID.",
+            "title": "Skype",
+            "type": "string"
+          },
+          "current_sign_in_at": {
+            "description": "Timestamp of the user's current sign-in.",
+            "format": "date-time",
+            "title": "Current Sign In At",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of the current user.",
+            "title": "Username",
+            "type": "string"
+          },
+          "can_create_project": {
+            "description": "Whether the user can create projects.",
+            "title": "Can Create Project",
+            "type": "boolean"
+          },
+          "location": {
+            "description": "The user's location.",
+            "title": "Location",
+            "type": "string"
+          },
+          "confirmed_at": {
+            "description": "Timestamp of when the user confirmed their account.",
+            "format": "date-time",
+            "title": "Confirmed At",
+            "type": "string"
+          },
+          "projects_limit": {
+            "description": "The number of projects the user can create.",
+            "title": "Projects Limit",
+            "type": "integer"
+          },
+          "following": {
+            "description": "The number of users this user is following.",
+            "title": "Following",
+            "type": "integer"
+          },
+          "plan": {
+            "description": "The user's subscription plan (GitLab EE).",
+            "title": "Plan",
+            "type": "string"
+          },
+          "external": {
+            "description": "Whether the user is an external user.",
+            "title": "External",
+            "type": "boolean"
+          },
+          "sign_in_count": {
+            "description": "The number of times the user has signed in.",
+            "title": "Sign In Count",
+            "type": "integer"
+          },
+          "namespace_id": {
+            "description": "The ID of the user's personal namespace.",
+            "title": "Namespace Id",
+            "type": "integer"
+          },
+          "shared_runners_minutes_limit": {
+            "description": "Shared runners minutes limit for the user (GitLab Premium/Ultimate).",
+            "title": "Shared Runners Minutes Limit",
+            "type": "integer"
+          },
+          "two_factor_enabled": {
+            "description": "Whether two-factor authentication is enabled for the user.",
+            "title": "Two Factor Enabled",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Timestamp of when the user account was created.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "provisioned_by_group_id": {
+            "description": "ID of the group that provisioned the user via SAML (GitLab.com Premium/Ultimate).",
+            "title": "Provisioned By Group Id",
+            "type": "integer"
+          },
+          "color_scheme_id": {
+            "description": "The user's color scheme ID.",
+            "title": "Color Scheme Id",
+            "type": "integer"
+          },
+          "can_create_group": {
+            "description": "Whether the user can create groups.",
+            "title": "Can Create Group",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The full name of the current user.",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization": {
+            "description": "The user's organization.",
+            "title": "Organization",
+            "type": "string"
+          },
+          "email": {
+            "description": "The email address of the current user.",
+            "title": "Email",
+            "type": "string"
+          },
+          "is_auditor": {
+            "description": "Whether the user is an auditor (GitLab Premium/Ultimate).",
+            "title": "Is Auditor",
+            "type": "boolean"
+          },
+          "current_sign_in_ip": {
+            "description": "The IP address of the user's current sign-in.",
+            "title": "Current Sign In Ip",
+            "type": "string"
+          },
+          "twitter": {
+            "description": "The user's Twitter handle.",
+            "title": "Twitter",
+            "type": "string"
+          },
+          "linkedin": {
+            "description": "The user's LinkedIn profile name.",
+            "title": "Linkedin",
+            "type": "string"
+          },
+          "commit_email": {
+            "description": "The user's commit email address.",
+            "title": "Commit Email",
+            "type": "string"
+          },
+          "local_time": {
+            "description": "The user's local time.",
+            "title": "Local Time",
+            "type": "string"
+          },
+          "last_activity_on": {
+            "description": "Date of the user's last activity.",
+            "title": "Last Activity On",
+            "type": "string"
+          },
+          "note": {
+            "description": "Administrator notes for the user.",
+            "title": "Note",
+            "type": "string"
+          },
+          "preferred_language": {
+            "description": "The user's preferred language.",
+            "title": "Preferred Language",
+            "type": "string"
+          },
+          "is_followed": {
+            "description": "Whether the currently authenticated user follows this user.",
+            "title": "Is Followed",
+            "type": "boolean"
+          },
+          "last_sign_in_ip": {
+            "description": "The IP address of the user's last sign-in.",
+            "title": "Last Sign In Ip",
+            "type": "string"
+          },
+          "public_email": {
+            "description": "The user's public email address.",
+            "title": "Public Email",
+            "type": "string"
+          },
+          "trial": {
+            "description": "Whether the user is on a trial plan (GitLab EE).",
+            "title": "Trial",
+            "type": "boolean"
+          },
+          "extra_shared_runners_minutes_limit": {
+            "description": "Extra shared runners minutes limit for the user (GitLab Premium/Ultimate).",
+            "title": "Extra Shared Runners Minutes Limit",
+            "type": "integer"
+          },
+          "web_url": {
+            "description": "URL to the user's profile page.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "bot": {
+            "description": "Whether the user is a bot account.",
+            "title": "Bot",
+            "type": "boolean"
+          },
+          "scim_identities": {
+            "description": "SCIM identities for the user (GitLab.com Premium/Ultimate).",
+            "items": {
+              "$ref": "#/$defs/ScimIdentity"
+            },
+            "title": "Scim Identities",
+            "type": "array"
+          },
+          "identities": {
+            "description": "List of identities associated with the user.",
+            "items": {
+              "$ref": "#/$defs/UserIdentity"
+            },
+            "title": "Identities",
+            "type": "array"
+          },
+          "work_information": {
+            "description": "Information about the user's work.",
+            "title": "Work Information",
+            "type": "string"
+          },
+          "private_profile": {
+            "description": "Whether the user's profile is private.",
+            "title": "Private Profile",
+            "type": "boolean"
+          },
+          "state": {
+            "description": "The state of the user account (e.g., \"active\", \"blocked\").",
+            "title": "State",
+            "type": "string"
+          },
+          "job_title": {
+            "description": "The user's job title.",
+            "title": "Job Title",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique ID of the current user.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "using_license_seat": {
+            "description": "Whether the user is using a license seat (GitLab Premium/Ultimate).",
+            "title": "Using License Seat",
+            "type": "boolean"
+          },
+          "is_admin": {
+            "description": "Whether the user is an administrator.",
+            "title": "Is Admin",
+            "type": "boolean"
+          },
+          "followers": {
+            "description": "The number of followers the user has.",
+            "title": "Followers",
+            "type": "integer"
+          },
+          "email_reset_offered_at": {
+            "description": "Timestamp when an email reset was offered.",
+            "format": "date-time",
+            "title": "Email Reset Offered At",
+            "type": "string"
+          },
+          "discord": {
+            "description": "The user's Discord ID.",
+            "title": "Discord",
+            "type": "string"
+          },
+          "bio": {
+            "description": "The user's biography.",
+            "title": "Bio",
+            "type": "string"
+          },
+          "theme_id": {
+            "description": "The user's theme ID.",
+            "title": "Theme Id",
+            "type": "integer"
+          },
+          "pronouns": {
+            "description": "The user's pronouns.",
+            "title": "Pronouns",
+            "type": "string"
+          },
+          "locked": {
+            "description": "Whether the user account is locked.",
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "created_by": {
+            "$ref": "#/$defs/CreatorUser",
+            "description": "Information about the user who created this user account. Can be null.",
+            "title": "Created By"
+          },
+          "github": {
+            "description": "The user's GitHub username.",
+            "title": "Github",
+            "type": "string"
+          },
+          "website_url": {
+            "description": "The user's personal website URL.",
+            "title": "Website Url",
+            "type": "string"
+          },
+          "avatar_url": {
+            "description": "URL to the user's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "email", "name", "state", "locked", "web_url"],
+        "title": "GetCurrentUserResponse",
+        "type": "object"
+      },
+      "ScimIdentity": {
+        "properties": {
+          "active": {
+            "description": "Whether this SCIM identity is currently active.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "extern_uid": {
+            "description": "The external user ID from the SCIM provider.",
+            "title": "Extern Uid",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "The group ID associated with this SCIM identity.",
+            "title": "Group Id",
+            "type": "string"
+          }
+        },
+        "required": ["extern_uid", "group_id", "active"],
+        "title": "ScimIdentity",
+        "type": "object"
+      },
+      "UserIdentity": {
+        "properties": {
+          "extern_uid": {
+            "description": "The external user ID from the provider.",
+            "title": "Extern Uid",
+            "type": "string"
+          },
+          "provider": {
+            "description": "The identity provider name.",
+            "title": "Provider",
+            "type": "string"
+          },
+          "saml_provider_id": {
+            "description": "The SAML provider ID if applicable.",
+            "title": "Saml Provider Id",
+            "type": "integer"
+          }
+        },
+        "required": ["provider", "extern_uid"],
+        "title": "UserIdentity",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCurrentUserResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

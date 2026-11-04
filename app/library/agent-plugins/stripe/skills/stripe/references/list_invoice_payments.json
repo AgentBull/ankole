@@ -1,0 +1,213 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list all payments for invoices in Stripe. Use when you need to retrieve payment information associated with invoices, including pagination and filtering by invoice ID, status, or creation date.",
+  "inputSchema": {
+    "properties": {
+      "created": {
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "description": "Filter by creation timestamp. Use keys 'gt' (greater than), 'gte' (greater than or equal), 'lt' (less than), 'lte' (less than or equal) with Unix timestamp values.",
+        "examples": ["{'gte': 1609459200, 'lte': 1640995200}", "{'gt': 1609459200}"],
+        "title": "Created",
+        "type": "object"
+      },
+      "ending_before": {
+        "description": "Cursor for pagination; fetch results before this invoice payment ID. Use an invoice payment ID from a previous response to fetch the previous page.",
+        "examples": ["invpay_0987654321"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "invoice": {
+        "description": "The invoice identifier whose payments should be returned. If omitted, returns all invoice payments.",
+        "examples": ["in_1234567890"],
+        "title": "Invoice",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Number of objects to return (1-100). Defaults to 10 if not specified.",
+        "examples": ["10", "25", "100"],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "starting_after": {
+        "description": "Cursor for pagination; fetch results after this invoice payment ID. Use an invoice payment ID from a previous response to fetch the next page.",
+        "examples": ["invpay_1234567890"],
+        "title": "Starting After",
+        "type": "string"
+      },
+      "status": {
+        "description": "Filter by payment status. Possible values: 'paid', 'open', or 'canceled'.",
+        "examples": ["paid", "open", "canceled"],
+        "title": "Status",
+        "type": "string"
+      }
+    },
+    "title": "ListInvoicePaymentsRequest",
+    "type": "object"
+  },
+  "name": "list_invoice_payments",
+  "outputSchema": {
+    "$defs": {
+      "InvoicePayment": {
+        "properties": {
+          "amount_paid": {
+            "description": "Amount paid in cents. Can be null for unpaid invoices.",
+            "title": "Amount Paid",
+            "type": "integer"
+          },
+          "amount_requested": {
+            "description": "Amount requested in cents.",
+            "title": "Amount Requested",
+            "type": "integer"
+          },
+          "created": {
+            "description": "Unix timestamp of creation.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Currency code (e.g., 'usd').",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique invoice payment identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "Associated invoice ID.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "is_default": {
+            "description": "Whether this is the default payment.",
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "livemode": {
+            "description": "Whether request used live API credentials.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "Object type, always 'invoice_payment'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "payment": {
+            "$ref": "#/$defs/PaymentDetails",
+            "description": "Payment details object.",
+            "title": "Payment"
+          },
+          "status": {
+            "description": "Current status: 'paid', 'open', or 'canceled'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "status_transitions": {
+            "$ref": "#/$defs/StatusTransitions",
+            "description": "Status change timestamps.",
+            "title": "Status Transitions"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "currency",
+          "invoice",
+          "status",
+          "payment",
+          "status_transitions",
+          "livemode"
+        ],
+        "title": "InvoicePayment",
+        "type": "object"
+      },
+      "ListInvoicePaymentsResponse": {
+        "properties": {
+          "data": {
+            "description": "Array of invoice_payment objects.",
+            "items": {
+              "$ref": "#/$defs/InvoicePayment"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether additional pages exist.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "Endpoint URL path '/v1/invoice_payments'.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "ListInvoicePaymentsResponse",
+        "type": "object"
+      },
+      "PaymentDetails": {
+        "properties": {
+          "payment_intent": {
+            "description": "Associated PaymentIntent ID if type is 'payment_intent'.",
+            "title": "Payment Intent",
+            "type": "string"
+          },
+          "payment_record": {
+            "description": "Associated PaymentRecord ID if type is 'payment_record'.",
+            "title": "Payment Record",
+            "type": "string"
+          },
+          "type": {
+            "description": "Payment type: 'payment_intent' or 'payment_record'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "PaymentDetails",
+        "type": "object"
+      },
+      "StatusTransitions": {
+        "properties": {
+          "canceled_at": {
+            "description": "Unix timestamp when marked as canceled.",
+            "title": "Canceled At",
+            "type": "integer"
+          },
+          "paid_at": {
+            "description": "Unix timestamp when marked as paid.",
+            "title": "Paid At",
+            "type": "integer"
+          }
+        },
+        "title": "StatusTransitions",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListInvoicePaymentsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a Trello board by its ID. This is an irreversible action that removes the board and all its contents.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteBoard`",
+    "properties": {
+      "id": {
+        "description": "The unique identifier of the board to delete. Must be a valid Trello board ID.",
+        "examples": ["6973c9334ab3c508e9e2267a", "5f2f890c8c7f0f0013e1a3b1"],
+        "title": "Id",
+        "type": "string"
+      }
+    },
+    "required": ["id"],
+    "title": "DeleteBoardRequest",
+    "type": "object"
+  },
+  "name": "delete_board",
+  "outputSchema": {
+    "$defs": {
+      "DeleteBoardResponse": {
+        "description": "Response schema for `DeleteBoard`\n\nThe DELETE /1/boards/{id} endpoint returns a 200 OK status code with an empty\nresponse body upon successful deletion. No fields are returned in the response.",
+        "properties": {},
+        "title": "DeleteBoardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteBoardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

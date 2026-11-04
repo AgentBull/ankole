@@ -1,0 +1,173 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List all followers on a Zendesk ticket. Use when you need to see who is following a ticket, such as when coordinating with stakeholders or managing ticket notifications. Followers receive notifications about the ticket. Each follower is a user object with basic profile information. Paginate through results using page and per_page parameters.",
+  "inputSchema": {
+    "description": "Request parameters for listing followers on a Zendesk ticket.",
+    "properties": {
+      "page": {
+        "description": "Page number for pagination (starts at 1).",
+        "examples": [1],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of followers per page (max 100).",
+        "examples": [25],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "ticket_id": {
+        "description": "The numeric ID of the ticket whose followers to retrieve.",
+        "examples": [123456],
+        "human_parameter_description": "The Zendesk ticket ID for which you want to list all followers. You can find this in the ticket URL.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "GetTicketFollowersRequest",
+    "type": "object"
+  },
+  "name": "get_ticket_followers",
+  "outputSchema": {
+    "$defs": {
+      "FollowerUser": {
+        "description": "User object representing a ticket follower.",
+        "properties": {
+          "active": {
+            "description": "True if the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Timestamp when the user was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_role_id": {
+            "description": "Custom role ID",
+            "title": "Custom Role Id",
+            "type": "integer"
+          },
+          "email": {
+            "description": "User's email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External system ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "locale": {
+            "description": "User's locale",
+            "title": "Locale",
+            "type": "string"
+          },
+          "name": {
+            "description": "User's full name",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "ID of the user's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "phone": {
+            "description": "User's phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "photo": {
+            "additionalProperties": true,
+            "description": "User profile photo object",
+            "title": "Photo",
+            "type": "object"
+          },
+          "role": {
+            "description": "User role (end-user, agent, admin)",
+            "title": "Role",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User's timezone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the user was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          },
+          "verified": {
+            "description": "True if the email is verified",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "title": "FollowerUser",
+        "type": "object"
+      },
+      "GetTicketFollowersResponse": {
+        "description": "Response containing list of followers on a Zendesk ticket.",
+        "properties": {
+          "count": {
+            "description": "Total number of followers",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for the next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for the previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "users": {
+            "description": "List of followers on the ticket",
+            "items": {
+              "$ref": "#/$defs/FollowerUser"
+            },
+            "title": "Users",
+            "type": "array"
+          }
+        },
+        "required": ["users", "count"],
+        "title": "GetTicketFollowersResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTicketFollowersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

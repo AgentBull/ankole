@@ -1,0 +1,138 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves the Trello list associated with a specific Trello action ID, for actions linked to a list.",
+  "inputSchema": {
+    "description": "Defines the request parameters for retrieving the list associated with a specific Trello action.",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Determines which fields to include in the response. Specify 'all' or a comma-separated list of valid field names. Valid fields are: 'closed', 'idBoard', 'name', 'pos', or 'subscribed'.",
+        "examples": ["name,pos", "all", "idBoard,closed"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idAction": {
+        "description": "The ID of the Trello action for which to retrieve the associated list.",
+        "examples": ["592f11060f95a3d3d46a987a"],
+        "title": "Id Action",
+        "type": "string"
+      }
+    },
+    "required": ["idAction"],
+    "title": "GetActionsListByIdActionRequest",
+    "type": "object"
+  },
+  "name": "get_actions_list_by_id_action",
+  "outputSchema": {
+    "$defs": {
+      "AttachmentLimits": {
+        "description": "Attachment limits for the list.",
+        "properties": {
+          "perBoard": {
+            "$ref": "#/$defs/AttachmentPerBoardLimit",
+            "description": "Per-board attachment limit information.",
+            "title": "Per Board"
+          }
+        },
+        "title": "AttachmentLimits",
+        "type": "object"
+      },
+      "AttachmentPerBoardLimit": {
+        "description": "Per-board attachment limit information.",
+        "properties": {
+          "disableAt": {
+            "description": "The threshold at which the feature is disabled.",
+            "title": "Disable At",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The status of the limit (e.g., 'ok', 'warning', 'disabled').",
+            "title": "Status",
+            "type": "string"
+          },
+          "warnAt": {
+            "description": "The threshold at which a warning is issued.",
+            "title": "Warn At",
+            "type": "integer"
+          }
+        },
+        "title": "AttachmentPerBoardLimit",
+        "type": "object"
+      },
+      "GetActionsListByIdActionResponse": {
+        "description": "Defines the response structure for the action that retrieves the list associated with a Trello action.\nReturns a TrelloList object with properties such as id, name, closed, pos, idBoard, and subscribed.",
+        "properties": {
+          "closed": {
+            "description": "Whether the list is archived/closed.",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The unique identifier for the list. Format: 24 hexadecimal characters (TrelloID).",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The unique identifier of the board this list belongs to.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/$defs/ListLimits",
+            "description": "Contains limit information for the list.",
+            "title": "Limits"
+          },
+          "name": {
+            "description": "The name of the list.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "The position of the list on the board.",
+            "title": "Pos",
+            "type": "number"
+          },
+          "softLimit": {
+            "description": "The soft limit for cards in the list.",
+            "title": "Soft Limit",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Whether the user is subscribed to the list.",
+            "title": "Subscribed",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "name", "closed", "pos", "idBoard"],
+        "title": "GetActionsListByIdActionResponse",
+        "type": "object"
+      },
+      "ListLimits": {
+        "description": "Contains limit information for the list.",
+        "properties": {
+          "attachments": {
+            "$ref": "#/$defs/AttachmentLimits",
+            "description": "Attachment limits for the list.",
+            "title": "Attachments"
+          }
+        },
+        "title": "ListLimits",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetActionsListByIdActionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

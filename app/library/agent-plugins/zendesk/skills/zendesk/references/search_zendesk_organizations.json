@@ -1,0 +1,166 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Search organizations in Zendesk by external ID or name. Returns an array of organizations matching the provided criteria. Use when you need to find specific organizations by their identifier or name. An empty organizations array with count=0 means no matches found. Multiple organizations may share similar names — verify the correct organization via external_id or domain_names before proceeding with operations.",
+  "inputSchema": {
+    "description": "Request parameters for searching Zendesk organizations.",
+    "properties": {
+      "external_id": {
+        "description": "The external id of an organization to search for. Case-insensitive external identifier for linking to external records.",
+        "examples": [1234],
+        "title": "External Id",
+        "type": "integer"
+      },
+      "name": {
+        "description": "The name of an organization to search for. Supports exact and partial matching.",
+        "examples": ["ACME Incorporated"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "title": "SearchZendeskOrganizationsRequest",
+    "type": "object"
+  },
+  "name": "search_zendesk_organizations",
+  "outputSchema": {
+    "$defs": {
+      "SearchZendeskOrganizationsResponse": {
+        "description": "Response model for searched Zendesk organizations.",
+        "properties": {
+          "count": {
+            "description": "Total number of organizations matching the query",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for the next page of results (null if no more pages)",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "organizations": {
+            "description": "List of matching organizations",
+            "items": {
+              "$ref": "#/$defs/ZendeskOrganization"
+            },
+            "title": "Organizations",
+            "type": "array"
+          },
+          "previous_page": {
+            "description": "URL for the previous page of results (null if first page)",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["count", "organizations"],
+        "title": "SearchZendeskOrganizationsResponse",
+        "type": "object"
+      },
+      "ZendeskOrganization": {
+        "description": "Zendesk organization object.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when organization was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "description": "Details about the organization (e.g., address)",
+            "title": "Details",
+            "type": "string"
+          },
+          "domain_names": {
+            "description": "Domain names associated with the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Domain Names",
+            "type": "array"
+          },
+          "external_id": {
+            "description": "Case-insensitive external identifier for linking to external records",
+            "title": "External Id",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "Group ID for automatic ticket routing",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Auto-assigned organization identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Unique organization name",
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Internal notes about the organization",
+            "title": "Notes",
+            "type": "string"
+          },
+          "organization_fields": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Custom field values for the organization",
+            "title": "Organization Fields",
+            "type": "object"
+          },
+          "shared_comments": {
+            "description": "Whether end users can comment on each other's tickets",
+            "title": "Shared Comments",
+            "type": "boolean"
+          },
+          "shared_tickets": {
+            "description": "Whether end users can view each other's tickets",
+            "title": "Shared Tickets",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "Organization tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "updated_at": {
+            "description": "Timestamp of the last update",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API endpoint URL for this organization",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ZendeskOrganization",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SearchZendeskOrganizationsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates a user's role on a specific Trello board using board and membership IDs, with optional member fields in the response.",
+  "inputSchema": {
+    "description": "Updates a specific Trello board membership.",
+    "properties": {
+      "idBoard": {
+        "description": "Unique identifier of the Trello board.",
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idMembership": {
+        "description": "Unique identifier of the membership to be updated.",
+        "title": "Id Membership",
+        "type": "string"
+      },
+      "member_fields": {
+        "description": "Fields for the member to include in the response. Use 'all' or a comma-separated list (e.g., avatarHash, bio, fullName).",
+        "examples": ["all", "fullName,username,initials"],
+        "title": "Member Fields",
+        "type": "string"
+      },
+      "type": {
+        "description": "New role for the member on the board, determining their permissions. Must be 'admin', 'normal', or 'observer'.",
+        "examples": ["admin", "normal", "observer"],
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard", "idMembership"],
+    "title": "UpdateBoardMembershipRequest",
+    "type": "object"
+  },
+  "name": "update_board_membership",
+  "outputSchema": {
+    "$defs": {
+      "Member": {
+        "description": "Nested member object containing details about the member.",
+        "properties": {
+          "avatarHash": {
+            "description": "Hash of the member's avatar image",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the member's avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "bio": {
+            "description": "Biography text of the member",
+            "title": "Bio",
+            "type": "string"
+          },
+          "bioData": {
+            "additionalProperties": true,
+            "description": "Structured biography data of the member",
+            "title": "Bio Data",
+            "type": "object"
+          },
+          "confirmed": {
+            "description": "Whether the member's account has been confirmed",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "fullName": {
+            "description": "Full name of the member",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "initials": {
+            "description": "Initials of the member",
+            "title": "Initials",
+            "type": "string"
+          },
+          "memberType": {
+            "description": "Type of the member account",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "products": {
+            "description": "List of Trello products the member has access to",
+            "items": {},
+            "title": "Products",
+            "type": "array"
+          },
+          "status": {
+            "description": "Status of the member account",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to the member's Trello profile",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the member",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "Member",
+        "type": "object"
+      },
+      "UpdateBoardMembershipResponse": {
+        "description": "Details of the updated board membership.",
+        "properties": {
+          "deactivated": {
+            "description": "Whether the membership has been deactivated",
+            "title": "Deactivated",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier of the board membership",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "Unique identifier of the member who has this membership",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "member": {
+            "$ref": "#/$defs/Member",
+            "description": "Nested member object containing details about the member. Included when member_fields parameter is used.",
+            "title": "Member"
+          },
+          "memberType": {
+            "description": "Type of membership on the board. Valid values include 'admin', 'normal', and 'observer'",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "unconfirmed": {
+            "description": "Whether the membership invitation has not yet been confirmed by the member",
+            "title": "Unconfirmed",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "idMember", "memberType", "unconfirmed"],
+        "title": "UpdateBoardMembershipResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateBoardMembershipResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

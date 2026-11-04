@@ -1,0 +1,239 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves summarized event statistics for a Sentry organization, aggregated by project, allowing queries for event counts or unique occurrences over a specified time period and resolution, with filtering by project, category, and outcome.",
+  "inputSchema": {
+    "description": "Request schema for `GetOrganizationStatsSummary`",
+    "properties": {
+      "category": {
+        "description": "Filter by event category. If 'attachment', other categories cannot be included. If 'error', `default` and `security` are also included.",
+        "enum": ["error", "transaction", "attachment", "replays", "profiles"],
+        "examples": ["error", "transaction", "attachment"],
+        "title": "CategoryEnm",
+        "type": "string"
+      },
+      "download": {
+        "description": "If true, triggers a CSV download of the response; otherwise JSON.",
+        "examples": ["true", "false"],
+        "title": "Download",
+        "type": "boolean"
+      },
+      "end": {
+        "description": "Inclusive end of the time series range (UTC ISO8601 datetime string or Unix timestamp). Use with `start` instead of `statsPeriod`.",
+        "examples": ["2023-01-31T23:59:59Z", "1675123199"],
+        "title": "End",
+        "type": "string"
+      },
+      "field": {
+        "description": "Aggregation field for event counts. Interpretation depends on event type:\n`sum(quantity)`: For attachments, total size in bytes. For sessions, total events within sessions. For others, event count.\n`sum(times_seen)`: Sum of unique occurrences. For sessions, count of unique sessions. For attachments, total attachments.",
+        "enum": ["sum(quantity)", "sum(times_seen)"],
+        "examples": ["sum(quantity)", "sum(times_seen)"],
+        "title": "Field",
+        "type": "string"
+      },
+      "interval": {
+        "description": "Time series resolution (e.g., `1h`). Default is `1h`. Minimum `1h`. Intervals must cleanly divide one day and cannot exceed `1d`.",
+        "examples": ["1h", "6h", "1d"],
+        "title": "Interval",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the Sentry organization.",
+        "examples": ["my-org-slug", "123456"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "outcome": {
+        "description": "Filter by event outcome status (e.g., accepted, filtered, rate-limited).",
+        "enum": ["accepted", "filtered", "rate_limited", "invalid", "abuse", "client_discard", "cardinality_limited"],
+        "examples": ["accepted", "filtered", "rate_limited"],
+        "title": "OutcomeEnm",
+        "type": "string"
+      },
+      "project": {
+        "description": "List of project IDs (strings or integers) to filter by. Omit or use empty list for all projects.",
+        "examples": [["12345", "67890"], ["987"]],
+        "items": {},
+        "title": "Project",
+        "type": "array"
+      },
+      "reason": {
+        "description": "Reason an event was filtered or dropped (e.g., `project_quota`, `invalid_origin`).",
+        "examples": ["project_quota", "filter_glob"],
+        "title": "Reason",
+        "type": "string"
+      },
+      "start": {
+        "description": "Start of the time series range (UTC ISO8601 datetime string or Unix timestamp). Use with `end` instead of `statsPeriod`.",
+        "examples": ["2023-01-01T00:00:00Z", "1672531200"],
+        "title": "Start",
+        "type": "string"
+      },
+      "statsPeriod": {
+        "default": "24h",
+        "description": "Relative time series range (e.g., `1d`, `2h`). Units: `m`, `h`, `d`, `w`. Use instead of `start` and `end`. Defaults to `24h` if no time range is specified.",
+        "examples": ["1d", "7d", "24h", "2w"],
+        "title": "Stats Period",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "field"],
+    "title": "GetOrganizationStatsSummaryRequest",
+    "type": "object"
+  },
+  "name": "get_organization_stats_summary",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationStatsSummaryResponse": {
+        "description": "Response schema for `GetOrganizationStatsSummary`",
+        "properties": {
+          "end": {
+            "description": "End time of the statistics period in ISO 8601 format (UTC)",
+            "title": "End",
+            "type": "string"
+          },
+          "projects": {
+            "description": "List of project-level statistics. Each project contains aggregated event counts, times seen, and metadata for the requested time period.",
+            "items": {
+              "$ref": "#/$defs/ProjectStats"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "start": {
+            "description": "Start time of the statistics period in ISO 8601 format (UTC)",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "GetOrganizationStatsSummaryResponse",
+        "type": "object"
+      },
+      "Outcomes": {
+        "description": "Event outcome counts by type",
+        "properties": {
+          "abuse": {
+            "description": "Number of events marked as abuse",
+            "title": "Abuse",
+            "type": "integer"
+          },
+          "accepted": {
+            "description": "Number of accepted events",
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "cardinality_limited": {
+            "description": "Number of events limited by cardinality",
+            "title": "Cardinality Limited",
+            "type": "integer"
+          },
+          "client_discard": {
+            "description": "Number of events discarded by client",
+            "title": "Client Discard",
+            "type": "integer"
+          },
+          "filtered": {
+            "description": "Number of filtered events",
+            "title": "Filtered",
+            "type": "integer"
+          },
+          "invalid": {
+            "description": "Number of invalid events",
+            "title": "Invalid",
+            "type": "integer"
+          },
+          "rate_limited": {
+            "description": "Number of rate-limited events",
+            "title": "Rate Limited",
+            "type": "integer"
+          }
+        },
+        "title": "Outcomes",
+        "type": "object"
+      },
+      "ProjectStats": {
+        "description": "Project-level statistics",
+        "properties": {
+          "id": {
+            "description": "Project identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Project slug",
+            "title": "Slug",
+            "type": "string"
+          },
+          "stats": {
+            "description": "List of statistics by category",
+            "items": {
+              "$ref": "#/$defs/StatsItem"
+            },
+            "title": "Stats",
+            "type": "array"
+          }
+        },
+        "title": "ProjectStats",
+        "type": "object"
+      },
+      "StatsItem": {
+        "description": "Statistics for a specific event category",
+        "properties": {
+          "category": {
+            "description": "Event category (e.g., error, transaction)",
+            "title": "Category",
+            "type": "string"
+          },
+          "outcomes": {
+            "$ref": "#/$defs/Outcomes",
+            "description": "Breakdown of outcomes by type",
+            "title": "Outcomes"
+          },
+          "totals": {
+            "$ref": "#/$defs/Totals",
+            "description": "Aggregated totals",
+            "title": "Totals"
+          }
+        },
+        "title": "StatsItem",
+        "type": "object"
+      },
+      "Totals": {
+        "description": "Aggregated total statistics",
+        "properties": {
+          "dropped": {
+            "description": "Total number of dropped events",
+            "title": "Dropped",
+            "type": "integer"
+          },
+          "sum(quantity)": {
+            "description": "Sum of event quantities",
+            "title": "Sum(Quantity)",
+            "type": "integer"
+          },
+          "sum(times_seen)": {
+            "description": "Sum of unique occurrences",
+            "title": "Sum(Times Seen)",
+            "type": "integer"
+          }
+        },
+        "title": "Totals",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationStatsSummaryResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

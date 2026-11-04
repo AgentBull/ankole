@@ -52,7 +52,7 @@ export function rootRequest(root: 'space' | 'private', privateOwner: string | un
  * The server still decides access; this only stops drops that cannot succeed.
  */
 export function dropAvailability(
-  pages: Page[],
+  pages: readonly Page[],
   source: Page | undefined,
   target: Page,
   operation: TreeOperation
@@ -90,7 +90,7 @@ function siblings(pages: Page[], page: Page): Page[] {
     .sort(positionOrder)
 }
 
-function within(pages: Page[], page: Page, ancestorID: string): boolean {
+function within(pages: readonly Page[], page: Page, ancestorID: string): boolean {
   const byID = new Map(pages.map(candidate => [candidate.id, candidate]))
   const visited = new Set<string>()
   for (let current: Page | undefined = page; current; current = byID.get(current.parent_id ?? '')) {

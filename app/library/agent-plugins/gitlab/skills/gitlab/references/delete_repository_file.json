@@ -1,0 +1,106 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Delete a file from a GitLab project's repository by creating a commit on the specified branch. You can supply author details and a last known commit ID to detect concurrent modifications, or specify a starting branch when creating the target branch.",
+  "inputSchema": {
+    "properties": {
+      "author_email": {
+        "description": "The commit author's email address. If not provided, uses the authenticated user's email.",
+        "examples": ["user@example.com"],
+        "title": "Author Email",
+        "type": "string"
+      },
+      "author_name": {
+        "description": "The commit author's name. If not provided, uses the authenticated user's name.",
+        "examples": ["John Doe"],
+        "title": "Author Name",
+        "type": "string"
+      },
+      "branch": {
+        "description": "Name of the branch where the file will be deleted.",
+        "examples": ["main", "develop", "feature-branch"],
+        "title": "Branch",
+        "type": "string"
+      },
+      "commit_message": {
+        "description": "Commit message describing the file deletion.",
+        "examples": ["Remove obsolete file", "Delete deprecated class"],
+        "title": "Commit Message",
+        "type": "string"
+      },
+      "file_path": {
+        "description": "URL-encoded full path to the file to delete (e.g., 'lib/class.rb' or 'docs/readme.md').",
+        "examples": ["lib/class.rb", "docs/readme.md", "src/main.py"],
+        "title": "File Path",
+        "type": "string"
+      },
+      "last_commit_id": {
+        "description": "Last known commit ID for the file. Used to detect concurrent modifications. If provided and the file has been modified since this commit, the deletion will fail.",
+        "examples": ["a1b2c3d4e5f6g7h8i9j0"],
+        "title": "Last Commit Id",
+        "type": "string"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["5", "group_name/project_name"],
+        "title": "Project Id"
+      },
+      "start_branch": {
+        "description": "Name of the base branch to create the new branch from. Used when the target branch doesn't exist yet.",
+        "examples": ["main", "develop"],
+        "title": "Start Branch",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "file_path", "branch", "commit_message"],
+    "title": "DeleteRepositoryFileRequest",
+    "type": "object"
+  },
+  "name": "delete_repository_file",
+  "outputSchema": {
+    "$defs": {
+      "DeleteRepositoryFileResponse": {
+        "properties": {
+          "branch": {
+            "description": "The branch where the file was deleted.",
+            "title": "Branch",
+            "type": "string"
+          },
+          "file_path": {
+            "description": "The path of the deleted file.",
+            "title": "File Path",
+            "type": "string"
+          },
+          "message": {
+            "description": "A message indicating the status of the deletion.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "title": "DeleteRepositoryFileResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteRepositoryFileResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

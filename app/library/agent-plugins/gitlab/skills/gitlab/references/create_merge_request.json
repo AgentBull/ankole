@@ -1,0 +1,557 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new merge request in a GitLab project to propose changes from a source branch into a target branch. Use this action when you need to create a merge request for code review, feature integration, or bug fixes. This action requires both the source and target branches to exist in the project.",
+  "inputSchema": {
+    "properties": {
+      "allow_collaboration": {
+        "description": "Allow commits from members who can merge to the target branch.",
+        "examples": [true],
+        "title": "Allow Collaboration",
+        "type": "boolean"
+      },
+      "allow_maintainer_to_push": {
+        "description": "Deprecated. Use allow_collaboration instead. Allows commits from maintainers who can merge to the target branch.",
+        "examples": [true],
+        "title": "Allow Maintainer To Push",
+        "type": "boolean"
+      },
+      "assignee_id": {
+        "description": "The ID of the user to assign the merge request to. Use assignee_ids for multiple assignees.",
+        "examples": [42],
+        "title": "Assignee Id",
+        "type": "integer"
+      },
+      "assignee_ids": {
+        "description": "The IDs of users to assign the merge request to. Premium and Ultimate only.",
+        "examples": [[42, 123]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Assignee Ids",
+        "type": "array"
+      },
+      "description": {
+        "description": "The description of the merge request. Supports Markdown formatting.",
+        "examples": ["This MR adds a new authentication feature that..."],
+        "title": "Description",
+        "type": "string"
+      },
+      "id": {
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["12345", "my-group/my-project"],
+        "title": "Id",
+        "type": "string"
+      },
+      "labels": {
+        "description": "Comma-separated label names to assign to the merge request.",
+        "examples": ["bug,critical", "feature,enhancement"],
+        "title": "Labels",
+        "type": "string"
+      },
+      "milestone_id": {
+        "description": "The global ID of a milestone to associate with the merge request.",
+        "examples": [5],
+        "title": "Milestone Id",
+        "type": "integer"
+      },
+      "remove_source_branch": {
+        "description": "Automatically remove the source branch when the merge request is merged.",
+        "examples": [true],
+        "title": "Remove Source Branch",
+        "type": "boolean"
+      },
+      "reviewer_ids": {
+        "description": "The IDs of users to set as reviewers of the merge request. Premium and Ultimate only.",
+        "examples": [[42, 123]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Reviewer Ids",
+        "type": "array"
+      },
+      "source_branch": {
+        "description": "The source branch containing the changes to be merged.",
+        "examples": ["feature-branch", "bugfix/issue-123"],
+        "title": "Source Branch",
+        "type": "string"
+      },
+      "squash": {
+        "description": "Squash commits into a single commit when merging.",
+        "examples": [true],
+        "title": "Squash",
+        "type": "boolean"
+      },
+      "target_branch": {
+        "description": "The target branch into which the changes will be merged.",
+        "examples": ["main", "develop"],
+        "title": "Target Branch",
+        "type": "string"
+      },
+      "target_project_id": {
+        "description": "The target project ID. Useful when creating merge requests across forks.",
+        "examples": [456],
+        "title": "Target Project Id",
+        "type": "integer"
+      },
+      "title": {
+        "description": "The title of the merge request.",
+        "examples": ["Add new feature", "Fix authentication bug"],
+        "title": "Title",
+        "type": "string"
+      }
+    },
+    "required": ["id", "source_branch", "target_branch", "title"],
+    "title": "CreateMergeRequestRequest",
+    "type": "object"
+  },
+  "name": "create_merge_request",
+  "outputSchema": {
+    "$defs": {
+      "CreateMergeRequestResponse": {
+        "properties": {
+          "merge_request": {
+            "$ref": "#/$defs/MergeRequest",
+            "description": "The newly created merge request with full details.",
+            "title": "Merge Request"
+          }
+        },
+        "required": ["merge_request"],
+        "title": "CreateMergeRequestResponse",
+        "type": "object"
+      },
+      "DiffRefs": {
+        "properties": {
+          "base_sha": {
+            "title": "Base Sha",
+            "type": "string"
+          },
+          "head_sha": {
+            "title": "Head Sha",
+            "type": "string"
+          },
+          "start_sha": {
+            "title": "Start Sha",
+            "type": "string"
+          }
+        },
+        "required": ["base_sha", "head_sha", "start_sha"],
+        "title": "DiffRefs",
+        "type": "object"
+      },
+      "MergeRequest": {
+        "properties": {
+          "references": {
+            "$ref": "#/$defs/References",
+            "title": "References"
+          },
+          "closed_by": {
+            "$ref": "#/$defs/User",
+            "title": "Closed By"
+          },
+          "target_project_id": {
+            "title": "Target Project Id",
+            "type": "integer"
+          },
+          "merged_at": {
+            "format": "date-time",
+            "title": "Merged At",
+            "type": "string"
+          },
+          "head_pipeline": {
+            "$ref": "#/$defs/PipelineBasic",
+            "title": "Head Pipeline"
+          },
+          "user_notes_count": {
+            "title": "User Notes Count",
+            "type": "integer"
+          },
+          "detailed_merge_status": {
+            "title": "Detailed Merge Status",
+            "type": "string"
+          },
+          "source_project_id": {
+            "title": "Source Project Id",
+            "type": "integer"
+          },
+          "merge_user": {
+            "$ref": "#/$defs/User",
+            "title": "Merge User"
+          },
+          "merge_status": {
+            "title": "Merge Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "draft": {
+            "title": "Draft",
+            "type": "boolean"
+          },
+          "blocking_discussions_resolved": {
+            "title": "Blocking Discussions Resolved",
+            "type": "boolean"
+          },
+          "downvotes": {
+            "title": "Downvotes",
+            "type": "integer"
+          },
+          "approvals_before_merge": {
+            "title": "Approvals Before Merge",
+            "type": "integer"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "closed_at": {
+            "format": "date-time",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "time_stats": {
+            "$ref": "#/$defs/TimeStats",
+            "title": "Time Stats"
+          },
+          "assignee": {
+            "$ref": "#/$defs/User",
+            "title": "Assignee"
+          },
+          "diff_refs": {
+            "$ref": "#/$defs/DiffRefs",
+            "title": "Diff Refs"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "should_remove_source_branch": {
+            "title": "Should Remove Source Branch",
+            "type": "boolean"
+          },
+          "reviewers": {
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Reviewers",
+            "type": "array"
+          },
+          "squash_on_merge": {
+            "title": "Squash On Merge",
+            "type": "boolean"
+          },
+          "squash_commit_sha": {
+            "title": "Squash Commit Sha",
+            "type": "string"
+          },
+          "assignees": {
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Assignees",
+            "type": "array"
+          },
+          "iid": {
+            "title": "Iid",
+            "type": "integer"
+          },
+          "merge_when_pipeline_succeeds": {
+            "title": "Merge When Pipeline Succeeds",
+            "type": "boolean"
+          },
+          "merged_by": {
+            "$ref": "#/$defs/User",
+            "title": "Merged By"
+          },
+          "target_branch": {
+            "title": "Target Branch",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "author": {
+            "$ref": "#/$defs/User",
+            "title": "Author"
+          },
+          "milestone": {
+            "$ref": "#/$defs/Milestone",
+            "title": "Milestone"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "merge_commit_sha": {
+            "title": "Merge Commit Sha",
+            "type": "string"
+          },
+          "task_completion_status": {
+            "$ref": "#/$defs/TaskCompletionStatus",
+            "title": "Task Completion Status"
+          },
+          "upvotes": {
+            "title": "Upvotes",
+            "type": "integer"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "sha": {
+            "title": "Sha",
+            "type": "string"
+          },
+          "has_conflicts": {
+            "title": "Has Conflicts",
+            "type": "boolean"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "work_in_progress": {
+            "title": "Work In Progress",
+            "type": "boolean"
+          },
+          "source_branch": {
+            "title": "Source Branch",
+            "type": "string"
+          },
+          "squash": {
+            "title": "Squash",
+            "type": "boolean"
+          },
+          "force_remove_source_branch": {
+            "title": "Force Remove Source Branch",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "iid",
+          "project_id",
+          "title",
+          "state",
+          "created_at",
+          "updated_at",
+          "target_branch",
+          "source_branch",
+          "upvotes",
+          "downvotes",
+          "author",
+          "source_project_id",
+          "target_project_id",
+          "web_url"
+        ],
+        "title": "MergeRequest",
+        "type": "object"
+      },
+      "Milestone": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "title": "Due Date",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "title": "Iid",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "start_date": {
+            "title": "Start Date",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "iid", "title", "state", "created_at", "updated_at", "web_url"],
+        "title": "Milestone",
+        "type": "object"
+      },
+      "PipelineBasic": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "sha": {
+            "title": "Sha",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "sha", "ref", "status"],
+        "title": "PipelineBasic",
+        "type": "object"
+      },
+      "References": {
+        "properties": {
+          "full": {
+            "title": "Full",
+            "type": "string"
+          },
+          "relative": {
+            "title": "Relative",
+            "type": "string"
+          },
+          "short": {
+            "title": "Short",
+            "type": "string"
+          }
+        },
+        "required": ["short", "relative", "full"],
+        "title": "References",
+        "type": "object"
+      },
+      "TaskCompletionStatus": {
+        "properties": {
+          "completed_count": {
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": ["count", "completed_count"],
+        "title": "TaskCompletionStatus",
+        "type": "object"
+      },
+      "TimeStats": {
+        "properties": {
+          "human_time_estimate": {
+            "title": "Human Time Estimate",
+            "type": "string"
+          },
+          "human_total_time_spent": {
+            "title": "Human Total Time Spent",
+            "type": "string"
+          },
+          "time_estimate": {
+            "title": "Time Estimate",
+            "type": "integer"
+          },
+          "total_time_spent": {
+            "title": "Total Time Spent",
+            "type": "integer"
+          }
+        },
+        "required": ["time_estimate", "total_time_spent"],
+        "title": "TimeStats",
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "avatar_url": {
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "username", "state", "web_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateMergeRequestResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

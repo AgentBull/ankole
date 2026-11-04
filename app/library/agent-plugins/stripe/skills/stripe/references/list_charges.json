@@ -1,0 +1,1332 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of Stripe charges with filtering and pagination; use valid cursor IDs from previous responses for pagination, and note that charges are typically returned in reverse chronological order.",
+  "inputSchema": {
+    "properties": {
+      "created": {
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "description": "Filters charges by creation date using a dictionary with keys like 'gt', 'gte', 'lt', 'lte' and Unix timestamp values.",
+        "examples": ["{'gte': 1609459200, 'lte': 1640995200}", "{'lt': 1640995200}"],
+        "title": "Created",
+        "type": "object"
+      },
+      "customer": {
+        "description": "Filters charges by the specified customer ID.",
+        "examples": ["cus_12345"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "ending_before": {
+        "description": "Cursor for pagination. A charge ID that defines your place in the list; returns charges listed before this charge. Use a charge ID from a previous response to fetch the previous page.",
+        "examples": ["ch_12345"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of charges to return (default: 10).",
+        "examples": ["25", "100"],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "payment_intent": {
+        "description": "Filters charges by the specified PaymentIntent ID.",
+        "examples": ["pi_67890"],
+        "title": "Payment Intent",
+        "type": "string"
+      },
+      "starting_after": {
+        "description": "Cursor for pagination. A charge ID that defines your place in the list; returns charges listed after this charge. Use a charge ID from a previous response to fetch the next page.",
+        "examples": ["ch_67890"],
+        "title": "Starting After",
+        "type": "string"
+      },
+      "transfer_group": {
+        "description": "Filters charges by the specified transfer group ID.",
+        "examples": ["group_12345"],
+        "title": "Transfer Group",
+        "type": "string"
+      }
+    },
+    "title": "ListChargesRequest",
+    "type": "object"
+  },
+  "name": "list_charges",
+  "outputSchema": {
+    "$defs": {
+      "Address": {
+        "properties": {
+          "city": {
+            "description": "City, district, suburb, town, or village.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2).",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Address line 1 (e.g., street, PO Box, or company name).",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Address line 2 (e.g., apartment, suite, unit, or building).",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "ZIP or postal code.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State, county, province, or region.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "Address",
+        "type": "object"
+      },
+      "ApplePayWallet": {
+        "description": "Details for Apple Pay wallet.",
+        "properties": {
+          "type": {
+            "description": "Indicates 'apple_pay' or 'apple_pay_later'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "ApplePayWallet",
+        "type": "object"
+      },
+      "BankTransferRefundDetails": {
+        "description": "Bank transfer refund reference details.",
+        "properties": {
+          "reference": {
+            "description": "Transaction reference.",
+            "title": "Reference",
+            "type": "string"
+          },
+          "reference_status": {
+            "description": "Reference availability status (e.g., pending, available, unavailable).",
+            "title": "Reference Status",
+            "type": "string"
+          }
+        },
+        "title": "BankTransferRefundDetails",
+        "type": "object"
+      },
+      "BillingDetails": {
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "Billing address.",
+            "title": "Address"
+          },
+          "email": {
+            "description": "Email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Billing phone number (including extension).",
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "title": "BillingDetails",
+        "type": "object"
+      },
+      "BlikRefundDetails": {
+        "description": "BLIK refund details.",
+        "properties": {
+          "network_decline_code": {
+            "description": "Network decline code if applicable.",
+            "title": "Network Decline Code",
+            "type": "string"
+          },
+          "reference": {
+            "description": "Transaction reference.",
+            "title": "Reference",
+            "type": "string"
+          },
+          "reference_status": {
+            "description": "Reference availability status (e.g., pending, available, unavailable).",
+            "title": "Reference Status",
+            "type": "string"
+          }
+        },
+        "title": "BlikRefundDetails",
+        "type": "object"
+      },
+      "CardChecks": {
+        "properties": {
+          "address_line1_check": {
+            "description": "If a address line1 was provided, results of the check.",
+            "title": "Address Line1 Check",
+            "type": "string"
+          },
+          "address_postal_code_check": {
+            "description": "If a address postal code was provided, results of the check.",
+            "title": "Address Postal Code Check",
+            "type": "string"
+          },
+          "cvc_check": {
+            "description": "If a CVC was provided, results of the check.",
+            "title": "Cvc Check",
+            "type": "string"
+          }
+        },
+        "title": "CardChecks",
+        "type": "object"
+      },
+      "CardDetails": {
+        "properties": {
+          "brand": {
+            "description": "Card brand. Can be amex, diners, discover, eftpos_au, jcb, mastercard, unionpay, visa, or unknown.",
+            "title": "Brand",
+            "type": "string"
+          },
+          "checks": {
+            "$ref": "#/$defs/CardChecks",
+            "description": "Check results by Card networks on Card address and CVC at time of payment.",
+            "title": "Checks"
+          },
+          "country": {
+            "description": "Two-letter ISO code representing the country of the card.",
+            "title": "Country",
+            "type": "string"
+          },
+          "exp_month": {
+            "description": "Two-digit number representing the card's expiration month.",
+            "title": "Exp Month",
+            "type": "integer"
+          },
+          "exp_year": {
+            "description": "Four-digit number representing the card's expiration year.",
+            "title": "Exp Year",
+            "type": "integer"
+          },
+          "fingerprint": {
+            "description": "Uniquely identifies this particular card number.",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "funding": {
+            "description": "Card funding type. Can be credit, debit, prepaid, or unknown.",
+            "title": "Funding",
+            "type": "string"
+          },
+          "installments": {
+            "$ref": "#/$defs/CardInstallments",
+            "description": "Installment configuration for this transaction.",
+            "title": "Installments"
+          },
+          "last4": {
+            "description": "The last four digits of the card.",
+            "title": "Last4",
+            "type": "string"
+          },
+          "mandate": {
+            "description": "ID of the mandate used to make this payment.",
+            "title": "Mandate",
+            "type": "string"
+          },
+          "network": {
+            "description": "Identifies which network this charge was processed on.",
+            "title": "Network",
+            "type": "string"
+          },
+          "three_d_secure": {
+            "$ref": "#/$defs/CardThreeDSecure",
+            "description": "3D Secure authentication details if used.",
+            "title": "Three D Secure"
+          },
+          "wallet": {
+            "$ref": "#/$defs/CardWallet",
+            "description": "Card wallet details if this card is part of a digital wallet.",
+            "title": "Wallet"
+          }
+        },
+        "title": "CardDetails",
+        "type": "object"
+      },
+      "CardInstallments": {
+        "description": "Installment configuration for this transaction.",
+        "properties": {
+          "plan": {
+            "$ref": "#/$defs/InstallmentPlan",
+            "description": "Selected installment arrangement details.",
+            "title": "Plan"
+          }
+        },
+        "title": "CardInstallments",
+        "type": "object"
+      },
+      "CardRefundDetails": {
+        "description": "Card refund details.",
+        "properties": {
+          "reference": {
+            "description": "Transaction reference.",
+            "title": "Reference",
+            "type": "string"
+          },
+          "reference_status": {
+            "description": "Reference availability status (e.g., pending, available, unavailable).",
+            "title": "Reference Status",
+            "type": "string"
+          },
+          "reference_type": {
+            "description": "Reference type.",
+            "title": "Reference Type",
+            "type": "string"
+          },
+          "type": {
+            "description": "Card refund transaction type (e.g., pending, refund, reversal).",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "CardRefundDetails",
+        "type": "object"
+      },
+      "CardThreeDSecure": {
+        "description": "3D Secure authentication details.",
+        "properties": {
+          "authentication_flow": {
+            "description": "How the customer was authenticated (e.g., challenge, frictionless).",
+            "title": "Authentication Flow",
+            "type": "string"
+          },
+          "electronic_commerce_indicator": {
+            "description": "Protocol-level authentication degree indicator (e.g., 01, 02, 05, 06, 07).",
+            "title": "Electronic Commerce Indicator",
+            "type": "string"
+          },
+          "exemption_indicator": {
+            "description": "Requested exemption (e.g., low_risk, none).",
+            "title": "Exemption Indicator",
+            "type": "string"
+          },
+          "exemption_indicator_applied": {
+            "description": "Whether Stripe requested the exemption.",
+            "title": "Exemption Indicator Applied",
+            "type": "boolean"
+          },
+          "result": {
+            "description": "Authentication outcome (e.g., authenticated, failed, exempted, attempt_acknowledged, not_supported, processing_error).",
+            "title": "Result",
+            "type": "string"
+          },
+          "result_reason": {
+            "description": "Additional outcome context (e.g., abandoned, bypassed, canceled, card_not_enrolled, network_not_supported, protocol_error, rejected).",
+            "title": "Result Reason",
+            "type": "string"
+          },
+          "transaction_id": {
+            "description": "3D Secure 1 XID or 3D Secure 2 dsTransId.",
+            "title": "Transaction Id",
+            "type": "string"
+          },
+          "version": {
+            "description": "3D Secure protocol version used (e.g., 1.0.2, 2.1.0, 2.2.0).",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "title": "CardThreeDSecure",
+        "type": "object"
+      },
+      "CardWallet": {
+        "description": "Wallet details for card payments.\n\nNote: Some wallet types (amex_express_checkout, google_pay, samsung_pay) use Dict[str, Any]\nbecause Stripe API docs do not define explicit schemas for these fields - they are described\ngenerically as dynamic objects with no documented structure.",
+        "properties": {
+          "amex_express_checkout": {
+            "additionalProperties": true,
+            "description": "Details for American Express Express Checkout.",
+            "title": "Amex Express Checkout",
+            "type": "object"
+          },
+          "apple_pay": {
+            "$ref": "#/$defs/ApplePayWallet",
+            "description": "Details for Apple Pay wallet.",
+            "title": "Apple Pay"
+          },
+          "dynamic_last4": {
+            "description": "Last four digits of the device account number for tokenized numbers.",
+            "title": "Dynamic Last4",
+            "type": "string"
+          },
+          "google_pay": {
+            "additionalProperties": true,
+            "description": "Details for Google Pay wallet.",
+            "title": "Google Pay",
+            "type": "object"
+          },
+          "link": {
+            "$ref": "#/$defs/LinkWallet",
+            "description": "Details for Link wallet.",
+            "title": "Link"
+          },
+          "masterpass": {
+            "$ref": "#/$defs/MasterpassWallet",
+            "description": "Details for Masterpass wallet.",
+            "title": "Masterpass"
+          },
+          "samsung_pay": {
+            "additionalProperties": true,
+            "description": "Details for Samsung Pay wallet.",
+            "title": "Samsung Pay",
+            "type": "object"
+          },
+          "type": {
+            "description": "The type of wallet used (e.g., apple_pay, google_pay, link, etc.).",
+            "title": "Type",
+            "type": "string"
+          },
+          "visa_checkout": {
+            "$ref": "#/$defs/VisaCheckoutWallet",
+            "description": "Details for Visa Checkout wallet.",
+            "title": "Visa Checkout"
+          }
+        },
+        "title": "CardWallet",
+        "type": "object"
+      },
+      "Charge": {
+        "properties": {
+          "transfer_group": {
+            "description": "A string that identifies this transaction as part of a group.",
+            "title": "Transfer Group",
+            "type": "string"
+          },
+          "billing_details": {
+            "$ref": "#/$defs/BillingDetails",
+            "description": "Billing information associated with the payment method at the time of the transaction.",
+            "title": "Billing Details"
+          },
+          "disputed": {
+            "description": "Whether the charge has been disputed.",
+            "title": "Disputed",
+            "type": "boolean"
+          },
+          "refunds": {
+            "$ref": "#/$defs/RefundsList",
+            "description": "A list of refunds that have been applied to the charge.",
+            "title": "Refunds"
+          },
+          "failure_code": {
+            "description": "Error code explaining reason for charge failure if available.",
+            "title": "Failure Code",
+            "type": "string"
+          },
+          "application": {
+            "description": "ID of the Connect application that created the charge.",
+            "title": "Application",
+            "type": "string"
+          },
+          "failure_balance_transaction": {
+            "description": "ID of the balance transaction that describes the reversal of the balance on your account due to payment failure.",
+            "title": "Failure Balance Transaction",
+            "type": "string"
+          },
+          "refunded": {
+            "description": "Whether the charge has been fully refunded. If the charge is only partially refunded, this attribute will still be false.",
+            "title": "Refunded",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the object. Often useful for displaying to users.",
+            "title": "Description",
+            "type": "string"
+          },
+          "paid": {
+            "description": "true if the charge succeeded, or was successfully authorized for later capture.",
+            "title": "Paid",
+            "type": "boolean"
+          },
+          "failure_message": {
+            "description": "Message to user further explaining reason for charge failure if available.",
+            "title": "Failure Message",
+            "type": "string"
+          },
+          "amount_refunded": {
+            "description": "Amount in cents refunded, which can be less than the total amount in the event of a partial refund.",
+            "title": "Amount Refunded",
+            "type": "integer"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "invoice": {
+            "description": "ID of the invoice this charge is for if one exists.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "status": {
+            "description": "The status of the payment is either succeeded, pending, or failed.",
+            "title": "Status",
+            "type": "string"
+          },
+          "payment_method_details": {
+            "$ref": "#/$defs/PaymentMethodDetails",
+            "description": "Details about the payment method at the time of the transaction.",
+            "title": "Payment Method Details"
+          },
+          "customer": {
+            "description": "ID of the customer this charge is for if one exists.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "application_fee": {
+            "description": "The application fee (if any) for the charge.",
+            "title": "Application Fee",
+            "type": "string"
+          },
+          "review": {
+            "description": "ID of the review associated with this charge if one exists.",
+            "title": "Review",
+            "type": "string"
+          },
+          "calculated_statement_descriptor": {
+            "description": "The full statement descriptor that is passed to card networks, and that is displayed on your customer's credit card statement.",
+            "title": "Calculated Statement Descriptor",
+            "type": "string"
+          },
+          "payment_intent": {
+            "description": "ID of the PaymentIntent associated with this charge, if one exists.",
+            "title": "Payment Intent",
+            "type": "string"
+          },
+          "application_fee_amount": {
+            "description": "The amount of the application fee (if any) requested for the charge.",
+            "title": "Application Fee Amount",
+            "type": "integer"
+          },
+          "on_behalf_of": {
+            "description": "The account (if any) the charge was made on behalf of without triggering an automatic transfer.",
+            "title": "On Behalf Of",
+            "type": "string"
+          },
+          "receipt_url": {
+            "description": "This is the URL to view the receipt for this charge. The receipt is kept up-to-date to the latest state of the charge, including any refunds.",
+            "title": "Receipt Url",
+            "type": "string"
+          },
+          "receipt_number": {
+            "description": "This is the transaction number that appears on email receipts sent for this charge.",
+            "title": "Receipt Number",
+            "type": "string"
+          },
+          "balance_transaction": {
+            "description": "ID of the balance transaction that describes the impact of this charge on your account balance.",
+            "title": "Balance Transaction",
+            "type": "string"
+          },
+          "transfer": {
+            "description": "ID of the transfer to the destination account (only applicable for Destination charges).",
+            "title": "Transfer",
+            "type": "string"
+          },
+          "transfer_data": {
+            "$ref": "#/$defs/TransferData",
+            "description": "An optional dictionary including the account to automatically transfer to as part of a destination charge.",
+            "title": "Transfer Data"
+          },
+          "amount_captured": {
+            "description": "Amount in cents captured, which can be less than the total amount to charge in the event of a partial capture.",
+            "title": "Amount Captured",
+            "type": "integer"
+          },
+          "receipt_email": {
+            "description": "This is the email address that the receipt for this charge was sent to.",
+            "title": "Receipt Email",
+            "type": "string"
+          },
+          "statement_descriptor_suffix": {
+            "description": "Provides information about the charge that customers see on their statements. Concatenated with the prefix (shortened descriptor) or statement descriptor that's set on the account to form the complete statement descriptor.",
+            "title": "Statement Descriptor Suffix",
+            "type": "string"
+          },
+          "shipping": {
+            "$ref": "#/$defs/Shipping",
+            "description": "Shipping information for the charge.",
+            "title": "Shipping"
+          },
+          "statement_descriptor": {
+            "description": "For card charges, use statement_descriptor_suffix instead. Otherwise, you can use this value as the complete description of a charge on your customer's statement.",
+            "title": "Statement Descriptor",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Set of key-value pairs that you can attach to an object. This can be useful for storing additional information about the object in a structured format. User-defined freeform data.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "fraud_details": {
+            "$ref": "#/$defs/FraudDetails",
+            "description": "Information on fraud assessments for the charge.",
+            "title": "Fraud Details"
+          },
+          "amount": {
+            "description": "Amount intended to be collected by this charge. A positive integer representing how much to charge in the smallest currency unit (e.g., 100 cents to charge $1.00 USD).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the charge.",
+            "title": "Id",
+            "type": "string"
+          },
+          "radar_options": {
+            "$ref": "#/$defs/RadarOptions",
+            "description": "Options to configure Radar for this charge.",
+            "title": "Radar Options"
+          },
+          "payment_method": {
+            "description": "ID of the payment method used in this charge.",
+            "title": "Payment Method",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'charge'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "captured": {
+            "description": "If the charge was created without capturing, this Boolean represents whether it is still uncaptured or has since been captured.",
+            "title": "Captured",
+            "type": "boolean"
+          },
+          "outcome": {
+            "$ref": "#/$defs/Outcome",
+            "description": "Details about whether the payment was accepted, and why.",
+            "title": "Outcome"
+          },
+          "source_transfer": {
+            "description": "The transfer ID which created this charge. Only present if the charge came from another Stripe account.",
+            "title": "Source Transfer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "amount_captured",
+          "amount_refunded",
+          "billing_details",
+          "captured",
+          "created",
+          "currency",
+          "disputed",
+          "livemode",
+          "metadata",
+          "paid",
+          "refunded",
+          "status"
+        ],
+        "title": "Charge",
+        "type": "object"
+      },
+      "CryptoRefundDetails": {
+        "description": "Crypto refund details.",
+        "properties": {
+          "reference": {
+            "description": "Transaction hash for crypto refund.",
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "title": "CryptoRefundDetails",
+        "type": "object"
+      },
+      "EmailSentDetails": {
+        "description": "Email transmission details for refund next action.",
+        "properties": {
+          "email_sent_at": {
+            "description": "Timestamp when email was sent (Unix epoch seconds).",
+            "title": "Email Sent At",
+            "type": "integer"
+          },
+          "email_sent_to": {
+            "description": "Email address where sent.",
+            "title": "Email Sent To",
+            "type": "string"
+          }
+        },
+        "required": ["email_sent_at", "email_sent_to"],
+        "title": "EmailSentDetails",
+        "type": "object"
+      },
+      "FraudDetails": {
+        "properties": {
+          "stripe_report": {
+            "description": "Assessments reported by Stripe. Possible value: 'fraudulent'.",
+            "title": "Stripe Report",
+            "type": "string"
+          },
+          "user_report": {
+            "description": "Assessments reported by you. Possible values: 'safe' or 'fraudulent'.",
+            "title": "User Report",
+            "type": "string"
+          }
+        },
+        "title": "FraudDetails",
+        "type": "object"
+      },
+      "InstallmentPlan": {
+        "description": "Details of the installment plan.",
+        "properties": {
+          "count": {
+            "description": "Number of payments for fixed-count plans.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "interval": {
+            "description": "Payment frequency (e.g., month for fixed-count plans).",
+            "title": "Interval",
+            "type": "string"
+          },
+          "type": {
+            "description": "Plan category (e.g., fixed_count, bonus, revolving).",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "InstallmentPlan",
+        "type": "object"
+      },
+      "LinkWallet": {
+        "description": "Details for Link wallet.",
+        "properties": {},
+        "title": "LinkWallet",
+        "type": "object"
+      },
+      "ListChargesResponse": {
+        "properties": {
+          "data": {
+            "description": "Array containing charge objects, with the most recent charges appearing first. Limited by the limit parameter.",
+            "items": {
+              "$ref": "#/$defs/Charge"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether there are more charges available beyond this set. If false, this set comprises the end of the list.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'list' for list responses.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL path for the list charges endpoint.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "ListChargesResponse",
+        "type": "object"
+      },
+      "MasterpassWallet": {
+        "description": "Details for Masterpass wallet.",
+        "properties": {
+          "billing_address": {
+            "$ref": "#/$defs/Address",
+            "description": "Owner's verified billing address.",
+            "title": "Billing Address"
+          },
+          "email": {
+            "description": "Owner's verified email.",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "Owner's verified full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "shipping_address": {
+            "$ref": "#/$defs/Address",
+            "description": "Owner's verified shipping address.",
+            "title": "Shipping Address"
+          }
+        },
+        "title": "MasterpassWallet",
+        "type": "object"
+      },
+      "Outcome": {
+        "properties": {
+          "network_status": {
+            "description": "Possible values are approved_by_network, declined_by_network, not_sent_to_network, or reversed_after_approval.",
+            "title": "Network Status",
+            "type": "string"
+          },
+          "reason": {
+            "description": "An enumerated value providing a more detailed explanation of the outcome's type.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "risk_level": {
+            "description": "Stripe Radar's evaluation of the riskiness of the payment. Possible values for evaluated payments are normal, elevated, highest. For non-card payments, and card-based payments predating the public assignment of risk levels, this field will have the value not_assessed.",
+            "title": "Risk Level",
+            "type": "string"
+          },
+          "risk_score": {
+            "description": "Stripe Radar's evaluation of the riskiness of the payment. Possible values are between 0 and 100.",
+            "title": "Risk Score",
+            "type": "integer"
+          },
+          "seller_message": {
+            "description": "A human-readable description of the outcome type and reason, designed for you (the recipient of the payment), not your customer.",
+            "title": "Seller Message",
+            "type": "string"
+          },
+          "type": {
+            "description": "Possible values are authorized, manual_review, issuer_declined, blocked, and invalid.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "Outcome",
+        "type": "object"
+      },
+      "PayPalRefundDetails": {
+        "description": "PayPal refund details.",
+        "properties": {
+          "network_decline_code": {
+            "description": "Network decline code if applicable.",
+            "title": "Network Decline Code",
+            "type": "string"
+          }
+        },
+        "title": "PayPalRefundDetails",
+        "type": "object"
+      },
+      "PaymentMethodDetails": {
+        "properties": {
+          "card": {
+            "$ref": "#/$defs/CardDetails",
+            "description": "Card payment details. Present if type is 'card'.",
+            "title": "Card"
+          },
+          "type": {
+            "description": "The type of transaction-specific details of the payment method used in the payment.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "PaymentMethodDetails",
+        "type": "object"
+      },
+      "RadarOptions": {
+        "properties": {
+          "session": {
+            "description": "A Radar Session is a snapshot of the browser metadata and device details that help Radar make more accurate predictions on your payments.",
+            "title": "Session",
+            "type": "string"
+          }
+        },
+        "title": "RadarOptions",
+        "type": "object"
+      },
+      "Refund": {
+        "properties": {
+          "amount": {
+            "description": "Amount, in cents, refunded.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "balance_transaction": {
+            "description": "Balance transaction that describes the impact on your account balance.",
+            "title": "Balance Transaction",
+            "type": "string"
+          },
+          "charge": {
+            "description": "ID of the charge that was refunded.",
+            "title": "Charge",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the object.",
+            "title": "Description",
+            "type": "string"
+          },
+          "destination_details": {
+            "$ref": "#/$defs/RefundDestinationDetails",
+            "description": "Payment method-specific refund transaction details.",
+            "title": "Destination Details"
+          },
+          "failure_balance_transaction": {
+            "description": "If the refund failed, the reason for refund failure if known.",
+            "title": "Failure Balance Transaction",
+            "type": "string"
+          },
+          "failure_reason": {
+            "description": "If the refund failed, the reason for refund failure if known.",
+            "title": "Failure Reason",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the refund.",
+            "title": "Id",
+            "type": "string"
+          },
+          "instructions_email": {
+            "description": "For payment methods without native refund support, the email address that the customer should use to initiate the refund.",
+            "title": "Instructions Email",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Set of key-value pairs for custom data storage. User-defined freeform data.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "next_action": {
+            "$ref": "#/$defs/RefundNextAction",
+            "description": "Additional actions required for the refund (if status is requires_action).",
+            "title": "Next Action"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'refund'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "payment_intent": {
+            "description": "ID of the PaymentIntent that was refunded.",
+            "title": "Payment Intent",
+            "type": "string"
+          },
+          "pending_reason": {
+            "description": "Reason why the refund is pending. Possible values: processing, insufficient_funds, or charge_pending.",
+            "title": "Pending Reason",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for the refund. Possible values: duplicate, fraudulent, requested_by_customer, or expired_uncaptured_charge.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "receipt_number": {
+            "description": "This is the transaction number that appears on email receipts sent for this refund.",
+            "title": "Receipt Number",
+            "type": "string"
+          },
+          "source_transfer_reversal": {
+            "description": "The transfer reversal that is associated with the refund.",
+            "title": "Source Transfer Reversal",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the refund. Possible values: pending, requires_action, succeeded, failed, or canceled.",
+            "title": "Status",
+            "type": "string"
+          },
+          "transfer_reversal": {
+            "description": "If the refund reversed a transfer, the ID of the transfer reversal.",
+            "title": "Transfer Reversal",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "amount", "created", "currency"],
+        "title": "Refund",
+        "type": "object"
+      },
+      "RefundDestinationDetails": {
+        "description": "Payment method-specific refund transaction details.\n\nNote: Many payment method fields use Dict[str, Any] because Stripe API docs do not provide\nexplicit schemas - they are described generically without documented field structures.",
+        "properties": {
+          "us_bank_transfer": {
+            "$ref": "#/$defs/BankTransferRefundDetails",
+            "description": "US bank transfer refund details.",
+            "title": "Us Bank Transfer"
+          },
+          "sofort": {
+            "additionalProperties": true,
+            "description": "SOFORT refund details.",
+            "title": "Sofort",
+            "type": "object"
+          },
+          "affirm": {
+            "additionalProperties": true,
+            "description": "Affirm refund details.",
+            "title": "Affirm",
+            "type": "object"
+          },
+          "grabpay": {
+            "additionalProperties": true,
+            "description": "GrabPay refund details.",
+            "title": "Grabpay",
+            "type": "object"
+          },
+          "jp_bank_transfer": {
+            "$ref": "#/$defs/BankTransferRefundDetails",
+            "description": "Japanese bank transfer refund details.",
+            "title": "Jp Bank Transfer"
+          },
+          "revolut": {
+            "additionalProperties": true,
+            "description": "Revolut refund details.",
+            "title": "Revolut",
+            "type": "object"
+          },
+          "p24": {
+            "$ref": "#/$defs/BankTransferRefundDetails",
+            "description": "Przelewy24 refund details.",
+            "title": "P24"
+          },
+          "mb_way": {
+            "$ref": "#/$defs/BankTransferRefundDetails",
+            "description": "MB WAY refund details.",
+            "title": "Mb Way"
+          },
+          "pix": {
+            "additionalProperties": true,
+            "description": "Pix refund details.",
+            "title": "Pix",
+            "type": "object"
+          },
+          "eu_bank_transfer": {
+            "$ref": "#/$defs/BankTransferRefundDetails",
+            "description": "EU bank transfer refund details.",
+            "title": "Eu Bank Transfer"
+          },
+          "zip": {
+            "additionalProperties": true,
+            "description": "Zip refund details.",
+            "title": "Zip",
+            "type": "object"
+          },
+          "alipay": {
+            "additionalProperties": true,
+            "description": "Alipay refund details.",
+            "title": "Alipay",
+            "type": "object"
+          },
+          "multibanco": {
+            "$ref": "#/$defs/BankTransferRefundDetails",
+            "description": "Multibanco refund details.",
+            "title": "Multibanco"
+          },
+          "au_bank_transfer": {
+            "$ref": "#/$defs/BankTransferRefundDetails",
+            "description": "Australian bank transfer refund details.",
+            "title": "Au Bank Transfer"
+          },
+          "type": {
+            "description": "Payment method type for this refund.",
+            "title": "Type",
+            "type": "string"
+          },
+          "eps": {
+            "additionalProperties": true,
+            "description": "EPS refund details.",
+            "title": "Eps",
+            "type": "object"
+          },
+          "br_bank_transfer": {
+            "$ref": "#/$defs/BankTransferRefundDetails",
+            "description": "Brazilian bank transfer refund details.",
+            "title": "Br Bank Transfer"
+          },
+          "mx_bank_transfer": {
+            "$ref": "#/$defs/BankTransferRefundDetails",
+            "description": "Mexican bank transfer refund details.",
+            "title": "Mx Bank Transfer"
+          },
+          "th_bank_transfer": {
+            "$ref": "#/$defs/BankTransferRefundDetails",
+            "description": "Thai bank transfer refund details.",
+            "title": "Th Bank Transfer"
+          },
+          "blik": {
+            "$ref": "#/$defs/BlikRefundDetails",
+            "description": "BLIK refund details.",
+            "title": "Blik"
+          },
+          "amazon_pay": {
+            "additionalProperties": true,
+            "description": "Amazon Pay refund details.",
+            "title": "Amazon Pay",
+            "type": "object"
+          },
+          "paynow": {
+            "additionalProperties": true,
+            "description": "PayNow refund details.",
+            "title": "Paynow",
+            "type": "object"
+          },
+          "customer_cash_balance": {
+            "additionalProperties": true,
+            "description": "Customer cash balance refund details.",
+            "title": "Customer Cash Balance",
+            "type": "object"
+          },
+          "twint": {
+            "additionalProperties": true,
+            "description": "TWINT refund details.",
+            "title": "Twint",
+            "type": "object"
+          },
+          "alma": {
+            "additionalProperties": true,
+            "description": "Alma refund details.",
+            "title": "Alma",
+            "type": "object"
+          },
+          "crypto": {
+            "$ref": "#/$defs/CryptoRefundDetails",
+            "description": "Crypto refund details.",
+            "title": "Crypto"
+          },
+          "giropay": {
+            "additionalProperties": true,
+            "description": "Giropay refund details.",
+            "title": "Giropay",
+            "type": "object"
+          },
+          "wechat_pay": {
+            "additionalProperties": true,
+            "description": "WeChat Pay refund details.",
+            "title": "Wechat Pay",
+            "type": "object"
+          },
+          "paypal": {
+            "$ref": "#/$defs/PayPalRefundDetails",
+            "description": "PayPal refund details.",
+            "title": "Paypal"
+          },
+          "swish": {
+            "$ref": "#/$defs/BankTransferRefundDetails",
+            "description": "Swish refund details.",
+            "title": "Swish"
+          },
+          "klarna": {
+            "additionalProperties": true,
+            "description": "Klarna refund details.",
+            "title": "Klarna",
+            "type": "object"
+          },
+          "afterpay_clearpay": {
+            "additionalProperties": true,
+            "description": "Afterpay/Clearpay refund details.",
+            "title": "Afterpay Clearpay",
+            "type": "object"
+          },
+          "cashapp": {
+            "additionalProperties": true,
+            "description": "Cash App refund details.",
+            "title": "Cashapp",
+            "type": "object"
+          },
+          "gb_bank_transfer": {
+            "$ref": "#/$defs/BankTransferRefundDetails",
+            "description": "UK bank transfer refund details.",
+            "title": "Gb Bank Transfer"
+          },
+          "card": {
+            "$ref": "#/$defs/CardRefundDetails",
+            "description": "Card refund details.",
+            "title": "Card"
+          }
+        },
+        "title": "RefundDestinationDetails",
+        "type": "object"
+      },
+      "RefundDisplayDetails": {
+        "description": "Display details for refund next action.",
+        "properties": {
+          "email_sent": {
+            "$ref": "#/$defs/EmailSentDetails",
+            "description": "Email transmission details.",
+            "title": "Email Sent"
+          },
+          "expires_at": {
+            "description": "Timestamp when the action expires (Unix epoch seconds).",
+            "title": "Expires At",
+            "type": "integer"
+          }
+        },
+        "required": ["expires_at"],
+        "title": "RefundDisplayDetails",
+        "type": "object"
+      },
+      "RefundNextAction": {
+        "description": "Additional actions required for a refund.",
+        "properties": {
+          "display_details": {
+            "$ref": "#/$defs/RefundDisplayDetails",
+            "description": "Display details for the next action.",
+            "title": "Display Details"
+          },
+          "type": {
+            "description": "Type of next action to perform.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "RefundNextAction",
+        "type": "object"
+      },
+      "RefundsList": {
+        "properties": {
+          "data": {
+            "description": "Array of refund objects.",
+            "items": {
+              "$ref": "#/$defs/Refund"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether there are more refunds available.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL for accessing this list.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "RefundsList",
+        "type": "object"
+      },
+      "Shipping": {
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "Shipping address.",
+            "title": "Address"
+          },
+          "carrier": {
+            "description": "The delivery service that shipped a physical product, such as Fedex, UPS, USPS, etc.",
+            "title": "Carrier",
+            "type": "string"
+          },
+          "name": {
+            "description": "Recipient name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Recipient phone (including extension).",
+            "title": "Phone",
+            "type": "string"
+          },
+          "tracking_number": {
+            "description": "The tracking number for a physical product, obtained from the delivery service.",
+            "title": "Tracking Number",
+            "type": "string"
+          }
+        },
+        "title": "Shipping",
+        "type": "object"
+      },
+      "TransferData": {
+        "properties": {
+          "amount": {
+            "description": "The amount transferred to the destination account, if specified.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "destination": {
+            "description": "ID of an existing, connected Stripe account to transfer funds to if transfer_data was specified in the charge request.",
+            "title": "Destination",
+            "type": "string"
+          }
+        },
+        "required": ["destination"],
+        "title": "TransferData",
+        "type": "object"
+      },
+      "VisaCheckoutWallet": {
+        "description": "Details for Visa Checkout wallet.",
+        "properties": {
+          "billing_address": {
+            "$ref": "#/$defs/Address",
+            "description": "Owner's verified billing address.",
+            "title": "Billing Address"
+          },
+          "email": {
+            "description": "Owner's verified email.",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "Owner's verified full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "shipping_address": {
+            "$ref": "#/$defs/Address",
+            "description": "Owner's verified shipping address.",
+            "title": "Shipping Address"
+          }
+        },
+        "title": "VisaCheckoutWallet",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListChargesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

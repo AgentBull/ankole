@@ -1,0 +1,180 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a new workspace in Typeform. Use when organizing forms into separate workspaces for teams or projects.",
+  "inputSchema": {
+    "properties": {
+      "name": {
+        "description": "The name of the workspace to create",
+        "examples": ["Marketing Team", "Product Development", "Customer Research"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "CreateWorkspaceRequest",
+    "type": "object"
+  },
+  "name": "create_workspace",
+  "outputSchema": {
+    "$defs": {
+      "CreateWorkspaceResponse": {
+        "properties": {
+          "account_id": {
+            "description": "Account ID associated with the workspace",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether this is the default workspace",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "forms": {
+            "$ref": "#/$defs/FormsInfo",
+            "description": "Forms count and link information for the workspace",
+            "title": "Forms"
+          },
+          "id": {
+            "description": "Unique identifier for the workspace",
+            "title": "Id",
+            "type": "string"
+          },
+          "members": {
+            "description": "List of workspace members",
+            "items": {
+              "$ref": "#/$defs/WorkspaceMember"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "name": {
+            "description": "Name of the workspace",
+            "title": "Name",
+            "type": "string"
+          },
+          "self": {
+            "$ref": "#/$defs/SelfLink",
+            "description": "Self reference link to the workspace",
+            "title": "Self"
+          },
+          "shared": {
+            "description": "Whether the workspace is shared",
+            "title": "Shared",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "CreateWorkspaceResponse",
+        "type": "object"
+      },
+      "FormsInfo": {
+        "properties": {
+          "count": {
+            "default": 0,
+            "description": "Number of forms in the workspace",
+            "title": "Count",
+            "type": "integer"
+          },
+          "href": {
+            "description": "URL to list forms in this workspace",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "title": "FormsInfo",
+        "type": "object"
+      },
+      "SelfLink": {
+        "properties": {
+          "href": {
+            "description": "URL reference to the workspace resource",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "required": ["href"],
+        "title": "SelfLink",
+        "type": "object"
+      },
+      "UserInfo": {
+        "properties": {
+          "email": {
+            "description": "User email",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "User name",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "UserInfo",
+        "type": "object"
+      },
+      "WorkspaceMember": {
+        "properties": {
+          "account_member_id": {
+            "description": "Account member ID",
+            "title": "Account Member Id",
+            "type": "string"
+          },
+          "email": {
+            "description": "Member email",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Member ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Member name",
+            "title": "Name",
+            "type": "string"
+          },
+          "permissions": {
+            "description": "List of permissions",
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "role": {
+            "description": "Member role",
+            "title": "Role",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/UserInfo",
+            "description": "User details",
+            "title": "User"
+          }
+        },
+        "title": "WorkspaceMember",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateWorkspaceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

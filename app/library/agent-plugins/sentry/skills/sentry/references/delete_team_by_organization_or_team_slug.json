@@ -1,0 +1,63 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Schedules a Sentry team for asynchronous deletion, which releases the team's slug for reuse upon successful scheduling.",
+  "inputSchema": {
+    "description": "Request schema for deleting a team by its organization and team slug/ID.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or URL-friendly slug of the Sentry organization to which the team belongs. For example, 'acme-corp' or '12345'.",
+        "examples": ["acme-corp", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "team_id_or_slug": {
+        "description": "The unique identifier (ID) or URL-friendly slug of the Sentry team targeted for deletion. For example, 'frontend-devs' or '67890'.",
+        "examples": ["frontend-devs", "67890"],
+        "title": "Team Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "team_id_or_slug"],
+    "title": "DeleteTeamByOrganizationOrTeamSlugRequest",
+    "type": "object"
+  },
+  "name": "delete_team_by_organization_or_team_slug",
+  "outputSchema": {
+    "$defs": {
+      "DeleteTeamByOrganizationOrTeamSlugResponse": {
+        "description": "Response payload for the team deletion operation. Successful 204 responses return no content body (empty response). Error responses (403, 404) return a JSON body with 'detail' field and optional 'causes' array. Deletion happens asynchronously and is not immediate; teams will have their slug released while waiting for deletion.",
+        "properties": {
+          "causes": {
+            "description": "Additional context providing root causes of the error. Only present in some error responses.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Causes",
+            "type": "array"
+          },
+          "detail": {
+            "description": "Error message describing what went wrong. Only present in error responses (403 Forbidden, 404 Not Found). Not included in successful 204 responses.",
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "title": "DeleteTeamByOrganizationOrTeamSlugResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteTeamByOrganizationOrTeamSlugResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

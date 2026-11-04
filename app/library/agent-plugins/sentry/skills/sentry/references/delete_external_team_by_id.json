@@ -1,0 +1,68 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Unlinks a previously established external team from a Sentry team; this action does not delete either the Sentry team or the external team.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteExternalTeamById`",
+    "properties": {
+      "external_team_id": {
+        "description": "Numeric ID of the external team integration, typically obtained when the link was established.",
+        "examples": [101, 202, 345],
+        "title": "External Team Id",
+        "type": "integer"
+      },
+      "organization_id_or_slug": {
+        "description": "Unique identifier (ID or slug) of the Sentry organization.",
+        "examples": ["the-acme-corp", "sentry", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "team_id_or_slug": {
+        "description": "Unique identifier (ID or slug) of the Sentry team.",
+        "examples": ["prime-react", "backend-java", "9876543"],
+        "title": "Team Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "team_id_or_slug", "external_team_id"],
+    "title": "DeleteExternalTeamByIdRequest",
+    "type": "object"
+  },
+  "name": "delete_external_team_by_id",
+  "outputSchema": {
+    "$defs": {
+      "DeleteExternalTeamByIdResponse": {
+        "description": "Response schema for `DeleteExternalTeamById`",
+        "properties": {
+          "message": {
+            "default": "External team link deleted successfully",
+            "description": "Confirmation message about the deletion.",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "description": "Indicates whether the external team link was successfully deleted.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "DeleteExternalTeamByIdResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteExternalTeamByIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

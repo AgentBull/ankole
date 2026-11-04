@@ -1,0 +1,108 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve the definitions of all actions that a macro can perform in Zendesk. Use this action when you need to discover what actions are available for macro creation, understand the available values for each action type, or build a macro configuration interface. The response includes action fields, their display titles, types, and available value options. Common macro actions include: setting ticket status, priority, or type; assigning agents or groups; adding/removing tags; setting custom fields; and adding comments.",
+  "inputSchema": {
+    "description": "Request parameters for listing macro action definitions.",
+    "properties": {},
+    "title": "GetMacroDefinitionsRequest",
+    "type": "object"
+  },
+  "name": "get_macro_definitions",
+  "outputSchema": {
+    "$defs": {
+      "GetMacroDefinitionsResponse": {
+        "description": "Response containing macro action definitions.",
+        "properties": {
+          "definitions": {
+            "$ref": "#/$defs/MacroDefinitions",
+            "description": "Object containing the available macro actions",
+            "title": "Definitions"
+          }
+        },
+        "title": "GetMacroDefinitionsResponse",
+        "type": "object"
+      },
+      "MacroAction": {
+        "description": "Definition of a single macro action.",
+        "properties": {
+          "field": {
+            "description": "The field name that the macro can modify (e.g., 'status', 'priority', 'assignee_id')",
+            "title": "Field",
+            "type": "string"
+          },
+          "required": {
+            "description": "Whether this action is required when configuring a macro",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "Display title of the action (e.g., 'Status', 'Priority', 'Assignee')",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the action field (e.g., 'list', 'string', 'boolean', 'integer')",
+            "title": "Type",
+            "type": "string"
+          },
+          "values": {
+            "description": "Available values for list-type actions",
+            "items": {
+              "$ref": "#/$defs/MacroActionValue"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "title": "MacroAction",
+        "type": "object"
+      },
+      "MacroActionValue": {
+        "description": "Possible value for a macro action field.",
+        "properties": {
+          "label": {
+            "description": "Human-readable label for this value option",
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value that can be set for this action field",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "MacroActionValue",
+        "type": "object"
+      },
+      "MacroDefinitions": {
+        "description": "Container for macro action definitions.",
+        "properties": {
+          "actions": {
+            "description": "Array of available macro action definitions",
+            "items": {
+              "$ref": "#/$defs/MacroAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          }
+        },
+        "title": "MacroDefinitions",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMacroDefinitionsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

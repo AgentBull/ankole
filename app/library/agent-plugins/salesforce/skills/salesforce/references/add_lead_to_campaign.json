@@ -1,0 +1,124 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Adds a lead to a campaign by creating a CampaignMember record, allowing you to track campaign engagement. Both `campaign_id` and `lead_id` must be valid Salesforce IDs of active, existing records — names or emails cannot be substituted, and deleted or inactive records will cause the call to fail. This is a persistent CRM write; confirm the correct lead and campaign before calling.",
+  "inputSchema": {
+    "properties": {
+      "campaign_id": {
+        "description": "The Salesforce ID of the campaign to add the lead to.",
+        "examples": ["701XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The specific Salesforce campaign you want to add this lead to. Paste the campaign’s ID (usually starts with '701') from the campaign page URL.",
+        "human_parameter_name": "Campaign ID",
+        "title": "Campaign Id",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values for CampaignMember. Custom field names typically end with '__c'.",
+        "examples": [
+          {
+            "Member_Source__c": "Event",
+            "VIP_Member__c": true
+          },
+          {
+            "External_Member_ID__c": "CM-7788"
+          }
+        ],
+        "human_parameter_description": "Provide any custom CampaignMember fields to set. Use the API field name (ending in '__c') as the key.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "lead_id": {
+        "description": "The Salesforce ID of the lead to add to the campaign.",
+        "examples": ["00QXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce lead you want to add to the campaign. Paste the lead’s ID (usually starts with '00Q') from the lead page URL or a prior search.",
+        "human_parameter_name": "Lead ID",
+        "title": "Lead Id",
+        "type": "string"
+      },
+      "status": {
+        "default": "Sent",
+        "description": "The status of the campaign member. Common values include 'Sent', 'Responded'. The available statuses depend on campaign configuration. Value must exactly match one of the campaign's configured CampaignMember statuses; a mismatch will cause the call to be rejected.",
+        "examples": ["Sent", "Responded", "Registered", "Attended"],
+        "human_parameter_description": "How you want to mark the lead’s participation in the campaign (for example, Sent or Responded). Pick the value that best matches their current stage; available options depend on the campaign.",
+        "human_parameter_name": "Status",
+        "title": "Status",
+        "type": "string"
+      }
+    },
+    "required": ["campaign_id", "lead_id"],
+    "title": "AddLeadToCampaignRequest",
+    "type": "object"
+  },
+  "name": "add_lead_to_campaign",
+  "outputSchema": {
+    "$defs": {
+      "AddLeadToCampaignResponse": {
+        "description": "Response from adding a lead to a campaign.",
+        "properties": {
+          "errors": {
+            "description": "Array of error objects. Empty array when the operation is successful.",
+            "items": {
+              "$ref": "#/$defs/ErrorDetail"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The unique identifier of the newly created CampaignMember record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the operation completed successfully.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "success", "errors"],
+        "title": "AddLeadToCampaignResponse",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "description": "Details of a Salesforce API error.",
+        "properties": {
+          "errorCode": {
+            "description": "Salesforce error code identifier (e.g., MALFORMED_ID, FIELD_CUSTOM_VALIDATION_EXCEPTION, INVALID_FIELD).",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Array of field API names related to the error. Present when a validation rule or field-specific error occurs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable description of the error.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["message", "errorCode"],
+        "title": "ErrorDetail",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddLeadToCampaignResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

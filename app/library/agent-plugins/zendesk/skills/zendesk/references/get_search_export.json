@@ -1,0 +1,259 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Export Zendesk search results in batches using cursor pagination. Use the response's after_cursor value as page_after to fetch the next page.",
+  "inputSchema": {
+    "description": "Request parameters for exporting Zendesk search results.",
+    "properties": {
+      "filter_type": {
+        "description": "The object type returned by the export query. Can be 'ticket', 'organization', 'user', or 'group'.",
+        "examples": ["ticket", "user", "organization", "group"],
+        "title": "Filter Type",
+        "type": "string"
+      },
+      "include": {
+        "description": "Comma-separated list of sideloads to include in the response. Available sideloads depend on the search result types (e.g., 'users', 'organizations').",
+        "examples": ["users,organizations", "users"],
+        "title": "Include",
+        "type": "string"
+      },
+      "page_after": {
+        "description": "Cursor token for fetching the next page of results.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "title": "Page After",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "The number of results shown per page (max 100).",
+        "examples": [25],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "query": {
+        "description": "The search query string. Supports Zendesk query syntax for filtering by type, status, priority, etc. Example: 'type:ticket status:open priority:urgent' or 'assignee:me status:pending'.",
+        "examples": ["type:ticket status:open", "type:user email:john@example.com", "type:organization name:Acme"],
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": ["query"],
+    "title": "GetSearchExportRequest",
+    "type": "object"
+  },
+  "name": "get_search_export",
+  "outputSchema": {
+    "$defs": {
+      "GetSearchExportResponse": {
+        "description": "Response from Zendesk search export API with results and pagination.",
+        "properties": {
+          "facets": {
+            "description": "The facets corresponding to the search query",
+            "title": "Facets",
+            "type": "string"
+          },
+          "links": {
+            "$ref": "#/$defs/SearchExportLinks",
+            "description": "Navigation links for pagination",
+            "title": "Links"
+          },
+          "meta": {
+            "$ref": "#/$defs/SearchExportMeta",
+            "description": "Metadata for the export query response",
+            "title": "Meta"
+          },
+          "results": {
+            "description": "Array of search results (may contain tickets, users, organizations, or groups as specified by result_type in each object)",
+            "items": {
+              "$ref": "#/$defs/SearchExportResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": ["results"],
+        "title": "GetSearchExportResponse",
+        "type": "object"
+      },
+      "SearchExportLinks": {
+        "description": "Navigation links for search export pagination.",
+        "properties": {
+          "next": {
+            "description": "URL to the next page of results via cursor",
+            "title": "Next",
+            "type": "string"
+          },
+          "prev": {
+            "description": "URL to the previous page of results via cursor",
+            "title": "Prev",
+            "type": "string"
+          }
+        },
+        "title": "SearchExportLinks",
+        "type": "object"
+      },
+      "SearchExportMeta": {
+        "description": "Metadata for search export response.",
+        "properties": {
+          "after_cursor": {
+            "description": "Cursor token for fetching the next page",
+            "title": "After Cursor",
+            "type": "string"
+          },
+          "before_cursor": {
+            "description": "Cursor token for fetching the previous page",
+            "title": "Before Cursor",
+            "type": "string"
+          },
+          "has_more": {
+            "description": "Whether more items are available to be returned",
+            "title": "Has More",
+            "type": "boolean"
+          }
+        },
+        "required": ["has_more"],
+        "title": "SearchExportMeta",
+        "type": "object"
+      },
+      "SearchExportResult": {
+        "description": "A single search result object from Zendesk export.",
+        "properties": {
+          "active": {
+            "description": "Whether the user is active (for user results)",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "assignee_id": {
+            "description": "Assignee ID (for ticket results)",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "created_at": {
+            "description": "Creation timestamp in ISO 8601 format",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether this is a default object (for group results)",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "deleted": {
+            "description": "Whether this object is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Description of the result object",
+            "title": "Description",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address (for user results)",
+            "title": "Email",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External ID linking to records in another system",
+            "title": "External Id",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "Group ID (for ticket results)",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The ID of the result object",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the result object",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "Organization ID associated with the result",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Priority (for ticket results)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "Requester ID (for ticket results)",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "result_type": {
+            "description": "The type of result: 'ticket', 'user', 'organization', or 'group'",
+            "title": "Result Type",
+            "type": "string"
+          },
+          "role": {
+            "description": "Role (for user results)",
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status (for ticket results)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Subject (for ticket results)",
+            "title": "Subject",
+            "type": "string"
+          },
+          "tags": {
+            "description": "Tags associated with the object",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "description": "Type (for ticket results)",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp in ISO 8601 format",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL for the result object",
+            "title": "Url",
+            "type": "string"
+          },
+          "verified": {
+            "description": "Whether the user is verified (for user results)",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "title": "SearchExportResult",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetSearchExportResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,204 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates a Stripe coupon's metadata, name, or currency options. Other coupon details (currency, duration, amount_off, percent_off) are, by design, not editable. Use when you need to modify coupon metadata, display name, or add new currency-specific discount amounts.",
+  "inputSchema": {
+    "description": "Request model for updating a Stripe coupon.\nOnly metadata, name, and currency_options can be updated; other coupon details are immutable by design.",
+    "properties": {
+      "coupon": {
+        "description": "The ID of the coupon to update.",
+        "examples": ["TLxuLKlD", "SUMMER25", "HOLIDAY20"],
+        "title": "Coupon",
+        "type": "string"
+      },
+      "currency_options": {
+        "additionalProperties": {
+          "description": "Currency-specific coupon configuration.",
+          "properties": {
+            "amount_off": {
+              "description": "Amount (in the smallest currency unit) to subtract from invoices for this currency option.",
+              "examples": [500, 1000, 2500],
+              "title": "Amount Off",
+              "type": "integer"
+            }
+          },
+          "required": ["amount_off"],
+          "title": "CurrencyOption",
+          "type": "object"
+        },
+        "description": "Coupons defined in each available currency option (amount-based coupons only). Each key must be a three-letter ISO currency code with a nested amount_off value. Only applicable for amount-based coupons. Note: You can only add new currencies, not modify existing currency options.",
+        "title": "Currency Options",
+        "type": "object"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Set of key-value pairs for storing additional information in a structured format. Individual keys can be unset by posting an empty value. All keys can be unset by posting an empty value to metadata.",
+        "examples": [
+          {
+            "environment": "testing",
+            "test_key": "test_value"
+          }
+        ],
+        "title": "Metadata",
+        "type": "object"
+      },
+      "name": {
+        "description": "Name of the coupon displayed to customers on invoices or receipts. Maximum length is 40 characters. Defaults to the coupon ID if not set.",
+        "examples": ["Updated Test Coupon", "Holiday Sale", "VIP Discount"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["coupon"],
+    "title": "UpdateCouponRequest",
+    "type": "object"
+  },
+  "name": "update_coupon",
+  "outputSchema": {
+    "$defs": {
+      "CouponAppliesTo": {
+        "description": "Contains information about which products the coupon applies to.",
+        "properties": {
+          "products": {
+            "description": "A list of product IDs this coupon applies to.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Products",
+            "type": "array"
+          }
+        },
+        "required": ["products"],
+        "title": "CouponAppliesTo",
+        "type": "object"
+      },
+      "CouponCurrencyOption": {
+        "description": "Currency-specific coupon configuration in the response.",
+        "properties": {
+          "amount_off": {
+            "description": "Amount (in the smallest currency unit) to subtract from invoices for this currency option.",
+            "title": "Amount Off",
+            "type": "integer"
+          }
+        },
+        "required": ["amount_off"],
+        "title": "CouponCurrencyOption",
+        "type": "object"
+      },
+      "UpdateCouponResponse": {
+        "description": "Response model containing the updated coupon object.",
+        "properties": {
+          "amount_off": {
+            "description": "Amount (in the currency specified) that will be taken off the subtotal of any invoices for this coupon.",
+            "title": "Amount Off",
+            "type": "integer"
+          },
+          "applies_to": {
+            "$ref": "#/$defs/CouponAppliesTo",
+            "description": "Contains information about what this coupon applies to.",
+            "title": "Applies To"
+          },
+          "created": {
+            "description": "Time at which the object was created, measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "If amount_off has been set, the three-letter ISO code for the currency of the amount to take off.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "currency_options": {
+            "additionalProperties": {
+              "$ref": "#/$defs/CouponCurrencyOption"
+            },
+            "description": "Coupons defined in each available currency option (amount-based coupons only). Each key is a three-letter ISO currency code with nested amount_off value.",
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "duration": {
+            "description": "One of forever, once, or repeating. Describes how long a customer who applies this coupon will get the discount.",
+            "title": "Duration",
+            "type": "string"
+          },
+          "duration_in_months": {
+            "description": "If duration is repeating, the number of months the coupon applies. Null if coupon duration is forever or once.",
+            "title": "Duration In Months",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the coupon.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "max_redemptions": {
+            "description": "Maximum number of times this coupon can be redeemed, in total, across all customers, before it is no longer valid.",
+            "title": "Max Redemptions",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object for storing additional information in a structured format.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "Name of the coupon displayed to customers on invoices or receipts.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'coupon'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percent_off": {
+            "description": "Percent that will be taken off the subtotal of any invoices for this coupon (for the duration of the coupon).",
+            "title": "Percent Off",
+            "type": "number"
+          },
+          "redeem_by": {
+            "description": "Date after which the coupon can no longer be redeemed.",
+            "title": "Redeem By",
+            "type": "integer"
+          },
+          "times_redeemed": {
+            "description": "Number of times this coupon has been applied to a customer.",
+            "title": "Times Redeemed",
+            "type": "integer"
+          },
+          "valid": {
+            "description": "Taking account of the above properties, whether this coupon can still be applied to a customer.",
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "object", "created", "duration", "livemode", "metadata", "times_redeemed", "valid"],
+        "title": "UpdateCouponResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateCouponResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

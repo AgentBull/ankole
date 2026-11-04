@@ -1,0 +1,363 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates specified attributes of an existing Sentry issue within a Sentry organization, leaving other attributes unchanged.",
+  "inputSchema": {
+    "description": "Request payload for updating attributes of a Sentry issue.",
+    "properties": {
+      "assignedTo": {
+        "description": "Actor ID (e.g., 'user:1', 'team:2'), username, or email for assignment. Omit, or use an empty string or 'null' equivalent, to unassign.",
+        "examples": ["user@example.com", "team-slug", "user:12345", "team:67890", ""],
+        "title": "Assigned To",
+        "type": "string"
+      },
+      "hasSeen": {
+        "description": "Updates if the user has seen the issue (true for seen, false for unseen).",
+        "examples": [true, false],
+        "title": "Has Seen",
+        "type": "boolean"
+      },
+      "isBookmarked": {
+        "description": "Updates the user's bookmark for the issue (true to bookmark, false to remove).",
+        "examples": [true, false],
+        "title": "Is Bookmarked",
+        "type": "boolean"
+      },
+      "isPublic": {
+        "description": "Sets the issue's visibility (true for public, false for private).",
+        "examples": [true, false],
+        "title": "Is Public",
+        "type": "boolean"
+      },
+      "isSubscribed": {
+        "description": "Updates the user's notification subscription for the issue (true to subscribe, false to unsubscribe).",
+        "examples": [true, false],
+        "title": "Is Subscribed",
+        "type": "boolean"
+      },
+      "issue_id": {
+        "description": "The unique identifier of the issue to be updated.",
+        "examples": ["67890", "98765"],
+        "title": "Issue Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or slug of the Sentry organization.",
+        "examples": ["my-org-slug", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "status": {
+        "description": "The new status to assign to the issue. Valid values: \"resolved\", \"resolvedInNextRelease\", \"unresolved\", \"ignored\".",
+        "examples": ["resolved", "unresolved", "ignored", "resolvedInNextRelease"],
+        "title": "Status",
+        "type": "string"
+      },
+      "statusDetails__inCommit": {
+        "description": "The commit hash associated with the fix for this issue.",
+        "examples": ["a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", "abcdef0123456789"],
+        "title": "Status Details  In Commit",
+        "type": "string"
+      },
+      "statusDetails__inNextRelease": {
+        "description": "Specifies if the issue is resolved in the next Sentry release.",
+        "examples": [true, false],
+        "title": "Status Details  In Next Release",
+        "type": "boolean"
+      },
+      "statusDetails__inRelease": {
+        "description": "The Sentry release version in which the issue is considered resolved.",
+        "examples": ["1.2.3", "my-project@2.0.0"],
+        "title": "Status Details  In Release",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "issue_id"],
+    "title": "UpdateIssueAttributesInOrganizationRequest",
+    "type": "object"
+  },
+  "name": "update_issue_attributes_in_organization",
+  "outputSchema": {
+    "$defs": {
+      "AssignedTo": {
+        "description": "Information about the user or team assigned to an issue.",
+        "properties": {
+          "email": {
+            "description": "Email address of the assigned user (if applicable).",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the assigned user or team.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the assigned user or team.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of actor assigned (e.g., 'user', 'team').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "AssignedTo",
+        "type": "object"
+      },
+      "Metadata": {
+        "description": "Metadata about the issue containing structured information about the error.",
+        "properties": {
+          "filename": {
+            "description": "Filename where the error occurred.",
+            "title": "Filename",
+            "type": "string"
+          },
+          "title": {
+            "description": "Descriptive title of the issue.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Error type (e.g., 'ForbiddenError').",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "Error value or message.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "Metadata",
+        "type": "object"
+      },
+      "Project": {
+        "description": "Information about the project an issue belongs to.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the project.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the project.",
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Platform of the project (e.g., 'python', 'javascript').",
+            "title": "Platform",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly identifier for the project.",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "slug"],
+        "title": "Project",
+        "type": "object"
+      },
+      "UpdateIssueAttributesInOrganizationResponse": {
+        "description": "Response payload containing the updated Sentry issue attributes.",
+        "properties": {
+          "annotations": {
+            "description": "Array of annotations associated with this issue.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Annotations",
+            "type": "array"
+          },
+          "assignedTo": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AssignedTo"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Information about the user or team assigned to this issue, or null if unassigned.",
+            "title": "Assigned To"
+          },
+          "count": {
+            "description": "Total number of times this issue has occurred.",
+            "title": "Count",
+            "type": "string"
+          },
+          "culprit": {
+            "description": "The suspected cause or location of the issue (e.g., 'raven.scripts.runner in main').",
+            "title": "Culprit",
+            "type": "string"
+          },
+          "firstSeen": {
+            "description": "ISO 8601 timestamp of when the issue was first seen.",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "hasSeen": {
+            "description": "Whether the current user has viewed this issue.",
+            "title": "Has Seen",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the issue.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isBookmarked": {
+            "description": "Whether the current user has bookmarked this issue.",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "isPublic": {
+            "description": "Whether the issue is publicly accessible.",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "isSubscribed": {
+            "description": "Whether the current user is subscribed to workflow notifications for this issue.",
+            "title": "Is Subscribed",
+            "type": "boolean"
+          },
+          "lastSeen": {
+            "description": "ISO 8601 timestamp of when the issue was last seen.",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "level": {
+            "description": "Severity level of the issue (e.g., 'error', 'warning', 'info').",
+            "title": "Level",
+            "type": "string"
+          },
+          "logger": {
+            "description": "Name of the logger that recorded this issue, or null if not specified.",
+            "title": "Logger",
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/$defs/Metadata",
+            "title": "Metadata"
+          },
+          "numComments": {
+            "description": "Number of comments on this issue.",
+            "title": "Num Comments",
+            "type": "integer"
+          },
+          "permalink": {
+            "description": "Direct URL to view this issue in the Sentry web interface.",
+            "title": "Permalink",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/$defs/Project",
+            "description": "Information about the project this issue belongs to.",
+            "title": "Project"
+          },
+          "shareId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Identifier for public sharing of this issue, or null if not publicly shared.",
+            "title": "Share Id"
+          },
+          "shortId": {
+            "description": "Human-readable short identifier for the issue (e.g., 'PUMP-STATION-1').",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current status of the issue. Valid values: 'resolved', 'unresolved', 'ignored'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "statusDetails": {
+            "additionalProperties": true,
+            "description": "Additional details about the issue status, including resolution information. Can contain fields like inRelease, inNextRelease, inCommit, ignoreCount, ignoreWindow, ignoreUserCount, ignoreUserWindow, ignoreDuration.",
+            "title": "Status Details",
+            "type": "object"
+          },
+          "subscriptionDetails": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Details about the current user's subscription to this issue, or null if not subscribed.",
+            "title": "Subscription Details"
+          },
+          "title": {
+            "description": "The title or description of the issue.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of issue (e.g., 'default', 'error').",
+            "title": "Type",
+            "type": "string"
+          },
+          "userCount": {
+            "description": "Number of unique users affected by this issue.",
+            "title": "User Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "shortId",
+          "title",
+          "culprit",
+          "level",
+          "status",
+          "count",
+          "userCount",
+          "firstSeen",
+          "lastSeen",
+          "isBookmarked",
+          "isSubscribed",
+          "isPublic",
+          "hasSeen",
+          "numComments",
+          "permalink",
+          "logger",
+          "type",
+          "annotations",
+          "assignedTo",
+          "metadata",
+          "project",
+          "statusDetails",
+          "subscriptionDetails",
+          "shareId"
+        ],
+        "title": "UpdateIssueAttributesInOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateIssueAttributesInOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

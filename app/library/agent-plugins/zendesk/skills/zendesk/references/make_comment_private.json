@@ -1,0 +1,397 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Make a public ticket comment private in Zendesk. This action changes the visibility of a comment from public to internal-only, so only agents can view it. Use this action when you need to convert a customer-facing comment to an internal note after the fact. Note: Only agents can make comments private; end users cannot use this endpoint.",
+  "inputSchema": {
+    "description": "Request model for making a ticket comment private.",
+    "properties": {
+      "ticket_comment_id": {
+        "description": "ID of the ticket comment to make private.",
+        "human_parameter_description": "The unique identifier of the comment within the ticket. You can get this ID from the ticket's comment list.",
+        "human_parameter_name": "Comment ID",
+        "title": "Ticket Comment Id",
+        "type": "integer"
+      },
+      "ticket_id": {
+        "description": "ID of the ticket containing the comment to make private.",
+        "human_parameter_description": "The Zendesk ticket ID that contains the comment you want to make private. Find this ID in the ticket URL or from a ticket list.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id", "ticket_comment_id"],
+    "title": "MakeCommentPrivateRequest",
+    "type": "object"
+  },
+  "name": "make_comment_private",
+  "outputSchema": {
+    "$defs": {
+      "MakeCommentPrivateAttachment": {
+        "description": "Attachment object in a comment.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the file",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to access the attachment file",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "If true, attachment has been deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Name of the attached file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Height of image file in pixels, null if unknown",
+            "title": "Height",
+            "type": "string"
+          },
+          "id": {
+            "description": "Attachment identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "If true, attachment is excluded from attachment list",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malware_access_override": {
+            "description": "If true, you can download a malware-flagged attachment",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malware_scan_result": {
+            "description": "Result of malware scan: malware_found, malware_not_found, failed_to_scan, not_scanned",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mapped_content_url": {
+            "description": "URL the attachment image has been mapped to",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "Array of thumbnail attachments for images",
+            "items": {
+              "$ref": "#/$defs/MakeCommentPrivateThumbnail"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          },
+          "url": {
+            "description": "URL to access the attachment details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Width of image file in pixels, null if unknown",
+            "title": "Width",
+            "type": "string"
+          }
+        },
+        "title": "MakeCommentPrivateAttachment",
+        "type": "object"
+      },
+      "MakeCommentPrivateComment": {
+        "description": "Comment object returned after making a comment private.",
+        "properties": {
+          "attachments": {
+            "description": "List of attachments associated with the comment",
+            "items": {
+              "$ref": "#/$defs/MakeCommentPrivateAttachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "audit_id": {
+            "description": "The audit ID associated with the comment",
+            "title": "Audit Id",
+            "type": "integer"
+          },
+          "author_id": {
+            "description": "The ID of the author of the comment",
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "body": {
+            "description": "The body content of the comment",
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "The timestamp when the comment was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "html_body": {
+            "description": "The HTML formatted body of the comment",
+            "title": "Html Body",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the comment",
+            "title": "Id",
+            "type": "integer"
+          },
+          "metadata": {
+            "$ref": "#/$defs/MakeCommentPrivateMetadata",
+            "description": "Additional metadata related to the comment",
+            "title": "Metadata"
+          },
+          "plain_body": {
+            "description": "The plain text body of the comment",
+            "title": "Plain Body",
+            "type": "string"
+          },
+          "public": {
+            "description": "Indicates if the comment is public (false after making private)",
+            "title": "Public",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "The type of the comment",
+            "title": "Type",
+            "type": "string"
+          },
+          "via": {
+            "$ref": "#/$defs/MakeCommentPrivateVia",
+            "description": "The method through which the comment was added",
+            "title": "Via"
+          }
+        },
+        "title": "MakeCommentPrivateComment",
+        "type": "object"
+      },
+      "MakeCommentPrivateMetadata": {
+        "description": "Metadata object for a comment.",
+        "properties": {
+          "custom": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom metadata (up to 1KB)",
+            "title": "Custom",
+            "type": "object"
+          },
+          "flags": {
+            "description": "Array of integer flag codes",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "flags_options": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Additional flag context information",
+            "title": "Flags Options",
+            "type": "object"
+          },
+          "suspension_type_id": {
+            "description": "Suspension type identifier if applicable",
+            "title": "Suspension Type Id",
+            "type": "integer"
+          },
+          "system": {
+            "$ref": "#/$defs/MakeCommentPrivateMetadataSystem",
+            "description": "System-generated information",
+            "title": "System"
+          }
+        },
+        "title": "MakeCommentPrivateMetadata",
+        "type": "object"
+      },
+      "MakeCommentPrivateMetadataSystem": {
+        "description": "System metadata for a comment.",
+        "properties": {
+          "client": {
+            "description": "Client/browser information",
+            "title": "Client",
+            "type": "string"
+          },
+          "ip_address": {
+            "description": "IP address of the client",
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "latitude": {
+            "description": "Latitude coordinate",
+            "title": "Latitude",
+            "type": "number"
+          },
+          "location": {
+            "description": "Geographic location",
+            "title": "Location",
+            "type": "string"
+          },
+          "longitude": {
+            "description": "Longitude coordinate",
+            "title": "Longitude",
+            "type": "number"
+          }
+        },
+        "title": "MakeCommentPrivateMetadataSystem",
+        "type": "object"
+      },
+      "MakeCommentPrivateResponse": {
+        "description": "Response model for the make comment private action.",
+        "properties": {
+          "comment": {
+            "$ref": "#/$defs/MakeCommentPrivateComment",
+            "description": "The updated comment object with public set to false.",
+            "title": "Comment"
+          }
+        },
+        "title": "MakeCommentPrivateResponse",
+        "type": "object"
+      },
+      "MakeCommentPrivateThumbnail": {
+        "description": "Thumbnail attachment object.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the thumbnail",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to access the thumbnail file",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "If true, thumbnail has been deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Name of the thumbnail file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Height of thumbnail in pixels, null if unknown",
+            "title": "Height",
+            "type": "string"
+          },
+          "id": {
+            "description": "Thumbnail identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "If true, thumbnail is excluded from attachment list",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malware_access_override": {
+            "description": "If true, you can download a malware-flagged thumbnail",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malware_scan_result": {
+            "description": "Result of malware scan: malware_found, malware_not_found, failed_to_scan, not_scanned",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mapped_content_url": {
+            "description": "URL the thumbnail has been mapped to",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL to access the thumbnail details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Width of thumbnail in pixels, null if unknown",
+            "title": "Width",
+            "type": "string"
+          }
+        },
+        "title": "MakeCommentPrivateThumbnail",
+        "type": "object"
+      },
+      "MakeCommentPrivateVia": {
+        "description": "Via object describing how the comment was created.",
+        "properties": {
+          "channel": {
+            "description": "How the comment was created (email, api, chat, etc.)",
+            "title": "Channel",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/MakeCommentPrivateViaSource",
+            "description": "Additional source information",
+            "title": "Source"
+          }
+        },
+        "title": "MakeCommentPrivateVia",
+        "type": "object"
+      },
+      "MakeCommentPrivateViaSource": {
+        "description": "Source information in via object.",
+        "properties": {
+          "from": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Source sender information (address, name, phone, etc.)",
+            "title": "From",
+            "type": "object"
+          },
+          "rel": {
+            "description": "Relationship type (e.g., direct_message, voicemail, trigger)",
+            "title": "Rel",
+            "type": "string"
+          },
+          "to": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Source recipient information",
+            "title": "To",
+            "type": "object"
+          }
+        },
+        "title": "MakeCommentPrivateViaSource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/MakeCommentPrivateResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

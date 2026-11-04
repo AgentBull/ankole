@@ -1,0 +1,164 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves the list of access control rules (ACLs) for a specified calendar, providing the necessary 'rule_id' values required for updating specific ACL rules.",
+  "inputSchema": {
+    "properties": {
+      "calendarId": {
+        "description": "Calendar identifier. To retrieve calendar IDs call the calendarList.list method. If you want to access the primary calendar of the currently logged in user, use the \"primary\" keyword.",
+        "examples": ["primary"],
+        "human_parameter_description": "The calendar you want to view permissions for. Use 'primary' for your main calendar, or paste a specific calendar ID.",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "maxResults": {
+        "description": "Maximum number of entries returned on one result page. Optional. The default is 100.",
+        "examples": [10],
+        "human_parameter_description": "How many ACL entries to return per page. Lower this to limit the list, or leave blank to use the default (up to 100).",
+        "human_parameter_name": "Max Results",
+        "title": "Max Results",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Token specifying which result page to return. Optional.",
+        "examples": [" nextPageToken_value"],
+        "human_parameter_description": "If continuing from a previous page, paste the token you received to get the next set of results. Leave blank to start from the beginning.",
+        "human_parameter_name": "Page Token",
+        "title": "Page Token",
+        "type": "string"
+      },
+      "showDeleted": {
+        "description": "Whether to include deleted ACLs in the result. Optional. The default is False.",
+        "examples": [false],
+        "human_parameter_description": "Include ACL rules that have been deleted. Turn this on if you need to see removals for auditing.",
+        "human_parameter_name": "Show Deleted",
+        "title": "Show Deleted",
+        "type": "boolean"
+      },
+      "syncToken": {
+        "description": "Token obtained from the nextSyncToken field returned on the last page of a previous list operation. It makes the result of this list operation contain only entries that have changed since then. Optional. The default is to retrieve all entries.",
+        "examples": ["nextSyncToken_value"],
+        "human_parameter_description": "Paste the sync token from a previous list to return only changes since then. Use this for incremental updates instead of fetching everything.",
+        "human_parameter_name": "Sync Token",
+        "title": "Sync Token",
+        "type": "string"
+      }
+    },
+    "required": ["calendarId"],
+    "title": "AclListRequest",
+    "type": "object"
+  },
+  "name": "acl_list",
+  "outputSchema": {
+    "$defs": {
+      "AclListResponse": {
+        "properties": {
+          "display_url": {
+            "description": "URL to view the calendar settings in Google Calendar's interface.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the collection, useful for cache validation.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "items": {
+            "description": "List of rules on the access control list. May be empty if no rules are present.",
+            "items": {
+              "$ref": "#/$defs/AclRule"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "kind": {
+            "description": "Type of the collection. Always 'calendar#acl'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "nextPageToken": {
+            "description": "Token used to access the next page of this result. Omitted if no further results are available.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "nextSyncToken": {
+            "description": "Token used at a later point to retrieve only the entries that have changed since this result was returned. Omitted if further results are available.",
+            "title": "Next Sync Token",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "items"],
+        "title": "AclListResponse",
+        "type": "object"
+      },
+      "AclRule": {
+        "properties": {
+          "display_url": {
+            "description": "URL to view this ACL rule in Google Calendar's settings interface.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the resource, useful for concurrency control.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identifier of the ACL rule, typically formed as '<scopeType>:<value>' (e.g., 'user:someone@example.com', 'group:group@domain.com', 'domain:example.com').",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of the resource. Always 'calendar#aclRule'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "role": {
+            "description": "The role assigned to the scope. Allowed values: 'none', 'freeBusyReader', 'reader', 'writer', 'owner'.",
+            "title": "Role",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/$defs/AclRuleScope",
+            "description": "The extent to which calendar access is granted by this ACL rule.",
+            "title": "Scope"
+          }
+        },
+        "required": ["scope", "role"],
+        "title": "AclRule",
+        "type": "object"
+      },
+      "AclRuleScope": {
+        "properties": {
+          "type": {
+            "description": "The type of the scope. 'default' refers to the public scope (this is the default value). 'user' limits the scope to a single user. 'group' limits the scope to a group. 'domain' limits the scope to a domain.",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The email address of a user or group, or the name of a domain, depending on the scope type. Omitted when type is 'default'.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AclRuleScope",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AclListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

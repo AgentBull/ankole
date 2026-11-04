@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Removes a calendar from the user's calendar list, unsubscribing from it without deleting the calendar itself.",
+  "inputSchema": {
+    "properties": {
+      "calendar_id": {
+        "description": "Calendar identifier. To retrieve calendar IDs call the calendarList.list method. If you want to access the primary calendar of the currently logged in user, use the 'primary' keyword.",
+        "examples": ["primary", "example_calendar_id@group.calendar.google.com"],
+        "human_parameter_description": "Enter the ID of the calendar you want to remove from your calendar list. You can use 'primary' for your main calendar or provide a specific calendar ID.",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      }
+    },
+    "required": ["calendar_id"],
+    "title": "CalendarListDeleteRequest",
+    "type": "object"
+  },
+  "name": "calendar_list_delete",
+  "outputSchema": {
+    "$defs": {
+      "CalendarListDeleteResponse": {
+        "properties": {
+          "message": {
+            "description": "Optional confirmation message indicating the calendar list entry removal status (e.g., 'Calendar removed from list successfully.'). Not part of the official API response; may be added by client/tooling.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "title": "CalendarListDeleteResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CalendarListDeleteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

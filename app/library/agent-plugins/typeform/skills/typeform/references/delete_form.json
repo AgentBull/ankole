@@ -1,0 +1,53 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to permanently delete a Typeform and all of its responses. Use when you need to remove a form completely from the account.",
+  "inputSchema": {
+    "properties": {
+      "form_id": {
+        "description": "Unique form identifier found in the form URL",
+        "examples": ["Eu7aUntt"],
+        "title": "Form Id",
+        "type": "string"
+      }
+    },
+    "required": ["form_id"],
+    "title": "TypeformDeleteFormRequest",
+    "type": "object"
+  },
+  "name": "delete_form",
+  "outputSchema": {
+    "$defs": {
+      "TypeformDeleteFormResponse": {
+        "properties": {
+          "message": {
+            "description": "Status message about the deletion operation",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the form was successfully deleted",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success", "message"],
+        "title": "TypeformDeleteFormResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/TypeformDeleteFormResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

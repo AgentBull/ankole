@@ -1,0 +1,185 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a single deleted Zendesk user by their ID. Use when you have a specific deleted user ID and need to fetch details about that deleted user, such as for auditing purposes, account recovery, or compliance records. Deleted users retain their associated tickets and historical data.",
+  "inputSchema": {
+    "description": "Request parameters for retrieving a single deleted Zendesk user by ID.",
+    "properties": {
+      "deleted_user_id": {
+        "description": "The numeric ID of the deleted user to retrieve. You can find this from the deleted users list endpoint or from previous user search results.",
+        "examples": [35436],
+        "title": "Deleted User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["deleted_user_id"],
+    "title": "GetDeletedUserRequest",
+    "type": "object"
+  },
+  "name": "get_deleted_user",
+  "outputSchema": {
+    "$defs": {
+      "DeletedUser": {
+        "description": "Zendesk deleted user object.",
+        "properties": {
+          "active": {
+            "description": "True if the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Timestamp when the user was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's primary email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "locale": {
+            "description": "User locale",
+            "title": "Locale",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Locale ID",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User's full name",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "Organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "phone": {
+            "description": "User phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "photo": {
+            "$ref": "#/$defs/DeletedUserPhoto",
+            "description": "User photo object",
+            "title": "Photo"
+          },
+          "role": {
+            "description": "User role (end-user, agent, admin)",
+            "title": "Role",
+            "type": "string"
+          },
+          "shared_phone_number": {
+            "description": "True if phone number is shared",
+            "title": "Shared Phone Number",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User timezone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the user was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "url"],
+        "title": "DeletedUser",
+        "type": "object"
+      },
+      "DeletedUserPhoto": {
+        "description": "Photo object for deleted users.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the photo (e.g., image/png)",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "True if the photo is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "height": {
+            "description": "Image height in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Photo attachment ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "True if inline attachment",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "mapped_content_url": {
+            "description": "Mapped URL for the photo",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "API URL to access photo details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "DeletedUserPhoto",
+        "type": "object"
+      },
+      "GetDeletedUserResponse": {
+        "description": "Response containing a single deleted Zendesk user.",
+        "properties": {
+          "deleted_user": {
+            "$ref": "#/$defs/DeletedUser",
+            "description": "The deleted user object",
+            "title": "Deleted User"
+          }
+        },
+        "required": ["deleted_user"],
+        "title": "GetDeletedUserResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetDeletedUserResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,121 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a Zendesk group with an account-unique name to organize agents for ticket assignment and routing. Returns the group's assigned ID and supported group fields.",
+  "inputSchema": {
+    "description": "Request model for creating a new Zendesk group.",
+    "properties": {
+      "description": {
+        "description": "An optional description of the group explaining its purpose or responsibilities",
+        "examples": ["Handles all tier-1 customer support tickets"],
+        "human_parameter_description": "Optional description of the group's purpose",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "is_public": {
+        "description": "If true, the group is public and visible to all agents. If false, the group is private. Note: You cannot change a private group to a public group after creation.",
+        "examples": [true],
+        "human_parameter_description": "Set to true for public groups visible to all agents, false for private groups",
+        "human_parameter_name": "Is Public",
+        "title": "Is Public",
+        "type": "boolean"
+      },
+      "name": {
+        "description": "The name of the group. Must be unique within the account. Leading/trailing whitespace is trimmed.",
+        "examples": ["Support Team", "Engineering"],
+        "human_parameter_description": "The name for the new group. This is how it will appear in Zendesk for your agents.",
+        "human_parameter_name": "Group Name",
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "CreateZendeskGroupRequest",
+    "type": "object"
+  },
+  "name": "create_zendesk_group",
+  "outputSchema": {
+    "$defs": {
+      "CreateZendeskGroupResponse": {
+        "description": "Response model for group creation.",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/ZendeskGroupResponse",
+            "description": "The created group object",
+            "title": "Group"
+          }
+        },
+        "required": ["group"],
+        "title": "CreateZendeskGroupResponse",
+        "type": "object"
+      },
+      "ZendeskGroupResponse": {
+        "description": "Response model representing a Zendesk group.",
+        "properties": {
+          "created_at": {
+            "description": "The time the group was created in ISO 8601 format",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "If true, this is the default group for the account",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "deleted": {
+            "description": "If true, the group has been deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "The description of the group",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Automatically assigned unique identifier for the group",
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_public": {
+            "description": "If true, the group is public",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The name of the group",
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "The time of the last update of the group in ISO 8601 format",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "The API URL of the group",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "ZendeskGroupResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateZendeskGroupResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

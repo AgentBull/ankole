@@ -1,0 +1,190 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a merge request comment, not a line-specific diff discussion. Emoji-only content can create and return an emoji reaction instead of a note. Quick actions in the body can also change the merge request.",
+  "inputSchema": {
+    "properties": {
+      "body": {
+        "description": "Note content, up to 1,000,000 characters.",
+        "maxLength": 1000000,
+        "title": "Body",
+        "type": "string"
+      },
+      "created_at": {
+        "description": "ISO 8601 creation timestamp; requires administrator or project/group owner rights.",
+        "title": "Created At",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespaced project path.",
+        "title": "Id"
+      },
+      "internal": {
+        "description": "Whether the note is internal. GitLab defaults to false.",
+        "title": "Internal",
+        "type": "boolean"
+      },
+      "merge_request_diff_head_sha": {
+        "description": "Head commit SHA, required for the /merge quick action to guard against merge request updates.",
+        "title": "Merge Request Diff Head Sha",
+        "type": "string"
+      },
+      "merge_request_iid": {
+        "description": "Project-local IID of the merge request.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid", "body"],
+    "title": "CreateMergeRequestNoteRequest",
+    "type": "object"
+  },
+  "name": "create_merge_request_note",
+  "outputSchema": {
+    "$defs": {
+      "CreateMergeRequestNoteResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "author": {
+            "$ref": "#/$defs/MergeRequestNoteAuthor",
+            "description": "Note author.",
+            "title": "Author"
+          },
+          "body": {
+            "description": "Note content.",
+            "title": "Body",
+            "type": "string"
+          },
+          "confidential": {
+            "description": "Whether the note is confidential.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Created note or emoji reaction ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "internal": {
+            "description": "Whether the note is internal.",
+            "title": "Internal",
+            "type": "boolean"
+          },
+          "noteable_id": {
+            "description": "Merge request's global numeric ID as a precision-preserving decimal string.",
+            "title": "Noteable Id",
+            "type": "string"
+          },
+          "noteable_iid": {
+            "description": "Merge request's project-local IID.",
+            "title": "Noteable Iid",
+            "type": "integer"
+          },
+          "noteable_type": {
+            "description": "Type of the note's resource.",
+            "title": "Noteable Type",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "resolvable": {
+            "description": "Whether the note can be resolved.",
+            "title": "Resolvable",
+            "type": "boolean"
+          },
+          "system": {
+            "description": "Whether this is a system note.",
+            "title": "System",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "CreateMergeRequestNoteResponse",
+        "type": "object"
+      },
+      "MergeRequestNoteAuthor": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Author's avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "User creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Author's email, when returned.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Author's user ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Author's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Author's username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Author's profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "MergeRequestNoteAuthor",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateMergeRequestNoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -193,7 +193,7 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
         external_id: "graph-user"
       })
 
-    console_entry = conn |> init_test_session(%{}) |> get("/site-admin-console/settings")
+    console_entry = conn |> init_test_session(%{}) |> get(console_url("/settings"))
     login_redirect = redirected_to(console_entry)
     refute login_redirect =~ "/site-admin-console"
 
@@ -217,7 +217,7 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
       |> pod_conn(tenant)
       |> get("/sessions/oidc/entra/callback", %{"code" => "code-1", "state" => upstream["state"]})
 
-    expected_console_url = AnkoleWeb.PodURL.site_origin(conn) <> "/site-admin-console/settings"
+    expected_console_url = console_url("/settings")
     assert redirected_to(completed) == expected_console_url
     assert WebSession.site_admin_session(completed)["principal_uid"] == admin.uid
 
@@ -225,7 +225,7 @@ defmodule AnkoleWeb.UpstreamOIDCLoginTest do
       completed
       |> recycle()
       |> site_conn()
-      |> get("/site-admin-console/settings")
+      |> get(console_url("/settings"))
 
     assert html_response(console_shell, 200) =~
              ~s(<meta name="ankole-principal" content="#{admin.uid}">)

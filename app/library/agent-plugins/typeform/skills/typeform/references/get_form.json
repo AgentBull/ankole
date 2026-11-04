@@ -1,0 +1,154 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a specific form's complete configuration including fields, logic, settings, and theme. Use when you need to get detailed information about a Typeform form.",
+  "inputSchema": {
+    "properties": {
+      "form_id": {
+        "description": "Unique form identifier found in the form URL",
+        "examples": ["CoZt0LNp"],
+        "title": "Form Id",
+        "type": "string"
+      }
+    },
+    "required": ["form_id"],
+    "title": "TypeformGetFormRequest",
+    "type": "object"
+  },
+  "name": "get_form",
+  "outputSchema": {
+    "$defs": {
+      "TypeformGetFormResponse": {
+        "properties": {
+          "captcha": {
+            "description": "Whether CAPTCHA is enabled",
+            "title": "Captcha",
+            "type": "boolean"
+          },
+          "cui_settings": {
+            "additionalProperties": true,
+            "description": "Conversational UI settings",
+            "title": "Cui Settings",
+            "type": "object"
+          },
+          "duplicate_prevention": {
+            "additionalProperties": true,
+            "description": "Duplicate prevention settings",
+            "title": "Duplicate Prevention",
+            "type": "object"
+          },
+          "fields": {
+            "description": "List of form fields with their configurations",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "hidden": {
+            "description": "List of hidden fields",
+            "items": {
+              "type": "string"
+            },
+            "title": "Hidden",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier of the form",
+            "title": "Id",
+            "type": "string"
+          },
+          "language": {
+            "description": "Language code of the form",
+            "title": "Language",
+            "type": "string"
+          },
+          "links": {
+            "additionalProperties": true,
+            "description": "Related links",
+            "title": "Links",
+            "type": "object"
+          },
+          "logic": {
+            "description": "Logic jumps configuration",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Logic",
+            "type": "array"
+          },
+          "meta": {
+            "additionalProperties": true,
+            "description": "Metadata information",
+            "title": "Meta",
+            "type": "object"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "description": "Form settings",
+            "title": "Settings",
+            "type": "object"
+          },
+          "thankyou_screens": {
+            "description": "Thank you screens configuration",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Thankyou Screens",
+            "type": "array"
+          },
+          "theme": {
+            "additionalProperties": true,
+            "description": "Theme configuration",
+            "title": "Theme",
+            "type": "object"
+          },
+          "title": {
+            "description": "Title of the form",
+            "title": "Title",
+            "type": "string"
+          },
+          "variables": {
+            "additionalProperties": true,
+            "description": "Form variables",
+            "title": "Variables",
+            "type": "object"
+          },
+          "welcome_screens": {
+            "description": "Welcome screens configuration",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Welcome Screens",
+            "type": "array"
+          },
+          "workspace": {
+            "additionalProperties": true,
+            "description": "Workspace information",
+            "title": "Workspace",
+            "type": "object"
+          }
+        },
+        "title": "TypeformGetFormResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/TypeformGetFormResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

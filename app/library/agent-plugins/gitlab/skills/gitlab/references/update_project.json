@@ -1,0 +1,851 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update an existing GitLab project's settings, visibility, features, and CI/CD configuration. Requires Maintainer or Owner; some settings require Owner, administrator access, a paid tier, or a newer GitLab version. Only supplied settings are changed. Topics replace existing topics. Avatar accepts an image URL to upload. To clear an array, send an empty array in a separate call without avatar.",
+  "inputSchema": {
+    "properties": {
+      "suggestion_commit_message": {
+        "description": "Commit message for merge request suggestions.",
+        "title": "Suggestion Commit Message",
+        "type": "string"
+      },
+      "warn_about_potentially_unwanted_characters": {
+        "description": "Warn about potentially unwanted characters.",
+        "title": "Warn About Potentially Unwanted Characters",
+        "type": "boolean"
+      },
+      "mirror_overwrites_diverged_branches": {
+        "description": "Pull mirrors overwrite diverged branches. Premium/Ultimate.",
+        "title": "Mirror Overwrites Diverged Branches",
+        "type": "boolean"
+      },
+      "auto_cancel_pending_pipelines": {
+        "description": "Auto-cancel pending pipelines: enabled or disabled, not a boolean.",
+        "title": "Auto Cancel Pending Pipelines",
+        "type": "string"
+      },
+      "wiki_access_level": {
+        "description": "Wiki visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Wiki Access Level",
+        "type": "string"
+      },
+      "security_and_compliance_access_level": {
+        "description": "Security and compliance visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Security And Compliance Access Level",
+        "type": "string"
+      },
+      "squash_commit_template": {
+        "description": "Squash commit message template.",
+        "title": "Squash Commit Template",
+        "type": "string"
+      },
+      "auto_devops_deploy_strategy": {
+        "description": "Auto Deploy strategy.",
+        "enum": ["continuous", "manual", "timed_incremental"],
+        "title": "Auto Devops Deploy Strategy",
+        "type": "string"
+      },
+      "releases_access_level": {
+        "description": "Release visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Releases Access Level",
+        "type": "string"
+      },
+      "max_artifacts_size": {
+        "description": "Maximum individual job artifact size in megabytes.",
+        "title": "Max Artifacts Size",
+        "type": "integer"
+      },
+      "jobs_enabled": {
+        "description": "Deprecated; use builds_access_level.",
+        "title": "Jobs Enabled",
+        "type": "boolean"
+      },
+      "ci_config_path": {
+        "description": "Path to the CI configuration file.",
+        "title": "Ci Config Path",
+        "type": "string"
+      },
+      "merge_trains_skip_train_allowed": {
+        "description": "Allow merge train merges without waiting for pipelines.",
+        "title": "Merge Trains Skip Train Allowed",
+        "type": "boolean"
+      },
+      "allow_pipeline_trigger_approve_deployment": {
+        "description": "Allow pipeline triggerers to approve deployments. Premium/Ultimate.",
+        "title": "Allow Pipeline Trigger Approve Deployment",
+        "type": "boolean"
+      },
+      "path": {
+        "description": "Custom repository path for the project.",
+        "title": "Path",
+        "type": "string"
+      },
+      "feature_flags_access_level": {
+        "description": "Feature flag visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Feature Flags Access Level",
+        "type": "string"
+      },
+      "feature_flags_minimum_role": {
+        "description": "Minimum role to manage feature flags. Owner required to change away from owner or no_one_allowed.",
+        "enum": ["no_one_allowed", "developer", "maintainer", "owner"],
+        "title": "Feature Flags Minimum Role",
+        "type": "string"
+      },
+      "web_based_commit_signing_enabled": {
+        "description": "Enable signing commits created in the GitLab UI. GitLab.com only.",
+        "title": "Web Based Commit Signing Enabled",
+        "type": "boolean"
+      },
+      "emails_disabled": {
+        "description": "Deprecated; use emails_enabled.",
+        "title": "Emails Disabled",
+        "type": "boolean"
+      },
+      "default_branch": {
+        "description": "Default branch name.",
+        "title": "Default Branch",
+        "type": "string"
+      },
+      "container_registry_access_level": {
+        "description": "Container registry visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Container Registry Access Level",
+        "type": "string"
+      },
+      "repository_storage": {
+        "description": "Repository storage shard. Administrators only.",
+        "title": "Repository Storage",
+        "type": "string"
+      },
+      "requirements_access_level": {
+        "description": "Requirements management visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Requirements Access Level",
+        "type": "string"
+      },
+      "duo_sast_vr_workflow_enabled": {
+        "description": "Enable SAST vulnerability resolution workflow. Requires Security Manager, Maintainer, or Owner.",
+        "title": "Duo Sast Vr Workflow Enabled",
+        "type": "boolean"
+      },
+      "merge_train_enforcement": {
+        "description": "Merge train enforcement; only effective with merge trains enabled.",
+        "enum": ["allow_bypass", "enforce_for_all_users", "enforce_with_owner_override"],
+        "title": "Merge Train Enforcement",
+        "type": "string"
+      },
+      "forking_access_level": {
+        "description": "Fork visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Forking Access Level",
+        "type": "string"
+      },
+      "approvals_before_merge": {
+        "description": "Default approval count. Deprecated since 16.0; use the merge request approvals API. Premium/Ultimate.",
+        "title": "Approvals Before Merge",
+        "type": "integer"
+      },
+      "description": {
+        "description": "Short project description.",
+        "title": "Description",
+        "type": "string"
+      },
+      "merge_commit_template": {
+        "description": "Merge commit message template.",
+        "title": "Merge Commit Template",
+        "type": "string"
+      },
+      "external_authorization_classification_label": {
+        "description": "External authorization classification label. Premium/Ultimate.",
+        "title": "External Authorization Classification Label",
+        "type": "string"
+      },
+      "service_desk_enabled": {
+        "description": "Enable Service Desk; returned value also depends on instance incoming email configuration.",
+        "title": "Service Desk Enabled",
+        "type": "boolean"
+      },
+      "mirror": {
+        "description": "Enable pull mirroring. Premium/Ultimate.",
+        "title": "Mirror",
+        "type": "boolean"
+      },
+      "only_mirror_protected_branches": {
+        "description": "Only mirror protected branches. Premium/Ultimate.",
+        "title": "Only Mirror Protected Branches",
+        "type": "boolean"
+      },
+      "ci_allow_fork_pipelines_to_run_in_parent_project": {
+        "description": "Allow fork merge request pipelines in the parent project.",
+        "title": "Ci Allow Fork Pipelines To Run In Parent Project",
+        "type": "boolean"
+      },
+      "snippets_access_level": {
+        "description": "Snippet visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Snippets Access Level",
+        "type": "string"
+      },
+      "only_allow_merge_if_pipeline_succeeds": {
+        "description": "Require successful jobs before merging.",
+        "title": "Only Allow Merge If Pipeline Succeeds",
+        "type": "boolean"
+      },
+      "keep_latest_artifact": {
+        "description": "Keep the latest artifact.",
+        "title": "Keep Latest Artifact",
+        "type": "boolean"
+      },
+      "avatar": {
+        "description": "URL of an image file to download and upload as the project avatar.",
+        "title": "Avatar",
+        "type": "string"
+      },
+      "emails_enabled": {
+        "description": "Enable email notifications.",
+        "title": "Emails Enabled",
+        "type": "boolean"
+      },
+      "container_registry_enabled": {
+        "description": "Deprecated; use container_registry_access_level.",
+        "title": "Container Registry Enabled",
+        "type": "boolean"
+      },
+      "ci_display_pipeline_variables": {
+        "description": "Display manually defined pipeline variables on the details page.",
+        "title": "Ci Display Pipeline Variables",
+        "type": "boolean"
+      },
+      "name": {
+        "description": "Project name.",
+        "title": "Name",
+        "type": "string"
+      },
+      "model_experiments_access_level": {
+        "description": "Machine learning experiment visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Model Experiments Access Level",
+        "type": "string"
+      },
+      "group_runners_enabled": {
+        "description": "Enable group runners.",
+        "title": "Group Runners Enabled",
+        "type": "boolean"
+      },
+      "remove_source_branch_after_merge": {
+        "description": "Default new merge requests to delete the source branch.",
+        "title": "Remove Source Branch After Merge",
+        "type": "boolean"
+      },
+      "merge_requests_enabled": {
+        "description": "Deprecated; use merge_requests_access_level.",
+        "title": "Merge Requests Enabled",
+        "type": "boolean"
+      },
+      "environments_access_level": {
+        "description": "Environment visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Environments Access Level",
+        "type": "string"
+      },
+      "public_builds": {
+        "description": "Deprecated; use public_jobs.",
+        "title": "Public Builds",
+        "type": "boolean"
+      },
+      "ci_forward_deployment_rollback_allowed": {
+        "description": "Allow retries for rollback deployments.",
+        "title": "Ci Forward Deployment Rollback Allowed",
+        "type": "boolean"
+      },
+      "build_timeout": {
+        "description": "Maximum job runtime in seconds.",
+        "title": "Build Timeout",
+        "type": "integer"
+      },
+      "public_jobs": {
+        "description": "Allow non-members to view jobs.",
+        "title": "Public Jobs",
+        "type": "boolean"
+      },
+      "lfs_enabled": {
+        "description": "Enable Large File Storage.",
+        "title": "Lfs Enabled",
+        "type": "boolean"
+      },
+      "duo_secret_detection_fp_enabled": {
+        "description": "Enable secret detection false-positive detection. Requires Security Manager, Maintainer, or Owner.",
+        "title": "Duo Secret Detection Fp Enabled",
+        "type": "boolean"
+      },
+      "spp_repository_pipeline_access": {
+        "description": "Allow users and tokens read-only access to security policy configurations. Ultimate.",
+        "title": "Spp Repository Pipeline Access",
+        "type": "boolean"
+      },
+      "only_allow_merge_if_all_status_checks_passed": {
+        "description": "Block merges until all status checks pass. Ultimate.",
+        "title": "Only Allow Merge If All Status Checks Passed",
+        "type": "boolean"
+      },
+      "wiki_enabled": {
+        "description": "Deprecated; use wiki_access_level.",
+        "title": "Wiki Enabled",
+        "type": "boolean"
+      },
+      "issues_access_level": {
+        "description": "Issue visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Issues Access Level",
+        "type": "string"
+      },
+      "duo_code_review_decisions_enabled": {
+        "description": "Enable GitLab Duo approvals and change requests. Ultimate.",
+        "title": "Duo Code Review Decisions Enabled",
+        "type": "boolean"
+      },
+      "mr_default_title_template": {
+        "description": "Default merge request title template.",
+        "title": "Mr Default Title Template",
+        "type": "string"
+      },
+      "ci_separated_caches": {
+        "description": "Separate caches by branch protection status.",
+        "title": "Ci Separated Caches",
+        "type": "boolean"
+      },
+      "package_registry_access_level": {
+        "description": "Package registry visibility.",
+        "enum": ["disabled", "private", "enabled", "public"],
+        "title": "Package Registry Access Level",
+        "type": "string"
+      },
+      "enforce_auth_checks_on_uploads": {
+        "description": "Enforce authorization checks on uploads.",
+        "title": "Enforce Auth Checks On Uploads",
+        "type": "boolean"
+      },
+      "resolve_outdated_diff_discussions": {
+        "description": "Resolve discussions on diff lines changed by a push.",
+        "title": "Resolve Outdated Diff Discussions",
+        "type": "boolean"
+      },
+      "shared_runners_enabled": {
+        "description": "Enable instance runners.",
+        "title": "Shared Runners Enabled",
+        "type": "boolean"
+      },
+      "infrastructure_access_level": {
+        "description": "Infrastructure management visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Infrastructure Access Level",
+        "type": "string"
+      },
+      "automatic_rebase_enabled": {
+        "description": "Rebase the source before fast-forward or semi-linear merge.",
+        "title": "Automatic Rebase Enabled",
+        "type": "boolean"
+      },
+      "repository_access_level": {
+        "description": "Repository visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Repository Access Level",
+        "type": "string"
+      },
+      "ci_push_repository_for_job_token_allowed": {
+        "description": "Allow job tokens to push to this repository.",
+        "title": "Ci Push Repository For Job Token Allowed",
+        "type": "boolean"
+      },
+      "mirror_user_id": {
+        "description": "User responsible for pull mirror events. Administrators only; Premium/Ultimate.",
+        "title": "Mirror User Id",
+        "type": "integer"
+      },
+      "import_url": {
+        "description": "URL the repository was imported from; include authentication in the URL for private HTTP repositories.",
+        "title": "Import Url",
+        "type": "string"
+      },
+      "packages_enabled": {
+        "description": "Deprecated since 17.10; use package_registry_access_level.",
+        "title": "Packages Enabled",
+        "type": "boolean"
+      },
+      "issue_branch_template": {
+        "description": "Template for branch names suggested from issues.",
+        "title": "Issue Branch Template",
+        "type": "string"
+      },
+      "build_git_strategy": {
+        "description": "Git strategy, default fetch.",
+        "title": "Build Git Strategy",
+        "type": "string"
+      },
+      "protect_merge_request_pipelines": {
+        "description": "Control merge request pipeline access to protected variables and runners.",
+        "title": "Protect Merge Request Pipelines",
+        "type": "boolean"
+      },
+      "merge_requests_access_level": {
+        "description": "Merge request visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Merge Requests Access Level",
+        "type": "string"
+      },
+      "ci_skip_branch_pipelines_for_mrs": {
+        "description": "Skip branch pipelines for merge requests.",
+        "title": "Ci Skip Branch Pipelines For Mrs",
+        "type": "boolean"
+      },
+      "ci_default_git_depth": {
+        "description": "Default shallow clone revision count.",
+        "title": "Ci Default Git Depth",
+        "type": "integer"
+      },
+      "analytics_access_level": {
+        "description": "Analytics visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Analytics Access Level",
+        "type": "string"
+      },
+      "merge_pipelines_enabled": {
+        "description": "Enable merged results pipelines.",
+        "title": "Merge Pipelines Enabled",
+        "type": "boolean"
+      },
+      "container_expiration_policy_attributes": {
+        "additionalProperties": false,
+        "description": "Image cleanup policy settings.",
+        "properties": {
+          "cadence": {
+            "description": "Cleanup policy execution cadence.",
+            "title": "Cadence",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Enable the image cleanup policy.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "keep_n": {
+            "description": "Number of image tags to retain.",
+            "title": "Keep N",
+            "type": "integer"
+          },
+          "name_regex": {
+            "description": "Regex matching tags to remove.",
+            "title": "Name Regex",
+            "type": "string"
+          },
+          "name_regex_keep": {
+            "description": "Regex matching tags to retain.",
+            "title": "Name Regex Keep",
+            "type": "string"
+          },
+          "older_than": {
+            "description": "Remove tags older than this duration.",
+            "title": "Older Than",
+            "type": "string"
+          }
+        },
+        "title": "ContainerExpirationPolicyAttributes",
+        "type": "object"
+      },
+      "cicd_catalog_enabled": {
+        "description": "Publish the project to the CI/CD Catalog. Requires Owner.",
+        "title": "Cicd Catalog Enabled",
+        "type": "boolean"
+      },
+      "prevent_merge_without_jira_issue": {
+        "description": "Require an associated Jira issue for merge requests. Ultimate.",
+        "title": "Prevent Merge Without Jira Issue",
+        "type": "boolean"
+      },
+      "auto_devops_enabled": {
+        "description": "Enable Auto DevOps.",
+        "title": "Auto Devops Enabled",
+        "type": "boolean"
+      },
+      "max_pipelines_per_merge_train": {
+        "description": "Maximum parallel pipelines per merge train.",
+        "title": "Max Pipelines Per Merge Train",
+        "type": "integer"
+      },
+      "duo_remote_flows_enabled": {
+        "description": "Allow flows to run in the project.",
+        "title": "Duo Remote Flows Enabled",
+        "type": "boolean"
+      },
+      "merge_requests_template": {
+        "description": "Default merge request description in GitLab Flavored Markdown. Premium/Ultimate.",
+        "title": "Merge Requests Template",
+        "type": "string"
+      },
+      "merge_trains_enabled": {
+        "description": "Enable merge trains.",
+        "title": "Merge Trains Enabled",
+        "type": "boolean"
+      },
+      "snippets_enabled": {
+        "description": "Deprecated; use snippets_access_level.",
+        "title": "Snippets Enabled",
+        "type": "boolean"
+      },
+      "allow_merge_on_skipped_pipeline": {
+        "description": "Allow merging with skipped jobs.",
+        "title": "Allow Merge On Skipped Pipeline",
+        "type": "boolean"
+      },
+      "restrict_user_defined_variables": {
+        "description": "Deprecated since 17.7; use ci_pipeline_variables_minimum_override_role.",
+        "title": "Restrict User Defined Variables",
+        "type": "boolean"
+      },
+      "topics": {
+        "description": "Replaces all existing project topics.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Topics",
+        "type": "array"
+      },
+      "printing_merge_request_link_enabled": {
+        "description": "Show a merge request link when pushing from the command line.",
+        "title": "Printing Merge Request Link Enabled",
+        "type": "boolean"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespaced path, such as group/project.",
+        "title": "Id"
+      },
+      "request_access_enabled": {
+        "description": "Allow users to request membership.",
+        "title": "Request Access Enabled",
+        "type": "boolean"
+      },
+      "reviewer_assignment_strategy": {
+        "description": "Automatic reviewer assignment strategy. Premium/Ultimate; dap_powered is no longer accepted since 19.4.",
+        "enum": ["disabled", "code_owners"],
+        "title": "Reviewer Assignment Strategy",
+        "type": "string"
+      },
+      "autoclose_referenced_issues": {
+        "description": "Auto-close referenced issues on the default branch.",
+        "title": "Autoclose Referenced Issues",
+        "type": "boolean"
+      },
+      "mr_default_target_self": {
+        "description": "Target fork merge requests to this project instead of upstream.",
+        "title": "Mr Default Target Self",
+        "type": "boolean"
+      },
+      "pages_access_level": {
+        "description": "Pages visibility. Public requires instance/group permission and a private/internal project; enabled is unavailable for private projects when Pages access control is on.",
+        "enum": ["disabled", "private", "enabled", "public"],
+        "title": "Pages Access Level",
+        "type": "string"
+      },
+      "issues_template": {
+        "description": "Default issue description in GitLab Flavored Markdown. Premium/Ultimate.",
+        "title": "Issues Template",
+        "type": "string"
+      },
+      "duo_sast_fp_detection_enabled": {
+        "description": "Enable SAST false-positive detection. Requires Security Manager, Maintainer, or Owner.",
+        "title": "Duo Sast Fp Detection Enabled",
+        "type": "boolean"
+      },
+      "show_default_award_emojis": {
+        "description": "Show default emoji reactions.",
+        "title": "Show Default Award Emojis",
+        "type": "boolean"
+      },
+      "ci_restrict_pipeline_cancellation_role": {
+        "description": "Minimum role to cancel pipelines/jobs. Premium/Ultimate.",
+        "enum": ["developer", "maintainer", "no_one"],
+        "title": "Ci Restrict Pipeline Cancellation Role",
+        "type": "string"
+      },
+      "ci_pipeline_variables_minimum_override_role": {
+        "description": "Minimum role to override pipeline variables.",
+        "enum": ["owner", "maintainer", "developer", "no_one_allowed"],
+        "title": "Ci Pipeline Variables Minimum Override Role",
+        "type": "string"
+      },
+      "only_allow_merge_if_all_discussions_are_resolved": {
+        "description": "Require all discussions to be resolved before merging.",
+        "title": "Only Allow Merge If All Discussions Are Resolved",
+        "type": "boolean"
+      },
+      "merge_method": {
+        "description": "Merge method: merge commit, semi-linear, or fast-forward.",
+        "enum": ["merge", "rebase_merge", "ff"],
+        "title": "Merge Method",
+        "type": "string"
+      },
+      "ci_delete_pipelines_in_seconds": {
+        "description": "Delete pipelines older than this number of seconds.",
+        "title": "Ci Delete Pipelines In Seconds",
+        "type": "integer"
+      },
+      "mirror_trigger_builds": {
+        "description": "Pull mirroring triggers builds. Premium/Ultimate.",
+        "title": "Mirror Trigger Builds",
+        "type": "boolean"
+      },
+      "tag_list": {
+        "description": "Deprecated since 14.0; use topics. Replaces existing tags.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Tag List",
+        "type": "array"
+      },
+      "monitor_access_level": {
+        "description": "Application performance monitoring visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Monitor Access Level",
+        "type": "string"
+      },
+      "ci_id_token_sub_claim_components": {
+        "description": "ID token sub components. First: project_path, project_id, job_project_path, job_project_id, source_project_path or source_project_id. Additional: ref_type, ref, ref_protected, environment_protected, deployment_tier. Version-dependent.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Ci Id Token Sub Claim Components",
+        "type": "array"
+      },
+      "ci_forward_deployment_enabled": {
+        "description": "Prevent outdated deployment jobs.",
+        "title": "Ci Forward Deployment Enabled",
+        "type": "boolean"
+      },
+      "auto_duo_code_review_enabled": {
+        "description": "Enable automatic GitLab Duo merge request reviews. Ultimate.",
+        "title": "Auto Duo Code Review Enabled",
+        "type": "boolean"
+      },
+      "squash_option": {
+        "description": "Squash behavior for merge requests.",
+        "enum": ["never", "always", "default_on", "default_off"],
+        "title": "Squash Option",
+        "type": "string"
+      },
+      "issues_enabled": {
+        "description": "Deprecated; use issues_access_level.",
+        "title": "Issues Enabled",
+        "type": "boolean"
+      },
+      "builds_access_level": {
+        "description": "Pipeline visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Builds Access Level",
+        "type": "string"
+      },
+      "model_registry_access_level": {
+        "description": "Model registry visibility.",
+        "enum": ["disabled", "private", "enabled"],
+        "title": "Model Registry Access Level",
+        "type": "string"
+      },
+      "visibility": {
+        "description": "Project visibility.",
+        "enum": ["private", "internal", "public"],
+        "title": "Visibility",
+        "type": "string"
+      }
+    },
+    "required": ["id"],
+    "title": "UpdateProjectRequest",
+    "type": "object"
+  },
+  "name": "update_project",
+  "outputSchema": {
+    "$defs": {
+      "ProjectNamespace": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Namespace avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "full_path": {
+            "description": "Full namespace path.",
+            "title": "Full Path",
+            "type": "string"
+          },
+          "id": {
+            "description": "Namespace ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "description": "Namespace kind, group or user.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Namespace name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "description": "Parent namespace ID.",
+            "title": "Parent Id",
+            "type": "integer"
+          },
+          "path": {
+            "description": "Namespace path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Namespace web URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "ProjectNamespace",
+        "type": "object"
+      },
+      "UpdateProjectResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "archived": {
+            "description": "Whether the project is archived.",
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "avatar_url": {
+            "description": "Project avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default_branch": {
+            "description": "Default branch name, null for an empty repository.",
+            "title": "Default Branch",
+            "type": "string"
+          },
+          "description": {
+            "description": "Project description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "http_url_to_repo": {
+            "description": "HTTP clone URL.",
+            "title": "Http Url To Repo",
+            "type": "string"
+          },
+          "id": {
+            "description": "Updated project ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_activity_at": {
+            "description": "Last activity timestamp.",
+            "title": "Last Activity At",
+            "type": "string"
+          },
+          "name": {
+            "description": "Project name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "name_with_namespace": {
+            "description": "Project name including namespace.",
+            "title": "Name With Namespace",
+            "type": "string"
+          },
+          "namespace": {
+            "$ref": "#/$defs/ProjectNamespace",
+            "description": "Project namespace.",
+            "title": "Namespace"
+          },
+          "path": {
+            "description": "Project path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "path_with_namespace": {
+            "description": "Full project path.",
+            "title": "Path With Namespace",
+            "type": "string"
+          },
+          "service_desk_enabled": {
+            "description": "Computed Service Desk availability, dependent on incoming email configuration.",
+            "title": "Service Desk Enabled",
+            "type": "boolean"
+          },
+          "shared_runners_enabled": {
+            "description": "Whether instance runners are enabled.",
+            "title": "Shared Runners Enabled",
+            "type": "boolean"
+          },
+          "ssh_url_to_repo": {
+            "description": "SSH clone URL.",
+            "title": "Ssh Url To Repo",
+            "type": "string"
+          },
+          "success": {
+            "description": "True if GitLab returns an empty successful response.",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "topics": {
+            "description": "Project topics.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Topics",
+            "type": "array"
+          },
+          "visibility": {
+            "description": "Project visibility.",
+            "title": "Visibility",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Project web URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "UpdateProjectResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateProjectResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

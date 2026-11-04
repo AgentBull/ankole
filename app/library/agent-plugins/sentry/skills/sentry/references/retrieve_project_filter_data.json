@@ -1,0 +1,87 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a Sentry project's current data filtering settings, used to ignore events from sources like localhost, web crawlers, or legacy browsers.",
+  "inputSchema": {
+    "description": "Request schema for retrieving data filters for a Sentry project.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "Unique identifier (ID) or human-readable slug of the Sentry organization.",
+        "examples": ["the-acme-corp", "sentry-org", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "Unique identifier (ID) or human-readable slug of the Sentry project.",
+        "examples": ["my-frontend-app", "backend-service", "67890"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "RetrieveProjectFilterDataRequest",
+    "type": "object"
+  },
+  "name": "retrieve_project_filter_data",
+  "outputSchema": {
+    "$defs": {
+      "FilterObject": {
+        "description": "Schema for an individual filter object.",
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "Filter activation status. Boolean for most filters (true=enabled, false=disabled). For 'legacy-browsers' filter, this is an array of browser names to filter (e.g., ['ie', 'chrome', 'safari']).",
+            "title": "Active"
+          },
+          "id": {
+            "description": "The filter identifier (e.g., 'browser-extensions', 'legacy-browsers', 'localhost', 'web-crawlers', 'filtered-transaction').",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": ["id", "active"],
+        "title": "FilterObject",
+        "type": "object"
+      },
+      "RetrieveProjectFilterDataResponse": {
+        "description": "Response schema containing the data filters for the specified project.",
+        "properties": {
+          "data": {
+            "description": "List of project data filters. Each filter has an 'id' (identifier) and 'active' status (boolean or array of browser names for legacy-browsers filter).",
+            "items": {
+              "$ref": "#/$defs/FilterObject"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "RetrieveProjectFilterDataResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveProjectFilterDataResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List Ticket Content Pins returns all content pins for a specified ticket. Use when you need to retrieve all pinned content items on a ticket. ticket_id is required — Zendesk has no account-wide listing mode. _tags = [\"readOnlyHint\", \"idempotentHint\"]",
+  "inputSchema": {
+    "description": "Request parameters for listing Zendesk ticket content pins.",
+    "properties": {
+      "ticket_id": {
+        "description": "The id of the ticket for which to list content pins. Required — Zendesk returns a 400 if this is omitted; there is no account-wide listing mode.",
+        "examples": ["1"],
+        "title": "Ticket Id",
+        "type": "string"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "ListTicketContentPinsRequest",
+    "type": "object"
+  },
+  "name": "list_ticket_content_pins",
+  "outputSchema": {
+    "$defs": {
+      "ListTicketContentPinsResponse": {
+        "description": "Response containing list of Zendesk ticket content pins.",
+        "properties": {
+          "count": {
+            "description": "Total number of content pins for the ticket",
+            "title": "Count",
+            "type": "integer"
+          },
+          "ticket_content_pins": {
+            "description": "List of ticket content pins",
+            "items": {
+              "$ref": "#/$defs/TicketContentPin"
+            },
+            "title": "Ticket Content Pins",
+            "type": "array"
+          }
+        },
+        "required": ["ticket_content_pins", "count"],
+        "title": "ListTicketContentPinsResponse",
+        "type": "object"
+      },
+      "TicketContentPin": {
+        "description": "A ticket content pin object representing a pinned item on a ticket.",
+        "properties": {
+          "account_id": {
+            "description": "ID of the account owning the pin",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "content_id": {
+            "description": "ID of the content being pinned",
+            "title": "Content Id",
+            "type": "string"
+          },
+          "content_type": {
+            "description": "Type of the content being pinned",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the pin was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the content pin",
+            "title": "Id",
+            "type": "string"
+          },
+          "locale": {
+            "description": "Locale of the pinned content",
+            "title": "Locale",
+            "type": "string"
+          },
+          "ticket_id": {
+            "description": "ID of the ticket the pin belongs to",
+            "title": "Ticket Id",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the content pin",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "account_id", "ticket_id", "content_id", "content_type", "locale", "url", "created_at"],
+        "title": "TicketContentPin",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListTicketContentPinsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

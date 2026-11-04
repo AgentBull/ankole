@@ -1,0 +1,380 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a new user in Zendesk. Search for existing users first to avoid duplicate accounts with the same email. Use when you need to onboard a user with specific details.",
+  "inputSchema": {
+    "description": "Request model for creating a new Zendesk user.",
+    "properties": {
+      "skip_verify_email": {
+        "description": "If true, do not send a verification email upon creation. Passed as a URL query parameter.",
+        "examples": [true],
+        "human_parameter_description": "If true, skip sending verification email to the user",
+        "human_parameter_name": "Skip Verify Email",
+        "title": "Skip Verify Email",
+        "type": "boolean"
+      },
+      "user": {
+        "additionalProperties": false,
+        "description": "User object containing all attributes to create `name` is mandatory; omitting it causes a validation error. `role` must be one of: 'end-user', 'agent', or 'admin'. `organization_id` must be a numeric ID of an existing organization — not a name string. Only include fields supported by the Zendesk user schema; unsupported or incorrectly typed fields trigger validation errors.",
+        "properties": {
+          "agent_brand_ids": {
+            "description": "Brand IDs to assign to an agent",
+            "examples": [[1001, 1002]],
+            "human_parameter_description": "Brand IDs to associate with an agent",
+            "human_parameter_name": "Agent Brand IDs",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Agent Brand Ids",
+            "type": "array"
+          },
+          "alias": {
+            "description": "Alias displayed to end users",
+            "human_parameter_description": "Optional alias shown to end users",
+            "human_parameter_name": "Alias",
+            "title": "Alias",
+            "type": "string"
+          },
+          "custom_role_id": {
+            "description": "Agent-only: ID of a custom agent role",
+            "examples": [987654],
+            "human_parameter_description": "Custom agent role ID when role is 'agent'",
+            "human_parameter_name": "Custom Role ID",
+            "title": "Custom Role Id",
+            "type": "integer"
+          },
+          "default_group_id": {
+            "description": "Default group ID for the user",
+            "examples": [200],
+            "human_parameter_description": "Optional default group for the user",
+            "human_parameter_name": "Default Group ID",
+            "title": "Default Group Id",
+            "type": "integer"
+          },
+          "details": {
+            "description": "Free-form details about the user",
+            "human_parameter_description": "Optional free-form user details",
+            "human_parameter_name": "Details",
+            "title": "Details",
+            "type": "string"
+          },
+          "email": {
+            "description": "Primary email address",
+            "examples": ["jane@example.com"],
+            "human_parameter_description": "Primary email address for the user (optional)",
+            "human_parameter_name": "Email",
+            "title": "Email",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External system ID (case-insensitive)",
+            "human_parameter_description": "Optional unique identifier from another system",
+            "human_parameter_name": "External ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "identities": {
+            "description": "List of additional identities (type and value)",
+            "human_parameter_description": "Additional user identities to create",
+            "human_parameter_name": "Identities",
+            "items": {
+              "properties": {
+                "type": {
+                  "description": "Identity type (e.g., 'email', 'phone')",
+                  "examples": ["email"],
+                  "title": "Type",
+                  "type": "string"
+                },
+                "value": {
+                  "description": "Identity value corresponding to the type",
+                  "examples": ["jdoe@example.com"],
+                  "title": "Value",
+                  "type": "string"
+                }
+              },
+              "required": ["type", "value"],
+              "title": "Identity",
+              "type": "object"
+            },
+            "title": "Identities",
+            "type": "array"
+          },
+          "locale": {
+            "description": "BCP-47 locale; overrides locale_id",
+            "examples": ["en-US"],
+            "human_parameter_description": "Optional locale tag for the user",
+            "human_parameter_name": "Locale",
+            "title": "Locale",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Language locale ID for user",
+            "examples": [1],
+            "human_parameter_description": "Optional numeric locale ID",
+            "human_parameter_name": "Locale ID",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Full name for the new user",
+            "examples": ["Jane Doe"],
+            "human_parameter_description": "Full name of the user to create in Zendesk",
+            "human_parameter_name": "Name",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "ID of default organization",
+            "examples": [123456],
+            "human_parameter_description": "Default organization ID for the user",
+            "human_parameter_name": "Organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "phone": {
+            "description": "Direct line phone number in E.164 format",
+            "examples": ["+14155551234"],
+            "human_parameter_description": "Optional direct phone number in international format",
+            "human_parameter_name": "Phone",
+            "title": "Phone",
+            "type": "string"
+          },
+          "role": {
+            "description": "User role; defaults to 'end-user' if omitted",
+            "enum": ["end-user", "agent", "admin"],
+            "examples": ["agent"],
+            "human_parameter_description": "Role for the user: end-user, agent, or admin",
+            "human_parameter_name": "Role",
+            "title": "Role",
+            "type": "string"
+          },
+          "signature": {
+            "description": "Agent/Admin signature",
+            "human_parameter_description": "Optional agent/admin signature text",
+            "human_parameter_name": "Signature",
+            "title": "Signature",
+            "type": "string"
+          },
+          "suspended": {
+            "description": "True to suspend the account",
+            "examples": [false],
+            "human_parameter_description": "Set to true to suspend this user",
+            "human_parameter_name": "Suspended",
+            "title": "Suspended",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "List of user tags",
+            "examples": [["support", "beta-user"]],
+            "human_parameter_description": "Optional tags to assign to the user",
+            "human_parameter_name": "Tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "ticket_restriction": {
+            "description": "Ticket access restriction; 'groups'/'assigned' only valid for agents",
+            "enum": ["organization", "groups", "assigned", "requested"],
+            "human_parameter_description": "Optional ticket access restriction setting",
+            "human_parameter_name": "Ticket Restriction",
+            "title": "Ticket Restriction",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User's time zone",
+            "examples": ["Pacific Time (US & Canada)"],
+            "human_parameter_description": "Optional user time zone",
+            "human_parameter_name": "Time Zone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "user_fields": {
+            "additionalProperties": true,
+            "description": "Key-value map of custom user fields",
+            "human_parameter_description": "Optional custom user field values",
+            "human_parameter_name": "User Fields",
+            "title": "User Fields",
+            "type": "object"
+          }
+        },
+        "required": ["name"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "required": ["user"],
+    "title": "CreateZendeskUserRequest",
+    "type": "object"
+  },
+  "name": "create_zendesk_user",
+  "outputSchema": {
+    "$defs": {
+      "CreateZendeskUserResponse": {
+        "properties": {
+          "user": {
+            "$ref": "#/$defs/ZendeskUserResponse",
+            "description": "The created user object",
+            "title": "User"
+          }
+        },
+        "required": ["user"],
+        "title": "CreateZendeskUserResponse",
+        "type": "object"
+      },
+      "ZendeskUserResponse": {
+        "properties": {
+          "active": {
+            "description": "True if the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "agent_brand_ids": {
+            "description": "Brand IDs assigned to the agent",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Agent Brand Ids",
+            "type": "array"
+          },
+          "alias": {
+            "description": "Alias displayed to end users",
+            "title": "Alias",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Creation timestamp in ISO 8601",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Primary email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External system ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "iana_time_zone": {
+            "description": "IANA time zone (read-only)",
+            "title": "Iana Time Zone",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique ID for the user",
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_login_at": {
+            "description": "Last login timestamp in ISO 8610",
+            "title": "Last Login At",
+            "type": "string"
+          },
+          "locale": {
+            "description": "User locale BCP-47 string",
+            "title": "Locale",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Locale identifier",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "moderator": {
+            "description": "Moderator permission flag",
+            "title": "Moderator",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Full name of the user",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "Default organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "role": {
+            "description": "User role",
+            "title": "Role",
+            "type": "string"
+          },
+          "role_type": {
+            "description": "Role type indicator",
+            "title": "Role Type",
+            "type": "integer"
+          },
+          "signature": {
+            "description": "Agent/Admin signature",
+            "title": "Signature",
+            "type": "string"
+          },
+          "suspended": {
+            "description": "Suspended flag",
+            "title": "Suspended",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "User tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "ticket_restriction": {
+            "description": "Ticket access restriction",
+            "title": "Ticket Restriction",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User time zone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "two_factor_auth_enabled": {
+            "description": "Two-factor auth enabled flag",
+            "title": "Two Factor Auth Enabled",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "description": "Last update timestamp in ISO 8610",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          },
+          "user_fields": {
+            "additionalProperties": true,
+            "description": "Custom user field values",
+            "title": "User Fields",
+            "type": "object"
+          }
+        },
+        "required": ["id", "url", "name", "role"],
+        "title": "ZendeskUserResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateZendeskUserResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

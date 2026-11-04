@@ -30,6 +30,7 @@ defmodule Ankole.Connectors.ConnectedAccount do
     attribute(:granted_scopes, {:array, :string}, allow_nil?: false, default: [])
     attribute(:public_metadata, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
     attribute(:sealed_credentials, :string, sensitive?: true)
+    attribute(:upstream_connection_id, :string)
     attribute(:credentials_version, :integer, allow_nil?: false, default: 1)
     attribute(:status, :string, allow_nil?: false, default: "active")
     attribute(:expires_at, :utc_datetime_usec)
@@ -64,6 +65,7 @@ defmodule Ankole.Connectors.ConnectedAccount do
             :granted_scopes,
             :public_metadata,
             :sealed_credentials,
+            :upstream_connection_id,
             :credentials_version,
             :status,
             :expires_at,
@@ -90,6 +92,7 @@ defmodule Ankole.Connectors.ConnectedAccount do
         :granted_scopes,
         :public_metadata,
         :sealed_credentials,
+        :upstream_connection_id,
         :credentials_version,
         :status,
         :expires_at,

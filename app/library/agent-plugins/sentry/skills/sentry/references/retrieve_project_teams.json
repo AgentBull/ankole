@@ -1,0 +1,166 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of teams with explicit access to a specific project within a Sentry organization.",
+  "inputSchema": {
+    "description": "Input to retrieve teams associated with a Sentry project.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "ID or slug of the Sentry organization.",
+        "examples": ["my-sentry-organization", "acme-inc", "sentry"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "ID or slug of the Sentry project.",
+        "examples": ["frontend-app", "backend-api", "mobile-react"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "RetrieveProjectTeamsRequest",
+    "type": "object"
+  },
+  "name": "retrieve_project_teams",
+  "outputSchema": {
+    "$defs": {
+      "RetrieveProjectTeamsResponse": {
+        "description": "Output of listing teams associated with a Sentry project.",
+        "properties": {
+          "data": {
+            "description": "List of teams that have access to the specified project. Each team includes details such as ID, slug, name, member count, permissions, and avatar information.",
+            "items": {
+              "$ref": "#/$defs/Team"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "RetrieveProjectTeamsResponse",
+        "type": "object"
+      },
+      "Team": {
+        "description": "Team information.",
+        "properties": {
+          "access": {
+            "description": "List of access permissions the team has (e.g., 'project:read', 'project:write', 'alerts:read').",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "avatar": {
+            "$ref": "#/$defs/TeamAvatar",
+            "description": "Avatar information for the team.",
+            "title": "Avatar"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the team was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "flags": {
+            "additionalProperties": true,
+            "description": "Team flags (e.g., idp:provisioned).",
+            "title": "Flags",
+            "type": "object"
+          },
+          "hasAccess": {
+            "description": "Whether the authenticated user has access to this team.",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the team.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isMember": {
+            "description": "Whether the authenticated user is a member of this team.",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "isPending": {
+            "description": "Whether the team membership is pending approval.",
+            "title": "Is Pending",
+            "type": "boolean"
+          },
+          "memberCount": {
+            "description": "Number of members in this team.",
+            "title": "Member Count",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Display name of the team.",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly identifier for the team.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "teamRole": {
+            "description": "Role of the authenticated user in this team (e.g., 'admin', 'contributor'), or null if not a member.",
+            "title": "Team Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "dateCreated",
+          "isMember",
+          "flags",
+          "access",
+          "hasAccess",
+          "isPending",
+          "memberCount",
+          "avatar"
+        ],
+        "title": "Team",
+        "type": "object"
+      },
+      "TeamAvatar": {
+        "description": "Team avatar information.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar').",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the avatar image, if custom avatar is set.",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "TeamAvatar",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveProjectTeamsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

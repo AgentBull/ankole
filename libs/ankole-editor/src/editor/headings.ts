@@ -31,20 +31,36 @@ export const foldedHeadings = GardState.Field.define<ReadonlySet<number>>({
   }
 })
 
+type HeadingSection = { pos: number; from: number; to: number; text: string }
+
 export function headingSections(doc: Plot.Doc) {
-  const result: { pos: number; from: number; to: number }[] = []
-  doc.iterate((node, pos) => {
-    if (!node.isPlot || !node.tag.is(T.Heading)) return
-    const found = doc.resolveNode(pos)!
-    const siblings = found.parent!.node.content
-    let to = found.after
-    for (const sibling of siblings.slice(found.index + 1)) {
-      if (sibling.isPlot && sibling.tag.is(T.Heading) && sibling.tag.param <= node.tag.param) break
-      to += sibling.length
+  const result: HeadingSection[] = []
+  function visit(parent: Plot, start: number) {
+    const stack: { section: HeadingSection; level: number }[] = []
+    let pos = start
+    for (const node of parent.content) {
+      if (node.isPlot) {
+        if (node.tag.is(T.Heading)) {
+          const level = node.tag.param
+          while (stack.length > 0 && level <= stack[stack.length - 1]!.level) {
+            stack.pop()!.section.to = pos
+          }
+          const section = {
+            pos,
+            from: pos + node.length,
+            to: start + parent.contentLength,
+            text: node.textContent()
+          }
+          result.push(section)
+          stack.push({ section, level })
+        }
+        visit(node, pos + 1)
+      }
+      pos += node.length
     }
-    if (to > found.after) result.push({ pos, from: found.after, to })
-  })
-  return result
+  }
+  visit(doc, 0)
+  return result.filter(section => section.to > section.from)
 }
 
 const foldButton = Widget.define<{ pos: number; folded: boolean; label: string }>({
@@ -94,7 +110,7 @@ export const headingFolding: GardState.Extension = [
       points.push([
         Decoration.Point.attributes({
           class: 'foldable-heading',
-          'aria-label': (state.doc.nodeAt(section.pos) as Plot).textContent()
+          'aria-label': section.text
         }),
         section.pos
       ])

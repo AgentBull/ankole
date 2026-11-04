@@ -1,0 +1,83 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a specific Calendly group relationship by its valid and existing UUID, providing details on user-group associations and membership.",
+  "inputSchema": {
+    "description": "Request to retrieve a specific group relationship by its UUID.",
+    "properties": {
+      "uuid": {
+        "description": "The unique identifier (UUID) of the group relationship to be retrieved.",
+        "examples": ["GRPUUIDEXAMPLE123"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "GetGroupRelationshipRequest",
+    "type": "object"
+  },
+  "name": "get_group_relationship",
+  "outputSchema": {
+    "$defs": {
+      "GetGroupRelationshipResponse": {
+        "description": "Response containing the details of the retrieved group relationship.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/GroupRelationship",
+            "description": "The group relationship resource object.",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "GetGroupRelationshipResponse",
+        "type": "object"
+      },
+      "GroupRelationship": {
+        "description": "Group relationship object representing a user's membership in a group.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp in ISO 8601 format indicating when the group relationship was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "group": {
+            "description": "URI reference to the group associated with this relationship.",
+            "title": "Group",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp in ISO 8601 format indicating when the group relationship was last updated.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the group relationship.",
+            "title": "Uri",
+            "type": "string"
+          },
+          "user": {
+            "description": "URI reference to the user who is a member of the group.",
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "group", "user", "created_at", "updated_at"],
+        "title": "GroupRelationship",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetGroupRelationshipResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

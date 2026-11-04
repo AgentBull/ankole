@@ -1,0 +1,174 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list all audience lists for a specified property to help find and reuse existing lists. Use when you need to retrieve a property's configured audience lists after confirming the property ID.",
+  "inputSchema": {
+    "description": "Request model for listing AudienceLists under a GA4 property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of audience lists to return. Defaults to 200; maximum is 1000.",
+        "examples": [200],
+        "maximum": 1000,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. Token for retrieving the next page of results. All other parameters must match original request.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. Resource name of the parent property. Format: properties/{property_id}",
+        "examples": ["properties/1234"],
+        "pattern": "^properties/[^/]+$",
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListAudienceListsRequest",
+    "type": "object"
+  },
+  "name": "list_audience_lists",
+  "outputSchema": {
+    "$defs": {
+      "AudienceDimension": {
+        "description": "Dimension metadata for an Audience List.",
+        "properties": {
+          "dimensionName": {
+            "description": "API name of the dimension in the Audience List.",
+            "title": "Dimension Name",
+            "type": "string"
+          }
+        },
+        "required": ["dimensionName"],
+        "title": "AudienceDimension",
+        "type": "object"
+      },
+      "AudienceList": {
+        "description": "Schema for an AudienceList resource.",
+        "properties": {
+          "audience": {
+            "description": "Audience resource reference 'properties/{property}/audiences/{audience}'",
+            "title": "Audience",
+            "type": "string"
+          },
+          "audienceDisplayName": {
+            "description": "Descriptive display name for the audience.",
+            "title": "Audience Display Name",
+            "type": "string"
+          },
+          "beginCreatingTime": {
+            "description": "Creation initiation timestamp (RFC3339).",
+            "title": "Begin Creating Time",
+            "type": "string"
+          },
+          "creationQuotaTokensCharged": {
+            "description": "Quota tokens used during creation.",
+            "title": "Creation Quota Tokens Charged",
+            "type": "integer"
+          },
+          "dimensions": {
+            "description": "List of dimensions in the Audience List.",
+            "items": {
+              "$ref": "#/$defs/AudienceDimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "errorMessage": {
+            "description": "Failure reason if applicable.",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource identifier in format 'properties/{property}/audienceLists/{audienceList}'",
+            "title": "Name",
+            "type": "string"
+          },
+          "percentageCompleted": {
+            "description": "Progress indicator 0-100.",
+            "title": "Percentage Completed",
+            "type": "number"
+          },
+          "recurringAudienceList": {
+            "description": "Parent recurring list reference.",
+            "title": "Recurring Audience List",
+            "type": "string"
+          },
+          "rowCount": {
+            "description": "Total rows in result.",
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Processing status of the audience list.",
+            "enum": ["STATE_UNSPECIFIED", "CREATING", "ACTIVE", "FAILED"],
+            "title": "State",
+            "type": "string"
+          },
+          "webhookNotification": {
+            "$ref": "#/$defs/WebhookNotification",
+            "description": "Webhook configuration for notifications.",
+            "title": "Webhook Notification"
+          }
+        },
+        "title": "AudienceList",
+        "type": "object"
+      },
+      "ListAudienceListsResponse": {
+        "description": "Response model for listing AudienceLists.",
+        "properties": {
+          "audienceLists": {
+            "description": "Collection of audience lists for the property.",
+            "items": {
+              "$ref": "#/$defs/AudienceList"
+            },
+            "title": "Audience Lists",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "Token to retrieve the next page of results; omitted if no more pages exist.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "ListAudienceListsResponse",
+        "type": "object"
+      },
+      "WebhookNotification": {
+        "description": "Configuration for webhook notifications on Audience List changes.",
+        "properties": {
+          "payloadFormat": {
+            "description": "The payload format for the webhook notification.",
+            "enum": ["PAYLOAD_FORMAT_UNSPECIFIED", "JSON"],
+            "title": "Payload Format",
+            "type": "string"
+          },
+          "uri": {
+            "description": "The URI to which notifications will be sent.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "title": "WebhookNotification",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListAudienceListsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

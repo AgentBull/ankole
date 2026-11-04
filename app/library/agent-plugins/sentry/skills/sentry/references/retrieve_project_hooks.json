@@ -1,0 +1,98 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Return a list of service hooks (webhooks) bound to a Sentry project, used to send notifications to external services upon event occurrences.",
+  "inputSchema": {
+    "description": "Request schema for `RetrieveProjectHooks`",
+    "properties": {
+      "cursor": {
+        "description": "Pagination cursor to retrieve the next or previous set of results (e.g., '100:0:1').",
+        "examples": ["100:0:1", "99:100:0"],
+        "title": "Cursor",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the Sentry organization.",
+        "examples": ["my-organization", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The ID or slug of the Sentry project.",
+        "examples": ["my-project", "67890"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "RetrieveProjectHooksRequest",
+    "type": "object"
+  },
+  "name": "retrieve_project_hooks",
+  "outputSchema": {
+    "$defs": {
+      "RetrieveProjectHooksResponse": {
+        "description": "A list of service hook objects associated with the project.",
+        "items": {
+          "$ref": "#/$defs/ServiceHook"
+        },
+        "title": "RetrieveProjectHooksResponse",
+        "type": "array"
+      },
+      "ServiceHook": {
+        "description": "Represents a single service hook (webhook) configured for a project.",
+        "properties": {
+          "dateCreated": {
+            "description": "ISO 8601 timestamp indicating when the service hook was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "events": {
+            "description": "List of event types that trigger this service hook (e.g., 'event.alert', 'event.created').",
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the service hook.",
+            "title": "Id",
+            "type": "string"
+          },
+          "secret": {
+            "description": "Secret key used for authenticating webhook requests.",
+            "title": "Secret",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current status of the service hook (e.g., 'active').",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "Webhook endpoint URL that receives notifications.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "url", "secret", "events", "status", "dateCreated"],
+        "title": "ServiceHook",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveProjectHooksResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

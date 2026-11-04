@@ -1,0 +1,78 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetches specified fields for a specific label on a Trello board; this read-only action does not return information about which cards the label is attached to.",
+  "inputSchema": {
+    "description": "Request schema for `GetBoardsLabelsByIdBoardByIdLabel`",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "A comma-separated list of fields to include in the response for the label, or 'all' for all fields. Valid fields: 'color', 'idBoard', 'name', 'uses'.",
+        "examples": ["all", "name,color", "uses"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The unique identifier of the Trello board.",
+        "examples": ["5488ed33130a14a397be1027"],
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idLabel": {
+        "description": "The unique identifier of the label within the specified board.",
+        "examples": ["60d5e9b19db5e27b1c7b3a0f"],
+        "title": "Id Label",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard", "idLabel"],
+    "title": "GetBoardsLabelsByIdBoardByIdLabelRequest",
+    "type": "object"
+  },
+  "name": "get_boards_labels_by_id_board_by_id_label",
+  "outputSchema": {
+    "$defs": {
+      "GetBoardsLabelsByIdBoardByIdLabelResponse": {
+        "description": "Contains the detailed information for the retrieved Trello label.",
+        "properties": {
+          "color": {
+            "description": "The color of the label. Null means no color and the label will not be shown on the front of Cards. Valid values: yellow, purple, blue, red, green, orange, black, sky, pink, lime, or null",
+            "title": "Color",
+            "type": "string"
+          },
+          "id": {
+            "description": "The identifier for the label (24-character hexadecimal string)",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board the label is on (24-character hexadecimal string)",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name displayed for the label (0-16384 characters, nullable)",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idBoard"],
+        "title": "GetBoardsLabelsByIdBoardByIdLabelResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBoardsLabelsByIdBoardByIdLabelResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

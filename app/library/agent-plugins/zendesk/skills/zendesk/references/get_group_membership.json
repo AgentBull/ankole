@@ -1,0 +1,93 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get a group membership by its unique ID. Use when you have a group membership ID and need to retrieve details including the associated group, user, and timestamps. Note: The group_membership_id parameter is the membership ID, not a group ID.",
+  "inputSchema": {
+    "description": "Request parameters for getting a single Zendesk group membership by ID.",
+    "properties": {
+      "group_membership_id": {
+        "description": "The numeric ID of the group membership to retrieve. Note: This is the group membership ID, not a group ID.",
+        "examples": [26923118307484, 123456789],
+        "title": "Group Membership Id",
+        "type": "integer"
+      }
+    },
+    "required": ["group_membership_id"],
+    "title": "GetGroupMembershipRequest",
+    "type": "object"
+  },
+  "name": "get_group_membership",
+  "outputSchema": {
+    "$defs": {
+      "GetGroupMembershipResponse": {
+        "description": "Response containing a single Zendesk group membership.",
+        "properties": {
+          "group_membership": {
+            "$ref": "#/$defs/GroupMembership",
+            "description": "The group membership object",
+            "title": "Group Membership"
+          }
+        },
+        "required": ["group_membership"],
+        "title": "GetGroupMembershipResponse",
+        "type": "object"
+      },
+      "GroupMembership": {
+        "description": "Group membership object returned by the Zendesk API.",
+        "properties": {
+          "created_at": {
+            "description": "The time the group membership was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "If true, tickets assigned directly to the agent will assume this membership's group",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "group_id": {
+            "description": "The id of a group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Automatically assigned upon creation",
+            "title": "Id",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "The time of the last update of the group membership",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "The API url of this record",
+            "title": "Url",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "The id of an agent",
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": ["group_id", "user_id"],
+        "title": "GroupMembership",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetGroupMembershipResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

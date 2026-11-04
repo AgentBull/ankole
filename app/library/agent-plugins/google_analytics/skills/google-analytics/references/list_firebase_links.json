@@ -1,0 +1,93 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list FirebaseLinks on a property. Use when you need to retrieve Firebase connections associated with a Google Analytics property. Each property can have at most one FirebaseLink.",
+  "inputSchema": {
+    "description": "Request model for listing FirebaseLinks on a Google Analytics property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. The maximum number of resources to return. The service may return fewer than this value, even if there are additional pages. If unspecified, at most 50 resources will be returned. The maximum value is 200; higher values will be coerced to the maximum.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous ListFirebaseLinks call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided to ListFirebaseLinks must match the call that provided the page token.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The property for which to list FirebaseLinks. Format: properties/{property_id} (e.g., properties/1234).",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "AnalyticsadminPropertiesFirebaselinksListRequest",
+    "type": "object"
+  },
+  "name": "list_firebase_links",
+  "outputSchema": {
+    "$defs": {
+      "AnalyticsadminPropertiesFirebaselinksListResponse": {
+        "description": "Response model for listing FirebaseLinks.",
+        "properties": {
+          "firebaseLinks": {
+            "description": "List of FirebaseLink resources. Each property can have at most one FirebaseLink.",
+            "items": {
+              "$ref": "#/$defs/FirebaseLink"
+            },
+            "title": "Firebase Links",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "A token for retrieving the next page of results. Omitted if no further pages exist.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "AnalyticsadminPropertiesFirebaselinksListResponse",
+        "type": "object"
+      },
+      "FirebaseLink": {
+        "description": "Schema for a FirebaseLink resource.",
+        "properties": {
+          "createTime": {
+            "description": "Output only. Time when this FirebaseLink was created. Format: google-datetime (RFC 3339 format).",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "name": {
+            "description": "Output only. Resource name of this FirebaseLink. Format: properties/{property_id}/firebaseLinks/{firebase_link_id}. Example: properties/1234/firebaseLinks/5678.",
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "description": "Immutable. Firebase project resource name. Format: 'projects/{project_number}' or 'projects/{project_id}'. Example: 'projects/1234567'.",
+            "title": "Project",
+            "type": "string"
+          }
+        },
+        "title": "FirebaseLink",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AnalyticsadminPropertiesFirebaselinksListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

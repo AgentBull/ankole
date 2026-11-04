@@ -56,6 +56,7 @@ defmodule AnkoleWeb.Endpoint do
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
   plug :worker_file_relay
   plug :connector_runtime
+  plug :drive_vfs
   plug :request_host
 
   plug Plug.Static,
@@ -79,7 +80,6 @@ defmodule AnkoleWeb.Endpoint do
   plug :webhook_callback_body
   plug :applet_route_body
   plug :drive_upload_body
-  plug :drive_vfs
 
   plug Plug.Parsers,
     parsers: [

@@ -1,0 +1,48 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to get a single project by ID or URL-encoded path.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": [123, "namespace/project-name"],
+        "title": "Id"
+      }
+    },
+    "required": ["id"],
+    "title": "GetProjectRequest",
+    "type": "object"
+  },
+  "name": "get_project",
+  "outputSchema": {
+    "$defs": {
+      "GetProjectResponse": {
+        "additionalProperties": true,
+        "title": "GetProjectResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetProjectResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to delete a theme from your Typeform account. Use when you need to permanently remove a theme. This operation cannot be undone.",
+  "inputSchema": {
+    "description": "Request parameters to delete a theme.",
+    "properties": {
+      "theme_id": {
+        "description": "Unique theme identifier to delete",
+        "examples": ["mQHasBnn", "abc123"],
+        "title": "Theme Id",
+        "type": "string"
+      }
+    },
+    "required": ["theme_id"],
+    "title": "TypeformDeleteThemeRequest",
+    "type": "object"
+  },
+  "name": "delete_theme",
+  "outputSchema": {
+    "$defs": {
+      "TypeformDeleteThemeResponse": {
+        "description": "Response schema for theme deletion. The API returns 204 No Content on success.",
+        "properties": {
+          "success": {
+            "default": true,
+            "description": "Indicates the theme was deleted successfully",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "TypeformDeleteThemeResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/TypeformDeleteThemeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

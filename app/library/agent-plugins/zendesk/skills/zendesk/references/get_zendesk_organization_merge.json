@@ -1,0 +1,91 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve the details of a specific organization merge operation in Zendesk. This action shows the merge status and the organizations involved. Use when you need to check the status of an organization merge or view details of a past merge operation. This is a read-only, idempotent operation.",
+  "inputSchema": {
+    "description": "Request model for retrieving an organization merge.",
+    "properties": {
+      "organization_merge_id": {
+        "description": "The ID of the organization merge to retrieve. Must be a non-null string value. This is typically a numeric string ID obtained from a previous organization merge operation.",
+        "examples": ["01KPP5JMJMNTYBX6V6KY8VBR7M"],
+        "human_parameter_description": "The unique identifier for the organization merge. You can find this ID from the response when creating or listing organization merges.",
+        "human_parameter_name": "Organization Merge ID",
+        "title": "Organization Merge Id",
+        "type": "string"
+      }
+    },
+    "required": ["organization_merge_id"],
+    "title": "GetZendeskOrganizationMergeRequest",
+    "type": "object"
+  },
+  "name": "get_zendesk_organization_merge",
+  "outputSchema": {
+    "$defs": {
+      "GetZendeskOrganizationMergeResponse": {
+        "description": "Response model for retrieving an organization merge.",
+        "properties": {
+          "organization_merge": {
+            "$ref": "#/$defs/OrganizationMergeData",
+            "description": "Details of the organization merge operation",
+            "title": "Organization Merge"
+          }
+        },
+        "required": ["organization_merge"],
+        "title": "GetZendeskOrganizationMergeResponse",
+        "type": "object"
+      },
+      "OrganizationMergeData": {
+        "description": "Details of an organization merge operation.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier for the organization merge",
+            "title": "Id",
+            "type": "string"
+          },
+          "loser_id": {
+            "description": "The ID of the organization that was merged (absorbed into the winner)",
+            "title": "Loser Id",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/$defs/OrganizationMergeStatus",
+            "description": "Current status of the merge operation",
+            "title": "Status"
+          },
+          "url": {
+            "description": "API URL of the organization merge resource",
+            "title": "Url",
+            "type": "string"
+          },
+          "winner_id": {
+            "description": "The ID of the organization that absorbed the loser organization",
+            "title": "Winner Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "loser_id", "status", "url", "winner_id"],
+        "title": "OrganizationMergeData",
+        "type": "object"
+      },
+      "OrganizationMergeStatus": {
+        "description": "Status of an organization merge operation.",
+        "enum": ["new", "in_progress", "error", "complete"],
+        "title": "OrganizationMergeStatus",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetZendeskOrganizationMergeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

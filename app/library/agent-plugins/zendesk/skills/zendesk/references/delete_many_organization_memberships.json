@@ -1,0 +1,127 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Bulk delete organization memberships in Zendesk. This action is irreversible — the memberships will be permanently removed and cannot be recovered once deleted. Use when cleaning up obsolete organization memberships or removing users from organizations. Returns a job_status payload (initial status typically 'queued'); deletions complete asynchronously and may require follow-up polling to confirm completion.",
+  "inputSchema": {
+    "properties": {
+      "ids": {
+        "description": "Comma-separated list of Zendesk organization membership IDs to delete",
+        "examples": ["26924632083356,26924658415260,26925535212060"],
+        "human_parameter_description": "A comma-separated list of organization membership IDs you want to delete. Example: 123,456,789. You can find membership IDs from listing organization memberships.",
+        "human_parameter_name": "Organization Membership IDs",
+        "title": "Ids",
+        "type": "string"
+      }
+    },
+    "required": ["ids"],
+    "title": "DeleteManyOrganizationMembershipsRequest",
+    "type": "object"
+  },
+  "name": "delete_many_organization_memberships",
+  "outputSchema": {
+    "$defs": {
+      "DeleteManyOrganizationMembershipsResponse": {
+        "properties": {
+          "job_status": {
+            "$ref": "#/$defs/JobStatus",
+            "description": "Background job status object",
+            "title": "Job Status"
+          }
+        },
+        "required": ["job_status"],
+        "title": "DeleteManyOrganizationMembershipsResponse",
+        "type": "object"
+      },
+      "JobStatus": {
+        "properties": {
+          "id": {
+            "description": "Automatically assigned when the job is queued",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_type": {
+            "description": "The type of the job",
+            "title": "Job Type",
+            "type": "string"
+          },
+          "message": {
+            "description": "Message from the job worker, if any",
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "description": "Number of tasks that have already been completed",
+            "title": "Progress",
+            "type": "integer"
+          },
+          "results": {
+            "description": "Result data from processed tasks",
+            "items": {
+              "$ref": "#/$defs/JobStatusResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "status": {
+            "description": "The current status. One of: queued, working, failed, completed",
+            "enum": ["queued", "working", "failed", "completed"],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "description": "The total number of tasks this job is batching through",
+            "title": "Total",
+            "type": "integer"
+          },
+          "url": {
+            "description": "The URL to poll for status updates",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "status"],
+        "title": "JobStatus",
+        "type": "object"
+      },
+      "JobStatusResult": {
+        "properties": {
+          "action": {
+            "description": "The action performed",
+            "title": "Action",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the processed item",
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Status of the result",
+            "title": "Status",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the operation succeeded",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "JobStatusResult",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteManyOrganizationMembershipsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

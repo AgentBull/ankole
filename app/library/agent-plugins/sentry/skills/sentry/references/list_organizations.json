@@ -1,0 +1,304 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of organizations available to the authenticated session. Use this action when you need to discover which organizations the user has access to before performing operations on a specific organization. This is essential for organization-bound operations that require an organization_id_or_slug parameter. Note that API key requests only return the associated organization.",
+  "inputSchema": {
+    "description": "Request schema for listing organizations available to the authenticated user.",
+    "properties": {
+      "cursor": {
+        "description": "Pagination cursor to retrieve the next or previous results. Use the cursor value from the Link header of a previous response.",
+        "examples": ["0:0:1", "0:100:0"],
+        "title": "Cursor",
+        "type": "string"
+      },
+      "owner": {
+        "description": "Specify true to restrict results to organizations in which you are an owner. When false or omitted, returns all organizations you have access to.",
+        "examples": [true, false],
+        "title": "Owner",
+        "type": "boolean"
+      },
+      "query": {
+        "description": "Search query to filter organizations. Supports filtering by id, slug, status, email, member_id, and query fields.",
+        "examples": ["my-org", "status:active"],
+        "title": "Query",
+        "type": "string"
+      },
+      "sortBy": {
+        "description": "Field to sort results by in descending order. Valid values: 'members' (sort by member count) or 'events' (sort by event count).",
+        "examples": ["members", "events"],
+        "title": "Sort By",
+        "type": "string"
+      }
+    },
+    "title": "ListOrganizationsRequest",
+    "type": "object"
+  },
+  "name": "list_organizations",
+  "outputSchema": {
+    "$defs": {
+      "ListOrganizationsResponse": {
+        "description": "Response schema containing the list of organizations.",
+        "properties": {
+          "organizations": {
+            "description": "List of organizations available to the authenticated user",
+            "items": {
+              "$ref": "#/$defs/Organization"
+            },
+            "title": "Organizations",
+            "type": "array"
+          }
+        },
+        "required": ["organizations"],
+        "title": "ListOrganizationsResponse",
+        "type": "object"
+      },
+      "OnboardingTask": {
+        "description": "Onboarding task and its completion status.",
+        "properties": {
+          "completionSeen": {
+            "description": "ISO 8601 timestamp when completion was acknowledged",
+            "title": "Completion Seen",
+            "type": "string"
+          },
+          "data": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "description": "Additional task-specific data",
+            "title": "Data",
+            "type": "object"
+          },
+          "dateCompleted": {
+            "description": "ISO 8601 timestamp when task was completed",
+            "title": "Date Completed",
+            "type": "string"
+          },
+          "status": {
+            "description": "Completion status (e.g., 'complete', 'skipped', 'pending')",
+            "title": "Status",
+            "type": "string"
+          },
+          "task": {
+            "description": "Task identifier",
+            "title": "Task",
+            "type": "string"
+          }
+        },
+        "required": ["task", "status"],
+        "title": "OnboardingTask",
+        "type": "object"
+      },
+      "Organization": {
+        "description": "Individual organization object.",
+        "properties": {
+          "access": {
+            "description": "List of access permissions for the authenticated user",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "allowMemberInvite": {
+            "description": "Whether members can invite new users to the organization",
+            "title": "Allow Member Invite",
+            "type": "boolean"
+          },
+          "allowMemberProjectCreation": {
+            "description": "Whether members can create new projects",
+            "title": "Allow Member Project Creation",
+            "type": "boolean"
+          },
+          "allowSuperuserAccess": {
+            "description": "Whether Sentry superusers have access to this organization",
+            "title": "Allow Superuser Access",
+            "type": "boolean"
+          },
+          "avatar": {
+            "$ref": "#/$defs/OrganizationAvatar",
+            "description": "Avatar configuration for the organization",
+            "title": "Avatar"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the organization was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "extraOptions": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "description": "Additional configuration options",
+            "title": "Extra Options",
+            "type": "object"
+          },
+          "features": {
+            "description": "List of feature flags enabled for this organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "hasAuthProvider": {
+            "description": "Whether an authentication provider is configured",
+            "title": "Has Auth Provider",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique organization identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "isEarlyAdopter": {
+            "description": "Whether the organization has early adopter status for new features",
+            "title": "Is Early Adopter",
+            "type": "boolean"
+          },
+          "links": {
+            "$ref": "#/$defs/OrganizationLinks",
+            "description": "URLs related to the organization",
+            "title": "Links"
+          },
+          "name": {
+            "description": "Human-readable organization name",
+            "title": "Name",
+            "type": "string"
+          },
+          "onboardingTasks": {
+            "description": "Onboarding tasks and their completion status",
+            "items": {
+              "$ref": "#/$defs/OnboardingTask"
+            },
+            "title": "Onboarding Tasks",
+            "type": "array"
+          },
+          "require2FA": {
+            "description": "Whether two-factor authentication is required for all members",
+            "title": "Require2 Fa",
+            "type": "boolean"
+          },
+          "slug": {
+            "description": "URL-friendly organization name",
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/OrganizationStatus",
+            "description": "Organization status information",
+            "title": "Status"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "status",
+          "dateCreated",
+          "isEarlyAdopter",
+          "require2FA",
+          "hasAuthProvider",
+          "allowMemberInvite",
+          "allowMemberProjectCreation",
+          "allowSuperuserAccess",
+          "avatar",
+          "links"
+        ],
+        "title": "Organization",
+        "type": "object"
+      },
+      "OrganizationAvatar": {
+        "description": "Avatar configuration for an organization.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar', 'upload')",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the uploaded avatar image",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "OrganizationAvatar",
+        "type": "object"
+      },
+      "OrganizationLinks": {
+        "description": "Links related to an organization.",
+        "properties": {
+          "organizationUrl": {
+            "description": "URL to the organization dashboard",
+            "title": "Organization Url",
+            "type": "string"
+          },
+          "regionUrl": {
+            "description": "URL to the organization's region",
+            "title": "Region Url",
+            "type": "string"
+          }
+        },
+        "required": ["organizationUrl", "regionUrl"],
+        "title": "OrganizationLinks",
+        "type": "object"
+      },
+      "OrganizationStatus": {
+        "description": "Status information for an organization.",
+        "properties": {
+          "id": {
+            "description": "Status identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable status name",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "OrganizationStatus",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListOrganizationsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

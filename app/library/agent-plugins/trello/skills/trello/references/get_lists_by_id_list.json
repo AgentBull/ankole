@@ -1,0 +1,226 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a Trello list by its unique ID, optionally including details for its cards and parent board.",
+  "inputSchema": {
+    "description": "Request schema for `GetListsByIdList`",
+    "properties": {
+      "board": {
+        "description": "Determines whether the board object the list belongs to is returned. Set to 'true' to include board details or 'false' to omit them.",
+        "examples": ["true", "false"],
+        "title": "Board",
+        "type": "string"
+      },
+      "board_fields": {
+        "default": "name,desc,descData,closed,idOrganization,pinned,url,prefs",
+        "description": "Specifies the fields for the board to be returned if 'board' is 'true'. Valid values are 'all' or a comma-separated list of board fields: closed, dateLastActivity, dateLastView, desc, descData, idOrganization, invitations, invited, labelNames, memberships, name, pinned, powerUps, prefs, shortLink, shortUrl, starred, subscribed, or url.",
+        "examples": ["all", "name,desc,url", "idOrganization,prefs,pinned"],
+        "title": "Board Fields",
+        "type": "string"
+      },
+      "card_fields": {
+        "default": "all",
+        "description": "Specifies the fields for cards to be returned if 'cards' is not 'none'. Valid values are 'all' or a comma-separated list of card fields: badges, checkItemStates, closed, dateLastActivity, desc, descData, due, email, idAttachmentCover, idBoard, idChecklists, idLabels, idList, idMembers, idMembersVoted, idShort, labels, manualCoverAttachment, name, pos, shortLink, shortUrl, subscribed, or url.",
+        "examples": ["all", "name,desc,due", "idBoard,labels,closed"],
+        "title": "Card Fields",
+        "type": "string"
+      },
+      "cards": {
+        "default": "none",
+        "description": "Determines whether cards are returned as part of the list data. Valid values are 'all', 'closed', 'none', or 'open'.",
+        "examples": ["all", "closed", "none", "open"],
+        "title": "Cards",
+        "type": "string"
+      },
+      "fields": {
+        "default": "all",
+        "description": "Specifies the fields for the list itself to be returned. Valid values are 'all' or a comma-separated list of list fields: closed, idBoard, name, pos, or subscribed.",
+        "examples": ["all", "name,pos", "idBoard,subscribed,closed"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idList": {
+        "description": "The ID of the Trello list to retrieve.",
+        "title": "Id List",
+        "type": "string"
+      }
+    },
+    "required": ["idList"],
+    "title": "GetListsByIdListRequest",
+    "type": "object"
+  },
+  "name": "get_lists_by_id_list",
+  "outputSchema": {
+    "$defs": {
+      "CardLimitInfo": {
+        "description": "Card limit information for open or total cards per list.",
+        "properties": {
+          "disableAt": {
+            "description": "Number at which the limit will be disabled.",
+            "title": "Disable At",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Current status of the limit (e.g., 'ok').",
+            "title": "Status",
+            "type": "string"
+          },
+          "warnAt": {
+            "description": "Number at which a warning will be shown.",
+            "title": "Warn At",
+            "type": "integer"
+          }
+        },
+        "title": "CardLimitInfo",
+        "type": "object"
+      },
+      "CardsLimits": {
+        "description": "Card limit information.",
+        "properties": {
+          "openPerList": {
+            "$ref": "#/$defs/CardLimitInfo",
+            "description": "Open cards per list limit information.",
+            "title": "Open Per List"
+          },
+          "totalPerList": {
+            "$ref": "#/$defs/CardLimitInfo",
+            "description": "Total cards per list limit information.",
+            "title": "Total Per List"
+          }
+        },
+        "title": "CardsLimits",
+        "type": "object"
+      },
+      "DatasourceInfo": {
+        "description": "Datasource information for the list.",
+        "properties": {
+          "filter": {
+            "description": "Whether the list has a filter applied.",
+            "title": "Filter",
+            "type": "boolean"
+          }
+        },
+        "title": "DatasourceInfo",
+        "type": "object"
+      },
+      "GetListsByIdListResponse": {
+        "description": "Response schema for `GetListsByIdList`",
+        "properties": {
+          "board": {
+            "additionalProperties": true,
+            "description": "The board object the list belongs to, returned when 'board' parameter is 'true'.",
+            "title": "Board",
+            "type": "object"
+          },
+          "cards": {
+            "description": "Array of cards in the list, returned when 'cards' parameter is not 'none'.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Cards",
+            "type": "array"
+          },
+          "closed": {
+            "description": "Whether the list is archived/closed.",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "color": {
+            "description": "The color assigned to the list, if any.",
+            "title": "Color",
+            "type": "string"
+          },
+          "creationMethod": {
+            "description": "The method used to create the list, if available.",
+            "title": "Creation Method",
+            "type": "string"
+          },
+          "datasource": {
+            "$ref": "#/$defs/DatasourceInfo",
+            "description": "Datasource information for the list.",
+            "title": "Datasource"
+          },
+          "id": {
+            "description": "The unique identifier of the list.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board the list belongs to.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "idOrganization": {
+            "description": "The ID of the organization the list's board belongs to.",
+            "title": "Id Organization",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/$defs/ListLimits",
+            "description": "Limit information for the list, containing card limits.",
+            "title": "Limits"
+          },
+          "name": {
+            "description": "The name of the list.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "The ARI node identifier for the list.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "pos": {
+            "description": "The position of the list on the board used for ordering.",
+            "title": "Pos",
+            "type": "number"
+          },
+          "softLimit": {
+            "description": "The soft limit value for the list, if set.",
+            "title": "Soft Limit",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Whether the current user is subscribed to the list.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "The type of the list, if applicable.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "GetListsByIdListResponse",
+        "type": "object"
+      },
+      "ListLimits": {
+        "description": "Limit information for the list, containing card limits.",
+        "properties": {
+          "cards": {
+            "$ref": "#/$defs/CardsLimits",
+            "description": "Card limit information.",
+            "title": "Cards"
+          }
+        },
+        "title": "ListLimits",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetListsByIdListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

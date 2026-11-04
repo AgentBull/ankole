@@ -1,0 +1,166 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Removes the currently applied discount on a subscription, such as a discount code or promotion. The response may include a deletion confirmation flag.",
+  "inputSchema": {
+    "description": "Request model for deleting a subscription discount.",
+    "properties": {
+      "subscription_id": {
+        "description": "The ID of the subscription from which to remove the discount. Must start with 'sub_' followed by alphanumeric characters.",
+        "examples": ["sub_1ShRLeQvM72TjFrbUdlO97q4", "sub_1NlcNX2eZvKYlo2CFqnrn9ow"],
+        "pattern": "^sub_[a-zA-Z0-9]+$",
+        "title": "Subscription Id",
+        "type": "string"
+      }
+    },
+    "required": ["subscription_id"],
+    "title": "DeleteSubscriptionDiscountRequest",
+    "type": "object"
+  },
+  "name": "delete_subscription_discount",
+  "outputSchema": {
+    "$defs": {
+      "Coupon": {
+        "description": "Coupon details within the discount object.",
+        "properties": {
+          "amount_off": {
+            "description": "Amount in cents to subtract from the invoice total.",
+            "title": "Amount Off",
+            "type": "integer"
+          },
+          "created": {
+            "description": "Time the coupon was created (Unix timestamp).",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Currency for amount_off.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "duration": {
+            "description": "Describes how long the discount applies. One of: 'forever', 'once', or 'repeating'.",
+            "title": "Duration",
+            "type": "string"
+          },
+          "duration_in_months": {
+            "description": "If duration is 'repeating', specifies the number of months.",
+            "title": "Duration In Months",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the coupon.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Whether this coupon is in live mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "max_redemptions": {
+            "description": "Maximum number of times the coupon can be redeemed.",
+            "title": "Max Redemptions",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for custom metadata.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "Name of the coupon.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "Object type, always 'coupon'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percent_off": {
+            "description": "Percent off (between 0 and 100) to discount.",
+            "title": "Percent Off",
+            "type": "number"
+          },
+          "redeem_by": {
+            "description": "Date after which the coupon can no longer be redeemed (Unix timestamp).",
+            "title": "Redeem By",
+            "type": "integer"
+          },
+          "times_redeemed": {
+            "description": "Number of times this coupon has been applied.",
+            "title": "Times Redeemed",
+            "type": "integer"
+          },
+          "valid": {
+            "description": "Whether the coupon is currently valid.",
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "object", "created", "duration", "livemode", "times_redeemed", "valid"],
+        "title": "Coupon",
+        "type": "object"
+      },
+      "DeleteSubscriptionDiscountResponse": {
+        "description": "Response model for a deleted subscription discount.",
+        "properties": {
+          "coupon": {
+            "$ref": "#/$defs/Coupon",
+            "description": "Details of the coupon that was part of this discount.",
+            "title": "Coupon"
+          },
+          "customer": {
+            "description": "ID of the customer this discount was applied to.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "Always true for a successful deletion.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the deleted discount object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'discount' for this endpoint.",
+            "title": "Object",
+            "type": "string"
+          },
+          "start": {
+            "description": "Unix timestamp when the discount was applied.",
+            "title": "Start",
+            "type": "integer"
+          },
+          "subscription": {
+            "description": "ID of the subscription this discount was removed from.",
+            "title": "Subscription",
+            "type": "string"
+          }
+        },
+        "title": "DeleteSubscriptionDiscountResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteSubscriptionDiscountResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

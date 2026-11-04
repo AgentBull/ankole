@@ -1,0 +1,184 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Add a note to an issue thread, or turn a single comment into a thread. System notes cannot receive replies (GitLab returns HTTP 400). See https://docs.gitlab.com/api/discussions/#add-a-note-to-an-issue-thread.",
+  "inputSchema": {
+    "properties": {
+      "body": {
+        "description": "Content of the note or reply.",
+        "title": "Body",
+        "type": "string"
+      },
+      "created_at": {
+        "description": "ISO 8601 creation timestamp; requires administrator or project/group owner rights.",
+        "title": "Created At",
+        "type": "string"
+      },
+      "discussion_id": {
+        "description": "ID of the discussion thread.",
+        "title": "Discussion Id",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespaced project path.",
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "Project-local IID of the issue.",
+        "title": "Issue Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid", "discussion_id", "body"],
+    "title": "ReplyIssueDiscussionRequest",
+    "type": "object"
+  },
+  "name": "reply_issue_discussion",
+  "outputSchema": {
+    "$defs": {
+      "MergeRequestNoteAuthor": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Author's avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "User creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Author's email, when returned.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Author's user ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Author's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Author's username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Author's profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "MergeRequestNoteAuthor",
+        "type": "object"
+      },
+      "ReplyIssueDiscussionResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "attachment": {
+            "description": "Attachment URL, when present.",
+            "title": "Attachment",
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/$defs/MergeRequestNoteAuthor",
+            "description": "Note author.",
+            "title": "Author"
+          },
+          "body": {
+            "description": "Content of the note.",
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Created note ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "noteable_id": {
+            "description": "Issue's global numeric ID as a precision-preserving decimal string.",
+            "title": "Noteable Id",
+            "type": "string"
+          },
+          "noteable_iid": {
+            "description": "Issue's project-local IID.",
+            "title": "Noteable Iid",
+            "type": "integer"
+          },
+          "noteable_type": {
+            "description": "Type of the note's resource.",
+            "title": "Noteable Type",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "resolvable": {
+            "description": "Whether the note can be resolved.",
+            "title": "Resolvable",
+            "type": "boolean"
+          },
+          "system": {
+            "description": "Whether this is a system note.",
+            "title": "System",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "Note type, such as DiscussionNote.",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "ReplyIssueDiscussionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ReplyIssueDiscussionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

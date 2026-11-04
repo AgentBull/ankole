@@ -1,0 +1,179 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Clone an issue into a project, optionally including its notes. Copies as much data as possible when the destination has equivalent labels or milestones. Insufficient permissions can produce HTTP 400.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "ID or unencoded namespace path of the source project.",
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "Internal ID of the issue to clone.",
+        "title": "Issue Iid",
+        "type": "integer"
+      },
+      "to_project_id": {
+        "description": "ID of the destination project.",
+        "title": "To Project Id",
+        "type": "integer"
+      },
+      "with_notes": {
+        "description": "Clone the issue with notes. GitLab defaults to false.",
+        "title": "With Notes",
+        "type": "boolean"
+      }
+    },
+    "required": ["id", "issue_iid", "to_project_id"],
+    "title": "CloneIssueRequest",
+    "type": "object"
+  },
+  "name": "clone_issue",
+  "outputSchema": {
+    "$defs": {
+      "CloneIssueResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "assignee": {
+            "additionalProperties": true,
+            "description": "Deprecated single assignee.",
+            "title": "Assignee",
+            "type": "object"
+          },
+          "assignees": {
+            "description": "Assigned users.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Assignees",
+            "type": "array"
+          },
+          "author": {
+            "additionalProperties": true,
+            "description": "Author of the issue.",
+            "title": "Author",
+            "type": "object"
+          },
+          "closed_at": {
+            "description": "Issue closure timestamp.",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "closed_by": {
+            "additionalProperties": true,
+            "description": "User who closed the issue.",
+            "title": "Closed By",
+            "type": "object"
+          },
+          "confidential": {
+            "description": "Whether the issue is confidential.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Issue creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Issue description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "description": "Whether discussion is locked.",
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Global ID of the cloned issue.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Internal ID of the cloned issue.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Names of assigned labels.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "milestone": {
+            "additionalProperties": true,
+            "description": "Assigned milestone.",
+            "title": "Milestone",
+            "type": "object"
+          },
+          "project_id": {
+            "description": "ID of the destination project.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "references": {
+            "additionalProperties": true,
+            "description": "Issue reference strings.",
+            "title": "References",
+            "type": "object"
+          },
+          "state": {
+            "description": "State of the cloned issue.",
+            "title": "State",
+            "type": "string"
+          },
+          "time_stats": {
+            "additionalProperties": true,
+            "description": "Issue time tracking statistics.",
+            "title": "Time Stats",
+            "type": "object"
+          },
+          "title": {
+            "description": "Title of the cloned issue.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Web URL of the cloned issue.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "iid", "project_id", "title", "state"],
+        "title": "CloneIssueResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CloneIssueResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

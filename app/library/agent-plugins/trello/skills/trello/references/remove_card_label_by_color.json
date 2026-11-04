@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently removes a specific `color` label from an existing Trello card identified by `idCard`, if the card has that label; this only disassociates the label from the card, not deleting the label definition itself.",
+  "inputSchema": {
+    "description": "Request schema for `RemoveCardLabelByColor`",
+    "properties": {
+      "color": {
+        "description": "The specific color of the label to remove from the card. Standard Trello label colors are used (e.g., 'red', 'blue').",
+        "examples": ["green", "yellow", "orange", "red", "purple", "blue", "sky", "lime", "pink", "black"],
+        "title": "Color",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "The ID or short link of the Trello card.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "color"],
+    "title": "RemoveCardLabelByColorRequest",
+    "type": "object"
+  },
+  "name": "remove_card_label_by_color",
+  "outputSchema": {
+    "$defs": {
+      "RemoveCardLabelByColorResponse": {
+        "description": "Response schema for `RemoveCardLabelByColor`\n\nThe DELETE endpoint returns 200 OK on success with an empty response body.\nThe endpoint removes the label association from the card.",
+        "properties": {},
+        "title": "RemoveCardLabelByColorResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RemoveCardLabelByColorResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

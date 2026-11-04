@@ -1,0 +1,128 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new secondary Google Calendar with the specified title and optional settings. Use this action when you need to create a new calendar for organizing events separately from the primary calendar. The authenticated user becomes the owner of the newly created calendar. Optional parameters include description, location, and timezone.",
+  "inputSchema": {
+    "properties": {
+      "description": {
+        "description": "Description of the calendar. Provides additional context about the calendar's purpose.",
+        "examples": ["Calendar for tracking team events and meetings"],
+        "title": "Description",
+        "type": "string"
+      },
+      "location": {
+        "description": "Geographic location of the calendar as free-form text.",
+        "examples": ["San Francisco, CA", "New York Office"],
+        "title": "Location",
+        "type": "string"
+      },
+      "summary": {
+        "description": "Title of the calendar. This is the name that will be displayed in Google Calendar.",
+        "examples": ["Team Events", "Project Deadlines", "Marketing Calendar"],
+        "minLength": 1,
+        "title": "Summary",
+        "type": "string"
+      },
+      "timezone": {
+        "description": "The time zone of the calendar, specified as an IANA Time Zone Database name (e.g., 'America/New_York', 'Europe/London', 'Asia/Tokyo'). If not specified, defaults to UTC.",
+        "examples": ["America/New_York", "Europe/London", "Asia/Tokyo"],
+        "title": "Timezone",
+        "type": "string"
+      }
+    },
+    "required": ["summary"],
+    "title": "CreateCalendarRequest",
+    "type": "object"
+  },
+  "name": "create_calendar",
+  "outputSchema": {
+    "$defs": {
+      "ConferenceProperties": {
+        "properties": {
+          "allowedConferenceSolutionTypes": {
+            "description": "The types of conference solutions supported for this calendar.",
+            "items": {
+              "enum": ["eventHangout", "eventNamedHangout", "hangoutsMeet"],
+              "type": "string"
+            },
+            "title": "Allowed Conference Solution Types",
+            "type": "array"
+          }
+        },
+        "required": ["allowedConferenceSolutionTypes"],
+        "title": "ConferenceProperties",
+        "type": "object"
+      },
+      "CreateCalendarResponse": {
+        "properties": {
+          "conferenceProperties": {
+            "$ref": "#/$defs/ConferenceProperties",
+            "description": "Conferencing properties for this calendar.",
+            "title": "Conference Properties"
+          },
+          "dataOwner": {
+            "description": "Email address of the calendar's owner.",
+            "title": "Data Owner",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the calendar.",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_url": {
+            "description": "Direct URL to the calendar's settings page in the Google Calendar web interface.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the resource. Used for caching and concurrency control.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identifier of the calendar, typically an email-like value.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of the resource. Always 'calendar#calendar'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "description": "Geographic location of the calendar as free-form text.",
+            "title": "Location",
+            "type": "string"
+          },
+          "summary": {
+            "description": "Title of the calendar.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "The time zone of the calendar, specified as an IANA Time Zone Database name.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "etag", "id", "summary"],
+        "title": "CreateCalendarResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateCalendarResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

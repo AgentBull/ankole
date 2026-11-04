@@ -1,0 +1,115 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Restores a previously deleted ticket in Zendesk. Use when a ticket was accidentally deleted and needs to be recovered. The restored ticket will return to its previous state with all associated data intact. This action is reversible — tickets can be deleted again after restoration if needed.",
+  "inputSchema": {
+    "properties": {
+      "ticket_id": {
+        "description": "ID of the deleted ticket to restore.",
+        "examples": [89, 12345],
+        "human_parameter_description": "The numeric ID of the Zendesk ticket that was previously deleted and needs to be restored. You can find this ID from ticket deletion logs or trash.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "RestoreZendeskTicketRequest",
+    "type": "object"
+  },
+  "name": "restore_zendesk_ticket",
+  "outputSchema": {
+    "$defs": {
+      "RestoreZendeskTicketResponse": {
+        "properties": {
+          "assignee_id": {
+            "description": "The ID of the agent assigned to the ticket",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "created_at": {
+            "description": "When the ticket was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "The ID of the group assigned to the ticket",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "The ID of the organization of the requester",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "The urgency level of the ticket (urgent, high, normal, low)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "The ID of the user who requested support",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The state of the ticket (new, open, pending, hold, solved, closed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "The subject/title of the restored ticket",
+            "title": "Subject",
+            "type": "string"
+          },
+          "submitter_id": {
+            "description": "The ID of the user who submitted the ticket",
+            "title": "Submitter Id",
+            "type": "integer"
+          },
+          "success": {
+            "description": "Indicates whether the ticket restoration was successful",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "ticket_id": {
+            "description": "ID of the restored ticket",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "ticket_type": {
+            "description": "The type of the ticket (problem, incident, question, task)",
+            "title": "Ticket Type",
+            "type": "string"
+          },
+          "ticket_url": {
+            "description": "URL of the restored ticket",
+            "title": "Ticket Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When the ticket was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["success"],
+        "title": "RestoreZendeskTicketResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RestoreZendeskTicketResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

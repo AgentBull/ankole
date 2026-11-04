@@ -1,0 +1,84 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Posts a specified emoji reaction to an existing comment in a Figma file or branch, requiring valid file_key and comment_id.",
+  "inputSchema": {
+    "description": "Request schema for `AddAReactionToAComment`",
+    "properties": {
+      "comment_id": {
+        "description": "The unique identifier of the comment to which the reaction should be added.",
+        "examples": ["1234567890", "9876543210"],
+        "title": "Comment Id",
+        "type": "string"
+      },
+      "emoji": {
+        "description": "The emoji to use for the reaction, specified as a shortcode (e.g., `:heart:`, `:+1::skin-tone-2:`). For a comprehensive list of accepted emoji shortcodes, including aliases and skin tone modifiers, refer to the file linked here: [https://raw.githubusercontent.com/missive/emoji-mart/main/packages/emoji-mart-data/sets/14/native.json](https://raw.githubusercontent.com/missive/emoji-mart/main/packages/emoji-mart-data/sets/14/native.json).",
+        "examples": [":heart:", ":+1:", ":rocket:", ":eyes:", ":+1::skin-tone-2:"],
+        "title": "Emoji",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "Identifier of the Figma file or branch to which the comment reaction will be posted. This can be a file key (e.g., from the file URL) or a branch key. Use the `GET /v1/files/:key` endpoint with the `branch_data=true` query parameter to obtain the branch key if needed.",
+        "examples": ["figma_file_key_123", "branch:my_branch_id_456"],
+        "title": "File Key",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "comment_id", "emoji"],
+    "title": "AddAReactionToACommentRequest",
+    "type": "object"
+  },
+  "name": "add_a_reaction_to_a_comment",
+  "outputSchema": {
+    "$defs": {
+      "AddAReactionToACommentResponse": {
+        "description": "Response schema for `AddAReactionToAComment`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Contains the response data from the API, typically including the status of the operation.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "AddAReactionToACommentResponse",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "error": {
+            "description": "A boolean flag indicating if an error occurred during the request. For successful operations, this will be `false`.",
+            "title": "Error",
+            "type": "boolean"
+          },
+          "i18n": {
+            "description": "Internationalization information, typically null for successful operations.",
+            "title": "I18N",
+            "type": "string"
+          },
+          "status": {
+            "description": "The HTTP status code of the API request. A value of 200 indicates success.",
+            "title": "Status",
+            "type": "integer"
+          }
+        },
+        "required": ["status", "error"],
+        "title": "Model",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddAReactionToACommentResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

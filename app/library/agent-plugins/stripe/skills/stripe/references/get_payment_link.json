@@ -1,0 +1,1099 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve details of an existing Stripe payment link by ID. Use when you need to get information about a specific payment link.",
+  "inputSchema": {
+    "description": "Specifies the payment link ID to retrieve.",
+    "properties": {
+      "expand": {
+        "description": "Specifies which fields in the response should be expanded. Supports nested expansion using dot notation up to 4 levels deep.",
+        "examples": [["line_items"], ["line_items.data.price"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Expand",
+        "type": "array"
+      },
+      "payment_link_id": {
+        "description": "The ID of the payment link to retrieve. Typically starts with 'plink_'.",
+        "examples": ["plink_1ShVhYQvM72TjFrbleaMQpBG", "plink_1MoC3ULkdIwHu7ixZjtGpVl2"],
+        "title": "Payment Link Id",
+        "type": "string"
+      }
+    },
+    "required": ["payment_link_id"],
+    "title": "GetPaymentLinkRequest",
+    "type": "object"
+  },
+  "name": "get_payment_link",
+  "outputSchema": {
+    "$defs": {
+      "DropdownFieldConfig": {
+        "properties": {
+          "default_value": {
+            "description": "Default value for the dropdown field.",
+            "title": "Default Value",
+            "type": "string"
+          },
+          "options": {
+            "description": "Array of dropdown options.",
+            "items": {
+              "$ref": "#/$defs/DropdownOption"
+            },
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": ["options"],
+        "title": "DropdownFieldConfig",
+        "type": "object"
+      },
+      "AutomaticTax": {
+        "properties": {
+          "enabled": {
+            "description": "Whether automatic tax is enabled for this payment link.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "liability": {
+            "$ref": "#/$defs/AutomaticTaxLiability",
+            "description": "The account that's liable for tax.",
+            "title": "Liability"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTax",
+        "type": "object"
+      },
+      "InvoiceIssuer": {
+        "properties": {
+          "account": {
+            "description": "The connected account ID when type is 'account'.",
+            "title": "Account",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of issuer, either 'account' or 'self'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "InvoiceIssuer",
+        "type": "object"
+      },
+      "DropdownOption": {
+        "properties": {
+          "label": {
+            "description": "Display label for the option.",
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "description": "Value of the option.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["label", "value"],
+        "title": "DropdownOption",
+        "type": "object"
+      },
+      "CustomField": {
+        "properties": {
+          "dropdown": {
+            "$ref": "#/$defs/DropdownFieldConfig",
+            "description": "Configuration for dropdown-type fields.",
+            "title": "Dropdown"
+          },
+          "key": {
+            "description": "Alphanumeric identifier for the custom field.",
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/$defs/CustomFieldLabel",
+            "description": "Label for the custom field.",
+            "title": "Label"
+          },
+          "numeric": {
+            "$ref": "#/$defs/NumericFieldConfig",
+            "description": "Configuration for numeric-type fields.",
+            "title": "Numeric"
+          },
+          "optional": {
+            "description": "Whether the field is optional.",
+            "title": "Optional",
+            "type": "boolean"
+          },
+          "text": {
+            "$ref": "#/$defs/TextFieldConfig",
+            "description": "Configuration for text-type fields.",
+            "title": "Text"
+          },
+          "type": {
+            "description": "Type of the custom field, either 'text', 'numeric', or 'dropdown'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["key", "label", "optional", "type"],
+        "title": "CustomField",
+        "type": "object"
+      },
+      "InvoiceCustomField": {
+        "properties": {
+          "name": {
+            "description": "Name of the custom field.",
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "description": "Value of the custom field.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["name", "value"],
+        "title": "InvoiceCustomField",
+        "type": "object"
+      },
+      "PhoneNumberCollection": {
+        "properties": {
+          "enabled": {
+            "description": "Whether phone number collection is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": ["enabled"],
+        "title": "PhoneNumberCollection",
+        "type": "object"
+      },
+      "ConsentCollection": {
+        "properties": {
+          "payment_method_reuse_agreement": {
+            "$ref": "#/$defs/PaymentMethodReuseAgreement",
+            "description": "Settings for payment method reuse agreement.",
+            "title": "Payment Method Reuse Agreement"
+          },
+          "promotions": {
+            "description": "Promotions consent setting, either 'auto' or 'none'.",
+            "title": "Promotions",
+            "type": "string"
+          },
+          "terms_of_service": {
+            "description": "Terms of service consent setting, either 'required' or 'none'.",
+            "title": "Terms Of Service",
+            "type": "string"
+          }
+        },
+        "title": "ConsentCollection",
+        "type": "object"
+      },
+      "TrialSettings": {
+        "properties": {
+          "end_behavior": {
+            "$ref": "#/$defs/TrialEndBehavior",
+            "description": "Behavior at the end of the trial period.",
+            "title": "End Behavior"
+          }
+        },
+        "required": ["end_behavior"],
+        "title": "TrialSettings",
+        "type": "object"
+      },
+      "NameCollection": {
+        "properties": {
+          "business": {
+            "$ref": "#/$defs/NameCollectionBusiness",
+            "description": "Business name collection configuration.",
+            "title": "Business"
+          },
+          "individual": {
+            "$ref": "#/$defs/NameCollectionIndividual",
+            "description": "Individual name collection configuration.",
+            "title": "Individual"
+          }
+        },
+        "title": "NameCollection",
+        "type": "object"
+      },
+      "NumericFieldConfig": {
+        "properties": {
+          "default_value": {
+            "description": "Default value for the numeric field.",
+            "title": "Default Value",
+            "type": "string"
+          },
+          "maximum_length": {
+            "description": "Maximum length for the numeric field.",
+            "title": "Maximum Length",
+            "type": "integer"
+          },
+          "minimum_length": {
+            "description": "Minimum length for the numeric field.",
+            "title": "Minimum Length",
+            "type": "integer"
+          }
+        },
+        "title": "NumericFieldConfig",
+        "type": "object"
+      },
+      "InvoiceRenderingOptions": {
+        "properties": {
+          "amount_tax_display": {
+            "description": "How to display tax amounts.",
+            "title": "Amount Tax Display",
+            "type": "string"
+          },
+          "template": {
+            "description": "Template ID for invoice rendering.",
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "title": "InvoiceRenderingOptions",
+        "type": "object"
+      },
+      "LineItem": {
+        "properties": {
+          "amount_discount": {
+            "description": "Amount discount in cents.",
+            "title": "Amount Discount",
+            "type": "integer"
+          },
+          "amount_subtotal": {
+            "description": "Amount subtotal in cents.",
+            "title": "Amount Subtotal",
+            "type": "integer"
+          },
+          "amount_tax": {
+            "description": "Amount tax in cents.",
+            "title": "Amount Tax",
+            "type": "integer"
+          },
+          "amount_total": {
+            "description": "Amount total in cents.",
+            "title": "Amount Total",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the line item.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discounts": {
+            "description": "Array of discount details.",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the line item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/$defs/LineItemPrice",
+            "description": "Price object for the line item.",
+            "title": "Price"
+          },
+          "quantity": {
+            "description": "Quantity of the item.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "taxes": {
+            "description": "Array of tax information.",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Taxes",
+            "type": "array"
+          }
+        },
+        "required": ["id", "object", "amount_subtotal", "amount_discount", "amount_tax", "amount_total", "currency"],
+        "title": "LineItem",
+        "type": "object"
+      },
+      "SubscriptionInvoiceIssuer": {
+        "properties": {
+          "account": {
+            "description": "The connected account ID when type is 'account'.",
+            "title": "Account",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of issuer, either 'account' or 'self'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "SubscriptionInvoiceIssuer",
+        "type": "object"
+      },
+      "CustomText": {
+        "properties": {
+          "after_submit": {
+            "$ref": "#/$defs/CustomTextMessage",
+            "description": "Custom text to display after form submission.",
+            "title": "After Submit"
+          },
+          "shipping_address": {
+            "$ref": "#/$defs/CustomTextMessage",
+            "description": "Custom text for the shipping address section.",
+            "title": "Shipping Address"
+          },
+          "submit": {
+            "$ref": "#/$defs/CustomTextMessage",
+            "description": "Custom text for the submit button.",
+            "title": "Submit"
+          },
+          "terms_of_service_acceptance": {
+            "$ref": "#/$defs/CustomTextMessage",
+            "description": "Custom text for terms of service acceptance.",
+            "title": "Terms Of Service Acceptance"
+          }
+        },
+        "title": "CustomText",
+        "type": "object"
+      },
+      "InvoiceData": {
+        "properties": {
+          "account_tax_ids": {
+            "description": "Array of tax ID strings.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Account Tax Ids",
+            "type": "array"
+          },
+          "custom_fields": {
+            "description": "Custom fields to include on the invoice.",
+            "items": {
+              "$ref": "#/$defs/InvoiceCustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "description": {
+            "description": "Description for the invoice.",
+            "title": "Description",
+            "type": "string"
+          },
+          "footer": {
+            "description": "Footer text for the invoice.",
+            "title": "Footer",
+            "type": "string"
+          },
+          "issuer": {
+            "$ref": "#/$defs/InvoiceIssuer",
+            "description": "The account that issues the invoice.",
+            "title": "Issuer"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Metadata for the invoice.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "rendering_options": {
+            "$ref": "#/$defs/InvoiceRenderingOptions",
+            "description": "Options for invoice rendering.",
+            "title": "Rendering Options"
+          }
+        },
+        "title": "InvoiceData",
+        "type": "object"
+      },
+      "SubscriptionData": {
+        "properties": {
+          "description": {
+            "description": "Description for the subscription.",
+            "title": "Description",
+            "type": "string"
+          },
+          "invoice_settings": {
+            "$ref": "#/$defs/SubscriptionInvoiceSettings",
+            "description": "Invoice settings for the subscription.",
+            "title": "Invoice Settings"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Metadata for the subscription.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "trial_period_days": {
+            "description": "Number of trial days for the subscription.",
+            "title": "Trial Period Days",
+            "type": "integer"
+          },
+          "trial_settings": {
+            "$ref": "#/$defs/TrialSettings",
+            "description": "Trial settings for the subscription.",
+            "title": "Trial Settings"
+          }
+        },
+        "title": "SubscriptionData",
+        "type": "object"
+      },
+      "CustomTextMessage": {
+        "properties": {
+          "message": {
+            "description": "Text message to display (max 500 characters).",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["message"],
+        "title": "CustomTextMessage",
+        "type": "object"
+      },
+      "CompletedSessions": {
+        "properties": {
+          "count": {
+            "description": "Number of completed sessions.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "limit": {
+            "description": "Maximum allowed completed sessions.",
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": ["count", "limit"],
+        "title": "CompletedSessions",
+        "type": "object"
+      },
+      "Restrictions": {
+        "properties": {
+          "completed_sessions": {
+            "$ref": "#/$defs/CompletedSessions",
+            "description": "Restrictions on completed sessions.",
+            "title": "Completed Sessions"
+          }
+        },
+        "required": ["completed_sessions"],
+        "title": "Restrictions",
+        "type": "object"
+      },
+      "HostedConfirmation": {
+        "properties": {
+          "custom_message": {
+            "description": "Custom message to display on the confirmation page.",
+            "title": "Custom Message",
+            "type": "string"
+          }
+        },
+        "title": "HostedConfirmation",
+        "type": "object"
+      },
+      "ShippingAddressCollection": {
+        "properties": {
+          "allowed_countries": {
+            "description": "Array of two-letter ISO country codes for allowed shipping countries.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Countries",
+            "type": "array"
+          }
+        },
+        "required": ["allowed_countries"],
+        "title": "ShippingAddressCollection",
+        "type": "object"
+      },
+      "TextFieldConfig": {
+        "properties": {
+          "default_value": {
+            "description": "Default value for the text field.",
+            "title": "Default Value",
+            "type": "string"
+          },
+          "maximum_length": {
+            "description": "Maximum length for the text field.",
+            "title": "Maximum Length",
+            "type": "integer"
+          },
+          "minimum_length": {
+            "description": "Minimum length for the text field.",
+            "title": "Minimum Length",
+            "type": "integer"
+          }
+        },
+        "title": "TextFieldConfig",
+        "type": "object"
+      },
+      "InvoiceCreation": {
+        "properties": {
+          "enabled": {
+            "description": "Whether invoice creation is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "invoice_data": {
+            "$ref": "#/$defs/InvoiceData",
+            "description": "Additional data for invoice generation.",
+            "title": "Invoice Data"
+          }
+        },
+        "required": ["enabled"],
+        "title": "InvoiceCreation",
+        "type": "object"
+      },
+      "CustomFieldLabel": {
+        "properties": {
+          "custom": {
+            "description": "Custom label text.",
+            "title": "Custom",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of label, always 'custom'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "CustomFieldLabel",
+        "type": "object"
+      },
+      "LineItems": {
+        "properties": {
+          "data": {
+            "description": "Array of line item objects.",
+            "items": {
+              "$ref": "#/$defs/LineItem"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether or not there are more elements available after this set.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object type, always 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL for accessing this list.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "LineItems",
+        "type": "object"
+      },
+      "PaymentMethodReuseAgreement": {
+        "properties": {
+          "position": {
+            "description": "Position of the payment method reuse agreement, either 'auto' or 'hidden'.",
+            "title": "Position",
+            "type": "string"
+          }
+        },
+        "required": ["position"],
+        "title": "PaymentMethodReuseAgreement",
+        "type": "object"
+      },
+      "Redirect": {
+        "properties": {
+          "url": {
+            "description": "URL to redirect to after completion.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["url"],
+        "title": "Redirect",
+        "type": "object"
+      },
+      "TaxIdCollection": {
+        "properties": {
+          "enabled": {
+            "description": "Whether tax ID collection is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": ["enabled"],
+        "title": "TaxIdCollection",
+        "type": "object"
+      },
+      "PaymentIntentData": {
+        "properties": {
+          "capture_method": {
+            "description": "Capture method for the PaymentIntent, one of 'automatic', 'automatic_async', or 'manual'.",
+            "title": "Capture Method",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description for the PaymentIntent.",
+            "title": "Description",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Metadata for the PaymentIntent.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "setup_future_usage": {
+            "description": "Indicates that you intend to make future payments with this PaymentIntent's payment method, either 'on_session' or 'off_session'.",
+            "title": "Setup Future Usage",
+            "type": "string"
+          },
+          "statement_descriptor": {
+            "description": "Statement descriptor for the PaymentIntent.",
+            "title": "Statement Descriptor",
+            "type": "string"
+          },
+          "statement_descriptor_suffix": {
+            "description": "Statement descriptor suffix for the PaymentIntent.",
+            "title": "Statement Descriptor Suffix",
+            "type": "string"
+          },
+          "transfer_group": {
+            "description": "Transfer group for the PaymentIntent.",
+            "title": "Transfer Group",
+            "type": "string"
+          }
+        },
+        "title": "PaymentIntentData",
+        "type": "object"
+      },
+      "LineItemPrice": {
+        "description": "Price object structure for line items.",
+        "properties": {
+          "active": {
+            "description": "Whether the price is currently available for purchase.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the price.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "product": {
+            "description": "The ID of the product this price is for.",
+            "title": "Product",
+            "type": "string"
+          },
+          "type": {
+            "description": "One of 'one_time' or 'recurring'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "The unit amount in cents.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "The unit amount as a decimal string.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "title": "LineItemPrice",
+        "type": "object"
+      },
+      "TransferData": {
+        "properties": {
+          "amount": {
+            "description": "Amount in cents to transfer to the destination account.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "destination": {
+            "description": "ID of the connected account to transfer funds to.",
+            "title": "Destination",
+            "type": "string"
+          }
+        },
+        "required": ["destination"],
+        "title": "TransferData",
+        "type": "object"
+      },
+      "TrialEndBehavior": {
+        "properties": {
+          "missing_payment_method": {
+            "description": "Action when payment method is missing, one of 'cancel', 'create_invoice', or 'pause'.",
+            "title": "Missing Payment Method",
+            "type": "string"
+          }
+        },
+        "required": ["missing_payment_method"],
+        "title": "TrialEndBehavior",
+        "type": "object"
+      },
+      "GetPaymentLinkResponse": {
+        "description": "Contains detailed information of the retrieved payment link.",
+        "properties": {
+          "invoice_creation": {
+            "$ref": "#/$defs/InvoiceCreation",
+            "description": "Configuration for invoice generation.",
+            "title": "Invoice Creation"
+          },
+          "url": {
+            "description": "The public URL that can be shared with customers.",
+            "title": "Url",
+            "type": "string"
+          },
+          "payment_method_types": {
+            "description": "The list of payment method types that customers can use.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Payment Method Types",
+            "type": "array"
+          },
+          "application": {
+            "description": "The ID of the application that created the payment link.",
+            "title": "Application",
+            "type": "string"
+          },
+          "consent_collection": {
+            "$ref": "#/$defs/ConsentCollection",
+            "description": "Configuration for collecting active consent from customers.",
+            "title": "Consent Collection"
+          },
+          "name_collection": {
+            "$ref": "#/$defs/NameCollection",
+            "description": "Configuration for collecting customer names.",
+            "title": "Name Collection"
+          },
+          "billing_address_collection": {
+            "description": "Configuration for collecting the customer's billing address, either 'auto' or 'required'.",
+            "title": "Billing Address Collection",
+            "type": "string"
+          },
+          "application_fee_percent": {
+            "description": "The percentage of the payment amount that will be requested to be applied as an application fee.",
+            "title": "Application Fee Percent",
+            "type": "number"
+          },
+          "submit_type": {
+            "description": "Describes the type of transaction being performed, one of 'auto', 'book', 'donate', 'pay', or 'subscribe'.",
+            "title": "Submit Type",
+            "type": "string"
+          },
+          "automatic_tax": {
+            "$ref": "#/$defs/AutomaticTax",
+            "description": "Configuration for automatic tax calculation.",
+            "title": "Automatic Tax"
+          },
+          "custom_text": {
+            "$ref": "#/$defs/CustomText",
+            "description": "Custom text to display on the payment page.",
+            "title": "Custom Text"
+          },
+          "subscription_data": {
+            "$ref": "#/$defs/SubscriptionData",
+            "description": "Configuration for subscriptions created through this payment link.",
+            "title": "Subscription Data"
+          },
+          "application_fee_amount": {
+            "description": "The amount of the application fee (if any) that will be requested to be applied to the payment and transferred to the application owner's Stripe account.",
+            "title": "Application Fee Amount",
+            "type": "integer"
+          },
+          "shipping_address_collection": {
+            "$ref": "#/$defs/ShippingAddressCollection",
+            "description": "Configuration for shipping address collection.",
+            "title": "Shipping Address Collection"
+          },
+          "on_behalf_of": {
+            "description": "The connected account that receives the funds from the payment.",
+            "title": "On Behalf Of",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "Custom fields to display on the payment page (maximum 3).",
+            "items": {
+              "$ref": "#/$defs/CustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "restrictions": {
+            "$ref": "#/$defs/Restrictions",
+            "description": "Usage restrictions for the payment link.",
+            "title": "Restrictions"
+          },
+          "after_completion": {
+            "$ref": "#/$defs/AfterCompletion",
+            "description": "Behavior after the purchase is complete.",
+            "title": "After Completion"
+          },
+          "transfer_data": {
+            "$ref": "#/$defs/TransferData",
+            "description": "Configuration for payment attribution and routing to connected accounts.",
+            "title": "Transfer Data"
+          },
+          "inactive_message": {
+            "description": "Message to display when the payment link is inactive.",
+            "title": "Inactive Message",
+            "type": "string"
+          },
+          "shipping_options": {
+            "description": "Shipping options available for the payment link.",
+            "items": {
+              "$ref": "#/$defs/ShippingOption"
+            },
+            "title": "Shipping Options",
+            "type": "array"
+          },
+          "customer_creation": {
+            "description": "Configuration for customer creation, either 'always' or 'if_required'.",
+            "title": "Customer Creation",
+            "type": "string"
+          },
+          "tax_id_collection": {
+            "$ref": "#/$defs/TaxIdCollection",
+            "description": "Configuration for tax ID collection.",
+            "title": "Tax Id Collection"
+          },
+          "allow_promotion_codes": {
+            "description": "Whether the payment link accepts promotion codes.",
+            "title": "Allow Promotion Codes",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "active": {
+            "description": "Whether the payment link's URL is active and can be used.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the payment link.",
+            "title": "Id",
+            "type": "string"
+          },
+          "phone_number_collection": {
+            "$ref": "#/$defs/PhoneNumberCollection",
+            "description": "Configuration for phone number collection.",
+            "title": "Phone Number Collection"
+          },
+          "payment_method_collection": {
+            "description": "Configuration for collecting payment method details, either 'always' or 'if_required'.",
+            "title": "Payment Method Collection",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object type, always 'payment_link'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "payment_intent_data": {
+            "$ref": "#/$defs/PaymentIntentData",
+            "description": "Configuration for the PaymentIntent created when the payment link is paid.",
+            "title": "Payment Intent Data"
+          },
+          "line_items": {
+            "$ref": "#/$defs/LineItems",
+            "description": "The line items representing what is being sold.",
+            "title": "Line Items"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "active",
+          "after_completion",
+          "allow_promotion_codes",
+          "automatic_tax",
+          "billing_address_collection",
+          "currency",
+          "custom_fields",
+          "custom_text",
+          "customer_creation",
+          "livemode",
+          "metadata",
+          "payment_method_collection",
+          "phone_number_collection",
+          "shipping_options",
+          "submit_type",
+          "tax_id_collection",
+          "url"
+        ],
+        "title": "GetPaymentLinkResponse",
+        "type": "object"
+      },
+      "AfterCompletion": {
+        "properties": {
+          "hosted_confirmation": {
+            "$ref": "#/$defs/HostedConfirmation",
+            "description": "Configuration for hosted confirmation page.",
+            "title": "Hosted Confirmation"
+          },
+          "redirect": {
+            "$ref": "#/$defs/Redirect",
+            "description": "Configuration for redirect behavior.",
+            "title": "Redirect"
+          },
+          "type": {
+            "description": "Type of behavior after completion, either 'hosted_confirmation' or 'redirect'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AfterCompletion",
+        "type": "object"
+      },
+      "SubscriptionInvoiceSettings": {
+        "properties": {
+          "issuer": {
+            "$ref": "#/$defs/SubscriptionInvoiceIssuer",
+            "description": "The account that issues subscription invoices.",
+            "title": "Issuer"
+          }
+        },
+        "title": "SubscriptionInvoiceSettings",
+        "type": "object"
+      },
+      "ShippingOption": {
+        "properties": {
+          "shipping_amount": {
+            "description": "Shipping amount in cents.",
+            "title": "Shipping Amount",
+            "type": "integer"
+          },
+          "shipping_rate": {
+            "description": "ID of the shipping rate.",
+            "title": "Shipping Rate",
+            "type": "string"
+          }
+        },
+        "required": ["shipping_amount", "shipping_rate"],
+        "title": "ShippingOption",
+        "type": "object"
+      },
+      "AutomaticTaxLiability": {
+        "properties": {
+          "account": {
+            "description": "The connected account being referenced when type is 'account'.",
+            "title": "Account",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of liability, either 'account' or 'self'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AutomaticTaxLiability",
+        "type": "object"
+      },
+      "NameCollectionIndividual": {
+        "properties": {
+          "enabled": {
+            "description": "Whether individual name collection is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "optional": {
+            "description": "Whether individual name is optional.",
+            "title": "Optional",
+            "type": "boolean"
+          }
+        },
+        "required": ["enabled", "optional"],
+        "title": "NameCollectionIndividual",
+        "type": "object"
+      },
+      "NameCollectionBusiness": {
+        "properties": {
+          "enabled": {
+            "description": "Whether business name collection is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "optional": {
+            "description": "Whether business name is optional.",
+            "title": "Optional",
+            "type": "boolean"
+          }
+        },
+        "required": ["enabled", "optional"],
+        "title": "NameCollectionBusiness",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetPaymentLinkResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

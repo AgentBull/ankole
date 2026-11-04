@@ -1,0 +1,168 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Gets the Trello list to which a specified card (which must exist) belongs.",
+  "inputSchema": {
+    "description": "Specifies the card and the desired list fields for retrieval.",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Fields of the list to return. Use 'all' for all fields, or a comma-separated list of specific field names (e.g., 'name,pos'). Allowed: 'closed', 'idBoard', 'name', 'pos', 'subscribed'.",
+        "examples": ["all", "name,pos", "idBoard,closed,subscribed"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "The card's unique ID (typically 24 characters) or its shortLink (e.g., 'AbCdEfGh' from the card URL).",
+        "examples": ["5e4d71667d4e4b4d4d4d4d4", "AbCdEfGh"],
+        "title": "Id Card",
+        "type": "string"
+      }
+    },
+    "required": ["idCard"],
+    "title": "GetCardsListByIdCardRequest",
+    "type": "object"
+  },
+  "name": "get_cards_list_by_id_card",
+  "outputSchema": {
+    "$defs": {
+      "GetCardsListByIdCardResponse": {
+        "additionalProperties": true,
+        "description": "Contains the details of the list to which the specified card belongs.",
+        "properties": {
+          "closed": {
+            "description": "Whether the list is closed (archived).",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "color": {
+            "description": "The color of the list (if set).",
+            "title": "Color",
+            "type": "string"
+          },
+          "creationMethod": {
+            "description": "How the list was created (e.g., 'automatic').",
+            "title": "Creation Method",
+            "type": "string"
+          },
+          "datasource": {
+            "$ref": "#/$defs/ListDatasource",
+            "description": "Datasource configuration for the list.",
+            "title": "Datasource"
+          },
+          "id": {
+            "description": "The unique identifier of the list.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The unique identifier of the board containing this list.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "idOrganization": {
+            "description": "The unique identifier of the organization containing this list's board.",
+            "title": "Id Organization",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/$defs/ListLimits",
+            "description": "Card limits for this list.",
+            "title": "Limits"
+          },
+          "name": {
+            "description": "The name of the list.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodeId": {
+            "description": "The Atlassian Resource Identifier (ARI) for this list.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "pos": {
+            "description": "The position of the list on the board.",
+            "title": "Pos",
+            "type": "number"
+          },
+          "softLimit": {
+            "description": "The soft limit for cards in this list (if set).",
+            "title": "Soft Limit",
+            "type": "integer"
+          },
+          "subscribed": {
+            "description": "Whether the current user is subscribed to the list.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "The type of the list (if applicable).",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "GetCardsListByIdCardResponse",
+        "type": "object"
+      },
+      "ListDatasource": {
+        "additionalProperties": true,
+        "description": "Datasource configuration for a list.",
+        "properties": {
+          "filter": {
+            "description": "Whether the list uses filtering.",
+            "title": "Filter",
+            "type": "boolean"
+          }
+        },
+        "title": "ListDatasource",
+        "type": "object"
+      },
+      "ListLimits": {
+        "additionalProperties": true,
+        "description": "Limits configuration for a list.",
+        "properties": {
+          "cards": {
+            "$ref": "#/$defs/ListLimitsCards",
+            "description": "Card limits for this list.",
+            "title": "Cards"
+          }
+        },
+        "title": "ListLimits",
+        "type": "object"
+      },
+      "ListLimitsCards": {
+        "additionalProperties": true,
+        "description": "Limits for cards in a list.",
+        "properties": {
+          "openPerList": {
+            "additionalProperties": true,
+            "description": "Limits for open cards per list.",
+            "title": "Open Per List",
+            "type": "object"
+          },
+          "totalPerList": {
+            "additionalProperties": true,
+            "description": "Limits for total cards per list.",
+            "title": "Total Per List",
+            "type": "object"
+          }
+        },
+        "title": "ListLimitsCards",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCardsListByIdCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

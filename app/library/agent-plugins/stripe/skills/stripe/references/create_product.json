@@ -1,0 +1,455 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new product in Stripe, encoding the request as `application/x-www-form-urlencoded` by flattening nested structures.",
+  "inputSchema": {
+    "description": "Parameters for creating a new product in Stripe.",
+    "properties": {
+      "active": {
+        "default": true,
+        "description": "Indicates if the product is available for purchase. Set to `false` to archive.",
+        "title": "Active",
+        "type": "boolean"
+      },
+      "custom_fields": {
+        "description": "Custom fields displayed on invoices for sales (e.g., PO numbers).",
+        "examples": [["{\"name\": \"Purchase Order\", \"value\": \"PO-12345XYZ\"}"]],
+        "items": {
+          "description": "Represents a custom field to be displayed on invoices for sales of this product.",
+          "properties": {
+            "name": {
+              "description": "Name of the custom field for invoices.",
+              "examples": ["Purchase Order Number"],
+              "title": "Name",
+              "type": "string"
+            },
+            "value": {
+              "description": "Value of the custom field.",
+              "examples": ["PO-12345"],
+              "title": "Value",
+              "type": "string"
+            }
+          },
+          "required": ["name", "value"],
+          "title": "CustomField",
+          "type": "object"
+        },
+        "title": "Custom Fields",
+        "type": "array"
+      },
+      "default_price_data": {
+        "additionalProperties": false,
+        "description": "Data used to create a new Price object as the default price for this product.",
+        "examples": ["{\"currency\": \"usd\", \"unit_amount\": 2500, \"recurring\": {\"interval\": \"month\"}}"],
+        "properties": {
+          "currency": {
+            "description": "Three-letter ISO currency code, lowercase. Must be a supported currency.",
+            "examples": ["usd", "eur"],
+            "title": "Currency",
+            "type": "string"
+          },
+          "currency_options": {
+            "additionalProperties": true,
+            "description": "Per-currency pricing options. Keys are three-letter ISO currency codes. Values are dicts with price properties (e.g., `unit_amount`, `tax_behavior`) for that currency.",
+            "examples": ["{\"eur\": {\"unit_amount\": 800, \"tax_behavior\": \"exclusive\"}}"],
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "custom_unit_amount": {
+            "additionalProperties": true,
+            "description": "Configuration for customer-adjustable unit amount (Checkout/Payment Links). Requires `enabled=True`. Can include `minimum`, `maximum`, `preset`.",
+            "examples": ["{\"enabled\": true, \"minimum\": 500, \"preset\": 1000}"],
+            "title": "Custom Unit Amount",
+            "type": "object"
+          },
+          "recurring": {
+            "additionalProperties": false,
+            "description": "Specifies a recurring payment plan for a price.",
+            "properties": {
+              "interval": {
+                "description": "Frequency of subscription billing. Must be one of: `day`, `week`, `month`, or `year`.",
+                "examples": ["month", "year"],
+                "title": "Interval",
+                "type": "string"
+              },
+              "interval_count": {
+                "description": "Number of intervals between billings (e.g., `interval=month`, `interval_count=3` bills every 3 months). Defaults to 1 if not provided.",
+                "examples": [1, 3],
+                "title": "Interval Count",
+                "type": "integer"
+              }
+            },
+            "required": ["interval"],
+            "title": "Recurring",
+            "type": "object"
+          },
+          "tax_behavior": {
+            "description": "Tax treatment of the price. Must be one of: `inclusive`, `exclusive`, or `unspecified` (inherited from customer/subscription).",
+            "examples": ["inclusive", "exclusive"],
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "Price in smallest currency unit (e.g., cents for USD). Zero allowed for free price.",
+            "examples": [1000, 0],
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Price as a decimal in smallest currency unit (max 12 decimal places). For fractions of a cent.",
+            "examples": ["10.50", "0.005"],
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["currency"],
+        "title": "DefaultPriceData",
+        "type": "object"
+      },
+      "description": {
+        "description": "Product description, displayed to customers, providing more details.",
+        "examples": [
+          "Monthly access to all premium features and content.",
+          "High-quality, sustainably sourced cotton t-shirt."
+        ],
+        "title": "Description",
+        "type": "string"
+      },
+      "id": {
+        "description": "Optional unique product identifier. Stripe generates one if omitted. Useful for idempotency or migrating existing IDs.",
+        "examples": ["prod_premium_monthly", "SKU12345"],
+        "title": "Id",
+        "type": "string"
+      },
+      "images": {
+        "description": "Up to 8 image URLs for display on product pages or checkout.",
+        "examples": [["https://example.com/image1.png", "https://example.com/image2.jpg"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Images",
+        "type": "array"
+      },
+      "marketing_features": {
+        "description": "List of marketing features; short, benefit-oriented statements for pricing pages.",
+        "examples": [["{\"name\": \"Unlimited Projects\"}", "{\"name\": \"Priority Support\"}"]],
+        "items": {
+          "description": "Represents a marketing feature to be displayed on the product page or pricing table.",
+          "properties": {
+            "name": {
+              "description": "Name of the marketing feature (max 80 characters).",
+              "examples": ["24/7 support", "10GB storage"],
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          "required": ["name"],
+          "title": "MarketingFeature",
+          "type": "object"
+        },
+        "title": "Marketing Features",
+        "type": "array"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Key-value pairs for storing additional structured information.",
+        "examples": [
+          {
+            "order_id": "123",
+            "user_id": "456"
+          }
+        ],
+        "title": "Metadata",
+        "type": "object"
+      },
+      "name": {
+        "description": "Product's name, displayed to customers.",
+        "examples": ["Premium Subscription Plan", "Organic Cotton T-Shirt"],
+        "title": "Name",
+        "type": "string"
+      },
+      "package_dimensions": {
+        "additionalProperties": false,
+        "description": "The dimensions of the product for shipping purposes. Required if the product is shippable and you use a shipping rate that calculates shipping costs based on dimensions.",
+        "examples": ["{\"height\": 5.0, \"length\": 10.0, \"width\": 3.0, \"weight\": 20.0}"],
+        "properties": {
+          "height": {
+            "description": "Package height in inches (max 2 decimal places).",
+            "examples": [5, 10.75],
+            "minimum": 0,
+            "title": "Height",
+            "type": "number"
+          },
+          "length": {
+            "description": "Package length in inches (max 2 decimal places).",
+            "examples": [10, 12.5],
+            "minimum": 0,
+            "title": "Length",
+            "type": "number"
+          },
+          "weight": {
+            "description": "Package weight in ounces (max 2 decimal places).",
+            "examples": [20, 32.5],
+            "minimum": 0,
+            "title": "Weight",
+            "type": "number"
+          },
+          "width": {
+            "description": "Package width in inches (max 2 decimal places).",
+            "examples": [3, 8.25],
+            "minimum": 0,
+            "title": "Width",
+            "type": "number"
+          }
+        },
+        "required": ["height", "length", "width", "weight"],
+        "title": "PackageDimensions",
+        "type": "object"
+      },
+      "shippable": {
+        "description": "Indicates if the product is a physical good requiring shipping.",
+        "examples": [true, false],
+        "title": "Shippable",
+        "type": "boolean"
+      },
+      "shipping_cost": {
+        "additionalProperties": false,
+        "description": "Defines the shipping cost for the product, either by referencing an existing shipping rate or creating a new one.",
+        "examples": [
+          "{\"shipping_rate\": \"shr_1NqXyZ2eZvKYlo2CluUa0oOq\"}",
+          "{\"shipping_rate_data\": {\"display_name\": \"Standard Shipping\", \"fixed_amount\": {\"amount\": 500, \"currency\": \"usd\"}}}"
+        ],
+        "properties": {
+          "shipping_rate": {
+            "description": "ID of an existing ShippingRate. If provided, `shipping_rate_data` must be omitted.",
+            "examples": ["shr_1NqXyZ2eZvKYlo2CluUa0oOq"],
+            "title": "Shipping Rate",
+            "type": "string"
+          },
+          "shipping_rate_data": {
+            "additionalProperties": false,
+            "description": "Parameters for creating a new ad-hoc shipping rate during product creation.",
+            "properties": {
+              "display_name": {
+                "description": "Shipping rate name displayed to customer.",
+                "examples": ["Standard Shipping", "Express Shipping"],
+                "title": "Display Name",
+                "type": "string"
+              }
+            },
+            "required": ["display_name"],
+            "title": "ShippingRateData",
+            "type": "object"
+          }
+        },
+        "title": "ShippingCost",
+        "type": "object"
+      },
+      "statement_descriptor": {
+        "description": "String (max 22 chars) for customer credit card statements for charge recognition.",
+        "examples": ["PREMIUM PLAN", "MYSHOP COM"],
+        "title": "Statement Descriptor",
+        "type": "string"
+      },
+      "tax_code": {
+        "description": "Stripe tax code ID for determining tax rates on sales.",
+        "examples": ["txcd_99999999", "txcd_10000000"],
+        "title": "Tax Code",
+        "type": "string"
+      },
+      "unit_label": {
+        "description": "Label for product units to clarify quantity-based pricing.",
+        "examples": ["seat", "license", "GB"],
+        "title": "Unit Label",
+        "type": "string"
+      },
+      "url": {
+        "description": "Publicly accessible URL for the product's webpage or landing page.",
+        "examples": ["https://example.com/premium-plan", "https://mystore.com/t-shirt-blue"],
+        "title": "Url",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "CreateProductRequest",
+    "type": "object"
+  },
+  "name": "create_product",
+  "outputSchema": {
+    "$defs": {
+      "CreateProductResponse": {
+        "description": "Response from creating a product in Stripe. Represents the Product object returned by the API.",
+        "properties": {
+          "active": {
+            "description": "Whether the product is currently available for purchase.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "default_price": {
+            "description": "References the Price object serving as the product's default price option.",
+            "title": "Default Price",
+            "type": "string"
+          },
+          "description": {
+            "description": "The product's description, meant to be displayable to the customer.",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "images": {
+            "description": "A list of up to 8 URLs of images for this product, meant to be displayable to the customer.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Images",
+            "type": "array"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "marketing_features": {
+            "description": "A list of up to 15 marketing features for this product.",
+            "items": {
+              "$ref": "#/$defs/MarketingFeatureResponse"
+            },
+            "title": "Marketing Features",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "The product's name, meant to be displayable to the customer.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Objects of the same type share the same value.",
+            "title": "Object",
+            "type": "string"
+          },
+          "package_dimensions": {
+            "$ref": "#/$defs/PackageDimensionsResponse",
+            "description": "Physical shipping dimensions container.",
+            "title": "Package Dimensions"
+          },
+          "shippable": {
+            "description": "Whether this product is shipped (i.e., physical goods).",
+            "title": "Shippable",
+            "type": "boolean"
+          },
+          "statement_descriptor": {
+            "description": "Additional product information appearing on customer credit card statements.",
+            "title": "Statement Descriptor",
+            "type": "string"
+          },
+          "tax_code": {
+            "description": "A tax code identifier for categorization purposes.",
+            "title": "Tax Code",
+            "type": "string"
+          },
+          "unit_label": {
+            "description": "A label that represents units of this product.",
+            "title": "Unit Label",
+            "type": "string"
+          },
+          "updated": {
+            "description": "Time at which the object was last updated. Measured in seconds since the Unix epoch.",
+            "title": "Updated",
+            "type": "integer"
+          },
+          "url": {
+            "description": "A URL of a publicly-accessible webpage for this product.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "active",
+          "created",
+          "images",
+          "livemode",
+          "marketing_features",
+          "metadata",
+          "name",
+          "updated"
+        ],
+        "title": "CreateProductResponse",
+        "type": "object"
+      },
+      "MarketingFeatureResponse": {
+        "description": "Marketing feature entry for the product.",
+        "properties": {
+          "name": {
+            "description": "The marketing feature name. Up to 80 characters long.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "MarketingFeatureResponse",
+        "type": "object"
+      },
+      "PackageDimensionsResponse": {
+        "description": "Physical shipping dimensions for the product.",
+        "properties": {
+          "height": {
+            "description": "Height, in inches.",
+            "title": "Height",
+            "type": "number"
+          },
+          "length": {
+            "description": "Length, in inches.",
+            "title": "Length",
+            "type": "number"
+          },
+          "weight": {
+            "description": "Weight, in ounces.",
+            "title": "Weight",
+            "type": "number"
+          },
+          "width": {
+            "description": "Width, in inches.",
+            "title": "Width",
+            "type": "number"
+          }
+        },
+        "required": ["height", "length", "weight", "width"],
+        "title": "PackageDimensionsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateProductResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

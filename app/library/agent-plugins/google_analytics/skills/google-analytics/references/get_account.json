@@ -1,0 +1,75 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a single Account by its resource name. Use when you need detailed account info after confirming the account resource name (e.g., accounts/100).",
+  "inputSchema": {
+    "description": "Request model for retrieving a single Account.",
+    "properties": {
+      "name": {
+        "description": "Required. The resource name of the Account to retrieve. Must be in the exact format: accounts/{account_id} where account_id is a numeric identifier. IMPORTANT: Must start with 'accounts/' prefix, contain no forward slashes in the account_id, have no trailing slashes, and no additional path segments. Valid example: 'accounts/100'. Invalid examples: '100' (missing prefix), 'accounts/100/' (trailing slash), 'accounts/100/extra' (extra segments)",
+        "examples": ["accounts/100", "accounts/209857865"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "GetAccountRequest",
+    "type": "object"
+  },
+  "name": "get_account",
+  "outputSchema": {
+    "$defs": {
+      "GetAccountResponse": {
+        "description": "Response model for GetAccount action.",
+        "properties": {
+          "createTime": {
+            "description": "ISO 8601 timestamp when the account was created.",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "Whether this Account is soft-deleted. Deleted accounts are excluded from list results unless explicitly requested.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "displayName": {
+            "description": "Human-readable display name for this account.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name of this account. Format: accounts/{account_id}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "regionCode": {
+            "description": "Country/region code of the account (e.g., 'US').",
+            "title": "Region Code",
+            "type": "string"
+          },
+          "updateTime": {
+            "description": "ISO 8601 timestamp when the account was last updated.",
+            "title": "Update Time",
+            "type": "string"
+          }
+        },
+        "required": ["name", "createTime", "updateTime"],
+        "title": "GetAccountResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetAccountResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

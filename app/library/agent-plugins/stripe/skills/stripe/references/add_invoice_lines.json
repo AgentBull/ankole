@@ -1,0 +1,532 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to add multiple line items to a draft Stripe invoice. Use when you need to add additional charges, services, or credits to an existing invoice that is still in draft status.",
+  "inputSchema": {
+    "description": "Request to add multiple line items to an invoice.",
+    "properties": {
+      "id": {
+        "description": "The ID of the invoice to add lines to. Invoice must be in draft status.",
+        "examples": ["in_1ShW0rQvM72TjFrbwFesEshn"],
+        "title": "Id",
+        "type": "string"
+      },
+      "invoice_metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Set of key-value pairs to attach to the invoice itself.",
+        "examples": [
+          {
+            "batch_id": "batch_123",
+            "updated_by": "system"
+          }
+        ],
+        "title": "Invoice Metadata",
+        "type": "object"
+      },
+      "lines": {
+        "description": "Multiple line items to attach to the invoice. At least one line item is required.",
+        "items": {
+          "description": "Line item to add to the invoice.",
+          "properties": {
+            "amount": {
+              "description": "Cost in cents (or smallest currency unit). Accepts negative values for credits.",
+              "examples": [2500, -500],
+              "title": "Amount",
+              "type": "integer"
+            },
+            "description": {
+              "description": "Text label for tracking purposes, displayed on the invoice.",
+              "examples": ["Additional service charge", "Consulting fee"],
+              "title": "Description",
+              "type": "string"
+            },
+            "discountable": {
+              "description": "Whether discounts apply to this line item. Defaults based on line type if not specified.",
+              "examples": [true, false],
+              "title": "Discountable",
+              "type": "boolean"
+            },
+            "discounts": {
+              "description": "Coupons, promotion codes, or existing discounts to apply to this line item.",
+              "items": {
+                "description": "Discount to apply to the line item.",
+                "properties": {
+                  "coupon": {
+                    "description": "ID of coupon to apply to this line item.",
+                    "examples": ["SUMMER25OFF"],
+                    "title": "Coupon",
+                    "type": "string"
+                  },
+                  "discount": {
+                    "description": "ID of existing discount to apply to this line item.",
+                    "examples": ["di_1J2x3y4z5A6b7c8d"],
+                    "title": "Discount",
+                    "type": "string"
+                  },
+                  "promotion_code": {
+                    "description": "ID of promotion code to apply to this line item.",
+                    "examples": ["promo_123ABC"],
+                    "title": "Promotion Code",
+                    "type": "string"
+                  }
+                },
+                "title": "LineItemDiscount",
+                "type": "object"
+              },
+              "title": "Discounts",
+              "type": "array"
+            },
+            "invoice_item": {
+              "description": "ID of existing unassigned invoice item to add to this invoice.",
+              "examples": ["ii_123ABC"],
+              "title": "Invoice Item",
+              "type": "string"
+            },
+            "metadata": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Set of key-value pairs for custom storage.",
+              "examples": [
+                {
+                  "department": "sales",
+                  "order_id": "ORD-123"
+                }
+              ],
+              "title": "Metadata",
+              "type": "object"
+            },
+            "period": {
+              "additionalProperties": false,
+              "description": "Time period for revenue recognition.",
+              "properties": {
+                "end": {
+                  "description": "Period end timestamp (Unix timestamp in seconds).",
+                  "examples": [1675209600],
+                  "title": "End",
+                  "type": "integer"
+                },
+                "start": {
+                  "description": "Period start timestamp (Unix timestamp in seconds).",
+                  "examples": [1672531200],
+                  "title": "Start",
+                  "type": "integer"
+                }
+              },
+              "required": ["start", "end"],
+              "title": "LineItemPeriod",
+              "type": "object"
+            },
+            "price_data": {
+              "additionalProperties": false,
+              "description": "Inline price creation parameters.",
+              "properties": {
+                "currency": {
+                  "description": "Three-letter ISO currency code in lowercase.",
+                  "examples": ["usd", "eur", "gbp"],
+                  "title": "Currency",
+                  "type": "string"
+                },
+                "product": {
+                  "description": "ID of product this price will belong to. Required if product_data is not provided.",
+                  "examples": ["prod_123ABC"],
+                  "title": "Product",
+                  "type": "string"
+                },
+                "unit_amount": {
+                  "description": "Price in cents (or smallest currency unit). Required if unit_amount_decimal is not provided.",
+                  "examples": [2500, 1000],
+                  "title": "Unit Amount",
+                  "type": "integer"
+                },
+                "unit_amount_decimal": {
+                  "description": "Precise price amount as a decimal string. Required if unit_amount is not provided.",
+                  "examples": ["25.50", "10.99"],
+                  "title": "Unit Amount Decimal",
+                  "type": "string"
+                }
+              },
+              "required": ["currency"],
+              "title": "PriceData",
+              "type": "object"
+            },
+            "pricing": {
+              "additionalProperties": false,
+              "description": "Price ID reference.",
+              "properties": {
+                "price": {
+                  "description": "ID of the price to use for this line item.",
+                  "examples": ["price_123ABC"],
+                  "title": "Price",
+                  "type": "string"
+                }
+              },
+              "required": ["price"],
+              "title": "Pricing",
+              "type": "object"
+            },
+            "quantity": {
+              "description": "Non-negative unit count for this line item.",
+              "examples": [1, 5, 10],
+              "title": "Quantity",
+              "type": "integer"
+            },
+            "tax_rates": {
+              "description": "IDs of tax rates to apply to this line item.",
+              "examples": [["txr_123ABC", "txr_456DEF"]],
+              "items": {
+                "type": "string"
+              },
+              "title": "Tax Rates",
+              "type": "array"
+            }
+          },
+          "title": "LineItem",
+          "type": "object"
+        },
+        "minItems": 1,
+        "title": "Lines",
+        "type": "array"
+      }
+    },
+    "required": ["id", "lines"],
+    "title": "AddInvoiceLinesRequest",
+    "type": "object"
+  },
+  "name": "add_invoice_lines",
+  "outputSchema": {
+    "$defs": {
+      "AddInvoiceLinesResponse": {
+        "description": "Response from adding lines to an invoice. Returns the updated invoice object.",
+        "properties": {
+          "amount_due": {
+            "description": "Final amount due at this time for this invoice in cents",
+            "title": "Amount Due",
+            "type": "integer"
+          },
+          "amount_paid": {
+            "description": "Amount in cents that was paid",
+            "title": "Amount Paid",
+            "type": "integer"
+          },
+          "amount_remaining": {
+            "description": "Difference between amount_due and amount_paid",
+            "title": "Amount Remaining",
+            "type": "integer"
+          },
+          "automatic_tax": {
+            "$ref": "#/$defs/AutomaticTaxResponse",
+            "description": "Tax calculation settings and results",
+            "title": "Automatic Tax"
+          },
+          "collection_method": {
+            "description": "Either charge_automatically or send_invoice",
+            "title": "Collection Method",
+            "type": "string"
+          },
+          "created": {
+            "description": "Unix timestamp of creation",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code",
+            "title": "Currency",
+            "type": "string"
+          },
+          "customer": {
+            "description": "ID of customer to be billed",
+            "title": "Customer",
+            "type": "string"
+          },
+          "description": {
+            "description": "Arbitrary string attached to invoice",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique invoice identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "lines": {
+            "$ref": "#/$defs/InvoiceLinesResponse",
+            "description": "Individual line items making up invoice",
+            "title": "Lines"
+          },
+          "livemode": {
+            "description": "Live or test mode",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value metadata pairs",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "Always 'invoice'",
+            "title": "Object",
+            "type": "string"
+          },
+          "status": {
+            "description": "Invoice status (draft, open, paid, uncollectible, void)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subtotal": {
+            "description": "Total before invoice discounts/tax",
+            "title": "Subtotal",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total after discounts and taxes",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount_due",
+          "amount_paid",
+          "amount_remaining",
+          "currency",
+          "lines",
+          "livemode",
+          "subtotal",
+          "total",
+          "created",
+          "automatic_tax",
+          "collection_method"
+        ],
+        "title": "AddInvoiceLinesResponse",
+        "type": "object"
+      },
+      "AutomaticTaxResponse": {
+        "description": "Tax calculation settings and results.",
+        "properties": {
+          "enabled": {
+            "description": "Whether Stripe automatically computes tax",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "Status (complete, failed, requires_location_inputs)",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTaxResponse",
+        "type": "object"
+      },
+      "DiscountAmountResponse": {
+        "description": "Discount amount details.",
+        "properties": {
+          "amount": {
+            "description": "Discount amount in cents",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "discount": {
+            "description": "Discount ID applied",
+            "title": "Discount",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "discount"],
+        "title": "DiscountAmountResponse",
+        "type": "object"
+      },
+      "InvoiceLinesResponse": {
+        "description": "List of invoice line items.",
+        "properties": {
+          "data": {
+            "description": "Line item objects",
+            "items": {
+              "$ref": "#/$defs/LineItemResponse"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether more items exist",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "Always 'list'",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "List access URL",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "InvoiceLinesResponse",
+        "type": "object"
+      },
+      "LineItemResponse": {
+        "description": "Individual line item on invoice.",
+        "properties": {
+          "amount": {
+            "description": "Amount in cents",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Descriptive string",
+            "title": "Description",
+            "type": "string"
+          },
+          "discount_amounts": {
+            "description": "Per-discount calculations",
+            "items": {
+              "$ref": "#/$defs/DiscountAmountResponse"
+            },
+            "title": "Discount Amounts",
+            "type": "array"
+          },
+          "discountable": {
+            "description": "Whether discounts apply",
+            "title": "Discountable",
+            "type": "boolean"
+          },
+          "discounts": {
+            "description": "Applied discount IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique line item identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "Invoice ID containing item",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live or test mode",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "Always 'line_item'",
+            "title": "Object",
+            "type": "string"
+          },
+          "period": {
+            "$ref": "#/$defs/PeriodResponse",
+            "description": "Time period covered",
+            "title": "Period"
+          },
+          "pricing": {
+            "$ref": "#/$defs/PricingInfoResponse",
+            "description": "Pricing information",
+            "title": "Pricing"
+          },
+          "quantity": {
+            "description": "Quantity for subscription/proration",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Line item type",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "currency",
+          "discountable",
+          "discounts",
+          "livemode",
+          "metadata",
+          "period",
+          "type"
+        ],
+        "title": "LineItemResponse",
+        "type": "object"
+      },
+      "PeriodResponse": {
+        "description": "Time period covered.",
+        "properties": {
+          "end": {
+            "description": "Period end timestamp (inclusive)",
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "description": "Period start timestamp (inclusive)",
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": ["end", "start"],
+        "title": "PeriodResponse",
+        "type": "object"
+      },
+      "PricingInfoResponse": {
+        "description": "Pricing information.",
+        "properties": {
+          "type": {
+            "description": "Pricing details type",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount_decimal": {
+            "description": "Unit amount with up to 12 decimals",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "PricingInfoResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddInvoiceLinesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

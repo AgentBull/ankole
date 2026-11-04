@@ -1,0 +1,53 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List all tags assigned to a specific Zendesk user. Use when you need to see what tags are associated with a particular user for organizing, filtering, or categorizing user data. This action is read-only and idempotent.",
+  "inputSchema": {
+    "description": "Request parameters for listing tags for a specific Zendesk user.",
+    "properties": {
+      "user_id": {
+        "description": "The numeric ID of the user whose tags to retrieve. This is the user ID found in ticket payloads (requester_id, submitter_id, assignee_id, author_id).",
+        "examples": [26925585612700],
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id"],
+    "title": "GetUsersTagsRequest",
+    "type": "object"
+  },
+  "name": "get_users_tags",
+  "outputSchema": {
+    "$defs": {
+      "GetUsersTagsResponse": {
+        "description": "Response containing the list of tags assigned to a Zendesk user.",
+        "properties": {
+          "tags": {
+            "description": "An array of tag strings assigned to the user. Tags are used to categorize and organize users in Zendesk.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags"],
+        "title": "GetUsersTagsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUsersTagsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

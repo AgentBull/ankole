@@ -1,0 +1,95 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Revokes a pending and revokable (not yet accepted or expired) organization invitation using its UUID and the organization's UUID, rendering the invitation link invalid.",
+  "inputSchema": {
+    "description": "Request schema for revoking an organization invitation for a user.",
+    "properties": {
+      "org_uuid": {
+        "description": "The unique identifier of the organization.",
+        "examples": ["dbed26fe-cb7f-4224-8f10-3331cecdeb13"],
+        "title": "Org Uuid",
+        "type": "string"
+      },
+      "uuid": {
+        "description": "The unique identifier of the organization invitation to be revoked.",
+        "examples": ["abc12345-6789-def0-ghij-klmnopqrstuv"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["org_uuid", "uuid"],
+    "title": "RevokeUserSOrganizationInvitationRequest",
+    "type": "object"
+  },
+  "name": "revoke_user_s_organization_invitation",
+  "outputSchema": {
+    "$defs": {
+      "ErrorDetail": {
+        "description": "Detailed error information about specific parameters.",
+        "properties": {
+          "code": {
+            "description": "Error code identifier for the parameter issue",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "description": "Specific error description for the parameter",
+            "title": "Message",
+            "type": "string"
+          },
+          "parameter": {
+            "description": "Name of the problematic parameter",
+            "title": "Parameter",
+            "type": "string"
+          }
+        },
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "RevokeUserSOrganizationInvitationResponse": {
+        "description": "Response schema for `RevokeUserSOrganizationInvitation`.\n\nOn successful revocation (204), the response body is empty (all fields are None).\nOn error (400, 401, 403, 404, 500), returns error information with title and message.",
+        "properties": {
+          "details": {
+            "description": "Array of detailed error information about specific parameters (present when parameters are invalid)",
+            "items": {
+              "$ref": "#/$defs/ErrorDetail"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable error message describing the issue",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates if the invitation was successfully revoked. True for 204 No Content response.",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "Error type identifier. Examples: 'Invitation Already Accepted', 'Invalid Argument', 'Unauthenticated', 'Permission Denied', 'Not Found', 'Internal Server Error'",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "RevokeUserSOrganizationInvitationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RevokeUserSOrganizationInvitationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

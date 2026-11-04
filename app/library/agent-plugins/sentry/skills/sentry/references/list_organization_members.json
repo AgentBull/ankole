@@ -1,0 +1,50 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists all members, including those with pending invitations, for a Sentry organization.",
+  "inputSchema": {
+    "description": "Request schema for the `ListOrganizationMembers` action, specifying the organization.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization.",
+        "examples": ["my-organization-slug", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "ListOrganizationMembersRequest",
+    "type": "object"
+  },
+  "name": "list_organization_members",
+  "outputSchema": {
+    "$defs": {
+      "ListOrganizationMembersResponse": {
+        "description": "Response schema for the `ListOrganizationMembers` action. Contains the data returned by the API.",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          }
+        },
+        "required": ["data"],
+        "title": "ListOrganizationMembersResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListOrganizationMembersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

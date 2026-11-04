@@ -1,0 +1,137 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a custom metric in Google Analytics. Use when you need to define a new custom metric for tracking specific event parameters.",
+  "inputSchema": {
+    "description": "Request model for creating a CustomMetric.",
+    "properties": {
+      "description": {
+        "description": "Optional. Description for this custom metric. Max length of 150 characters.",
+        "examples": ["Test custom metric created via API"],
+        "title": "Description",
+        "type": "string"
+      },
+      "displayName": {
+        "description": "Required. Display name for this custom metric as shown in the Analytics UI. Max length of 82 characters, alphanumeric plus space and underscore starting with a letter.",
+        "examples": ["Test Custom Metric"],
+        "title": "Display Name",
+        "type": "string"
+      },
+      "measurementUnit": {
+        "description": "Required. The type for the custom metric's value.",
+        "enum": [
+          "MEASUREMENT_UNIT_UNSPECIFIED",
+          "STANDARD",
+          "CURRENCY",
+          "FEET",
+          "METERS",
+          "KILOMETERS",
+          "MILES",
+          "MILLISECONDS",
+          "SECONDS",
+          "MINUTES",
+          "HOURS"
+        ],
+        "examples": ["STANDARD"],
+        "title": "Measurement Unit",
+        "type": "string"
+      },
+      "parameterName": {
+        "description": "Required. Immutable. Tagging name for this custom metric. If this is an event-scoped metric, then this is the event parameter name. May only contain alphanumeric and underscore characters, starting with a letter. Max length of 40 characters for event-scoped metrics.",
+        "examples": ["test_custom_metric"],
+        "title": "Parameter Name",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The property where the custom metric will be created. Format: properties/{property_id}",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      },
+      "restrictedMetricType": {
+        "description": "Optional. Types of restricted data that this metric may contain. Required for metrics with CURRENCY measurement unit. Must be empty for metrics with a non-CURRENCY measurement unit.",
+        "items": {
+          "description": "Enum for restricted metric types.",
+          "enum": ["RESTRICTED_METRIC_TYPE_UNSPECIFIED", "COST_DATA", "REVENUE_DATA"],
+          "title": "RestrictedMetricType",
+          "type": "string"
+        },
+        "title": "Restricted Metric Type",
+        "type": "array"
+      },
+      "scope": {
+        "description": "Required. Immutable. The scope of this custom metric.",
+        "enum": ["METRIC_SCOPE_UNSPECIFIED", "EVENT"],
+        "examples": ["EVENT"],
+        "title": "Scope",
+        "type": "string"
+      }
+    },
+    "required": ["parent", "displayName", "parameterName", "measurementUnit", "scope"],
+    "title": "CreateCustomMetricRequest",
+    "type": "object"
+  },
+  "name": "create_custom_metric",
+  "outputSchema": {
+    "$defs": {
+      "CreateCustomMetricResponse": {
+        "description": "Response model for a created CustomMetric.",
+        "properties": {
+          "description": {
+            "description": "Description for this custom metric.",
+            "title": "Description",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Display name for this custom metric as shown in the Analytics UI.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "measurementUnit": {
+            "description": "The type for the custom metric's value.",
+            "title": "Measurement Unit",
+            "type": "string"
+          },
+          "name": {
+            "description": "Output only. Resource name for this CustomMetric resource. Format: properties/{property}/customMetrics/{customMetric}",
+            "title": "Name",
+            "type": "string"
+          },
+          "parameterName": {
+            "description": "Immutable. Tagging name for this custom metric.",
+            "title": "Parameter Name",
+            "type": "string"
+          },
+          "restrictedMetricType": {
+            "description": "Types of restricted data that this metric may contain.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Restricted Metric Type",
+            "type": "array"
+          },
+          "scope": {
+            "description": "Immutable. The scope of this custom metric.",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "title": "CreateCustomMetricResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateCustomMetricResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

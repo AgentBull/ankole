@@ -1,0 +1,86 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deactivates and permanently deletes a Sentry organization member by using a SCIM PATCH operation to set their 'active' attribute to 'false'.",
+  "inputSchema": {
+    "description": "Request schema for `PatchUserActiveStatusInOrganization`",
+    "properties": {
+      "Operations": {
+        "description": "A list of SCIM PATCH operations. For this action, must contain one operation setting the member's 'active' attribute to 'false', which deactivates and permanently deletes the member.",
+        "examples": [
+          [
+            {
+              "op": "replace",
+              "path": "active",
+              "value": false
+            }
+          ]
+        ],
+        "items": {
+          "description": "Request schema for individual SCIM PATCH operations.",
+          "properties": {
+            "op": {
+              "description": "The operation type; for this action, it must be 'replace'.",
+              "examples": ["replace"],
+              "title": "Op",
+              "type": "string"
+            },
+            "path": {
+              "description": "The JSON Pointer path to the attribute to be modified; must be 'active'.",
+              "examples": ["active"],
+              "title": "Path",
+              "type": "string"
+            },
+            "value": {
+              "description": "The value for the operation. Must be `false` (boolean) to deactivate a member.",
+              "examples": [false],
+              "title": "Value"
+            }
+          },
+          "required": ["op", "value", "path"],
+          "title": "OperationsRequest",
+          "type": "object"
+        },
+        "title": "Operations",
+        "type": "array"
+      },
+      "member_id": {
+        "description": "The ID of the organization member to update.",
+        "title": "Member Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the Sentry organization.",
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "member_id", "Operations"],
+    "title": "PatchUserActiveStatusInOrganizationRequest",
+    "type": "object"
+  },
+  "name": "patch_user_active_status_in_organization",
+  "outputSchema": {
+    "$defs": {
+      "PatchUserActiveStatusInOrganizationResponse": {
+        "description": "Response schema for `PatchUserActiveStatusInOrganization`\n\nThis endpoint returns HTTP 204 No Content on success with no response body.\nSetting active to false permanently deletes the organization member record.",
+        "properties": {},
+        "title": "PatchUserActiveStatusInOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/PatchUserActiveStatusInOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

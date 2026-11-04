@@ -1,0 +1,618 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a paginated list of line items for an upcoming invoice preview. Use when you need to see detailed line items before an invoice is finalized.",
+  "inputSchema": {
+    "properties": {
+      "automatic_tax": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "description": "Settings for automatic tax lookup. Must include 'enabled' boolean.",
+        "examples": [
+          {
+            "enabled": true
+          }
+        ],
+        "title": "Automatic Tax",
+        "type": "object"
+      },
+      "coupon": {
+        "description": "Coupon ID to apply (deprecated - use discounts instead).",
+        "examples": ["SUMMER2023"],
+        "title": "Coupon",
+        "type": "string"
+      },
+      "currency": {
+        "description": "Three-letter ISO currency code for preview (defaults to customer's currency).",
+        "examples": ["usd", "eur", "gbp"],
+        "title": "Currency",
+        "type": "string"
+      },
+      "customer": {
+        "description": "Customer ID whose upcoming invoice line items to retrieve. Either customer, subscription, or schedule is required.",
+        "examples": ["cus_TepioVnDiYEEbz"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "discounts": {
+        "description": "List of discount objects to apply. Each object must contain one of: coupon, discount, or promotion_code.",
+        "examples": [
+          [
+            {
+              "coupon": "SUMMER2023"
+            }
+          ]
+        ],
+        "items": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "title": "Discounts",
+        "type": "array"
+      },
+      "ending_before": {
+        "description": "Cursor for backward pagination; returns line items before this ID. Mutually exclusive with starting_after.",
+        "examples": ["il_0987654321"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "invoice_items": {
+        "description": "Invoice items to add or update (max 250 items).",
+        "items": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "type": "object"
+              }
+            ]
+          },
+          "type": "object"
+        },
+        "title": "Invoice Items",
+        "type": "array"
+      },
+      "limit": {
+        "description": "Maximum number of line items to return (range: 1-100, default: 10).",
+        "examples": [10, 25, 100],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "preview_mode": {
+        "description": "Preview calculation type: 'next' for next invoice or 'recurring' for recurring totals.",
+        "examples": ["next", "recurring"],
+        "title": "Preview Mode",
+        "type": "string"
+      },
+      "schedule": {
+        "description": "Schedule ID for upcoming invoice line items. Cannot be used with subscription.",
+        "examples": ["schedule_1234567890"],
+        "title": "Schedule",
+        "type": "string"
+      },
+      "starting_after": {
+        "description": "Cursor for forward pagination; returns line items after this ID.",
+        "examples": ["il_1234567890"],
+        "title": "Starting After",
+        "type": "string"
+      },
+      "subscription": {
+        "description": "Subscription ID for upcoming invoice line items. Cannot be used with schedule.",
+        "examples": ["sub_1234567890"],
+        "title": "Subscription",
+        "type": "string"
+      }
+    },
+    "title": "GetUpcomingInvoiceLineItemsRequest",
+    "type": "object"
+  },
+  "name": "get_upcoming_invoice_line_items",
+  "outputSchema": {
+    "$defs": {
+      "DiscountAmount": {
+        "properties": {
+          "amount": {
+            "description": "Discount value in smallest currency unit (cents).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "discount": {
+            "description": "Applied discount identifier.",
+            "title": "Discount",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "discount"],
+        "title": "DiscountAmount",
+        "type": "object"
+      },
+      "GetUpcomingInvoiceLineItemsResponse": {
+        "properties": {
+          "data": {
+            "description": "Array of Invoice Line Item objects.",
+            "items": {
+              "$ref": "#/$defs/InvoiceLineItem"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether more elements are available after this set.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL for accessing this list.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "GetUpcomingInvoiceLineItemsResponse",
+        "type": "object"
+      },
+      "InvoiceLineItem": {
+        "properties": {
+          "amount": {
+            "description": "Amount in smallest currency unit (cents, etc.).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "amount_excluding_tax": {
+            "description": "Amount before tax applied.",
+            "title": "Amount Excluding Tax",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code (lowercase).",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Line item description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discount_amounts": {
+            "description": "Applied discounts with calculations.",
+            "items": {
+              "$ref": "#/$defs/DiscountAmount"
+            },
+            "title": "Discount Amounts",
+            "type": "array"
+          },
+          "discountable": {
+            "description": "Whether discounts apply to this line item.",
+            "title": "Discountable",
+            "type": "boolean"
+          },
+          "discounts": {
+            "description": "Array of applied discount IDs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the line item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "ID of the containing invoice (null for upcoming).",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "invoice_item": {
+            "description": "Referenced invoice item ID.",
+            "title": "Invoice Item",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live mode (true) or test mode (false).",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value pairs for structured data.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'line_item'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "period": {
+            "$ref": "#/$defs/Period",
+            "description": "Period covered by this line item.",
+            "title": "Period"
+          },
+          "plan": {
+            "additionalProperties": true,
+            "description": "Plan information if applicable.",
+            "title": "Plan",
+            "type": "object"
+          },
+          "price": {
+            "$ref": "#/$defs/Price",
+            "description": "Price object with pricing details.",
+            "title": "Price"
+          },
+          "proration": {
+            "description": "Whether this line is a proration.",
+            "title": "Proration",
+            "type": "boolean"
+          },
+          "proration_details": {
+            "additionalProperties": true,
+            "description": "Detailed proration information.",
+            "title": "Proration Details",
+            "type": "object"
+          },
+          "quantity": {
+            "description": "Number of units for subscription/proration.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "subscription": {
+            "description": "Subscription ID (null if not subscription-related).",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "subscription_item": {
+            "description": "Subscription item ID if applicable.",
+            "title": "Subscription Item",
+            "type": "string"
+          },
+          "tax_amounts": {
+            "description": "Applied tax amounts with details per tax rate.",
+            "items": {
+              "$ref": "#/$defs/TaxAmount"
+            },
+            "title": "Tax Amounts",
+            "type": "array"
+          },
+          "tax_rates": {
+            "description": "Tax rate objects applied to line item.",
+            "items": {
+              "$ref": "#/$defs/TaxRate"
+            },
+            "title": "Tax Rates",
+            "type": "array"
+          },
+          "type": {
+            "description": "Line item type (e.g., 'invoiceitem', 'subscription').",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount_excluding_tax": {
+            "description": "Unit amount before tax (decimal string).",
+            "title": "Unit Amount Excluding Tax",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "amount", "currency", "discountable", "livemode", "period", "proration", "type"],
+        "title": "InvoiceLineItem",
+        "type": "object"
+      },
+      "Period": {
+        "properties": {
+          "end": {
+            "description": "Inclusive period end timestamp.",
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "description": "Inclusive period start timestamp.",
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "Period",
+        "type": "object"
+      },
+      "Price": {
+        "properties": {
+          "active": {
+            "description": "Whether the price is active.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "billing_scheme": {
+            "description": "Billing scheme: per_unit or tiered.",
+            "title": "Billing Scheme",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "custom_unit_amount": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "description": "Custom unit amount information.",
+            "title": "Custom Unit Amount",
+            "type": "object"
+          },
+          "id": {
+            "description": "Unique identifier for the price.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "True for live mode, false for test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "lookup_key": {
+            "description": "Lookup key for the price.",
+            "title": "Lookup Key",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "nickname": {
+            "description": "Brief description of the price.",
+            "title": "Nickname",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "product": {
+            "description": "Product ID this price is for.",
+            "title": "Product",
+            "type": "string"
+          },
+          "recurring": {
+            "additionalProperties": true,
+            "description": "Recurring pricing information.",
+            "title": "Recurring",
+            "type": "object"
+          },
+          "tax_behavior": {
+            "description": "Tax behavior: inclusive, exclusive, or unspecified.",
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "tiers_mode": {
+            "description": "Tiers mode: graduated or volume.",
+            "title": "Tiers Mode",
+            "type": "string"
+          },
+          "transform_quantity": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Quantity transformation information.",
+            "title": "Transform Quantity",
+            "type": "object"
+          },
+          "type": {
+            "description": "Pricing type: one_time or recurring.",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "Unit amount in smallest currency unit.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Unit amount as decimal string.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "currency"],
+        "title": "Price",
+        "type": "object"
+      },
+      "TaxAmount": {
+        "properties": {
+          "amount": {
+            "description": "Tax amount in smallest currency unit.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "inclusive": {
+            "description": "Whether tax is inclusive or exclusive.",
+            "title": "Inclusive",
+            "type": "boolean"
+          },
+          "tax_rate": {
+            "description": "Tax rate ID applied.",
+            "title": "Tax Rate",
+            "type": "string"
+          },
+          "taxability_reason": {
+            "description": "Reasoning behind this tax.",
+            "title": "Taxability Reason",
+            "type": "string"
+          },
+          "taxable_amount": {
+            "description": "Amount on which tax is calculated.",
+            "title": "Taxable Amount",
+            "type": "integer"
+          }
+        },
+        "required": ["amount", "inclusive", "tax_rate"],
+        "title": "TaxAmount",
+        "type": "object"
+      },
+      "TaxRate": {
+        "properties": {
+          "active": {
+            "description": "Whether tax rate is active.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "country": {
+            "description": "Two-letter country code.",
+            "title": "Country",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Description of the tax rate.",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "Display name of the tax rate.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "effective_percentage": {
+            "description": "Effective percentage rate.",
+            "title": "Effective Percentage",
+            "type": "number"
+          },
+          "id": {
+            "description": "Unique identifier for the tax rate.",
+            "title": "Id",
+            "type": "string"
+          },
+          "inclusive": {
+            "description": "Whether tax is inclusive or exclusive.",
+            "title": "Inclusive",
+            "type": "boolean"
+          },
+          "jurisdiction": {
+            "description": "Jurisdiction for the tax rate.",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "jurisdiction_level": {
+            "description": "Level of the jurisdiction.",
+            "title": "Jurisdiction Level",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "True for live mode, false for test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percentage": {
+            "description": "Percentage rate.",
+            "title": "Percentage",
+            "type": "number"
+          },
+          "state": {
+            "description": "State code if applicable.",
+            "title": "State",
+            "type": "string"
+          },
+          "tax_type": {
+            "description": "Type of tax.",
+            "title": "Tax Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "display_name", "inclusive"],
+        "title": "TaxRate",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUpcomingInvoiceLineItemsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

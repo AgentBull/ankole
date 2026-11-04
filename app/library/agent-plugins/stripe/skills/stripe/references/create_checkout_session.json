@@ -1,0 +1,2280 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a Stripe Checkout Session. Use when you need a secure, hosted URL to collect payments or subscriptions via Stripe Checkout.",
+  "inputSchema": {
+    "properties": {
+      "allow_promotion_codes": {
+        "description": "Whether to allow promotion codes in the session.",
+        "title": "Allow Promotion Codes",
+        "type": "boolean"
+      },
+      "cancel_url": {
+        "description": "URL to redirect customers if they cancel payment.",
+        "title": "Cancel Url",
+        "type": "string"
+      },
+      "client_reference_id": {
+        "description": "Your unique reference for the session.",
+        "title": "Client Reference Id",
+        "type": "string"
+      },
+      "customer": {
+        "description": "ID of existing Customer to attach or prefill.",
+        "title": "Customer",
+        "type": "string"
+      },
+      "line_items": {
+        "description": "List of items the customer is purchasing. Each item must have either 'price' (ID of existing Price) or 'price_data' (inline price). Required for 'payment' and 'subscription' modes, not used in 'setup' mode.",
+        "items": {
+          "properties": {
+            "adjustable_quantity": {
+              "additionalProperties": false,
+              "description": "Settings to allow customers to adjust the quantity.",
+              "properties": {
+                "enabled": {
+                  "description": "Whether the quantity can be adjusted by the customer.",
+                  "title": "Enabled",
+                  "type": "boolean"
+                },
+                "maximum": {
+                  "description": "Maximum quantity the customer can select.",
+                  "title": "Maximum",
+                  "type": "integer"
+                },
+                "minimum": {
+                  "description": "Minimum quantity the customer can select.",
+                  "title": "Minimum",
+                  "type": "integer"
+                }
+              },
+              "required": ["enabled"],
+              "title": "AdjustableQuantity",
+              "type": "object"
+            },
+            "dynamic_tax_rates": {
+              "description": "List of Stripe-determined tax rate IDs for this item.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Dynamic Tax Rates",
+              "type": "array"
+            },
+            "price": {
+              "description": "ID of an existing Price object. One of `price` or `price_data` is required.",
+              "title": "Price",
+              "type": "string"
+            },
+            "price_data": {
+              "additionalProperties": false,
+              "description": "Inline price data. One of `price` or `price_data` is required.",
+              "properties": {
+                "currency": {
+                  "description": "Three-letter ISO currency code (lowercase).",
+                  "examples": ["usd", "eur", "gbp"],
+                  "title": "Currency",
+                  "type": "string"
+                },
+                "product": {
+                  "description": "ID of an existing product. Either 'product' or 'product_data' is required when creating an inline price.",
+                  "title": "Product",
+                  "type": "string"
+                },
+                "product_data": {
+                  "additionalProperties": false,
+                  "description": "Inline product data. Either 'product' or 'product_data' is required when creating an inline price.",
+                  "properties": {
+                    "description": {
+                      "description": "The product's description, meant to be displayable to the customer.",
+                      "title": "Description",
+                      "type": "string"
+                    },
+                    "images": {
+                      "description": "A list of up to 8 URLs of images for this product.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "title": "Images",
+                      "type": "array"
+                    },
+                    "metadata": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Key-value pairs for storing additional structured information about the product.",
+                      "title": "Metadata",
+                      "type": "object"
+                    },
+                    "name": {
+                      "description": "The product's name, meant to be displayable to the customer. Required field.",
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "tax_code": {
+                      "description": "A tax code ID reference for the product.",
+                      "title": "Tax Code",
+                      "type": "string"
+                    },
+                    "unit_label": {
+                      "description": "A label that represents units of this product. Maximum 12 characters.",
+                      "title": "Unit Label",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["name"],
+                  "title": "ProductData",
+                  "type": "object"
+                },
+                "recurring": {
+                  "additionalProperties": false,
+                  "description": "Recurring billing settings for subscriptions.",
+                  "properties": {
+                    "interval": {
+                      "description": "Billing frequency.",
+                      "enum": ["day", "week", "month", "year"],
+                      "examples": ["day", "week", "month", "year"],
+                      "title": "Interval",
+                      "type": "string"
+                    },
+                    "interval_count": {
+                      "description": "Number of intervals between billing cycles. Defaults to 1 if omitted.",
+                      "examples": [1, 3, 6],
+                      "title": "Interval Count",
+                      "type": "integer"
+                    }
+                  },
+                  "required": ["interval"],
+                  "title": "RecurringSettings",
+                  "type": "object"
+                },
+                "unit_amount": {
+                  "description": "Amount in the smallest currency unit (e.g., 1000 for $10.00).",
+                  "title": "Unit Amount",
+                  "type": "integer"
+                },
+                "unit_amount_decimal": {
+                  "description": "Decimal string for amounts with sub-cent precision.",
+                  "title": "Unit Amount Decimal",
+                  "type": "string"
+                }
+              },
+              "required": ["currency"],
+              "title": "PriceData",
+              "type": "object"
+            },
+            "quantity": {
+              "description": "Quantity of the item being purchased.",
+              "examples": [1],
+              "title": "Quantity",
+              "type": "integer"
+            },
+            "tax_rates": {
+              "description": "List of tax rate IDs to apply to this item.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tax Rates",
+              "type": "array"
+            }
+          },
+          "title": "SessionLineItem",
+          "type": "object"
+        },
+        "title": "Line Items",
+        "type": "array"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Key-value pairs to attach to the session.",
+        "title": "Metadata",
+        "type": "object"
+      },
+      "mode": {
+        "description": "Session mode. Note: 'setup' mode does not use line_items.",
+        "enum": ["payment", "setup", "subscription"],
+        "title": "Mode",
+        "type": "string"
+      },
+      "payment_method_types": {
+        "default": ["card"],
+        "description": "Payment methods to accept (e.g., ['card', 'ideal', 'sepa_debit']). Defaults to ['card'] if not specified. Stripe recommends managing payment methods in the Dashboard and omitting this parameter to use dynamic payment methods, but a default is provided for convenience.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Payment Method Types",
+        "type": "array"
+      },
+      "success_url": {
+        "description": "URL to redirect customers after successful payment or setup.",
+        "title": "Success Url",
+        "type": "string"
+      }
+    },
+    "required": ["mode", "line_items", "success_url"],
+    "title": "CreateCheckoutSessionRequest",
+    "type": "object"
+  },
+  "name": "create_checkout_session",
+  "outputSchema": {
+    "$defs": {
+      "AutomaticTax": {
+        "properties": {
+          "enabled": {
+            "description": "Whether Stripe automatically computes tax on this session.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "liability": {
+            "$ref": "#/$defs/AutomaticTaxLiability",
+            "description": "Describes the liability for tax calculation.",
+            "title": "Liability"
+          },
+          "status": {
+            "description": "The status of the most recent automated tax calculation for this session. One of 'complete', 'failed', or 'requires_location_inputs'.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTax",
+        "type": "object"
+      },
+      "DropdownOption": {
+        "properties": {
+          "label": {
+            "description": "Display text for the option (max 100 characters).",
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "description": "Internal value for the option (max 100 characters, alphanumeric).",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["label", "value"],
+        "title": "DropdownOption",
+        "type": "object"
+      },
+      "CustomField": {
+        "properties": {
+          "dropdown": {
+            "$ref": "#/$defs/CustomFieldDropdown",
+            "description": "Configuration for dropdown fields.",
+            "title": "Dropdown"
+          },
+          "key": {
+            "description": "The unique key for this field.",
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "$ref": "#/$defs/CustomFieldLabel",
+            "description": "The label for the field.",
+            "title": "Label"
+          },
+          "numeric": {
+            "$ref": "#/$defs/CustomFieldNumeric",
+            "description": "Configuration for numeric fields.",
+            "title": "Numeric"
+          },
+          "optional": {
+            "description": "Whether the field is optional or required.",
+            "title": "Optional",
+            "type": "boolean"
+          },
+          "text": {
+            "$ref": "#/$defs/CustomFieldText",
+            "description": "Configuration for text fields.",
+            "title": "Text"
+          },
+          "type": {
+            "description": "The type of the field. One of 'text', 'numeric', or 'dropdown'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["key", "type", "label", "optional"],
+        "title": "CustomField",
+        "type": "object"
+      },
+      "Price": {
+        "properties": {
+          "active": {
+            "description": "Whether the price can be used for new purchases.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "billing_scheme": {
+            "description": "Billing scheme (per_unit or tiered).",
+            "title": "Billing Scheme",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created (Unix timestamp).",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "currency_options": {
+            "additionalProperties": {
+              "$ref": "#/$defs/CurrencyOption"
+            },
+            "description": "Currency-specific pricing options (dynamic keys based on three-letter ISO currency codes).",
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "custom_unit_amount": {
+            "$ref": "#/$defs/PriceCustomUnitAmount",
+            "description": "Customer-specified unit amount.",
+            "title": "Custom Unit Amount"
+          },
+          "id": {
+            "description": "Unique identifier for the price.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "True for live mode; false for test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "lookup_key": {
+            "description": "Lookup key for the price.",
+            "title": "Lookup Key",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom key-value pairs.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "nickname": {
+            "description": "Brief description of the price.",
+            "title": "Nickname",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'price'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "product": {
+            "description": "ID of the product this price belongs to.",
+            "title": "Product",
+            "type": "string"
+          },
+          "recurring": {
+            "$ref": "#/$defs/PriceRecurring",
+            "description": "Recurring billing settings.",
+            "title": "Recurring"
+          },
+          "tax_behavior": {
+            "description": "Tax behavior (inclusive, exclusive, or unspecified).",
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "tiers": {
+            "description": "Pricing tiers for tiered billing.",
+            "items": {
+              "$ref": "#/$defs/PriceTier"
+            },
+            "title": "Tiers",
+            "type": "array"
+          },
+          "tiers_mode": {
+            "description": "Tiers mode (graduated or volume).",
+            "title": "Tiers Mode",
+            "type": "string"
+          },
+          "transform_quantity": {
+            "$ref": "#/$defs/PriceTransformQuantity",
+            "description": "Quantity transformation settings.",
+            "title": "Transform Quantity"
+          },
+          "type": {
+            "description": "Price type (one_time or recurring).",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "Amount in smallest currency unit.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Amount as decimal string for sub-cent precision.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "active", "billing_scheme", "created", "currency", "livemode", "type"],
+        "title": "Price",
+        "type": "object"
+      },
+      "LineItemTax": {
+        "properties": {
+          "amount": {
+            "description": "Amount of tax applied.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "rate": {
+            "$ref": "#/$defs/TaxRate",
+            "description": "The tax rate applied.",
+            "title": "Rate"
+          },
+          "taxability_reason": {
+            "description": "Reason for taxability status.",
+            "title": "Taxability Reason",
+            "type": "string"
+          },
+          "taxable_amount": {
+            "description": "Amount on which tax is calculated.",
+            "title": "Taxable Amount",
+            "type": "integer"
+          }
+        },
+        "required": ["amount", "rate"],
+        "title": "LineItemTax",
+        "type": "object"
+      },
+      "CustomFieldText": {
+        "properties": {
+          "default_value": {
+            "description": "Default value for the field.",
+            "title": "Default Value",
+            "type": "string"
+          },
+          "maximum_length": {
+            "description": "Maximum number of characters allowed.",
+            "title": "Maximum Length",
+            "type": "integer"
+          },
+          "minimum_length": {
+            "description": "Minimum number of characters required.",
+            "title": "Minimum Length",
+            "type": "integer"
+          },
+          "value": {
+            "description": "The value entered by the customer.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "CustomFieldText",
+        "type": "object"
+      },
+      "CollectedInformation": {
+        "properties": {
+          "business_name": {
+            "description": "Business name collected from the customer.",
+            "title": "Business Name",
+            "type": "string"
+          },
+          "individual_name": {
+            "description": "Individual name collected from the customer.",
+            "title": "Individual Name",
+            "type": "string"
+          },
+          "shipping_details": {
+            "$ref": "#/$defs/CollectedShippingDetails",
+            "description": "Shipping details collected from the customer.",
+            "title": "Shipping Details"
+          }
+        },
+        "title": "CollectedInformation",
+        "type": "object"
+      },
+      "TaxRate": {
+        "properties": {
+          "active": {
+            "description": "Whether the tax rate is active.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "country": {
+            "description": "ISO 3166-1 alpha-2 country code.",
+            "title": "Country",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created (Unix timestamp).",
+            "title": "Created",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Internal reference note.",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "Display name of the tax rate.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "effective_percentage": {
+            "description": "Actual tax percentage applied.",
+            "title": "Effective Percentage",
+            "type": "number"
+          },
+          "flat_amount": {
+            "$ref": "#/$defs/TaxRateFlatAmount",
+            "description": "Tax amount and currency for flat-rate taxes.",
+            "title": "Flat Amount"
+          },
+          "id": {
+            "description": "Unique identifier for the tax rate.",
+            "title": "Id",
+            "type": "string"
+          },
+          "inclusive": {
+            "description": "Indicates tax-inclusive vs. tax-exclusive pricing.",
+            "title": "Inclusive",
+            "type": "boolean"
+          },
+          "jurisdiction": {
+            "description": "Tax jurisdiction label.",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "jurisdiction_level": {
+            "description": "Jurisdiction level (city, country, county, district, multiple, or state).",
+            "title": "Jurisdiction Level",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "True for live mode; false for test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom key-value pairs.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'tax_rate'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percentage": {
+            "description": "Tax rate percentage out of 100.",
+            "title": "Percentage",
+            "type": "number"
+          },
+          "rate_type": {
+            "description": "Type of rate: flat_amount or percentage.",
+            "title": "Rate Type",
+            "type": "string"
+          },
+          "state": {
+            "description": "ISO 3166-2 subdivision code.",
+            "title": "State",
+            "type": "string"
+          },
+          "tax_type": {
+            "description": "High-level tax category (e.g., vat, sales_tax, gst).",
+            "title": "Tax Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "active", "created", "display_name", "inclusive", "livemode", "percentage"],
+        "title": "TaxRate",
+        "type": "object"
+      },
+      "LineItemDiscount": {
+        "properties": {
+          "amount": {
+            "description": "Amount of discount applied.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "discount": {
+            "$ref": "#/$defs/DiscountObject",
+            "description": "The discount object with details.",
+            "title": "Discount"
+          }
+        },
+        "required": ["amount", "discount"],
+        "title": "LineItemDiscount",
+        "type": "object"
+      },
+      "CustomerDetails": {
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "The customer's address.",
+            "title": "Address"
+          },
+          "business_name": {
+            "description": "The customer's business name (max 150 characters).",
+            "title": "Business Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "The customer's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "individual_name": {
+            "description": "The customer's individual name (max 150 characters).",
+            "title": "Individual Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "The customer's full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "The customer's phone number.",
+            "title": "Phone",
+            "type": "string"
+          },
+          "tax_exempt": {
+            "description": "The customer's tax exemption status. One of 'exempt', 'none', or 'reverse'.",
+            "title": "Tax Exempt",
+            "type": "string"
+          },
+          "tax_ids": {
+            "description": "The customer's tax IDs.",
+            "items": {
+              "$ref": "#/$defs/TaxId"
+            },
+            "title": "Tax Ids",
+            "type": "array"
+          }
+        },
+        "title": "CustomerDetails",
+        "type": "object"
+      },
+      "PriceTransformQuantity": {
+        "properties": {
+          "divide_by": {
+            "description": "Divide quantity by this value.",
+            "title": "Divide By",
+            "type": "integer"
+          },
+          "round": {
+            "description": "Rounding method (up, down, or nearest).",
+            "title": "Round",
+            "type": "string"
+          }
+        },
+        "required": ["divide_by", "round"],
+        "title": "PriceTransformQuantity",
+        "type": "object"
+      },
+      "PhoneNumberCollection": {
+        "properties": {
+          "enabled": {
+            "description": "Whether phone number collection is enabled for this Session.",
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": ["enabled"],
+        "title": "PhoneNumberCollection",
+        "type": "object"
+      },
+      "BrandingLogo": {
+        "properties": {
+          "file": {
+            "description": "File upload ID when type is 'file'.",
+            "title": "File",
+            "type": "string"
+          },
+          "type": {
+            "description": "Logo type. One of 'file' or 'url'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "Image URL when type is 'url'.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "BrandingLogo",
+        "type": "object"
+      },
+      "Recovery": {
+        "properties": {
+          "allow_promotion_codes": {
+            "description": "Whether promotion codes are enabled on recovery.",
+            "title": "Allow Promotion Codes",
+            "type": "boolean"
+          },
+          "enabled": {
+            "description": "Whether recovery URL generation is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "description": "Timestamp at which the recovery URL will expire.",
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "url": {
+            "description": "The recovery session URL.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["enabled"],
+        "title": "Recovery",
+        "type": "object"
+      },
+      "DiscountObject": {
+        "properties": {
+          "checkout_session": {
+            "description": "ID of the checkout session.",
+            "title": "Checkout Session",
+            "type": "string"
+          },
+          "customer": {
+            "description": "ID of the customer.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "end": {
+            "description": "End timestamp of the discount.",
+            "title": "End",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the discount.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "ID of the invoice.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "invoice_item": {
+            "description": "ID of the invoice item.",
+            "title": "Invoice Item",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "promotion_code": {
+            "description": "ID of the promotion code.",
+            "title": "Promotion Code",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/DiscountSource",
+            "description": "Source of the discount.",
+            "title": "Source"
+          },
+          "start": {
+            "description": "Start timestamp of the discount.",
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "object", "start", "source"],
+        "title": "DiscountObject",
+        "type": "object"
+      },
+      "PaymentMethodOptions": {
+        "description": "Payment method-specific configuration. Keys are payment method types (e.g., card, acss_debit, klarna).",
+        "properties": {
+          "card": {
+            "$ref": "#/$defs/PaymentMethodOptionsCard",
+            "description": "Card payment method configuration.",
+            "title": "Card"
+          }
+        },
+        "title": "PaymentMethodOptions",
+        "type": "object"
+      },
+      "ShippingDetails": {
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "Recipient shipping address.",
+            "title": "Address"
+          },
+          "name": {
+            "description": "Recipient name.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["name", "address"],
+        "title": "ShippingDetails",
+        "type": "object"
+      },
+      "CustomFieldNumeric": {
+        "properties": {
+          "default_value": {
+            "description": "Default value for the field.",
+            "title": "Default Value",
+            "type": "string"
+          },
+          "maximum_length": {
+            "description": "Maximum number of digits allowed.",
+            "title": "Maximum Length",
+            "type": "integer"
+          },
+          "minimum_length": {
+            "description": "Minimum number of digits required.",
+            "title": "Minimum Length",
+            "type": "integer"
+          },
+          "value": {
+            "description": "The value entered by the customer (digits only).",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "CustomFieldNumeric",
+        "type": "object"
+      },
+      "LineItemData": {
+        "properties": {
+          "amount_discount": {
+            "description": "Total discount amount applied.",
+            "title": "Amount Discount",
+            "type": "integer"
+          },
+          "amount_subtotal": {
+            "description": "Total before any discounts or taxes are applied.",
+            "title": "Amount Subtotal",
+            "type": "integer"
+          },
+          "amount_tax": {
+            "description": "Total tax amount applied.",
+            "title": "Amount Tax",
+            "type": "integer"
+          },
+          "amount_total": {
+            "description": "Total after discounts and taxes.",
+            "title": "Amount Total",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "The description for the line item.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discounts": {
+            "description": "The discounts applied to the line item.",
+            "items": {
+              "$ref": "#/$defs/LineItemDiscount"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the line item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'item'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/$defs/Price",
+            "description": "The price used to generate this line item.",
+            "title": "Price"
+          },
+          "quantity": {
+            "description": "The quantity of the product being purchased.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "taxes": {
+            "description": "The taxes applied to the line item.",
+            "items": {
+              "$ref": "#/$defs/LineItemTax"
+            },
+            "title": "Taxes",
+            "type": "array"
+          }
+        },
+        "required": ["id", "object", "amount_subtotal", "amount_total", "amount_discount", "amount_tax", "currency"],
+        "title": "LineItemData",
+        "type": "object"
+      },
+      "ConsentCollection": {
+        "properties": {
+          "payment_method_reuse_agreement": {
+            "$ref": "#/$defs/PaymentMethodReuseAgreement",
+            "description": "Determines the display of payment method reuse agreement text in the UI.",
+            "title": "Payment Method Reuse Agreement"
+          },
+          "promotions": {
+            "description": "If set to 'auto', enables the collection of customer consent for promotional communications. One of 'auto' or 'none'.",
+            "title": "Promotions",
+            "type": "string"
+          },
+          "terms_of_service": {
+            "description": "If set to 'required', requires customers to accept the terms of service before being able to pay. One of 'none' or 'required'.",
+            "title": "Terms Of Service",
+            "type": "string"
+          }
+        },
+        "title": "ConsentCollection",
+        "type": "object"
+      },
+      "NameCollection": {
+        "properties": {
+          "business": {
+            "$ref": "#/$defs/NameCollectionConfig",
+            "description": "Business name collection configuration.",
+            "title": "Business"
+          },
+          "individual": {
+            "$ref": "#/$defs/NameCollectionConfig",
+            "description": "Individual name collection configuration.",
+            "title": "Individual"
+          }
+        },
+        "title": "NameCollection",
+        "type": "object"
+      },
+      "CustomText": {
+        "properties": {
+          "after_submit": {
+            "$ref": "#/$defs/CustomTextSection",
+            "description": "Custom text that should be displayed after the payment confirmation button is clicked.",
+            "title": "After Submit"
+          },
+          "shipping_address": {
+            "$ref": "#/$defs/CustomTextSection",
+            "description": "Custom text that should be displayed alongside shipping address collection.",
+            "title": "Shipping Address"
+          },
+          "submit": {
+            "$ref": "#/$defs/CustomTextSection",
+            "description": "Custom text that should be displayed alongside the payment confirmation button.",
+            "title": "Submit"
+          },
+          "terms_of_service_acceptance": {
+            "$ref": "#/$defs/CustomTextSection",
+            "description": "Custom text that should be displayed in place of the default terms of service agreement text.",
+            "title": "Terms Of Service Acceptance"
+          }
+        },
+        "title": "CustomText",
+        "type": "object"
+      },
+      "AfterExpiration": {
+        "properties": {
+          "recovery": {
+            "$ref": "#/$defs/Recovery",
+            "description": "Recovery configuration.",
+            "title": "Recovery"
+          }
+        },
+        "title": "AfterExpiration",
+        "type": "object"
+      },
+      "Consent": {
+        "properties": {
+          "promotions": {
+            "description": "If 'opt_in', the customer consents to receiving promotional communications. One of 'opt_in' or 'opt_out'.",
+            "title": "Promotions",
+            "type": "string"
+          },
+          "terms_of_service": {
+            "description": "If 'accepted', the customer has accepted the terms of service.",
+            "title": "Terms Of Service",
+            "type": "string"
+          }
+        },
+        "title": "Consent",
+        "type": "object"
+      },
+      "InvoiceData": {
+        "properties": {
+          "account_tax_ids": {
+            "description": "The account tax IDs associated with the invoice.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Account Tax Ids",
+            "type": "array"
+          },
+          "custom_fields": {
+            "description": "Custom fields displayed on the invoice.",
+            "items": {
+              "$ref": "#/$defs/InvoiceDataCustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "description": {
+            "description": "The invoice description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "footer": {
+            "description": "Footer to be displayed on the invoice.",
+            "title": "Footer",
+            "type": "string"
+          },
+          "issuer": {
+            "$ref": "#/$defs/InvoiceDataIssuer",
+            "description": "The connected account that issues the invoice.",
+            "title": "Issuer"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for the invoice metadata.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "rendering_options": {
+            "$ref": "#/$defs/InvoiceDataRenderingOptions",
+            "description": "Options for invoice rendering.",
+            "title": "Rendering Options"
+          }
+        },
+        "title": "InvoiceData",
+        "type": "object"
+      },
+      "BrandingSettings": {
+        "properties": {
+          "background_color": {
+            "description": "Background color as hex code (e.g., '#FF5733').",
+            "title": "Background Color",
+            "type": "string"
+          },
+          "border_style": {
+            "description": "Border style. One of 'pill', 'rectangular', or 'rounded'.",
+            "title": "Border Style",
+            "type": "string"
+          },
+          "button_color": {
+            "description": "Button color as hex code.",
+            "title": "Button Color",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "Brand name displayed on the Checkout page.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "font_family": {
+            "description": "Supported font family name.",
+            "title": "Font Family",
+            "type": "string"
+          },
+          "icon": {
+            "$ref": "#/$defs/BrandingLogo",
+            "description": "Icon configuration.",
+            "title": "Icon"
+          },
+          "logo": {
+            "$ref": "#/$defs/BrandingLogo",
+            "description": "Logo configuration.",
+            "title": "Logo"
+          }
+        },
+        "required": ["display_name"],
+        "title": "BrandingSettings",
+        "type": "object"
+      },
+      "CurrencyOption": {
+        "description": "Pricing configuration for a specific currency.",
+        "properties": {
+          "custom_unit_amount": {
+            "$ref": "#/$defs/PriceCustomUnitAmount",
+            "description": "Customer-specified unit amount.",
+            "title": "Custom Unit Amount"
+          },
+          "tax_behavior": {
+            "description": "Tax behavior (exclusive, inclusive, or unspecified).",
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "tiers": {
+            "description": "Pricing tiers for tiered billing.",
+            "items": {
+              "$ref": "#/$defs/PriceTier"
+            },
+            "title": "Tiers",
+            "type": "array"
+          },
+          "unit_amount": {
+            "description": "Amount in smallest currency unit.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Amount as decimal string for sub-cent precision.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "title": "CurrencyOption",
+        "type": "object"
+      },
+      "DiscountSource": {
+        "properties": {
+          "coupon": {
+            "description": "Coupon ID when type is 'coupon'.",
+            "title": "Coupon",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of discount source (e.g., coupon).",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "DiscountSource",
+        "type": "object"
+      },
+      "TaxId": {
+        "properties": {
+          "type": {
+            "description": "The type of the tax ID (e.g., 'eu_vat', 'us_ein', 'br_cpf').",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value of the tax ID.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "TaxId",
+        "type": "object"
+      },
+      "PriceTier": {
+        "properties": {
+          "flat_amount": {
+            "description": "Flat fee for this tier.",
+            "title": "Flat Amount",
+            "type": "integer"
+          },
+          "flat_amount_decimal": {
+            "description": "Flat fee as decimal string.",
+            "title": "Flat Amount Decimal",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "Per-unit price for this tier.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Per-unit price as decimal string.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          },
+          "up_to": {
+            "description": "Maximum quantity for this tier (null for last tier).",
+            "title": "Up To",
+            "type": "integer"
+          }
+        },
+        "title": "PriceTier",
+        "type": "object"
+      },
+      "PaymentMethodConfigurationDetails": {
+        "properties": {
+          "id": {
+            "description": "The payment method configuration ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "parent": {
+            "description": "The parent payment method configuration ID.",
+            "title": "Parent",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "PaymentMethodConfigurationDetails",
+        "type": "object"
+      },
+      "Discount": {
+        "properties": {
+          "coupon": {
+            "description": "The ID of the coupon applied.",
+            "title": "Coupon",
+            "type": "string"
+          },
+          "promotion_code": {
+            "description": "The ID of the promotion code applied.",
+            "title": "Promotion Code",
+            "type": "string"
+          }
+        },
+        "title": "Discount",
+        "type": "object"
+      },
+      "ShippingAddressCollection": {
+        "properties": {
+          "allowed_countries": {
+            "description": "An array of two-letter ISO country codes representing which countries Checkout should provide as options for shipping locations.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Countries",
+            "type": "array"
+          }
+        },
+        "required": ["allowed_countries"],
+        "title": "ShippingAddressCollection",
+        "type": "object"
+      },
+      "ShippingCost": {
+        "properties": {
+          "amount_subtotal": {
+            "description": "Total shipping cost before any discounts or taxes are applied.",
+            "title": "Amount Subtotal",
+            "type": "integer"
+          },
+          "amount_tax": {
+            "description": "Total tax amount applied due to shipping costs.",
+            "title": "Amount Tax",
+            "type": "integer"
+          },
+          "amount_total": {
+            "description": "Total shipping cost after discounts and taxes.",
+            "title": "Amount Total",
+            "type": "integer"
+          },
+          "shipping_rate": {
+            "description": "The ID of the ShippingRate for this order.",
+            "title": "Shipping Rate",
+            "type": "string"
+          },
+          "taxes": {
+            "description": "The taxes applied to the shipping rate.",
+            "items": {
+              "$ref": "#/$defs/ShippingCostTax"
+            },
+            "title": "Taxes",
+            "type": "array"
+          }
+        },
+        "required": ["amount_subtotal", "amount_tax", "amount_total"],
+        "title": "ShippingCost",
+        "type": "object"
+      },
+      "Address": {
+        "properties": {
+          "city": {
+            "description": "City, district, suburb, town, or village.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2).",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Address line 1 (e.g., street, PO Box, or company name).",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Address line 2 (e.g., apartment, suite, unit, or building).",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "ZIP or postal code.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State, county, province, or region.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "Address",
+        "type": "object"
+      },
+      "NameCollectionConfig": {
+        "properties": {
+          "enabled": {
+            "description": "Whether name collection is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "optional": {
+            "description": "Whether the name is optional. Defaults to false.",
+            "title": "Optional",
+            "type": "boolean"
+          }
+        },
+        "required": ["enabled"],
+        "title": "NameCollectionConfig",
+        "type": "object"
+      },
+      "InvoiceDataIssuer": {
+        "properties": {
+          "account": {
+            "description": "The connected account being referenced when type is 'account'.",
+            "title": "Account",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the issuer. One of 'account' or 'self'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "InvoiceDataIssuer",
+        "type": "object"
+      },
+      "PriceRecurring": {
+        "properties": {
+          "interval": {
+            "description": "Billing frequency (day, week, month, or year).",
+            "title": "Interval",
+            "type": "string"
+          },
+          "interval_count": {
+            "description": "Number of intervals between billing cycles.",
+            "title": "Interval Count",
+            "type": "integer"
+          },
+          "meter": {
+            "description": "ID of the billing meter if usage-based.",
+            "title": "Meter",
+            "type": "string"
+          },
+          "usage_type": {
+            "description": "Usage aggregation method (sum, last_during_period, last_ever, max).",
+            "title": "Usage Type",
+            "type": "string"
+          }
+        },
+        "required": ["interval", "interval_count"],
+        "title": "PriceRecurring",
+        "type": "object"
+      },
+      "SavedPaymentMethodOptions": {
+        "properties": {
+          "allow_redisplay_filters": {
+            "description": "Controls which saved payment methods can be redisplayed (e.g., ['always']).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Allow Redisplay Filters",
+            "type": "array"
+          },
+          "payment_method_remove": {
+            "description": "Controls whether customers can remove saved payment methods (enabled or disabled).",
+            "title": "Payment Method Remove",
+            "type": "string"
+          },
+          "payment_method_save": {
+            "description": "Controls whether the payment method is saved (enabled or disabled).",
+            "title": "Payment Method Save",
+            "type": "string"
+          }
+        },
+        "title": "SavedPaymentMethodOptions",
+        "type": "object"
+      },
+      "InvoiceCreation": {
+        "properties": {
+          "enabled": {
+            "description": "Whether invoice creation is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "invoice_data": {
+            "$ref": "#/$defs/InvoiceData",
+            "description": "Additional invoice parameters.",
+            "title": "Invoice Data"
+          }
+        },
+        "required": ["enabled", "invoice_data"],
+        "title": "InvoiceCreation",
+        "type": "object"
+      },
+      "OptionalItem": {
+        "properties": {
+          "adjustable_quantity": {
+            "$ref": "#/$defs/AdjustableQuantity",
+            "description": "Settings to allow customers to adjust the quantity.",
+            "title": "Adjustable Quantity"
+          },
+          "amount_discount": {
+            "description": "Total discount amount applied.",
+            "title": "Amount Discount",
+            "type": "integer"
+          },
+          "amount_subtotal": {
+            "description": "Total before discounts or taxes.",
+            "title": "Amount Subtotal",
+            "type": "integer"
+          },
+          "amount_tax": {
+            "description": "Total tax amount applied.",
+            "title": "Amount Tax",
+            "type": "integer"
+          },
+          "amount_total": {
+            "description": "Total after discounts and taxes.",
+            "title": "Amount Total",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description for the optional item.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discounts": {
+            "description": "Discounts applied to the optional item.",
+            "items": {
+              "$ref": "#/$defs/LineItemDiscount"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the optional item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/$defs/Price",
+            "description": "The price for this optional item.",
+            "title": "Price"
+          },
+          "quantity": {
+            "description": "The quantity of the optional item.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "taxes": {
+            "description": "Taxes applied to the optional item.",
+            "items": {
+              "$ref": "#/$defs/LineItemTax"
+            },
+            "title": "Taxes",
+            "type": "array"
+          }
+        },
+        "required": ["id", "object", "amount_subtotal", "amount_total", "amount_discount", "amount_tax", "currency"],
+        "title": "OptionalItem",
+        "type": "object"
+      },
+      "AdjustableQuantity": {
+        "properties": {
+          "enabled": {
+            "description": "Whether the quantity can be adjusted by the customer.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "maximum": {
+            "description": "Maximum quantity the customer can select.",
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "description": "Minimum quantity the customer can select.",
+            "title": "Minimum",
+            "type": "integer"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AdjustableQuantity",
+        "type": "object"
+      },
+      "CreateCheckoutSessionResponse": {
+        "properties": {
+          "locale": {
+            "description": "The IETF language tag of the locale Checkout is displayed in. If blank or auto, the browser's locale is used.",
+            "title": "Locale",
+            "type": "string"
+          },
+          "invoice_creation": {
+            "$ref": "#/$defs/InvoiceCreation",
+            "description": "Settings for invoice creation for this Checkout Session.",
+            "title": "Invoice Creation"
+          },
+          "client_reference_id": {
+            "description": "A unique string to reference the Checkout Session. This can be a customer ID, a cart ID, or similar, and can be used to reconcile the session with your internal systems.",
+            "title": "Client Reference Id",
+            "type": "string"
+          },
+          "excluded_payment_method_types": {
+            "description": "A list of the types of payment methods (e.g., 'card') that should be excluded from this Checkout Session.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Excluded Payment Method Types",
+            "type": "array"
+          },
+          "url": {
+            "description": "The URL to the Checkout Session. Redirect customers to this URL to take them to Checkout. Applies to Checkout Sessions with ui_mode: hosted only.",
+            "title": "Url",
+            "type": "string"
+          },
+          "payment_method_types": {
+            "description": "A list of the types of payment methods (e.g., 'card') this Checkout Session can accept.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Payment Method Types",
+            "type": "array"
+          },
+          "shipping_details": {
+            "$ref": "#/$defs/ShippingDetails",
+            "description": "Shipping information for this Checkout Session.",
+            "title": "Shipping Details"
+          },
+          "expires_at": {
+            "description": "The timestamp at which the Checkout Session will expire.",
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "ui_mode": {
+            "description": "The UI mode of the Session. One of 'hosted', 'embedded', or 'custom'. Defaults to 'hosted'.",
+            "title": "Ui Mode",
+            "type": "string"
+          },
+          "consent_collection": {
+            "$ref": "#/$defs/ConsentCollection",
+            "description": "Configure fields for the Checkout Session to gather active consent from customers.",
+            "title": "Consent Collection"
+          },
+          "collected_information": {
+            "$ref": "#/$defs/CollectedInformation",
+            "description": "Information collected from the customer during the Checkout Session.",
+            "title": "Collected Information"
+          },
+          "setup_intent": {
+            "description": "The ID of the SetupIntent for Checkout Sessions in setup mode.",
+            "title": "Setup Intent",
+            "type": "string"
+          },
+          "shipping_cost": {
+            "$ref": "#/$defs/ShippingCost",
+            "description": "The details of the customer cost of shipping, including the customer chosen ShippingRate.",
+            "title": "Shipping Cost"
+          },
+          "name_collection": {
+            "$ref": "#/$defs/NameCollection",
+            "description": "Configuration for collecting customer names.",
+            "title": "Name Collection"
+          },
+          "return_url": {
+            "description": "The URL to redirect your customer back to after they authenticate or cancel their payment on the payment method's app or site. This parameter is only supported for embedded Checkout Sessions.",
+            "title": "Return Url",
+            "type": "string"
+          },
+          "payment_status": {
+            "description": "The payment status of the Checkout Session. One of 'paid', 'unpaid', or 'no_payment_required'.",
+            "title": "Payment Status",
+            "type": "string"
+          },
+          "saved_payment_method_options": {
+            "$ref": "#/$defs/SavedPaymentMethodOptions",
+            "description": "Controls options for saving payment methods during this Checkout Session.",
+            "title": "Saved Payment Method Options"
+          },
+          "redirect_on_completion": {
+            "description": "Applies to Checkout Sessions with ui_mode: embedded. By default, Stripe will always redirect to your return_url after a successful confirmation. If set to 'if_required', we will only redirect if your user chooses a redirect-based payment method. One of 'always' or 'if_required'.",
+            "title": "Redirect On Completion",
+            "type": "string"
+          },
+          "customer_email": {
+            "description": "If provided, this value will be used when the customer object is created.",
+            "title": "Customer Email",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "invoice": {
+            "description": "The ID of the invoice created for this Checkout Session, if it is in subscription mode.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "status": {
+            "description": "The status of the Checkout Session. One of 'open', 'complete', or 'expired'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "billing_address_collection": {
+            "description": "Describes whether Checkout should collect the customer's billing address. One of 'auto' or 'required'.",
+            "title": "Billing Address Collection",
+            "type": "string"
+          },
+          "client_secret": {
+            "description": "The client secret of this Checkout Session. Used for client-side retrieval using a publishable key.",
+            "title": "Client Secret",
+            "type": "string"
+          },
+          "discounts": {
+            "description": "The discounts applied to the Checkout Session.",
+            "items": {
+              "$ref": "#/$defs/Discount"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "optional_items": {
+            "description": "Optional items the customer can add to their order at checkout (max 10).",
+            "items": {
+              "$ref": "#/$defs/OptionalItem"
+            },
+            "title": "Optional Items",
+            "type": "array"
+          },
+          "submit_type": {
+            "description": "Describes the type of transaction being performed by Checkout in order to customize relevant text on the page. One of 'auto', 'book', 'donate', or 'pay'.",
+            "title": "Submit Type",
+            "type": "string"
+          },
+          "consent": {
+            "$ref": "#/$defs/Consent",
+            "description": "Results of consent collection for this session.",
+            "title": "Consent"
+          },
+          "mode": {
+            "description": "The mode of the Checkout Session. One of 'payment', 'setup', or 'subscription'.",
+            "title": "Mode",
+            "type": "string"
+          },
+          "automatic_tax": {
+            "$ref": "#/$defs/AutomaticTax",
+            "description": "Settings for automatic tax lookup for this session.",
+            "title": "Automatic Tax"
+          },
+          "customer_details": {
+            "$ref": "#/$defs/CustomerDetails",
+            "description": "The customer details including the customer's tax exempt status and the customer's tax IDs.",
+            "title": "Customer Details"
+          },
+          "custom_text": {
+            "$ref": "#/$defs/CustomText",
+            "description": "Display additional text for your customers using custom text.",
+            "title": "Custom Text"
+          },
+          "customer": {
+            "description": "The ID of the customer for this session.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "payment_method_options": {
+            "$ref": "#/$defs/PaymentMethodOptions",
+            "description": "Payment method-specific configuration for the Checkout Session.",
+            "title": "Payment Method Options"
+          },
+          "adaptive_pricing": {
+            "$ref": "#/$defs/AdaptivePricing",
+            "description": "Adaptive pricing configuration.",
+            "title": "Adaptive Pricing"
+          },
+          "amount_subtotal": {
+            "description": "Total of all items before discounts or taxes are applied.",
+            "title": "Amount Subtotal",
+            "type": "integer"
+          },
+          "payment_intent": {
+            "description": "The ID of the PaymentIntent for Checkout Sessions in payment mode.",
+            "title": "Payment Intent",
+            "type": "string"
+          },
+          "total_details": {
+            "$ref": "#/$defs/TotalDetails",
+            "description": "Tax and discount details for the computed total amount.",
+            "title": "Total Details"
+          },
+          "recovered_from": {
+            "description": "The ID of the original expired Checkout Session that this Session recovers.",
+            "title": "Recovered From",
+            "type": "string"
+          },
+          "shipping_address_collection": {
+            "$ref": "#/$defs/ShippingAddressCollection",
+            "description": "When set, provides configuration for Checkout to collect a shipping address from a customer.",
+            "title": "Shipping Address Collection"
+          },
+          "custom_fields": {
+            "description": "Collect additional information from your customer using custom fields. Up to 3 fields are supported.",
+            "items": {
+              "$ref": "#/$defs/CustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "branding_settings": {
+            "$ref": "#/$defs/BrandingSettings",
+            "description": "Branding and appearance settings for the Checkout Session.",
+            "title": "Branding Settings"
+          },
+          "success_url": {
+            "description": "The URL the customer will be directed to after the payment or subscription creation is successful.",
+            "title": "Success Url",
+            "type": "string"
+          },
+          "amount_total": {
+            "description": "Total of all items after discounts and taxes are applied.",
+            "title": "Amount Total",
+            "type": "integer"
+          },
+          "currency_conversion": {
+            "$ref": "#/$defs/CurrencyConversion",
+            "description": "Currency conversion details when adaptive pricing is enabled.",
+            "title": "Currency Conversion"
+          },
+          "after_expiration": {
+            "$ref": "#/$defs/AfterExpiration",
+            "description": "When set, configuration used by Stripe for recovering the Checkout Session after expiration.",
+            "title": "After Expiration"
+          },
+          "shipping_options": {
+            "description": "The shipping rate options applied to this Session.",
+            "items": {
+              "$ref": "#/$defs/ShippingOption"
+            },
+            "title": "Shipping Options",
+            "type": "array"
+          },
+          "payment_method_configuration_details": {
+            "$ref": "#/$defs/PaymentMethodConfigurationDetails",
+            "description": "Payment method configuration details for this Checkout Session.",
+            "title": "Payment Method Configuration Details"
+          },
+          "origin_context": {
+            "description": "The context from which the Checkout Session was created. One of 'web' or 'mobile_app'.",
+            "title": "Origin Context",
+            "type": "string"
+          },
+          "customer_creation": {
+            "description": "Configure whether a Checkout Session creates a customer when the Checkout Session completes. One of 'always' or 'if_required'.",
+            "title": "Customer Creation",
+            "type": "string"
+          },
+          "allow_promotion_codes": {
+            "description": "Enables user redeemable promotion codes.",
+            "title": "Allow Promotion Codes",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object. This can be useful for storing additional information about the object in a structured format.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "payment_link": {
+            "description": "The ID of the Payment Link that created this Session.",
+            "title": "Payment Link",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase. Must be a supported currency.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the Checkout Session object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "phone_number_collection": {
+            "$ref": "#/$defs/PhoneNumberCollection",
+            "description": "Controls phone number collection settings for the session.",
+            "title": "Phone Number Collection"
+          },
+          "cancel_url": {
+            "description": "The URL the customer will be directed to if they decide to cancel payment and return to your website.",
+            "title": "Cancel Url",
+            "type": "string"
+          },
+          "payment_method_collection": {
+            "description": "Configure whether a Checkout Session should collect a payment method. One of 'always' or 'if_required'.",
+            "title": "Payment Method Collection",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'checkout.session'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "subscription": {
+            "description": "The ID of the subscription for Checkout Sessions in subscription mode.",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "line_items": {
+            "$ref": "#/$defs/LineItems",
+            "description": "The line items purchased by the customer.",
+            "title": "Line Items"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "livemode",
+          "mode",
+          "status",
+          "payment_status",
+          "expires_at",
+          "automatic_tax"
+        ],
+        "title": "CreateCheckoutSessionResponse",
+        "type": "object"
+      },
+      "CustomFieldLabel": {
+        "properties": {
+          "custom": {
+            "description": "Custom label text (max 50 characters).",
+            "title": "Custom",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of the label. Always 'custom'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "CustomFieldLabel",
+        "type": "object"
+      },
+      "InvoiceDataRenderingOptions": {
+        "properties": {
+          "amount_tax_display": {
+            "description": "How the tax amount is displayed.",
+            "title": "Amount Tax Display",
+            "type": "string"
+          },
+          "template": {
+            "description": "The rendering template ID.",
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "title": "InvoiceDataRenderingOptions",
+        "type": "object"
+      },
+      "InvoiceDataCustomField": {
+        "properties": {
+          "name": {
+            "description": "The name of the custom field.",
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "description": "The value of the custom field.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["name", "value"],
+        "title": "InvoiceDataCustomField",
+        "type": "object"
+      },
+      "LineItems": {
+        "properties": {
+          "data": {
+            "description": "The list of line items.",
+            "items": {
+              "$ref": "#/$defs/LineItemData"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether or not there are more elements available.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL where this list can be accessed.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "LineItems",
+        "type": "object"
+      },
+      "TotalDetails": {
+        "properties": {
+          "amount_discount": {
+            "description": "Total discount amount applied to the session.",
+            "title": "Amount Discount",
+            "type": "integer"
+          },
+          "amount_shipping": {
+            "description": "Total shipping amount.",
+            "title": "Amount Shipping",
+            "type": "integer"
+          },
+          "amount_tax": {
+            "description": "Total tax amount.",
+            "title": "Amount Tax",
+            "type": "integer"
+          }
+        },
+        "required": ["amount_discount", "amount_shipping", "amount_tax"],
+        "title": "TotalDetails",
+        "type": "object"
+      },
+      "PaymentMethodReuseAgreement": {
+        "properties": {
+          "position": {
+            "description": "Determines the position of the agreement text. One of 'auto' or 'hidden'.",
+            "title": "Position",
+            "type": "string"
+          }
+        },
+        "required": ["position"],
+        "title": "PaymentMethodReuseAgreement",
+        "type": "object"
+      },
+      "CardInstallments": {
+        "description": "Installment payment configuration for card payments.",
+        "properties": {
+          "enabled": {
+            "description": "Whether installment payments are permitted.",
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "title": "CardInstallments",
+        "type": "object"
+      },
+      "CustomFieldDropdown": {
+        "properties": {
+          "default_value": {
+            "description": "Default selected option.",
+            "title": "Default Value",
+            "type": "string"
+          },
+          "options": {
+            "description": "The list of options for the dropdown.",
+            "items": {
+              "$ref": "#/$defs/DropdownOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "value": {
+            "description": "The option value selected by the customer.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["options"],
+        "title": "CustomFieldDropdown",
+        "type": "object"
+      },
+      "PaymentMethodOptionsCard": {
+        "description": "Card payment method configuration.",
+        "properties": {
+          "capture_method": {
+            "description": "Capture method (manual or automatic).",
+            "title": "Capture Method",
+            "type": "string"
+          },
+          "installments": {
+            "$ref": "#/$defs/CardInstallments",
+            "description": "Installment payment configuration.",
+            "title": "Installments"
+          },
+          "request_extended_authorization": {
+            "description": "Extended authorization window (if_available or never).",
+            "title": "Request Extended Authorization",
+            "type": "string"
+          },
+          "request_incremental_authorization": {
+            "description": "Incremental authorization support (if_available or never).",
+            "title": "Request Incremental Authorization",
+            "type": "string"
+          },
+          "request_multicapture": {
+            "description": "Multiple capture support (if_available or never).",
+            "title": "Request Multicapture",
+            "type": "string"
+          },
+          "request_overcapture": {
+            "description": "Overcapture support (if_available or never).",
+            "title": "Request Overcapture",
+            "type": "string"
+          },
+          "request_three_d_secure": {
+            "description": "3D Secure authentication preference (automatic, any, or challenge).",
+            "title": "Request Three D Secure",
+            "type": "string"
+          },
+          "restrictions": {
+            "$ref": "#/$defs/CardRestrictions",
+            "description": "Card brand restrictions.",
+            "title": "Restrictions"
+          },
+          "setup_future_usage": {
+            "description": "Reuse configuration (none, off_session, or on_session).",
+            "title": "Setup Future Usage",
+            "type": "string"
+          },
+          "statement_descriptor_suffix_kana": {
+            "description": "Statement descriptor suffix in Kana (max 22 characters, Japan only).",
+            "maxLength": 22,
+            "title": "Statement Descriptor Suffix Kana",
+            "type": "string"
+          },
+          "statement_descriptor_suffix_kanji": {
+            "description": "Statement descriptor suffix in Kanji (max 17 characters, Japan only).",
+            "maxLength": 17,
+            "title": "Statement Descriptor Suffix Kanji",
+            "type": "string"
+          }
+        },
+        "title": "PaymentMethodOptionsCard",
+        "type": "object"
+      },
+      "CurrencyConversion": {
+        "properties": {
+          "amount_subtotal": {
+            "description": "Total in the source currency before discounts or taxes.",
+            "title": "Amount Subtotal",
+            "type": "integer"
+          },
+          "amount_total": {
+            "description": "Total in the source currency after discounts and taxes.",
+            "title": "Amount Total",
+            "type": "integer"
+          },
+          "fx_rate": {
+            "description": "Exchange rate applied.",
+            "title": "Fx Rate",
+            "type": "string"
+          },
+          "source_currency": {
+            "description": "Original currency code.",
+            "title": "Source Currency",
+            "type": "string"
+          }
+        },
+        "required": ["amount_subtotal", "amount_total", "fx_rate", "source_currency"],
+        "title": "CurrencyConversion",
+        "type": "object"
+      },
+      "CustomTextSection": {
+        "properties": {
+          "message": {
+            "description": "Custom text message (max 500 characters).",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["message"],
+        "title": "CustomTextSection",
+        "type": "object"
+      },
+      "AdaptivePricing": {
+        "properties": {
+          "enabled": {
+            "description": "Whether adaptive pricing is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AdaptivePricing",
+        "type": "object"
+      },
+      "CollectedShippingDetails": {
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "Recipient address.",
+            "title": "Address"
+          },
+          "name": {
+            "description": "Recipient name.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["name", "address"],
+        "title": "CollectedShippingDetails",
+        "type": "object"
+      },
+      "ShippingCostTax": {
+        "properties": {
+          "amount": {
+            "description": "Amount of tax applied to this rate.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "rate": {
+            "$ref": "#/$defs/TaxRate",
+            "description": "The tax rate applied.",
+            "title": "Rate"
+          }
+        },
+        "required": ["amount", "rate"],
+        "title": "ShippingCostTax",
+        "type": "object"
+      },
+      "TaxRateFlatAmount": {
+        "properties": {
+          "amount": {
+            "description": "Tax amount in smallest currency unit.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "currency"],
+        "title": "TaxRateFlatAmount",
+        "type": "object"
+      },
+      "CardRestrictions": {
+        "description": "Card brand restrictions for card payments.",
+        "properties": {
+          "brands_blocked": {
+            "description": "Card brands to exclude (e.g., american_express, discover_global_network, mastercard, visa).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Brands Blocked",
+            "type": "array"
+          }
+        },
+        "title": "CardRestrictions",
+        "type": "object"
+      },
+      "PriceCustomUnitAmount": {
+        "properties": {
+          "maximum": {
+            "description": "Maximum amount in smallest currency unit.",
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "description": "Minimum amount in smallest currency unit.",
+            "title": "Minimum",
+            "type": "integer"
+          },
+          "preset": {
+            "description": "Preset amount in smallest currency unit.",
+            "title": "Preset",
+            "type": "integer"
+          }
+        },
+        "title": "PriceCustomUnitAmount",
+        "type": "object"
+      },
+      "ShippingOption": {
+        "properties": {
+          "shipping_amount": {
+            "description": "The shipping amount in the smallest currency unit.",
+            "title": "Shipping Amount",
+            "type": "integer"
+          },
+          "shipping_rate": {
+            "description": "The ID of the Shipping Rate.",
+            "title": "Shipping Rate",
+            "type": "string"
+          }
+        },
+        "required": ["shipping_amount", "shipping_rate"],
+        "title": "ShippingOption",
+        "type": "object"
+      },
+      "AutomaticTaxLiability": {
+        "properties": {
+          "account": {
+            "description": "The connected account ID when type is 'account'.",
+            "title": "Account",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of liability (account or self).",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AutomaticTaxLiability",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateCheckoutSessionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

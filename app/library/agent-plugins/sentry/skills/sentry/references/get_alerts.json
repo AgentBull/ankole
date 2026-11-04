@@ -1,0 +1,323 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve all combined alert rules and monitors for a Sentry organization. Use when you need to get a unified view of both alert rules and cron monitors. This endpoint combines results from multiple sources into a single response.",
+  "inputSchema": {
+    "description": "Request schema for retrieving combined alert rules and monitors for a Sentry organization.",
+    "properties": {
+      "expand": {
+        "description": "Expand related data in the response. Can include 'latestIncident' to get latest incident details and 'lastTriggered' for last trigger timestamp.",
+        "examples": [["latestIncident", "lastTriggered"]],
+        "items": {
+          "description": "Valid expand options for combined rules endpoint.",
+          "enum": ["latestIncident", "lastTriggered"],
+          "title": "ExpandOption",
+          "type": "string"
+        },
+        "title": "Expand",
+        "type": "array"
+      },
+      "organization": {
+        "description": "The organization slug or ID to fetch alerts for.",
+        "examples": ["my-org", "mia-yd", "1234567"],
+        "title": "Organization",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Sort fields for ordering results. Common values include 'incident_status', 'date_triggered', 'name'.",
+        "examples": [["incident_status", "date_triggered"], ["name"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Sort",
+        "type": "array"
+      },
+      "team": {
+        "description": "Filter by team slugs. Use 'unassigned' to filter for rules with no team assigned.",
+        "examples": [["myteam", "backend"], ["unassigned"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Team",
+        "type": "array"
+      }
+    },
+    "required": ["organization"],
+    "title": "GetAlertsRequest",
+    "type": "object"
+  },
+  "name": "get_alerts",
+  "outputSchema": {
+    "$defs": {
+      "CombinedRule": {
+        "description": "Combined alert rule or monitor item.",
+        "properties": {
+          "actions": {
+            "description": "Alert actions (for type=rule)",
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "conditions": {
+            "description": "Alert conditions (for type=rule)",
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "config": {
+            "$ref": "#/$defs/MonitorConfig",
+            "description": "Monitor configuration with schedule, timezone, etc. (for type=monitor)",
+            "title": "Config"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "environment": {
+            "description": "Environment filter",
+            "title": "Environment",
+            "type": "string"
+          },
+          "filters": {
+            "description": "Alert filters (for type=rule)",
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the rule or monitor",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the alert rule or monitor",
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/$defs/RuleOwner",
+            "description": "Owner of the rule/monitor",
+            "title": "Owner"
+          },
+          "project": {
+            "$ref": "#/$defs/MonitorProject",
+            "description": "Associated project details (for type=monitor)",
+            "title": "Project"
+          },
+          "projects": {
+            "description": "Associated project slugs (for type=rule)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "slug": {
+            "description": "URL-friendly identifier (for type=monitor)",
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the rule/monitor (e.g., 'active', 'disabled')",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the item - either 'rule' for alert rules or 'monitor' for cron monitors",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "type", "name"],
+        "title": "CombinedRule",
+        "type": "object"
+      },
+      "GetAlertsResponse": {
+        "description": "Response schema containing a list of combined alert rules and monitors.",
+        "properties": {
+          "rules": {
+            "description": "List of combined alert rules and monitors for the organization",
+            "items": {
+              "$ref": "#/$defs/CombinedRule"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": ["rules"],
+        "title": "GetAlertsResponse",
+        "type": "object"
+      },
+      "MonitorConfig": {
+        "description": "Configuration for a monitor.",
+        "properties": {
+          "checkin_margin": {
+            "description": "Grace period in minutes before a check-in is considered missed",
+            "title": "Checkin Margin",
+            "type": "integer"
+          },
+          "max_runtime": {
+            "description": "Maximum runtime in minutes before a job is considered failed",
+            "title": "Max Runtime",
+            "type": "integer"
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "array"
+              }
+            ],
+            "description": "Crontab schedule string or interval array [value, unit]",
+            "title": "Schedule"
+          },
+          "schedule_type": {
+            "description": "Schedule type (e.g., 'crontab', 'interval')",
+            "title": "Schedule Type",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "Timezone for the schedule",
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "title": "MonitorConfig",
+        "type": "object"
+      },
+      "MonitorProject": {
+        "description": "Project information for a monitor.",
+        "properties": {
+          "id": {
+            "description": "Project ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Project name",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Project slug",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "title": "MonitorProject",
+        "type": "object"
+      },
+      "RuleOwner": {
+        "description": "Owner information for a rule or monitor.",
+        "properties": {
+          "id": {
+            "description": "Owner ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Owner name",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Owner type (e.g., 'team', 'user')",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "RuleOwner",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetAlertsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

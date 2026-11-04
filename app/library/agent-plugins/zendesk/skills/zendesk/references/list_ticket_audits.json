@@ -1,0 +1,270 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List all ticket audits from Zendesk. Returns a paginated list of audit records, each containing events that describe changes made to tickets. Audits capture all changes including comments, status changes, assignments, and field updates. Archived tickets are not included in the results. Use cursor pagination (page_after, page_before, page_size) to navigate through results efficiently.",
+  "inputSchema": {
+    "description": "Request parameters for listing Zendesk ticket audits with cursor pagination.",
+    "properties": {
+      "page_after": {
+        "description": "A pagination cursor that tells the endpoint which page to start on. It should be a `after_cursor` value from a previous request. Note: page[before] and page[after] cannot be used together.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from the previous page to get the next set of audit results.",
+        "human_parameter_name": "After Cursor",
+        "title": "Page After",
+        "type": "string"
+      },
+      "page_before": {
+        "description": "A pagination cursor that tells the endpoint which page to start on. It should be a `before_cursor` value from a previous request. Note: page[before] and page[after] cannot be used together.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from the previous page to get the previous set of audit results.",
+        "human_parameter_name": "Before Cursor",
+        "title": "Page Before",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Specifies how many records to return per page. You can specify up to 100 records per page.",
+        "examples": [25],
+        "human_parameter_description": "Number of audit records to return per page. Maximum is 100 records per page.",
+        "human_parameter_name": "Page Size",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      }
+    },
+    "title": "ListTicketAuditsRequest",
+    "type": "object"
+  },
+  "name": "list_ticket_audits",
+  "outputSchema": {
+    "$defs": {
+      "AuditEvent": {
+        "description": "Event object within a ticket audit.",
+        "properties": {
+          "attachments": {
+            "description": "List of attachments associated with the event",
+            "items": {
+              "$ref": "#/$defs/AuditEventAttachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "Body content of the event. Zendesk returns a plain string for most event types, but a structured object for some (e.g. certain Comment events with rich metadata) -- confirmed live via a plain GET with no params.",
+            "title": "Body"
+          },
+          "id": {
+            "description": "Unique identifier of the event",
+            "title": "Id",
+            "type": "integer"
+          },
+          "public": {
+            "description": "Whether the event is public",
+            "title": "Public",
+            "type": "boolean"
+          },
+          "subject": {
+            "description": "Subject of the event (for Notification type)",
+            "title": "Subject",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the event (e.g., Comment, Notification)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "AuditEvent",
+        "type": "object"
+      },
+      "AuditEventAttachment": {
+        "description": "Attachment object within an audit event.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the file",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to access the attachment file",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "Name of the attached file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Attachment identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "title": "AuditEventAttachment",
+        "type": "object"
+      },
+      "AuditMetadata": {
+        "description": "Metadata object for a ticket audit.",
+        "properties": {
+          "custom": {
+            "$ref": "#/$defs/AuditMetadataCustom",
+            "description": "Custom metadata fields",
+            "title": "Custom"
+          },
+          "system": {
+            "$ref": "#/$defs/AuditMetadataSystem",
+            "description": "System-generated metadata",
+            "title": "System"
+          }
+        },
+        "title": "AuditMetadata",
+        "type": "object"
+      },
+      "AuditMetadataCustom": {
+        "description": "Custom metadata for an audit.",
+        "properties": {
+          "time_spent": {
+            "description": "Time spent on the ticket (e.g., '3m22s')",
+            "title": "Time Spent",
+            "type": "string"
+          }
+        },
+        "title": "AuditMetadataCustom",
+        "type": "object"
+      },
+      "AuditMetadataSystem": {
+        "description": "System metadata for an audit.",
+        "properties": {
+          "ip_address": {
+            "description": "IP address of the client",
+            "title": "Ip Address",
+            "type": "string"
+          }
+        },
+        "title": "AuditMetadataSystem",
+        "type": "object"
+      },
+      "AuditVia": {
+        "description": "Via object describing how the audit was created.",
+        "properties": {
+          "channel": {
+            "description": "How the audit was created (e.g., web, email, api)",
+            "title": "Channel",
+            "type": "string"
+          }
+        },
+        "title": "AuditVia",
+        "type": "object"
+      },
+      "ListTicketAuditsResponse": {
+        "description": "Response containing list of ticket audits with pagination info.",
+        "properties": {
+          "after_cursor": {
+            "description": "Cursor for next page of results",
+            "title": "After Cursor",
+            "type": "string"
+          },
+          "after_url": {
+            "description": "URL for next page of results",
+            "title": "After Url",
+            "type": "string"
+          },
+          "audits": {
+            "description": "List of ticket audit records",
+            "items": {
+              "$ref": "#/$defs/TicketAudit"
+            },
+            "title": "Audits",
+            "type": "array"
+          },
+          "before_cursor": {
+            "description": "Cursor for previous page of results",
+            "title": "Before Cursor",
+            "type": "string"
+          },
+          "before_url": {
+            "description": "URL for previous page of results",
+            "title": "Before Url",
+            "type": "string"
+          }
+        },
+        "required": ["audits"],
+        "title": "ListTicketAuditsResponse",
+        "type": "object"
+      },
+      "TicketAudit": {
+        "description": "Ticket audit object containing the audit record and its events.",
+        "properties": {
+          "author_id": {
+            "description": "ID of the user who created the audit",
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "created_at": {
+            "description": "Timestamp when the audit was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "events": {
+            "description": "List of events in this audit",
+            "items": {
+              "$ref": "#/$defs/AuditEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier of the audit",
+            "title": "Id",
+            "type": "integer"
+          },
+          "metadata": {
+            "$ref": "#/$defs/AuditMetadata",
+            "description": "Metadata associated with the audit",
+            "title": "Metadata"
+          },
+          "ticket_id": {
+            "description": "ID of the ticket this audit belongs to",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "via": {
+            "$ref": "#/$defs/AuditVia",
+            "description": "How the audit was created",
+            "title": "Via"
+          }
+        },
+        "title": "TicketAudit",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListTicketAuditsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Removes a member entirely from a specific Trello organization, including from all its boards and cards; this action is permanent and does not delete the member's Trello account.",
+  "inputSchema": {
+    "description": "Request schema for `RemoveMemberFromOrg`",
+    "properties": {
+      "idMember": {
+        "description": "The ID of the member to remove from the organization.",
+        "examples": ["605c724f76888a001f2ea9e7", "5f9d7a3b8c7f6e001f9e4d2c"],
+        "title": "Id Member",
+        "type": "string"
+      },
+      "idOrg": {
+        "description": "The ID or short name (slug) of the organization.",
+        "examples": ["my-cool-org", "605c724f76888a001f2ea9e6"],
+        "title": "Id Org",
+        "type": "string"
+      }
+    },
+    "required": ["idOrg", "idMember"],
+    "title": "RemoveMemberFromOrgRequest",
+    "type": "object"
+  },
+  "name": "remove_member_from_org",
+  "outputSchema": {
+    "$defs": {
+      "RemoveMemberFromOrgResponse": {
+        "description": "Response schema for DELETE /1/organizations/{id}/members/{idMember}/all endpoint.\n\nReturns an empty response body with HTTP 200 OK status code to indicate successful removal\nof the member from the organization and all associated boards. This follows the standard\nTrello API pattern for DELETE operations where an empty response with 200 status confirms\nsuccessful deletion.",
+        "properties": {},
+        "title": "RemoveMemberFromOrgResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RemoveMemberFromOrgResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

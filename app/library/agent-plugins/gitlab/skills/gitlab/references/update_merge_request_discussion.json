@@ -1,0 +1,75 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Resolve or reopen a resolvable merge request discussion thread.",
+  "inputSchema": {
+    "properties": {
+      "discussion_id": {
+        "description": "The ID of the merge request discussion thread.",
+        "examples": ["6a9c1750b37d513a04605e13bfb6e2a7c4c5e72b"],
+        "minLength": 1,
+        "title": "Discussion Id",
+        "type": "string"
+      },
+      "merge_request_iid": {
+        "description": "The project-local IID of the merge request.",
+        "examples": [11],
+        "minimum": 1,
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The numeric project ID or namespace/project path. URL encoding is handled automatically.",
+        "examples": [123, "group/project-name"],
+        "title": "Project Id"
+      },
+      "resolved": {
+        "description": "Set to true to resolve the discussion or false to reopen it.",
+        "title": "Resolved",
+        "type": "boolean"
+      }
+    },
+    "required": ["project_id", "merge_request_iid", "discussion_id", "resolved"],
+    "title": "UpdateMergeRequestDiscussionRequest",
+    "type": "object"
+  },
+  "name": "update_merge_request_discussion",
+  "outputSchema": {
+    "$defs": {
+      "UpdateMergeRequestDiscussionResponse": {
+        "properties": {
+          "discussion": {
+            "additionalProperties": true,
+            "description": "The updated merge request discussion returned by GitLab.",
+            "title": "Discussion",
+            "type": "object"
+          }
+        },
+        "required": ["discussion"],
+        "title": "UpdateMergeRequestDiscussionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateMergeRequestDiscussionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

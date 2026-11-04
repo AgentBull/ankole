@@ -1,0 +1,107 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List attachment metadata for a specific Zendesk macro, including filenames, content types, sizes, and download URLs. The response may include a next-page URL.",
+  "inputSchema": {
+    "description": "Request parameters for listing attachments of a macro.",
+    "properties": {
+      "macro_id": {
+        "description": "The numeric ID of the macro whose attachments to list. You can find macro IDs from the macros list endpoint or the macro URL.",
+        "examples": [26923118315036],
+        "human_parameter_description": "The unique identifier of the macro whose attachments you want to retrieve. You can find this ID from the macros list endpoint or from the macro URL in Zendesk.",
+        "human_parameter_name": "Macro ID",
+        "title": "Macro Id",
+        "type": "integer"
+      }
+    },
+    "required": ["macro_id"],
+    "title": "GetMacroAttachmentsRequest",
+    "type": "object"
+  },
+  "name": "get_macro_attachments",
+  "outputSchema": {
+    "$defs": {
+      "GetMacroAttachmentsResponse": {
+        "description": "Response containing list of macro attachments.",
+        "properties": {
+          "count": {
+            "description": "Total number of macro attachments",
+            "title": "Count",
+            "type": "integer"
+          },
+          "macro_attachments": {
+            "description": "List of macro attachment objects",
+            "items": {
+              "$ref": "#/$defs/MacroAttachment"
+            },
+            "title": "Macro Attachments",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["macro_attachments", "count"],
+        "title": "GetMacroAttachmentsResponse",
+        "type": "object"
+      },
+      "MacroAttachment": {
+        "description": "Macro attachment object returned by the Zendesk API.",
+        "properties": {
+          "content_type": {
+            "description": "The content type of the image. Example value: 'image/png'",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "A full URL where the attachment image file can be downloaded",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "The time when this attachment was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "filename": {
+            "description": "The name of the image file",
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "description": "Automatically assigned when created",
+            "title": "Id",
+            "type": "integer"
+          },
+          "size": {
+            "description": "The size of the image file in bytes",
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "title": "MacroAttachment",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMacroAttachmentsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

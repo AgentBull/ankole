@@ -5,50 +5,64 @@ defmodule Ankole.Connectors.Catalog do
   def list do
     Ankole.Plugins.Registry.list_active()
     |> Enum.filter(&String.ends_with?(&1.id, "-adapter"))
-    |> Enum.map(fn plugin ->
-      connector =
-        Enum.find(plugin.adapter_declarations, &(&1.contract_id == "connectors.connector"))
+    |> Enum.flat_map(fn plugin ->
+      connectors =
+        Enum.filter(plugin.adapter_declarations, &(&1.contract_id == "connectors.connector"))
 
-      id = if connector, do: connector.id, else: String.trim_trailing(plugin.id, "-adapter")
-      {schemes, fields} = declared_fields(plugin.adapter_declarations, id)
-
-      credential_fields =
-        if connector && connector[:credential_fields],
-          do: connector.credential_fields,
-          else:
-            fields
-            |> Enum.filter(&LegacyConfig.credential_field?(Ankole.Attrs.get(&1, :path)))
-            |> Enum.map(&field/1)
-
-      public_fields =
-        if connector && connector[:public_fields],
-          do: connector.public_fields,
-          else:
-            fields
-            |> Enum.filter(
-              &(LegacyConfig.public_field?(Ankole.Attrs.get(&1, :path)) and
-                  not LegacyConfig.credential_field?(Ankole.Attrs.get(&1, :path)))
-            )
-            |> Enum.map(&field/1)
-
-      %{
-        id: id,
-        plugin_id: id,
-        display_name: label(plugin.display_name),
-        toolkits:
-          if(connector,
-            do: connector.module.tools() |> Enum.map(& &1.toolkit) |> Enum.uniq(),
-            else: []
-          ),
-        auth_schemes:
-          if(connector && connector[:auth_schemes], do: connector.auth_schemes, else: schemes),
-        credential_fields: credential_fields,
-        public_fields: public_fields,
-        trigger_types: if(connector, do: Map.get(connector, :trigger_types, []), else: []),
-        event_streams: if(connector, do: Map.get(connector, :event_streams, []), else: [])
-      }
+      Enum.map(if(connectors == [], do: [nil], else: connectors), &entry(plugin, &1))
     end)
     |> Enum.sort_by(& &1.id)
+  end
+
+  defp entry(plugin, connector) do
+    id = if connector, do: connector.id, else: String.trim_trailing(plugin.id, "-adapter")
+    {schemes, fields} = declared_fields(plugin.adapter_declarations, id)
+
+    credential_fields =
+      if connector && connector[:credential_fields],
+        do: connector.credential_fields,
+        else:
+          fields
+          |> Enum.filter(&LegacyConfig.credential_field?(Ankole.Attrs.get(&1, :path)))
+          |> Enum.map(&field/1)
+
+    public_fields =
+      if connector && connector[:public_fields],
+        do: connector.public_fields,
+        else:
+          fields
+          |> Enum.filter(
+            &(LegacyConfig.public_field?(Ankole.Attrs.get(&1, :path)) and
+                not LegacyConfig.credential_field?(Ankole.Attrs.get(&1, :path)))
+          )
+          |> Enum.map(&field/1)
+
+    %{
+      id: id,
+      plugin_id: id,
+      display_name:
+        label(
+          if(connector,
+            do: Map.get(connector, :display_name, plugin.display_name),
+            else: plugin.display_name
+          )
+        ),
+      toolkits:
+        if(connector,
+          do: connector.module.tools() |> Enum.map(& &1.toolkit) |> Enum.uniq(),
+          else: []
+        ),
+      auth_schemes:
+        if(connector && connector[:auth_schemes], do: connector.auth_schemes, else: schemes),
+      personal_credentials:
+        (connector && Map.get(connector, :personal_credentials, false)) || false,
+      personal_credential_fields:
+        if(connector, do: Map.get(connector, :personal_credential_fields, []), else: []),
+      credential_fields: credential_fields,
+      public_fields: public_fields,
+      trigger_types: if(connector, do: Map.get(connector, :trigger_types, []), else: []),
+      event_streams: if(connector, do: Map.get(connector, :event_streams, []), else: [])
+    }
   end
 
   defp declared_fields(declarations, id) do

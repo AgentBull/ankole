@@ -1,0 +1,224 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List one page of commit statuses, optionally filtered and sorted. By default GitLab returns only the latest statuses. Set all to true to include all statuses and follow next_page to retrieve additional pages.",
+  "inputSchema": {
+    "properties": {
+      "all": {
+        "description": "Include all statuses instead of latest only; default false.",
+        "title": "All",
+        "type": "boolean"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "name": {
+        "description": "Filter statuses by job name.",
+        "title": "Name",
+        "type": "string"
+      },
+      "order_by": {
+        "description": "Field to sort statuses by; default id.",
+        "enum": ["id", "pipeline_id"],
+        "title": "Order By",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "pipeline_id": {
+        "description": "Filter statuses by pipeline ID.",
+        "title": "Pipeline Id",
+        "type": "integer"
+      },
+      "ref": {
+        "description": "Branch or tag name; defaults to the default branch.",
+        "title": "Ref",
+        "type": "string"
+      },
+      "sha": {
+        "description": "Hash of the commit.",
+        "title": "Sha",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Sort direction; default asc.",
+        "enum": ["asc", "desc"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "stage": {
+        "description": "Filter statuses by build stage.",
+        "title": "Stage",
+        "type": "string"
+      }
+    },
+    "required": ["id", "sha"],
+    "title": "ListCommitStatusesRequest",
+    "type": "object"
+  },
+  "name": "list_commit_statuses",
+  "outputSchema": {
+    "$defs": {
+      "CommitStatus": {
+        "additionalProperties": true,
+        "properties": {
+          "allow_failure": {
+            "description": "Whether this status allows failure.",
+            "title": "Allow Failure",
+            "type": "boolean"
+          },
+          "author": {
+            "$ref": "#/$defs/CommitStatusAuthor",
+            "description": "Status author.",
+            "title": "Author"
+          },
+          "created_at": {
+            "description": "Status creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Status description, or null.",
+            "title": "Description",
+            "type": "string"
+          },
+          "finished_at": {
+            "description": "Status finish timestamp, or null.",
+            "title": "Finished At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Status ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Status job name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "ref": {
+            "description": "Commit branch or tag reference.",
+            "title": "Ref",
+            "type": "string"
+          },
+          "sha": {
+            "description": "Commit SHA.",
+            "title": "Sha",
+            "type": "string"
+          },
+          "started_at": {
+            "description": "Status start timestamp, or null.",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the commit.",
+            "title": "Status",
+            "type": "string"
+          },
+          "target_url": {
+            "description": "Associated target URL, or null.",
+            "title": "Target Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "status", "name", "sha", "allow_failure"],
+        "title": "CommitStatus",
+        "type": "object"
+      },
+      "CommitStatusAuthor": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Author avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Author user ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Author display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "Author account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Author username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Author profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "CommitStatusAuthor",
+        "type": "object"
+      },
+      "ListCommitStatusesResponse": {
+        "properties": {
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          },
+          "statuses": {
+            "description": "One page of statuses for the commit.",
+            "items": {
+              "$ref": "#/$defs/CommitStatus"
+            },
+            "title": "Statuses",
+            "type": "array"
+          }
+        },
+        "required": ["statuses"],
+        "title": "ListCommitStatusesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListCommitStatusesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a soft-deleted user from Zendesk. This action is irreversible - once a user is permanently deleted, it cannot be recovered. Use this action to remove users that were previously soft-deleted using the delete_user action. Use this action when you need to permanently remove a user that has already been deleted and is no longer accessible through normal operations. This action requires appropriate admin permissions.",
+  "inputSchema": {
+    "properties": {
+      "deleted_user_id": {
+        "description": "The ID of the deleted user to permanently remove",
+        "examples": [26924294027548],
+        "human_parameter_description": "The numeric ID of the Zendesk user that has been soft-deleted and you want to permanently delete. This can be found from deleted user records or audit logs. This action is irreversible - the user cannot be recovered once permanently deleted.",
+        "human_parameter_name": "Deleted User ID",
+        "title": "Deleted User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["deleted_user_id"],
+    "title": "PermanentlyDeleteUserRequest",
+    "type": "object"
+  },
+  "name": "delete_user_permanently",
+  "outputSchema": {
+    "$defs": {
+      "PermanentlyDeleteUserDeletedUser": {
+        "properties": {
+          "active": {
+            "description": "True if the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Creation timestamp in ISO 8601 format",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Primary email address of the user",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique ID for the user",
+            "title": "Id",
+            "type": "integer"
+          },
+          "locale": {
+            "description": "User locale BCP-47 string",
+            "title": "Locale",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Locale identifier for the user",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Full name of the user",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "Default organization ID for the user",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "phone": {
+            "description": "User's phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "photo": {
+            "additionalProperties": true,
+            "description": "Photo object for the user",
+            "title": "Photo",
+            "type": "object"
+          },
+          "role": {
+            "description": "User role (e.g., end-user, agent, admin)",
+            "title": "Role",
+            "type": "string"
+          },
+          "shared_phone_number": {
+            "description": "True if the phone number is shared",
+            "title": "Shared Phone Number",
+            "type": "boolean"
+          },
+          "time_zone": {
+            "description": "User's time zone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp in ISO 8601 format",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "PermanentlyDeleteUserDeletedUser",
+        "type": "object"
+      },
+      "PermanentlyDeleteUserResponse": {
+        "properties": {
+          "deleted_user": {
+            "$ref": "#/$defs/PermanentlyDeleteUserDeletedUser",
+            "description": "The permanently deleted user object",
+            "title": "Deleted User"
+          }
+        },
+        "required": ["deleted_user"],
+        "title": "PermanentlyDeleteUserResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/PermanentlyDeleteUserResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

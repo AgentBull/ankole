@@ -1,0 +1,574 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing Trello card's attributes like name, description, due date, members, labels, position, or archives/unarchives it, attaches files, or changes its cover.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateCardsByIdCard`",
+    "properties": {
+      "closed": {
+        "description": "Determines whether the card should be archived (closed). Accepts boolean (true/false) or string ('true'/'false').",
+        "examples": ["true", "false"],
+        "title": "Closed",
+        "type": "string"
+      },
+      "desc": {
+        "description": "The new description for the card. String length must be from 0 to 16384 characters.",
+        "examples": ["Updated card description.", "Initial project details."],
+        "title": "Desc",
+        "type": "string"
+      },
+      "due": {
+        "description": "The new due date for the card, in ISO 8601 format, or 'null' to remove the due date.",
+        "examples": ["2024-12-31T14:30:00.000Z", "null"],
+        "title": "Due",
+        "type": "string"
+      },
+      "fileSource": {
+        "description": "The URL of a file to be attached to the card. Trello will fetch and attach the file from this URL.",
+        "examples": ["https://example.com/report.pdf"],
+        "title": "File Source",
+        "type": "string"
+      },
+      "idAttachmentCover": {
+        "description": "The ID of an existing image attachment to be used as the card cover. Use 'null' or an empty string to remove the cover.",
+        "examples": ["60d9c4f4ca0f9b003a5e82f0", ""],
+        "title": "Id Attachment Cover",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The ID of the board to move the card to. If `idList` is also provided, the card will be moved to that list on the new board.",
+        "examples": ["60d9c4f4ca0f9b003a5e82f1"],
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "The ID or shortLink of the card to update.",
+        "examples": ["60d9c4f4ca0f9b003a5e82f9", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idCardSource": {
+        "description": "The ID of a card to copy properties from. Requires `keepFromSource` to be specified.",
+        "examples": ["60d9c4f4ca0f9b003a5e82f2"],
+        "title": "Id Card Source",
+        "type": "string"
+      },
+      "idLabels": {
+        "description": "Comma-separated list of label IDs to apply, replacing existing labels. To preserve existing labels, fetch current `idLabels`, append new ones, and submit the combined list.",
+        "examples": ["60d9c4f4ca0f9b003a5e82f3,60d9c4f4ca0f9b003a5e82f4"],
+        "title": "Id Labels",
+        "type": "string"
+      },
+      "idList": {
+        "description": "The ID of the list to move the card to.",
+        "examples": ["60d9c4f4ca0f9b003a5e82f5"],
+        "title": "Id List",
+        "type": "string"
+      },
+      "idMembers": {
+        "description": "Comma-separated list of member IDs to assign, replacing existing members. To preserve existing members, fetch current `idMembers`, append new ones, and submit the combined list.",
+        "examples": ["60d9c4f4ca0f9b003a5e82f6,60d9c4f4ca0f9b003a5e82f7"],
+        "title": "Id Members",
+        "type": "string"
+      },
+      "keepFromSource": {
+        "description": "If `idCardSource` is specified, this is a comma-separated list of properties to copy from the source card. Valid values are 'all', or any combination of 'attachments', 'checklists', 'comments', 'customFields', 'due', 'labels', 'members', 'pluginData', 'stickers'.",
+        "examples": ["all", "attachments,checklists,comments"],
+        "title": "Keep From Source",
+        "type": "string"
+      },
+      "labels": {
+        "description": "Comma-separated list of label colors (e.g., 'green,yellow,red') to apply, overwriting existing labels. Use 'idLabels' for more precise control. 'all' may add all available label colors.",
+        "examples": ["green,yellow", "red", "all"],
+        "title": "Labels",
+        "type": "string"
+      },
+      "name": {
+        "description": "The new name for the card. Required if not copying the name from `idCardSource`, `fileSource`, or `urlSource`.",
+        "examples": ["Updated Task Name", "Review Document Q3"],
+        "title": "Name",
+        "type": "string"
+      },
+      "pos": {
+        "description": "The new position of the card within its list. Can be 'top', 'bottom', or a positive floating-point number. Higher numbers are further down the list.",
+        "examples": ["top", "bottom", "16384.0", "8192"],
+        "title": "Pos",
+        "type": "string"
+      },
+      "subscribed": {
+        "description": "Determines whether the user is subscribed to the card. Accepts boolean (true/false) or string ('true'/'false').",
+        "examples": ["true", "false"],
+        "title": "Subscribed",
+        "type": "string"
+      },
+      "urlSource": {
+        "description": "A URL to be attached to the card (e.g., a link to an external resource). If the card is being created from a URL (e.g. via a bookmarklet), this will be the source URL. Set to 'null' or an empty string to remove an existing attachment link created this way.",
+        "examples": ["https://trello.com/inspiration", "null"],
+        "title": "Url Source",
+        "type": "string"
+      }
+    },
+    "required": ["idCard"],
+    "title": "UpdateCardsByIdCardRequest",
+    "type": "object"
+  },
+  "name": "update_cards_by_id_card",
+  "outputSchema": {
+    "$defs": {
+      "AttachmentsByType": {
+        "description": "Attachment counts by type",
+        "properties": {
+          "trello": {
+            "$ref": "#/$defs/TrelloAttachments",
+            "description": "Trello attachment counts",
+            "title": "Trello"
+          }
+        },
+        "title": "AttachmentsByType",
+        "type": "object"
+      },
+      "Badges": {
+        "description": "Display information including votes, attachments, comments, and checklist status",
+        "properties": {
+          "attachments": {
+            "description": "Number of attachments on the card",
+            "title": "Attachments",
+            "type": "integer"
+          },
+          "attachmentsByType": {
+            "$ref": "#/$defs/AttachmentsByType",
+            "description": "Attachment counts by type",
+            "title": "Attachments By Type"
+          },
+          "checkItems": {
+            "description": "Total number of checklist items",
+            "title": "Check Items",
+            "type": "integer"
+          },
+          "checkItemsChecked": {
+            "description": "Number of checked checklist items",
+            "title": "Check Items Checked",
+            "type": "integer"
+          },
+          "comments": {
+            "description": "Number of comments on the card",
+            "title": "Comments",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Indicates if the card has a description",
+            "title": "Description",
+            "type": "boolean"
+          },
+          "due": {
+            "description": "Due date string or null",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueComplete": {
+            "description": "Indicates if the due date is complete",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "fogbugz": {
+            "description": "FogBugz integration field",
+            "title": "Fogbugz",
+            "type": "string"
+          },
+          "location": {
+            "description": "Indicates if the card has a location",
+            "title": "Location",
+            "type": "boolean"
+          },
+          "start": {
+            "description": "Start date string",
+            "title": "Start",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Subscription status",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "viewingMemberVoted": {
+            "description": "Indicates if the viewing member voted",
+            "title": "Viewing Member Voted",
+            "type": "boolean"
+          },
+          "votes": {
+            "description": "Number of votes on the card",
+            "title": "Votes",
+            "type": "integer"
+          }
+        },
+        "title": "Badges",
+        "type": "object"
+      },
+      "Coordinates": {
+        "description": "Latitude and longitude coordinates",
+        "properties": {
+          "latitude": {
+            "description": "Latitude coordinate (between -90 and 90)",
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "description": "Longitude coordinate (between -180 and 180)",
+            "title": "Longitude",
+            "type": "number"
+          }
+        },
+        "title": "Coordinates",
+        "type": "object"
+      },
+      "Cover": {
+        "description": "Cover image information with attachment, color, and display properties",
+        "properties": {
+          "brightness": {
+            "description": "Brightness setting (e.g., 'light' or 'dark')",
+            "title": "Brightness",
+            "type": "string"
+          },
+          "color": {
+            "description": "Color of the cover (e.g., 'yellow', 'green')",
+            "title": "Color",
+            "type": "string"
+          },
+          "idAttachment": {
+            "description": "Attachment ID used as cover",
+            "title": "Id Attachment",
+            "type": "string"
+          },
+          "idUploadedBackground": {
+            "description": "ID of uploaded background",
+            "title": "Id Uploaded Background",
+            "type": "string"
+          },
+          "size": {
+            "description": "Size of the cover (e.g., 'normal' or 'full')",
+            "title": "Size",
+            "type": "string"
+          }
+        },
+        "title": "Cover",
+        "type": "object"
+      },
+      "DescData": {
+        "description": "Custom emoji data for description display",
+        "properties": {
+          "emoji": {
+            "additionalProperties": true,
+            "description": "Emoji data structure",
+            "title": "Emoji",
+            "type": "object"
+          }
+        },
+        "title": "DescData",
+        "type": "object"
+      },
+      "Label": {
+        "description": "Label object with id, name, and color",
+        "properties": {
+          "color": {
+            "description": "Label color",
+            "title": "Color",
+            "type": "string"
+          },
+          "id": {
+            "description": "Label identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Label name",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "color"],
+        "title": "Label",
+        "type": "object"
+      },
+      "TrelloAttachments": {
+        "description": "Trello attachment counts",
+        "properties": {
+          "board": {
+            "description": "Number of board attachments",
+            "title": "Board",
+            "type": "integer"
+          },
+          "card": {
+            "description": "Number of card attachments",
+            "title": "Card",
+            "type": "integer"
+          }
+        },
+        "title": "TrelloAttachments",
+        "type": "object"
+      },
+      "UpdateCardsByIdCardResponse": {
+        "description": "Response schema for `UpdateCardsByIdCard`",
+        "properties": {
+          "url": {
+            "description": "Full card URL with name slug",
+            "title": "Url",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "8-character shortened ID",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "due": {
+            "description": "Due date if set (nullable, ISO 8601 date-time format)",
+            "title": "Due",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "Parent board identifier",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Due date reminder setting",
+            "title": "Due Reminder",
+            "type": "string"
+          },
+          "isTemplate": {
+            "description": "Indicates if the card is a template",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "idChecklists": {
+            "description": "Checklist identifiers",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Checklists",
+            "type": "array"
+          },
+          "idMembers": {
+            "description": "Member IDs assigned to the card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members",
+            "type": "array"
+          },
+          "manualCoverAttachment": {
+            "description": "Indicates if cover was manually selected vs. automatic",
+            "title": "Manual Cover Attachment",
+            "type": "boolean"
+          },
+          "idLabels": {
+            "description": "Label identifiers on the card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Labels",
+            "type": "array"
+          },
+          "idAttachmentCover": {
+            "description": "Selected cover image attachment ID",
+            "title": "Id Attachment Cover",
+            "type": "string"
+          },
+          "desc": {
+            "description": "Card description (up to 16,384 characters)",
+            "title": "Desc",
+            "type": "string"
+          },
+          "idMembersVoted": {
+            "description": "Member IDs who voted on the card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members Voted",
+            "type": "array"
+          },
+          "name": {
+            "description": "Card title",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Card position in list",
+            "title": "Pos",
+            "type": "number"
+          },
+          "creationMethod": {
+            "description": "Method used to create the card",
+            "title": "Creation Method",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "Shortened URL without name slug",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Current member subscription status",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "dueComplete": {
+            "description": "Completion status indicator for due date",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "descData": {
+            "$ref": "#/$defs/DescData",
+            "description": "Custom emoji data for description display",
+            "title": "Desc Data"
+          },
+          "checkItemStates": {
+            "description": "States of check items on the card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Check Item States",
+            "type": "array"
+          },
+          "address": {
+            "description": "Card location address",
+            "title": "Address",
+            "type": "string"
+          },
+          "closed": {
+            "description": "Archive status; indicates whether the card is archived",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "dateLastActivity": {
+            "description": "Timestamp of last activity on the card (ISO 8601 date-time format)",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "cover": {
+            "$ref": "#/$defs/Cover",
+            "description": "Cover image information with attachment, color, and display properties",
+            "title": "Cover"
+          },
+          "limits": {
+            "additionalProperties": true,
+            "description": "Card-level constraints and limits",
+            "title": "Limits",
+            "type": "object"
+          },
+          "idShort": {
+            "description": "Numeric ID unique to board only",
+            "title": "Id Short",
+            "type": "integer"
+          },
+          "pluginData": {
+            "description": "Plugin data for the card (available when explicitly requested)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Plugin Data",
+            "type": "array"
+          },
+          "labels": {
+            "description": "Full label objects with id, name, color",
+            "items": {
+              "$ref": "#/$defs/Label"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "locationName": {
+            "description": "Location display name",
+            "title": "Location Name",
+            "type": "string"
+          },
+          "idList": {
+            "description": "Parent list identifier",
+            "title": "Id List",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the card",
+            "title": "Id",
+            "type": "string"
+          },
+          "customFieldItems": {
+            "description": "Custom field values set on the card (available when explicitly requested via query parameter customFieldItems=true)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Custom Field Items",
+            "type": "array"
+          },
+          "badges": {
+            "$ref": "#/$defs/Badges",
+            "title": "Badges"
+          },
+          "coordinates": {
+            "$ref": "#/$defs/Coordinates",
+            "description": "Latitude and longitude coordinates",
+            "title": "Coordinates"
+          },
+          "stickers": {
+            "description": "Stickers on the card (available when explicitly requested via query parameter stickers=true)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Stickers",
+            "type": "array"
+          },
+          "cardRole": {
+            "description": "Type of card: 'separator', 'board', 'mirror', or 'link'",
+            "title": "Card Role",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start date if set (nullable, ISO 8601 date-time format)",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "desc",
+          "closed",
+          "idBoard",
+          "idList",
+          "idMembers",
+          "idMembersVoted",
+          "idLabels",
+          "labels",
+          "idChecklists",
+          "pos",
+          "shortLink",
+          "shortUrl",
+          "url",
+          "dueComplete",
+          "dateLastActivity",
+          "checkItemStates",
+          "idShort",
+          "subscribed",
+          "badges"
+        ],
+        "title": "UpdateCardsByIdCardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateCardsByIdCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -31,6 +31,16 @@ defmodule Ankole.Connectors do
           wrap_in_result?: false
         )
 
+        route(:post, "/accounts/connect-personal", :connect_personal_credentials,
+          name: "podConnectorAccountsConnectPersonal",
+          wrap_in_result?: false
+        )
+
+        route(:post, "/accounts/connect-team", :connect_team_credentials,
+          name: "podConnectorAccountsConnectTeam",
+          wrap_in_result?: false
+        )
+
         route(:delete, "/accounts/:id", :disconnect,
           name: "podConnectorAccountsDisconnect",
           wrap_in_result?: false
@@ -77,6 +87,8 @@ defmodule Ankole.Connectors do
     resource(Ankole.Connectors.Trigger)
   end
 
+  defdelegate receive_cloud_delivery(envelope), to: Ankole.Connectors.Ingress
+
   defdelegate event_connection_needed?(auth_config_id), to: Ankole.Connectors.Triggers
   defdelegate teardown_tenant(), to: Ankole.Connectors.Triggers
   defdelegate active_auth_configs(plugin_id), to: Ankole.Connectors.Store
@@ -97,6 +109,7 @@ defmodule Ankole.Connectors do
     to: Ankole.Connectors.Accounts
 
   defdelegate get_account_by_id(id), to: Ankole.Connectors.Accounts, as: :get_by_id
+  defdelegate cloud_account_referenced?(id), to: Ankole.Connectors.Accounts
   defdelegate list_accounts(actor), to: Ankole.Connectors.Accounts
   defdelegate disconnect_account(actor, id), to: Ankole.Connectors.Accounts
 

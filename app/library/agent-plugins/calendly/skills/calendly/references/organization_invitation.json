@@ -1,0 +1,104 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to invite a user to a Calendly organization via email. Use when you need to send an organization invitation to a new user. Requires organization owner or admin privileges.",
+  "inputSchema": {
+    "description": "Request schema for inviting a user to a Calendly organization.",
+    "properties": {
+      "email": {
+        "description": "The email address of the user to invite to the organization. An invitation email will be automatically sent to this address.",
+        "examples": ["test.invite@example.com"],
+        "title": "Email",
+        "type": "string"
+      },
+      "org_uuid": {
+        "description": "The unique identifier (UUID) of the organization to invite the user to. This is extracted from the organization URI.",
+        "examples": ["dbed26fe-cb7f-4224-8f10-3331cecdeb13"],
+        "title": "Org Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["org_uuid", "email"],
+    "title": "CalendlyOrganizationInvitationRequest",
+    "type": "object"
+  },
+  "name": "organization_invitation",
+  "outputSchema": {
+    "$defs": {
+      "CalendlyOrganizationInvitationResponse": {
+        "description": "Response schema for creating an organization invitation.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/OrganizationInvitationResource",
+            "description": "The organization invitation resource object",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "CalendlyOrganizationInvitationResponse",
+        "type": "object"
+      },
+      "OrganizationInvitationResource": {
+        "description": "The organization invitation resource object returned from the API.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the invitation was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address of the person being invited to the organization",
+            "title": "Email",
+            "type": "string"
+          },
+          "last_sent_at": {
+            "description": "Timestamp when the invitation email was last sent to the invitee (ISO 8601 format)",
+            "title": "Last Sent At",
+            "type": "string"
+          },
+          "organization": {
+            "description": "URI reference to the organization the user is being invited to",
+            "title": "Organization",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current status of the invitation. Possible values: 'pending', 'accepted', 'declined'",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the invitation was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the organization invitation",
+            "title": "Uri",
+            "type": "string"
+          },
+          "user": {
+            "description": "URI reference to the user resource. This field is null when the invitation status is pending, and populated with the user URI once the invitation is accepted.",
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "organization", "email", "status", "created_at", "updated_at", "last_sent_at"],
+        "title": "OrganizationInvitationResource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CalendlyOrganizationInvitationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

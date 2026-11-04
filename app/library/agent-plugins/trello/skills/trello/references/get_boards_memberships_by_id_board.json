@@ -1,0 +1,199 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves Trello board memberships (user roles and permissions) for auditing access or managing collaboration, returning only membership data and not other board content.",
+  "inputSchema": {
+    "description": "Request schema for `GetBoardsMembershipsByIdBoard`",
+    "properties": {
+      "filter": {
+        "default": "all",
+        "description": "Filters the types of memberships returned. Valid values are 'all' or a comma-separated list of: 'active', 'admin', 'deactivated', 'me', 'normal'.",
+        "examples": ["all", "active,admin", "me"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The unique identifier of the Trello board.",
+        "title": "Id Board",
+        "type": "string"
+      },
+      "member": {
+        "description": "Determines whether to return member objects. Accepts string 'true' or 'false'. If not provided, the API's default behavior for including member details will apply.",
+        "examples": ["true", "false"],
+        "title": "Member",
+        "type": "string"
+      },
+      "member_fields": {
+        "description": "Specifies the member fields to return. Valid values are 'all' or a comma-separated list of: 'avatarHash', 'bio', 'bioData', 'confirmed', 'fullName', 'idPremOrgsAdmin', 'initials', 'memberType', 'products', 'status', 'url', 'username'.",
+        "examples": ["all", "fullName,username", "avatarHash,initials,status"],
+        "title": "Member Fields",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard"],
+    "title": "GetBoardsMembershipsByIdBoardRequest",
+    "type": "object"
+  },
+  "name": "get_boards_memberships_by_id_board",
+  "outputSchema": {
+    "$defs": {
+      "GetBoardsMembershipsByIdBoardResponse": {
+        "description": "Response schema for `GetBoardsMembershipsByIdBoard`. The Trello API returns a direct array of membership objects.",
+        "properties": {
+          "memberships": {
+            "description": "Array of board membership objects, each representing a user's role and permissions on the board.",
+            "items": {
+              "$ref": "#/$defs/Membership"
+            },
+            "title": "Memberships",
+            "type": "array"
+          }
+        },
+        "required": ["memberships"],
+        "title": "GetBoardsMembershipsByIdBoardResponse",
+        "type": "object"
+      },
+      "Member": {
+        "description": "Nested member object included when the 'member' query parameter is set to true.",
+        "properties": {
+          "activityBlocked": {
+            "description": "Whether the member's activity is blocked.",
+            "title": "Activity Blocked",
+            "type": "boolean"
+          },
+          "avatarHash": {
+            "description": "Hash of the member's avatar image.",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the member's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "bio": {
+            "description": "Biography/description text for the member.",
+            "title": "Bio",
+            "type": "string"
+          },
+          "bioData": {
+            "additionalProperties": true,
+            "description": "Structured biography data including emoji information.",
+            "title": "Bio Data",
+            "type": "object"
+          },
+          "confirmed": {
+            "description": "Whether the member has confirmed their account.",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "fullName": {
+            "description": "Full name of the member.",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the member.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idPremOrgsAdmin": {
+            "description": "Array of IDs for premium organizations where the member is an admin.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Prem Orgs Admin",
+            "type": "array"
+          },
+          "initials": {
+            "description": "Initials of the member.",
+            "title": "Initials",
+            "type": "string"
+          },
+          "memberType": {
+            "description": "Type of member. Possible values: 'normal', 'admin', 'ghost'.",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "products": {
+            "description": "Array of product IDs the member has access to.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "status": {
+            "description": "Status of the member account.",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to the member's Trello profile.",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the member.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "Member",
+        "type": "object"
+      },
+      "Membership": {
+        "description": "Board membership object representing a user's role and permissions on a board.",
+        "properties": {
+          "deactivated": {
+            "description": "Whether the membership/member account is deactivated or inactive.",
+            "title": "Deactivated",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the membership record. 24-character hexadecimal string.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "The ID of the member associated with this membership.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "member": {
+            "$ref": "#/$defs/Member",
+            "description": "Nested member object. Only included when the 'member' query parameter is set to true.",
+            "title": "Member"
+          },
+          "memberType": {
+            "description": "The type of membership/role. Possible values: 'admin', 'normal', 'observer'.",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "unconfirmed": {
+            "description": "Whether the membership is unconfirmed (pending confirmation).",
+            "title": "Unconfirmed",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "idMember", "memberType", "unconfirmed", "deactivated"],
+        "title": "Membership",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBoardsMembershipsByIdBoardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

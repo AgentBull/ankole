@@ -1,0 +1,251 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve details of a specific Stripe refund by ID. Use when you need to get information about an existing refund.",
+  "inputSchema": {
+    "description": "Request parameters for retrieving a refund.",
+    "properties": {
+      "refund": {
+        "description": "The unique identifier for the refund to retrieve. This ID typically starts with 're_'.",
+        "examples": ["re_3ShVc9QvM72TjFrb1K7arMeK", "re_1Nispe2eZvKYlo2Cd31jOCgZ"],
+        "title": "Refund",
+        "type": "string"
+      }
+    },
+    "required": ["refund"],
+    "title": "GetRefundsRefundRequest",
+    "type": "object"
+  },
+  "name": "get_refunds_refund",
+  "outputSchema": {
+    "$defs": {
+      "CardDetails": {
+        "description": "Card-specific refund destination details.",
+        "properties": {
+          "network_decline_code": {
+            "description": "Network decline code indicating why the refund failed.",
+            "title": "Network Decline Code",
+            "type": "string"
+          },
+          "reference": {
+            "description": "Assigned reference identifier for the card refund.",
+            "title": "Reference",
+            "type": "string"
+          },
+          "reference_status": {
+            "description": "Status of the reference. Possible values: pending, available, unavailable.",
+            "title": "Reference Status",
+            "type": "string"
+          },
+          "reference_type": {
+            "description": "Type identifier for the reference.",
+            "title": "Reference Type",
+            "type": "string"
+          }
+        },
+        "title": "CardDetails",
+        "type": "object"
+      },
+      "DestinationDetails": {
+        "description": "Transaction-specific details for the refund.",
+        "properties": {
+          "card": {
+            "$ref": "#/$defs/CardDetails",
+            "description": "Card-specific destination data if type is 'card'.",
+            "title": "Card"
+          },
+          "type": {
+            "description": "The destination type for the refund (e.g., 'card').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "DestinationDetails",
+        "type": "object"
+      },
+      "DisplayDetails": {
+        "description": "Refund details for user display when action is required.",
+        "properties": {
+          "email_sent": {
+            "$ref": "#/$defs/EmailSent",
+            "title": "Email Sent"
+          },
+          "expires_at": {
+            "description": "Unix timestamp indicating when the refund action expires.",
+            "title": "Expires At",
+            "type": "integer"
+          }
+        },
+        "required": ["email_sent", "expires_at"],
+        "title": "DisplayDetails",
+        "type": "object"
+      },
+      "EmailSent": {
+        "description": "Information about the notification email sent to customer.",
+        "properties": {
+          "email_sent_at": {
+            "description": "Unix timestamp indicating when the notification email was sent.",
+            "title": "Email Sent At",
+            "type": "integer"
+          },
+          "email_sent_to": {
+            "description": "Email address to which the notification was sent.",
+            "title": "Email Sent To",
+            "type": "string"
+          }
+        },
+        "required": ["email_sent_at", "email_sent_to"],
+        "title": "EmailSent",
+        "type": "object"
+      },
+      "GetRefundsRefundResponse": {
+        "description": "Response containing detailed information about the refund.",
+        "properties": {
+          "amount": {
+            "description": "Amount refunded in the smallest currency unit (e.g., cents for USD).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "balance_transaction": {
+            "description": "Balance transaction ID that describes the impact on your account balance.",
+            "title": "Balance Transaction",
+            "type": "string"
+          },
+          "charge": {
+            "description": "ID of the charge that was refunded.",
+            "title": "Charge",
+            "type": "string"
+          },
+          "created": {
+            "description": "Unix timestamp indicating when the object was created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase (e.g., 'usd').",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the object (non-card refunds only).",
+            "title": "Description",
+            "type": "string"
+          },
+          "destination_details": {
+            "$ref": "#/$defs/DestinationDetails",
+            "description": "Transaction-specific details for the refund.",
+            "title": "Destination Details"
+          },
+          "failure_balance_transaction": {
+            "description": "Balance transaction ID describing the adjustment after refund failure.",
+            "title": "Failure Balance Transaction",
+            "type": "string"
+          },
+          "failure_reason": {
+            "description": "Reason for refund failure. Possible values: lost_or_stolen_card, expired_or_canceled_card, charge_for_pending_refund_disputed, insufficient_funds, declined, merchant_request, unknown.",
+            "title": "Failure Reason",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the refund object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "instructions_email": {
+            "description": "Email address for refund instructions on payment methods without native refund support.",
+            "title": "Instructions Email",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "next_action": {
+            "$ref": "#/$defs/NextAction",
+            "description": "Properties describing required actions when status is 'requires_action'.",
+            "title": "Next Action"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'refund'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "payment_intent": {
+            "description": "ID of the PaymentIntent that was refunded.",
+            "title": "Payment Intent",
+            "type": "string"
+          },
+          "pending_reason": {
+            "description": "Reason refund is pending. Possible values: processing, insufficient_funds, charge_pending.",
+            "title": "Pending Reason",
+            "type": "string"
+          },
+          "reason": {
+            "description": "User-provided or Stripe-generated refund reason. Possible values: duplicate, fraudulent, requested_by_customer, expired_uncaptured_charge.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "receipt_number": {
+            "description": "Transaction number that appears on email receipts sent for this refund.",
+            "title": "Receipt Number",
+            "type": "string"
+          },
+          "source_transfer_reversal": {
+            "description": "The transfer reversal that's associated with the refund.",
+            "title": "Source Transfer Reversal",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current status of the refund. Possible values: pending, requires_action, succeeded, failed, canceled.",
+            "title": "Status",
+            "type": "string"
+          },
+          "transfer_reversal": {
+            "description": "Transfer reversal object if the accompanying transfer reverses.",
+            "title": "Transfer Reversal",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "amount", "created", "currency"],
+        "title": "GetRefundsRefundResponse",
+        "type": "object"
+      },
+      "NextAction": {
+        "description": "Properties describing required next actions when status is 'requires_action'.",
+        "properties": {
+          "display_details": {
+            "$ref": "#/$defs/DisplayDetails",
+            "description": "Refund details for user display when action is required.",
+            "title": "Display Details"
+          },
+          "type": {
+            "description": "Type of the next action required (e.g., 'display_details').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "NextAction",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRefundsRefundResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

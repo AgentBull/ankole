@@ -1,0 +1,551 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new Trello board; the 'name' parameter is required for creation, and various preferences can be customized or cloned from a source board.",
+  "inputSchema": {
+    "description": "Request schema for `AddBoards`",
+    "properties": {
+      "closed": {
+        "description": "Whether the board should be immediately archived (closed).",
+        "examples": ["true", "false"],
+        "title": "Closed",
+        "type": "string"
+      },
+      "desc": {
+        "description": "Description for the Trello board (0-16384 characters).",
+        "examples": ["Project tasks for Q4", "Marketing campaign planning"],
+        "title": "Desc",
+        "type": "string"
+      },
+      "idBoardSource": {
+        "description": "ID of an existing Trello board to use as a template.",
+        "examples": ["5f2f890c8c7f0f0013e1a3b1"],
+        "title": "Id Board Source",
+        "type": "string"
+      },
+      "idOrganization": {
+        "description": "ID or name of the Trello Workspace (formerly Organization) for this board.",
+        "examples": ["myworkspace", "60a7e5b07f8d8e001b2a1b9c"],
+        "title": "Id Organization",
+        "type": "string"
+      },
+      "keepFromSource": {
+        "description": "Components to copy if 'idBoardSource' is used (e.g., 'cards,labels', 'all'; valid: 'cards', 'lists', 'checklists', 'stickers', 'members', 'customFields', 'prefs', 'labels').",
+        "examples": ["cards,labels", "all", "lists,checklists"],
+        "title": "Keep From Source",
+        "type": "string"
+      },
+      "labelNames__blue": {
+        "description": "Name for the blue label (0-16384 characters); corresponds to API parameter 'labelNames/blue'.",
+        "examples": ["Critical Bug"],
+        "title": "Label Names  Blue",
+        "type": "string"
+      },
+      "labelNames__green": {
+        "description": "Name for the green label (0-16384 characters); corresponds to API parameter 'labelNames/green'.",
+        "examples": ["Approved"],
+        "title": "Label Names  Green",
+        "type": "string"
+      },
+      "labelNames__orange": {
+        "description": "Name for the orange label (0-16384 characters); corresponds to API parameter 'labelNames/orange'.",
+        "examples": ["Needs Review"],
+        "title": "Label Names  Orange",
+        "type": "string"
+      },
+      "labelNames__purple": {
+        "description": "Name for the purple label (0-16384 characters); corresponds to API parameter 'labelNames/purple'.",
+        "examples": ["Feature Request"],
+        "title": "Label Names  Purple",
+        "type": "string"
+      },
+      "labelNames__red": {
+        "description": "Name for the red label (0-16384 characters); corresponds to API parameter 'labelNames/red'.",
+        "examples": ["Blocked"],
+        "title": "Label Names  Red",
+        "type": "string"
+      },
+      "labelNames__yellow": {
+        "description": "Name for the yellow label (0-16384 characters); corresponds to API parameter 'labelNames/yellow'.",
+        "examples": ["Low Priority"],
+        "title": "Label Names  Yellow",
+        "type": "string"
+      },
+      "name": {
+        "description": "Name for the new Trello board (1-16384 characters). This field is required for board creation.",
+        "examples": ["New Project Board", "Team Roadmap"],
+        "title": "Name",
+        "type": "string"
+      },
+      "powerUps": {
+        "description": "Power-Ups to enable (e.g., 'calendar,voting', 'all'; valid: 'calendar', 'cardAging', 'recap', 'voting').",
+        "examples": ["calendar,voting", "cardAging", "all"],
+        "title": "Power Ups",
+        "type": "string"
+      },
+      "prefs__background": {
+        "description": "Board background (standard name like 'blue', 'pink', or custom ID); corresponds to API parameter 'prefs/background'.",
+        "examples": ["blue", "pink", "custom_background_id_123"],
+        "title": "Prefs  Background",
+        "type": "string"
+      },
+      "prefs__calendarFeedEnabled": {
+        "description": "Whether the calendar feed is enabled; corresponds to API parameter 'prefs/calendarFeedEnabled'.",
+        "examples": ["true", "false"],
+        "title": "Prefs  Calendar Feed Enabled",
+        "type": "string"
+      },
+      "prefs__cardAging": {
+        "description": "Card aging style ('pirate' or 'regular'); corresponds to API parameter 'prefs/cardAging'.",
+        "examples": ["pirate", "regular"],
+        "title": "Prefs  Card Aging",
+        "type": "string"
+      },
+      "prefs__cardCovers": {
+        "description": "Whether card covers are shown; corresponds to API parameter 'prefs/cardCovers'.",
+        "examples": ["true", "false"],
+        "title": "Prefs  Card Covers",
+        "type": "string"
+      },
+      "prefs__comments": {
+        "description": "Who can comment on cards ('disabled', 'members', 'observers', 'org', 'public'); corresponds to API parameter 'prefs/comments'.",
+        "examples": ["members", "org"],
+        "title": "Prefs  Comments",
+        "type": "string"
+      },
+      "prefs__invitations": {
+        "description": "Who can invite to the board ('admins' or 'members'); corresponds to API parameter 'prefs/invitations'.",
+        "examples": ["admins", "members"],
+        "title": "Prefs  Invitations",
+        "type": "string"
+      },
+      "prefs__permissionLevel": {
+        "description": "Board visibility and permission level ('org', 'private', 'public'); corresponds to API parameter 'prefs/permissionLevel'.",
+        "examples": ["private", "org", "public"],
+        "title": "Prefs  Permission Level",
+        "type": "string"
+      },
+      "prefs__selfJoin": {
+        "description": "Whether Workspace members can join the board themselves; corresponds to API parameter 'prefs/selfJoin'.",
+        "examples": ["true", "false"],
+        "title": "Prefs  Self Join",
+        "type": "string"
+      },
+      "prefs__voting": {
+        "description": "Who can vote on cards ('disabled', 'members', 'observers', 'org', 'public'); corresponds to API parameter 'prefs/voting'.",
+        "examples": ["members", "disabled"],
+        "title": "Prefs  Voting",
+        "type": "string"
+      },
+      "prefs_background": {
+        "description": "Board background (standard name, custom ID, or hex code; 0-16384 characters); corresponds to API parameter 'prefs_background'.",
+        "examples": ["green", "custom_bg_id_456", "#0079BF"],
+        "title": "Prefs Background",
+        "type": "string"
+      },
+      "prefs_cardAging": {
+        "description": "Card aging style ('pirate' or 'regular'); corresponds to API parameter 'prefs_cardAging'.",
+        "examples": ["pirate", "regular"],
+        "title": "Prefs Card Aging",
+        "type": "string"
+      },
+      "prefs_cardCovers": {
+        "description": "Whether card covers are shown; corresponds to API parameter 'prefs_cardCovers'.",
+        "examples": ["true", "false"],
+        "title": "Prefs Card Covers",
+        "type": "string"
+      },
+      "prefs_comments": {
+        "description": "Who can comment on cards ('disabled', 'members', 'observers', 'org', 'public'); corresponds to API parameter 'prefs_comments'.",
+        "examples": ["disabled", "public"],
+        "title": "Prefs Comments",
+        "type": "string"
+      },
+      "prefs_invitations": {
+        "description": "Who can invite to the board ('admins' or 'members'); corresponds to API parameter 'prefs_invitations'.",
+        "examples": ["admins", "members"],
+        "title": "Prefs Invitations",
+        "type": "string"
+      },
+      "prefs_permissionLevel": {
+        "description": "Board visibility and permission level ('org', 'private', 'public'); corresponds to API parameter 'prefs_permissionLevel'.",
+        "examples": ["org", "private"],
+        "title": "Prefs Permission Level",
+        "type": "string"
+      },
+      "prefs_selfJoin": {
+        "description": "Whether Workspace members can join the board themselves; corresponds to API parameter 'prefs_selfJoin'.",
+        "examples": ["false", "true"],
+        "title": "Prefs Self Join",
+        "type": "string"
+      },
+      "prefs_voting": {
+        "description": "Who can vote on cards ('disabled', 'members', 'observers', 'org', 'public'); corresponds to API parameter 'prefs_voting'.",
+        "examples": ["observers", "public"],
+        "title": "Prefs Voting",
+        "type": "string"
+      },
+      "subscribed": {
+        "description": "Whether the creator is automatically subscribed to the board.",
+        "examples": ["true", "false"],
+        "title": "Subscribed",
+        "type": "string"
+      }
+    },
+    "title": "AddBoardsRequest",
+    "type": "object"
+  },
+  "name": "add_boards",
+  "outputSchema": {
+    "$defs": {
+      "AddBoardsResponse": {
+        "description": "Response schema for `AddBoards`",
+        "properties": {
+          "closed": {
+            "description": "Boolean whether the board has been closed (archived) or not",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "dateLastActivity": {
+            "description": "Last activity timestamp on the board (date format)",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "dateLastView": {
+            "description": "Last time the board was viewed (date format)",
+            "title": "Date Last View",
+            "type": "string"
+          },
+          "desc": {
+            "description": "The description of the board (0-16384 characters)",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "description": "If the description includes custom emoji, this contains the data necessary to display them",
+            "title": "Desc Data",
+            "type": "string"
+          },
+          "enterpriseOwned": {
+            "description": "Whether the board is owned by an Enterprise",
+            "title": "Enterprise Owned",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the board (TrelloID pattern: ^[0-9a-fA-F]{24}$)",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "MongoID of the member that created the board",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "idOrganization": {
+            "description": "MongoID of the organization (workspace) to which the board belongs",
+            "title": "Id Organization",
+            "type": "string"
+          },
+          "labelNames": {
+            "$ref": "#/$defs/LabelNames",
+            "description": "Object containing color keys and the label names given for one label of each color on the board",
+            "title": "Label Names"
+          },
+          "limits": {
+            "$ref": "#/$defs/BoardLimits",
+            "description": "An object containing information on the limits that exist for the board",
+            "title": "Limits"
+          },
+          "memberships": {
+            "description": "Array of objects that represent the relationship of users to this board as memberships",
+            "items": {},
+            "title": "Memberships",
+            "type": "array"
+          },
+          "name": {
+            "description": "The name of the board",
+            "title": "Name",
+            "type": "string"
+          },
+          "pinned": {
+            "description": "Boolean whether the board has been pinned or not",
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "powerUps": {
+            "description": "Enabled Power-Ups on the board",
+            "title": "Power Ups",
+            "type": "string"
+          },
+          "prefs": {
+            "$ref": "#/$defs/BoardPrefs",
+            "description": "Short for 'preferences', these are the settings for the board",
+            "title": "Prefs"
+          },
+          "shortLink": {
+            "description": "Short identifier for the board",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "URL for the board using only its shortMongoID",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "starred": {
+            "description": "Whether the board has been starred by the current request's user",
+            "title": "Starred",
+            "type": "boolean"
+          },
+          "subscribed": {
+            "description": "Whether the user is subscribed to the board",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "Persistent URL for the board",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "AddBoardsResponse",
+        "type": "object"
+      },
+      "AttachmentLimits": {
+        "description": "Attachment limits",
+        "properties": {
+          "perBoard": {
+            "$ref": "#/$defs/AttachmentLimitsPerBoard",
+            "description": "Per-board attachment limits",
+            "title": "Per Board"
+          }
+        },
+        "title": "AttachmentLimits",
+        "type": "object"
+      },
+      "AttachmentLimitsPerBoard": {
+        "description": "Per-board attachment limits",
+        "properties": {
+          "disableAt": {
+            "description": "Threshold where clients stop allowing additions",
+            "title": "Disable At",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Limit status: 'ok' or 'warning'",
+            "title": "Status",
+            "type": "string"
+          },
+          "warnAt": {
+            "description": "Threshold where clients begin warning users",
+            "title": "Warn At",
+            "type": "integer"
+          }
+        },
+        "title": "AttachmentLimitsPerBoard",
+        "type": "object"
+      },
+      "BoardLimits": {
+        "description": "Board limits information",
+        "properties": {
+          "attachments": {
+            "$ref": "#/$defs/AttachmentLimits",
+            "description": "Attachment limits",
+            "title": "Attachments"
+          }
+        },
+        "title": "BoardLimits",
+        "type": "object"
+      },
+      "BoardPrefs": {
+        "description": "Board preferences settings",
+        "properties": {
+          "background": {
+            "description": "Custom background ID (TrelloID)",
+            "title": "Background",
+            "type": "string"
+          },
+          "backgroundBottomColor": {
+            "description": "Bottom background color hex code",
+            "title": "Background Bottom Color",
+            "type": "string"
+          },
+          "backgroundBrightness": {
+            "description": "Brightness level (e.g., 'dark', 'light')",
+            "title": "Background Brightness",
+            "type": "string"
+          },
+          "backgroundImage": {
+            "description": "Background image URL",
+            "title": "Background Image",
+            "type": "string"
+          },
+          "backgroundImageScaled": {
+            "description": "Array of scaled background image descriptors",
+            "items": {},
+            "title": "Background Image Scaled",
+            "type": "array"
+          },
+          "backgroundTile": {
+            "description": "Whether background tiles",
+            "title": "Background Tile",
+            "type": "boolean"
+          },
+          "backgroundTopColor": {
+            "description": "Top background color hex code",
+            "title": "Background Top Color",
+            "type": "string"
+          },
+          "calendarFeedEnabled": {
+            "description": "Whether calendar feed is active",
+            "title": "Calendar Feed Enabled",
+            "type": "boolean"
+          },
+          "canBeEnterprise": {
+            "description": "Whether the board can be enterprise",
+            "title": "Can Be Enterprise",
+            "type": "boolean"
+          },
+          "canBeOrg": {
+            "description": "Whether the board can be organization-level",
+            "title": "Can Be Org",
+            "type": "boolean"
+          },
+          "canBePrivate": {
+            "description": "Whether the board can be private",
+            "title": "Can Be Private",
+            "type": "boolean"
+          },
+          "canBePublic": {
+            "description": "Whether the board can be made public",
+            "title": "Can Be Public",
+            "type": "boolean"
+          },
+          "canInvite": {
+            "description": "Whether invitations are allowed",
+            "title": "Can Invite",
+            "type": "boolean"
+          },
+          "cardAging": {
+            "description": "Card aging style: 'pirate' or 'regular'",
+            "title": "Card Aging",
+            "type": "string"
+          },
+          "cardCovers": {
+            "description": "Whether card covers are displayed",
+            "title": "Card Covers",
+            "type": "boolean"
+          },
+          "comments": {
+            "description": "Comment permission settings (e.g., 'members', 'org', 'public')",
+            "title": "Comments",
+            "type": "string"
+          },
+          "hideVotes": {
+            "description": "Whether voting visibility is hidden",
+            "title": "Hide Votes",
+            "type": "boolean"
+          },
+          "invitations": {
+            "description": "Who can invite to the board: 'admins' or 'members'",
+            "title": "Invitations",
+            "type": "string"
+          },
+          "isTemplate": {
+            "description": "Whether the board is a template",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "permissionLevel": {
+            "description": "Board permission level: 'org' or 'board'",
+            "title": "Permission Level",
+            "type": "string"
+          },
+          "selfJoin": {
+            "description": "Whether users can self-join the board without invitation",
+            "title": "Self Join",
+            "type": "boolean"
+          },
+          "voting": {
+            "description": "Voting permissions: 'disabled' or 'enabled'",
+            "title": "Voting",
+            "type": "string"
+          }
+        },
+        "title": "BoardPrefs",
+        "type": "object"
+      },
+      "LabelNames": {
+        "description": "Label names for board colors",
+        "properties": {
+          "black": {
+            "description": "Label name for black color",
+            "title": "Black",
+            "type": "string"
+          },
+          "blue": {
+            "description": "Label name for blue color",
+            "title": "Blue",
+            "type": "string"
+          },
+          "green": {
+            "description": "Label name for green color",
+            "title": "Green",
+            "type": "string"
+          },
+          "lime": {
+            "description": "Label name for lime color",
+            "title": "Lime",
+            "type": "string"
+          },
+          "orange": {
+            "description": "Label name for orange color",
+            "title": "Orange",
+            "type": "string"
+          },
+          "pink": {
+            "description": "Label name for pink color",
+            "title": "Pink",
+            "type": "string"
+          },
+          "purple": {
+            "description": "Label name for purple color",
+            "title": "Purple",
+            "type": "string"
+          },
+          "red": {
+            "description": "Label name for red color",
+            "title": "Red",
+            "type": "string"
+          },
+          "sky": {
+            "description": "Label name for sky color",
+            "title": "Sky",
+            "type": "string"
+          },
+          "yellow": {
+            "description": "Label name for yellow color",
+            "title": "Yellow",
+            "type": "string"
+          }
+        },
+        "title": "LabelNames",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddBoardsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

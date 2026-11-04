@@ -1,0 +1,292 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List incidents linked to a problem ticket in Zendesk. Use when you need to retrieve all incident tickets that share the same root cause as a problem ticket. Incidents are tickets of type 'incident' that are related to a problem ticket via the problem_id field. Supports both offset and cursor-based pagination.",
+  "inputSchema": {
+    "description": "Request parameters for listing ticket incidents in Zendesk.",
+    "properties": {
+      "page": {
+        "description": "Page number for offset pagination (starts at 1). Cannot be used with cursor pagination.",
+        "examples": [1],
+        "human_parameter_description": "Which page of results you want to view. Start at 1 and increase to browse through more incidents.",
+        "human_parameter_name": "Page Number",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "page_after": {
+        "description": "Cursor value to retrieve the next page of results. Obtained from previous response's next link or cursor.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from the previous page to get the next set of results in cursor-based pagination.",
+        "human_parameter_name": "After Cursor",
+        "title": "Page After",
+        "type": "string"
+      },
+      "page_before": {
+        "description": "Cursor value to retrieve the previous page of results. Obtained from previous response's prev link or cursor.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from the previous page to get the previous set of results in cursor-based pagination.",
+        "human_parameter_name": "Before Cursor",
+        "title": "Page Before",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Number of incidents per page for cursor pagination (max 100). Use with page_after or page_before for large datasets.",
+        "examples": [50],
+        "human_parameter_description": "Number of incidents per page using cursor-based pagination. Recommended for large datasets.",
+        "human_parameter_name": "Page Size (Cursor)",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of incidents to return per page (max 100). Cannot be used with cursor pagination.",
+        "examples": [25],
+        "human_parameter_description": "How many incidents to show on each page. You can choose up to 100; smaller numbers can make pages load faster.",
+        "human_parameter_name": "Incidents Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "ticket_id": {
+        "description": "The ID of the problem ticket to list incidents for. Incidents are tickets of type 'incident' that are linked to this problem ticket.",
+        "examples": [123456],
+        "human_parameter_description": "The ID of the problem ticket whose related incidents you want to retrieve. You can find this ID in the ticket URL or from a ticket list.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "GetTicketIncidentsRequest",
+    "type": "object"
+  },
+  "name": "get_ticket_incidents",
+  "outputSchema": {
+    "$defs": {
+      "GetTicketIncidentsResponse": {
+        "description": "Response containing list of Zendesk ticket incidents with pagination metadata.",
+        "properties": {
+          "count": {
+            "description": "Total count of incidents (offset pagination only)",
+            "title": "Count",
+            "type": "integer"
+          },
+          "incidents": {
+            "description": "List of incident tickets linked to the problem ticket",
+            "items": {
+              "$ref": "#/$defs/ZendeskIncidentTicket"
+            },
+            "title": "Incidents",
+            "type": "array"
+          },
+          "links": {
+            "$ref": "#/$defs/PaginationLinks",
+            "description": "Pagination links (cursor pagination)",
+            "title": "Links"
+          },
+          "meta": {
+            "$ref": "#/$defs/PaginationMeta",
+            "description": "Pagination metadata (cursor pagination)",
+            "title": "Meta"
+          },
+          "next_page": {
+            "description": "URL for next page of results (offset pagination)",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results (offset pagination)",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["incidents"],
+        "title": "GetTicketIncidentsResponse",
+        "type": "object"
+      },
+      "PaginationLinks": {
+        "description": "Pagination links for cursor-based navigation.",
+        "properties": {
+          "next": {
+            "description": "URL for the next page of results",
+            "title": "Next",
+            "type": "string"
+          },
+          "prev": {
+            "description": "URL for the previous page of results",
+            "title": "Prev",
+            "type": "string"
+          }
+        },
+        "title": "PaginationLinks",
+        "type": "object"
+      },
+      "PaginationMeta": {
+        "description": "Pagination metadata for cursor-based navigation.",
+        "properties": {
+          "after_cursor": {
+            "description": "Cursor value for retrieving the next page",
+            "title": "After Cursor",
+            "type": "string"
+          },
+          "before_cursor": {
+            "description": "Cursor value for retrieving the previous page",
+            "title": "Before Cursor",
+            "type": "string"
+          },
+          "has_more": {
+            "description": "True if more records exist beyond the current page",
+            "title": "Has More",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginationMeta",
+        "type": "object"
+      },
+      "ZendeskIncidentTicket": {
+        "description": "Zendesk incident ticket object returned by the incidents endpoint.",
+        "properties": {
+          "assignee_id": {
+            "description": "ID of the assigned agent",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "created_at": {
+            "description": "Ticket creation timestamp (ISO 8601)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "Custom field values",
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "description": {
+            "description": "Incident ticket description",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "description": "Due date for the incident in ISO 8601 format",
+            "title": "Due At",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External ID linking to records in another system",
+            "title": "External Id",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "ID of the assigned group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique incident ticket ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "ID of the requester's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Ticket priority (urgent, high, normal, low)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "problem_id": {
+            "description": "ID of the problem ticket this incident is linked to",
+            "title": "Problem Id",
+            "type": "integer"
+          },
+          "requester_id": {
+            "description": "ID of the user who requested the incident ticket",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Ticket status (new, open, pending, hold, solved, closed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Incident ticket subject",
+            "title": "Subject",
+            "type": "string"
+          },
+          "tags": {
+            "description": "List of ticket tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "description": "Ticket type (always 'incident' for this endpoint)",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Ticket last update timestamp (ISO 8601)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the ticket",
+            "title": "Url",
+            "type": "string"
+          },
+          "via_followup_source_id": {
+            "description": "ID of the source ticket if this is a follow-up",
+            "title": "Via Followup Source Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "status", "requester_id", "created_at", "updated_at", "url"],
+        "title": "ZendeskIncidentTicket",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTicketIncidentsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

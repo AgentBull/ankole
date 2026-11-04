@@ -1,0 +1,161 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a specific Calendly organization membership by its UUID, returning all its attributes.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a specific organization membership.",
+    "properties": {
+      "uuid": {
+        "description": "The unique identifier (UUID) of the organization membership to retrieve.",
+        "examples": ["123e4567-e89b-12d3-a456-426614174000"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "GetOrganizationMembershipRequest",
+    "type": "object"
+  },
+  "name": "get_organization_membership",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationMembershipResponse": {
+        "description": "Response schema containing the full organization membership object.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/OrganizationMembershipResource",
+            "description": "The organization membership resource object",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "GetOrganizationMembershipResponse",
+        "type": "object"
+      },
+      "OrganizationMembershipResource": {
+        "description": "The organization membership resource object.",
+        "properties": {
+          "createdAt": {
+            "description": "Timestamp when the organization membership was established (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "organization": {
+            "description": "URI reference to the organization",
+            "title": "Organization",
+            "type": "string"
+          },
+          "role": {
+            "description": "User's role within the organization. Possible values: 'owner', 'admin', 'user'",
+            "title": "Role",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "Timestamp of the most recent modification to the organization membership (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the organization membership",
+            "title": "Uri",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Complete user information for the organization member",
+            "title": "User"
+          }
+        },
+        "required": ["uri", "role", "user", "organization", "createdAt", "updatedAt"],
+        "title": "OrganizationMembershipResource",
+        "type": "object"
+      },
+      "User": {
+        "description": "Complete user information for the organization member.",
+        "properties": {
+          "avatarUrl": {
+            "description": "URL to the user's profile avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "Timestamp when the user account was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currentOrganization": {
+            "description": "URI of the organization the user currently belongs to",
+            "title": "Current Organization",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address of the user",
+            "title": "Email",
+            "type": "string"
+          },
+          "locale": {
+            "description": "User's language and regional settings (e.g., 'en')",
+            "title": "Locale",
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name of the user",
+            "title": "Name",
+            "type": "string"
+          },
+          "resourceType": {
+            "description": "Type identifier for the resource, set to 'User'",
+            "title": "Resource Type",
+            "type": "string"
+          },
+          "schedulingUrl": {
+            "description": "Public URL for the user's Calendly scheduling page",
+            "title": "Scheduling Url",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly username used in the user's scheduling page URL",
+            "title": "Slug",
+            "type": "string"
+          },
+          "timeNotation": {
+            "description": "User's time format preference. Possible values: '12h' (12-hour format), '24h' (24-hour format)",
+            "title": "Time Notation",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "User's timezone (e.g., 'America/New_York')",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "Timestamp when the user account was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the user",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "name", "slug", "email", "schedulingUrl", "timezone", "createdAt", "updatedAt"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationMembershipResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

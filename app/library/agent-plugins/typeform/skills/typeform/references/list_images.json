@@ -1,0 +1,63 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve all images in your Typeform account in reverse-chronological order. Use when you need to list or browse available images.",
+  "inputSchema": {
+    "properties": {},
+    "title": "TypeformListImagesRequest",
+    "type": "object"
+  },
+  "name": "list_images",
+  "outputSchema": {
+    "$defs": {
+      "ImageItem": {
+        "properties": {
+          "file_name": {
+            "description": "Name of the image file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the image",
+            "title": "Id",
+            "type": "string"
+          },
+          "src": {
+            "description": "Source URL of the image",
+            "title": "Src",
+            "type": "string"
+          }
+        },
+        "title": "ImageItem",
+        "type": "object"
+      },
+      "TypeformListImagesResponse": {
+        "properties": {
+          "images": {
+            "description": "List of images in reverse-chronological order",
+            "items": {
+              "$ref": "#/$defs/ImageItem"
+            },
+            "title": "Images",
+            "type": "array"
+          }
+        },
+        "title": "TypeformListImagesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/TypeformListImagesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

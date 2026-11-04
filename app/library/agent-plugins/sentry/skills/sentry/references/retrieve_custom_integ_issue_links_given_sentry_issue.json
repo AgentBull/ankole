@@ -1,0 +1,84 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves all external issue links for a Sentry issue. Returns connections between the Sentry issue and external tracking systems (e.g., Jira, GitHub Issues, Linear, GitLab, Asana) created through custom integrations or Sentry Apps. Use this to see what external tickets or issues are linked to a Sentry error.",
+  "inputSchema": {
+    "description": "Request schema for retrieving custom integration issue links for a given Sentry issue.",
+    "properties": {
+      "issue_id": {
+        "description": "The numeric ID of the Sentry issue to retrieve external issue links for. This is the numeric issue ID, not the short ID (e.g., use 7233953621, not 'PROJECT-123').",
+        "examples": [7233953621, 6942006846, 1234567890],
+        "title": "Issue Id",
+        "type": "integer"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["example", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "issue_id"],
+    "title": "RetrieveCustomIntegrationIssueLinksForTheGivenSentryIssueRequest",
+    "type": "object"
+  },
+  "name": "retrieve_custom_integ_issue_links_given_sentry_issue",
+  "outputSchema": {
+    "$defs": {
+      "ExternalIssueItem": {
+        "description": "Schema for a single external issue link.",
+        "properties": {
+          "displayName": {
+            "description": "Human-readable display name of the external issue",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the external issue link",
+            "title": "Id",
+            "type": "string"
+          },
+          "issueId": {
+            "description": "ID of the Sentry issue (group) that this external issue is linked to",
+            "title": "Issue Id",
+            "type": "string"
+          },
+          "serviceType": {
+            "description": "Type of external service (e.g., jira, github, linear)",
+            "title": "Service Type",
+            "type": "string"
+          },
+          "webUrl": {
+            "description": "URL of the external issue in the external service",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "issueId", "serviceType", "displayName", "webUrl"],
+        "title": "ExternalIssueItem",
+        "type": "object"
+      },
+      "RetrieveCustomIntegrationIssueLinksForTheGivenSentryIssueResponse": {
+        "description": "List of custom integration issue links for the given Sentry issue.",
+        "items": {
+          "$ref": "#/$defs/ExternalIssueItem"
+        },
+        "title": "RetrieveCustomIntegrationIssueLinksForTheGivenSentryIssueResponse",
+        "type": "array"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveCustomIntegrationIssueLinksForTheGivenSentryIssueResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

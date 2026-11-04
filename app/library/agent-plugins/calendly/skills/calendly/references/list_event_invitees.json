@@ -1,0 +1,379 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of invitees for a specified Calendly event UUID, with options to filter by status or email, and sort by creation time.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a list of invitees for a specific event.",
+    "properties": {
+      "count": {
+        "default": 20,
+        "description": "The number of invitees to return per page. Default is 20.",
+        "title": "Count",
+        "type": "integer"
+      },
+      "email": {
+        "description": "Filter results by a specific invitee's email address.",
+        "examples": ["invitee@example.com"],
+        "title": "Email",
+        "type": "string"
+      },
+      "page_token": {
+        "description": "A token to retrieve the next or previous page of results in a paginated collection.",
+        "title": "Page Token",
+        "type": "string"
+      },
+      "sort": {
+        "default": "created_at:asc",
+        "description": "Order results by the `created_at` field; use 'created_at:asc' for ascending or 'created_at:desc' for descending.",
+        "examples": ["created_at:asc", "created_at:desc"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "status": {
+        "description": "Filter invitees by their status. Can be 'active' or 'canceled'.",
+        "enum": ["active", "canceled"],
+        "examples": ["active", "canceled"],
+        "title": "StatusEnm",
+        "type": "string"
+      },
+      "uuid": {
+        "description": "The unique identifier (UUID) of the event for which to list invitees.",
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "ListEventInviteesRequest",
+    "type": "object"
+  },
+  "name": "list_event_invitees",
+  "outputSchema": {
+    "$defs": {
+      "Cancellation": {
+        "description": "Data pertaining to the cancellation of the event.",
+        "properties": {
+          "canceled_by": {
+            "description": "Identifies who canceled the meeting (user or invitee).",
+            "title": "Canceled By",
+            "type": "string"
+          },
+          "canceler_type": {
+            "description": "Type of canceler. Possible values: 'host', 'invitee'.",
+            "title": "Canceler Type",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the cancellation occurred.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "reason": {
+            "description": "The textual reason provided by the canceler.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "Cancellation",
+        "type": "object"
+      },
+      "Invitee": {
+        "description": "Represents an invitee for a scheduled event.",
+        "properties": {
+          "cancel_url": {
+            "description": "URL to cancel the scheduled event.",
+            "title": "Cancel Url",
+            "type": "string"
+          },
+          "canceled": {
+            "description": "Indicates whether the invitee has been canceled.",
+            "title": "Canceled",
+            "type": "boolean"
+          },
+          "cancellation": {
+            "$ref": "#/$defs/Cancellation",
+            "description": "Data pertaining to the cancellation of the event.",
+            "title": "Cancellation"
+          },
+          "created_at": {
+            "description": "Timestamp when the invitee record was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "The invitee's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "event": {
+            "description": "Reference (URI) to the associated scheduled event.",
+            "title": "Event",
+            "type": "string"
+          },
+          "first_name": {
+            "description": "The invitee's first name.",
+            "title": "First Name",
+            "type": "string"
+          },
+          "last_name": {
+            "description": "The invitee's last name.",
+            "title": "Last Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "The invitee's full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "new_invitee": {
+            "description": "Reference (URI) to the new invitee if the event was rescheduled.",
+            "title": "New Invitee",
+            "type": "string"
+          },
+          "no_show": {
+            "$ref": "#/$defs/NoShow",
+            "description": "Data pertaining to the associated no-show for the invitee.",
+            "title": "No Show"
+          },
+          "old_invitee": {
+            "description": "Reference (URI) to the previous invitee if the event was rescheduled.",
+            "title": "Old Invitee",
+            "type": "string"
+          },
+          "payment": {
+            "additionalProperties": true,
+            "description": "Payment information associated with the scheduled event.",
+            "title": "Payment",
+            "type": "object"
+          },
+          "questions_and_answers": {
+            "description": "List of custom questions and the invitee's answers.",
+            "items": {
+              "$ref": "#/$defs/QuestionAndAnswer"
+            },
+            "title": "Questions And Answers",
+            "type": "array"
+          },
+          "reconfirmation": {
+            "$ref": "#/$defs/Reconfirmation",
+            "description": "Reconfirmation data for the scheduled event.",
+            "title": "Reconfirmation"
+          },
+          "reschedule_url": {
+            "description": "URL to reschedule the event.",
+            "title": "Reschedule Url",
+            "type": "string"
+          },
+          "rescheduled": {
+            "description": "Indicates whether the event has been rescheduled.",
+            "title": "Rescheduled",
+            "type": "boolean"
+          },
+          "routing_form_submission": {
+            "description": "Reference (URI) to the routing form submission associated with this invitee.",
+            "title": "Routing Form Submission",
+            "type": "string"
+          },
+          "status": {
+            "description": "Indicates if the invitee is active or canceled. Possible values: 'active', 'canceled'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "text_reminder_number": {
+            "description": "The phone number for SMS reminders.",
+            "title": "Text Reminder Number",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "The invitee's timezone.",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "tracking": {
+            "$ref": "#/$defs/Tracking",
+            "description": "UTM parameters and tracking information associated with the event booking.",
+            "title": "Tracking"
+          },
+          "updated_at": {
+            "description": "Timestamp when the invitee record was last updated.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the invitee.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri",
+          "email",
+          "name",
+          "status",
+          "event",
+          "created_at",
+          "updated_at",
+          "cancel_url",
+          "reschedule_url",
+          "rescheduled"
+        ],
+        "title": "Invitee",
+        "type": "object"
+      },
+      "ListEventInviteesResponse": {
+        "description": "Response schema for `ListEventInvitees`, containing the collection of invitees and pagination details.",
+        "properties": {
+          "collection": {
+            "description": "Array of invitee objects for the scheduled event.",
+            "items": {
+              "$ref": "#/$defs/Invitee"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection", "pagination"],
+        "title": "ListEventInviteesResponse",
+        "type": "object"
+      },
+      "NoShow": {
+        "description": "Data pertaining to the associated no-show for the invitee.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the no-show was recorded.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Reference (URI) to the no-show record.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "title": "NoShow",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination information for the invitees list.",
+        "properties": {
+          "count": {
+            "description": "The number of invitees returned in the current page.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "The URL to retrieve the next page of results. Null if there are no more pages.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "next_page_token": {
+            "description": "Token to use for retrieving the next page of results.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "The URL to retrieve the previous page of results. Null if on the first page.",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["count"],
+        "title": "Pagination",
+        "type": "object"
+      },
+      "QuestionAndAnswer": {
+        "description": "Represents a custom question and the invitee's answer.",
+        "properties": {
+          "answer": {
+            "description": "The invitee's answer to the question.",
+            "title": "Answer",
+            "type": "string"
+          },
+          "position": {
+            "description": "The position/order of the question in the form.",
+            "title": "Position",
+            "type": "integer"
+          },
+          "question": {
+            "description": "The question text.",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": ["question", "answer", "position"],
+        "title": "QuestionAndAnswer",
+        "type": "object"
+      },
+      "Reconfirmation": {
+        "description": "Reconfirmation data for the scheduled event.",
+        "properties": {
+          "confirmed_at": {
+            "description": "Timestamp when the invitee reconfirmed their attendance. Null if not yet confirmed.",
+            "title": "Confirmed At",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the reconfirmation notification was sent.",
+            "title": "Created At",
+            "type": "string"
+          }
+        },
+        "title": "Reconfirmation",
+        "type": "object"
+      },
+      "Tracking": {
+        "description": "UTM parameters and tracking information associated with the event booking.",
+        "properties": {
+          "salesforce_uuid": {
+            "description": "Salesforce UUID for integration tracking.",
+            "title": "Salesforce Uuid",
+            "type": "string"
+          },
+          "utm_campaign": {
+            "description": "UTM campaign parameter.",
+            "title": "Utm Campaign",
+            "type": "string"
+          },
+          "utm_content": {
+            "description": "UTM content parameter.",
+            "title": "Utm Content",
+            "type": "string"
+          },
+          "utm_medium": {
+            "description": "UTM medium parameter.",
+            "title": "Utm Medium",
+            "type": "string"
+          },
+          "utm_source": {
+            "description": "UTM source parameter.",
+            "title": "Utm Source",
+            "type": "string"
+          },
+          "utm_term": {
+            "description": "UTM term parameter.",
+            "title": "Utm Term",
+            "type": "string"
+          }
+        },
+        "title": "Tracking",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListEventInviteesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

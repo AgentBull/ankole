@@ -1,0 +1,268 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Adds/updates a member in a specified Trello organization (`idOrg`); `email` and `type` are API-required, `fullName` is needed if `email` is new to Trello.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateOrganizationsMembersByIdOrg`",
+    "properties": {
+      "email": {
+        "description": "Member's email address; used to identify an existing member or invite/add a new one. Required by the Trello API.",
+        "title": "Email",
+        "type": "string"
+      },
+      "fullName": {
+        "description": "Member's full name. Used when inviting a new member; required if `email` isn't linked to an existing Trello account. Must be >=1 character and not start/end with a space.",
+        "title": "Full Name",
+        "type": "string"
+      },
+      "idOrg": {
+        "description": "ID or name of the Trello organization (Workspace).",
+        "title": "Id Org",
+        "type": "string"
+      },
+      "type": {
+        "description": "Membership type determining the member's permissions within the organization; required by Trello API.",
+        "examples": ["admin", "normal", "observer"],
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["idOrg"],
+    "title": "UpdateOrganizationsMembersByIdOrgRequest",
+    "type": "object"
+  },
+  "name": "update_organizations_members_by_id_org",
+  "outputSchema": {
+    "$defs": {
+      "BioData": {
+        "description": "Structured bio data containing emoji and other formatted information",
+        "properties": {
+          "emoji": {
+            "additionalProperties": true,
+            "description": "Emoji data used in the bio",
+            "title": "Emoji",
+            "type": "object"
+          }
+        },
+        "title": "BioData",
+        "type": "object"
+      },
+      "NonPublic": {
+        "description": "Private member information not visible publicly",
+        "properties": {
+          "avatarUrl": {
+            "description": "Private avatar URL",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Private full name",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "initials": {
+            "description": "Private initials",
+            "title": "Initials",
+            "type": "string"
+          }
+        },
+        "title": "NonPublic",
+        "type": "object"
+      },
+      "UpdateOrganizationsMembersByIdOrgResponse": {
+        "description": "Response schema for `UpdateOrganizationsMembersByIdOrg` - extends Member object directly",
+        "properties": {
+          "activityBlocked": {
+            "description": "Indicates whether the member's activity is blocked",
+            "title": "Activity Blocked",
+            "type": "boolean"
+          },
+          "avatarHash": {
+            "description": "Hash string used to reference the member's avatar image",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarSource": {
+            "description": "Source of the avatar (e.g., upload, gravatar)",
+            "title": "Avatar Source",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the member's avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "bio": {
+            "description": "Biography or description text for the member",
+            "title": "Bio",
+            "type": "string"
+          },
+          "bioData": {
+            "$ref": "#/$defs/BioData",
+            "description": "Structured bio data containing emoji and other formatted information",
+            "title": "Bio Data"
+          },
+          "confirmed": {
+            "description": "Indicates whether the member has confirmed their email address",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "Email address of the member",
+            "title": "Email",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Full display name of the member",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "gravatarHash": {
+            "description": "Gravatar hash for the member's email",
+            "title": "Gravatar Hash",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "Array of board IDs the member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idBoardsPinned": {
+            "description": "Array of board IDs that the member has pinned",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards Pinned",
+            "type": "array"
+          },
+          "idEnterprise": {
+            "description": "Identifier of the enterprise the member belongs to",
+            "title": "Id Enterprise",
+            "type": "string"
+          },
+          "idEnterprisesAdmin": {
+            "description": "Array of enterprise IDs where the member has admin privileges",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Enterprises Admin",
+            "type": "array"
+          },
+          "idEnterprisesDeactivated": {
+            "description": "Array of enterprise IDs where the member has been deactivated",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Enterprises Deactivated",
+            "type": "array"
+          },
+          "idMemberReferrer": {
+            "description": "Identifier of the member who referred this member",
+            "title": "Id Member Referrer",
+            "type": "string"
+          },
+          "idOrganizations": {
+            "description": "Array of organization IDs the member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Organizations",
+            "type": "array"
+          },
+          "idPremOrgsAdmin": {
+            "description": "Array of premium organization IDs where this member has admin privileges",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Prem Orgs Admin",
+            "type": "array"
+          },
+          "initials": {
+            "description": "Member's initials derived from their name",
+            "title": "Initials",
+            "type": "string"
+          },
+          "limits": {
+            "additionalProperties": true,
+            "description": "Object containing limit information for the member's account",
+            "title": "Limits",
+            "type": "object"
+          },
+          "memberType": {
+            "description": "Type of member (e.g., 'normal', 'ghost', 'admin')",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "nonPublic": {
+            "$ref": "#/$defs/NonPublic",
+            "description": "Object containing private member information not visible publicly",
+            "title": "Non Public"
+          },
+          "premiumFeatures": {
+            "description": "Array of premium features available to the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Premium Features",
+            "type": "array"
+          },
+          "products": {
+            "description": "Array of product IDs indicating member's subscriptions (10=Business Class Gold, 37=Monthly Gold, 38=Annual Gold)",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "status": {
+            "description": "Connection status of the member (e.g., 'disconnected', 'idle', 'active')",
+            "title": "Status",
+            "type": "string"
+          },
+          "trophies": {
+            "description": "Array of trophy identifiers earned by the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Trophies",
+            "type": "array"
+          },
+          "url": {
+            "description": "URL to the member's Trello profile",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "Unique username for the member",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "UpdateOrganizationsMembersByIdOrgResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateOrganizationsMembersByIdOrgResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

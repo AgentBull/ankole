@@ -1,0 +1,132 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List key event definitions for a Google Analytics property. Results are paginated, with a next-page token when more results are available.",
+  "inputSchema": {
+    "description": "Request model for listing Key Events under a specified parent property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of results to return. Must be between 1 and 200. If not specified or 0, the API uses its default page size.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. Token for retrieving the next page of results.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. Resource name of the parent property. Format: properties/{property_id}.",
+        "examples": ["properties/123"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListKeyEventsRequest",
+    "type": "object"
+  },
+  "name": "list_key_events",
+  "outputSchema": {
+    "$defs": {
+      "DefaultValue": {
+        "description": "Default value configuration for a Key Event.",
+        "properties": {
+          "currencyCode": {
+            "description": "Currency code in ISO 4217 format.",
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "numericValue": {
+            "description": "Numeric value for the default.",
+            "title": "Numeric Value",
+            "type": "number"
+          }
+        },
+        "required": ["numericValue", "currencyCode"],
+        "title": "DefaultValue",
+        "type": "object"
+      },
+      "KeyEvent": {
+        "description": "Schema for a Key Event resource.",
+        "properties": {
+          "countingMethod": {
+            "description": "How key events are counted in a session. Possible values: COUNTING_METHOD_UNSPECIFIED, ONCE_PER_EVENT, ONCE_PER_SESSION.",
+            "title": "Counting Method",
+            "type": "string"
+          },
+          "createTime": {
+            "description": "Time when this key event was created (RFC3339 timestamp).",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "custom": {
+            "description": "True if this refers to a custom event; false for a default GA event.",
+            "title": "Custom",
+            "type": "boolean"
+          },
+          "defaultValue": {
+            "$ref": "#/$defs/DefaultValue",
+            "description": "Defines default value/currency for the key event.",
+            "title": "Default Value"
+          },
+          "deletable": {
+            "description": "Whether this event can be deleted.",
+            "title": "Deletable",
+            "type": "boolean"
+          },
+          "eventName": {
+            "description": "Event name for this key event (for example, 'click' or 'purchase').",
+            "title": "Event Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name of this key event. Format: properties/{property}/keyEvents/{keyEvent}.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["name", "eventName", "createTime", "countingMethod"],
+        "title": "KeyEvent",
+        "type": "object"
+      },
+      "ListKeyEventsResponse": {
+        "description": "Response model for listing Key Events.",
+        "properties": {
+          "keyEvents": {
+            "description": "List of requested Key Events.",
+            "items": {
+              "$ref": "#/$defs/KeyEvent"
+            },
+            "title": "Key Events",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "Token to retrieve the next page of results, if any.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "ListKeyEventsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListKeyEventsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,245 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves checklists (primarily structure/metadata, not detailed item history) from a Trello board, with options to include associated card and check item details and to control which fields are returned for each entity.",
+  "inputSchema": {
+    "description": "Request schema for retrieving checklists from a specific Trello board.",
+    "properties": {
+      "card_fields": {
+        "default": "all",
+        "description": "Specifies fields of associated cards to return; 'all' or a comma-separated list (e.g., name, idList, badges).",
+        "examples": ["all", "name,idList,badges"],
+        "title": "Card Fields",
+        "type": "string"
+      },
+      "cards": {
+        "default": "none",
+        "description": "Determines which cards (and their checklists) are considered when fetching checklists. Valid values: 'all', 'closed', 'none', 'open', 'visible'.",
+        "examples": ["all", "none", "open"],
+        "title": "Cards",
+        "type": "string"
+      },
+      "checkItem_fields": {
+        "default": "name, nameData, pos and state",
+        "description": "Specifies fields of check items to return; 'all' or a comma-separated list (e.g., name, nameData, pos, state, type).",
+        "examples": ["all", "name,state,pos"],
+        "title": "Check Item Fields",
+        "type": "string"
+      },
+      "checkItems": {
+        "default": "all",
+        "description": "Determines if check items (individual items within a checklist) are included in the response. Valid values: 'all', 'none'.",
+        "examples": ["all", "none"],
+        "title": "Check Items",
+        "type": "string"
+      },
+      "fields": {
+        "default": "all",
+        "description": "Specifies fields of the checklists to return; 'all' or a comma-separated list (e.g., idBoard, idCard, name, pos).",
+        "examples": ["all", "name,idCard,pos"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "filter": {
+        "default": "all",
+        "description": "Filters the checklists to be returned. Valid values: 'all' (all matching checklists) or 'none' (no checklists).",
+        "examples": ["all", "none"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The ID of the Trello board from which to retrieve checklists.",
+        "examples": ["5f0f7e3b64c2e70036f2a2a8"],
+        "title": "Id Board",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard"],
+    "title": "GetBoardsChecklistsByIdBoardRequest",
+    "type": "object"
+  },
+  "name": "get_boards_checklists_by_id_board",
+  "outputSchema": {
+    "$defs": {
+      "CheckItem": {
+        "description": "Individual check item within a checklist.",
+        "properties": {
+          "due": {
+            "description": "Due date for the check item in ISO 8601 format",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Number of minutes before the due date when a reminder should be sent",
+            "title": "Due Reminder",
+            "type": "number"
+          },
+          "id": {
+            "description": "Unique identifier for the check item",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "ID of the parent checklist",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member assigned to the check item",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name/text of the check item",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "description": "Additional data about the item name",
+            "title": "Name Data",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the check item, used for ordering",
+            "title": "Pos",
+            "type": "number"
+          },
+          "state": {
+            "description": "State of the item (e.g., 'complete' or 'incomplete')",
+            "title": "State",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the check item",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "state"],
+        "title": "CheckItem",
+        "type": "object"
+      },
+      "CheckItemLimits": {
+        "description": "Check item limits per checklist.",
+        "properties": {
+          "perChecklist": {
+            "$ref": "#/$defs/CheckItemLimitsPerChecklist",
+            "description": "Per-checklist limits for check items",
+            "title": "Per Checklist"
+          }
+        },
+        "title": "CheckItemLimits",
+        "type": "object"
+      },
+      "CheckItemLimitsPerChecklist": {
+        "description": "Per-checklist limits for check items.",
+        "properties": {
+          "disableAt": {
+            "description": "The maximum number of check items allowed before creation is disabled",
+            "title": "Disable At",
+            "type": "number"
+          },
+          "status": {
+            "description": "Current status of the limit (e.g., 'ok')",
+            "title": "Status",
+            "type": "string"
+          },
+          "warnAt": {
+            "description": "The threshold at which warnings should be shown",
+            "title": "Warn At",
+            "type": "number"
+          }
+        },
+        "title": "CheckItemLimitsPerChecklist",
+        "type": "object"
+      },
+      "Checklist": {
+        "description": "Trello checklist object.",
+        "properties": {
+          "checkItems": {
+            "description": "Array of check items within the checklist",
+            "items": {
+              "$ref": "#/$defs/CheckItem"
+            },
+            "title": "Check Items",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the checklist",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "ID of the board the checklist belongs to",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "idCard": {
+            "description": "ID of the card the checklist is attached to",
+            "title": "Id Card",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/$defs/ChecklistLimits",
+            "description": "Limits information for the checklist",
+            "title": "Limits"
+          },
+          "name": {
+            "description": "Name of the checklist",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the checklist, used for ordering",
+            "title": "Pos",
+            "type": "number"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "Checklist",
+        "type": "object"
+      },
+      "ChecklistLimits": {
+        "description": "Limits information for the checklist.",
+        "properties": {
+          "checkItems": {
+            "$ref": "#/$defs/CheckItemLimits",
+            "description": "Check item limits per checklist",
+            "title": "Check Items"
+          }
+        },
+        "title": "ChecklistLimits",
+        "type": "object"
+      },
+      "GetBoardsChecklistsByIdBoardResponse": {
+        "description": "Contains the retrieved checklists from the specified Trello board.",
+        "properties": {
+          "checklists": {
+            "description": "Array of checklist objects on the board",
+            "items": {
+              "$ref": "#/$defs/Checklist"
+            },
+            "title": "Checklists",
+            "type": "array"
+          }
+        },
+        "required": ["checklists"],
+        "title": "GetBoardsChecklistsByIdBoardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBoardsChecklistsByIdBoardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

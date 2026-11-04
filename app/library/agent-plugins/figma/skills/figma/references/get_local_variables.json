@@ -1,0 +1,384 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves all local/remote variables for a Figma file/branch; crucial for obtaining mode-specific values which `/v1/files/{file_key}/variables/published` omits.",
+  "inputSchema": {
+    "description": "Request schema for `GetLocalVariables`",
+    "properties": {
+      "file_key": {
+        "description": "Key of the Figma file or branch. Can be a standard file key or a branch-specific key (to obtain a branch key, use `GET /v1/files/:key` with the `branch_data` query parameter).",
+        "examples": ["your_file_key", "your_branch_key"],
+        "title": "File Key",
+        "type": "string"
+      }
+    },
+    "required": ["file_key"],
+    "title": "GetLocalVariablesRequest",
+    "type": "object"
+  },
+  "name": "get_local_variables",
+  "outputSchema": {
+    "$defs": {
+      "CodeSyntax": {
+        "properties": {
+          "ANDROID": {
+            "title": "Android",
+            "type": "string"
+          },
+          "WEB": {
+            "title": "Web",
+            "type": "string"
+          },
+          "iOS": {
+            "title": "I Os",
+            "type": "string"
+          }
+        },
+        "title": "CodeSyntax",
+        "type": "object"
+      },
+      "Error": {
+        "enum": [false],
+        "title": "Error",
+        "type": "boolean"
+      },
+      "GetLocalVariablesResponse": {
+        "description": "Response schema for `GetLocalVariables`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "The structured response data containing the status, error indicator, and the local variables metadata.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetLocalVariablesResponse",
+        "type": "object"
+      },
+      "Meta": {
+        "properties": {
+          "variableCollections": {
+            "additionalProperties": {
+              "$ref": "#/$defs/VariableCollections"
+            },
+            "description": "A dictionary where keys are variable collection IDs (strings) and values are the corresponding `VariableCollections` objects.",
+            "title": "Variable Collections",
+            "type": "object"
+          },
+          "variables": {
+            "additionalProperties": {
+              "$ref": "#/$defs/Variables"
+            },
+            "description": "A dictionary where keys are variable IDs (strings) and values are the corresponding `Variables` objects containing their full details.",
+            "title": "Variables",
+            "type": "object"
+          }
+        },
+        "required": ["variables", "variableCollections"],
+        "title": "Meta",
+        "type": "object"
+      },
+      "Mode": {
+        "properties": {
+          "modeId": {
+            "description": "A unique string identifier for this mode within its variable collection.",
+            "title": "Mode Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The user-facing display name of this mode (e.g., 'Light', 'Dark').",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["modeId", "name"],
+        "title": "Mode",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "error": {
+            "$ref": "#/$defs/Error",
+            "description": "Boolean indicating if an error occurred. `false` for successful requests.",
+            "title": "Error"
+          },
+          "meta": {
+            "$ref": "#/$defs/Meta",
+            "title": "Meta"
+          },
+          "status": {
+            "$ref": "#/$defs/Status",
+            "description": "The HTTP status code of the response, e.g., 200 for success.",
+            "title": "Status"
+          }
+        },
+        "required": ["status", "error", "meta"],
+        "title": "Model",
+        "type": "object"
+      },
+      "ResolvedType": {
+        "enum": ["BOOLEAN", "FLOAT", "STRING", "COLOR"],
+        "title": "ResolvedType",
+        "type": "string"
+      },
+      "Scope": {
+        "enum": [
+          "ALL_SCOPES",
+          "TEXT_CONTENT",
+          "CORNER_RADIUS",
+          "WIDTH_HEIGHT",
+          "GAP",
+          "ALL_FILLS",
+          "FRAME_FILL",
+          "SHAPE_FILL",
+          "TEXT_FILL",
+          "STROKE_COLOR",
+          "STROKE_FLOAT",
+          "EFFECT_FLOAT",
+          "EFFECT_COLOR",
+          "OPACITY",
+          "FONT_FAMILY",
+          "FONT_STYLE",
+          "FONT_WEIGHT",
+          "FONT_SIZE",
+          "LINE_HEIGHT",
+          "LETTER_SPACING",
+          "PARAGRAPH_SPACING",
+          "PARAGRAPH_INDENT",
+          "FONT_VARIATIONS"
+        ],
+        "title": "Scope",
+        "type": "string"
+      },
+      "Status": {
+        "enum": [200],
+        "title": "Status",
+        "type": "integer"
+      },
+      "Type": {
+        "enum": ["VARIABLE_ALIAS"],
+        "title": "Type",
+        "type": "string"
+      },
+      "ValuesByMode": {
+        "properties": {
+          "a": {
+            "description": "Alpha (opacity) channel value, normalized between 0.0 and 1.0.",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "A",
+            "type": "number"
+          },
+          "b": {
+            "description": "Blue color channel value, normalized between 0.0 and 1.0.",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "B",
+            "type": "number"
+          },
+          "g": {
+            "description": "Green color channel value, normalized between 0.0 and 1.0.",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "G",
+            "type": "number"
+          },
+          "r": {
+            "description": "Red color channel value, normalized between 0.0 and 1.0.",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "R",
+            "type": "number"
+          }
+        },
+        "required": ["r", "g", "b", "a"],
+        "title": "ValuesByMode",
+        "type": "object"
+      },
+      "ValuesByMode1": {
+        "properties": {
+          "id": {
+            "description": "The ID of the variable to which the current variable is aliased. This aliased variable can be either local or remote. Details for both types can be retrieved using the `GET /v1/files/:file_key/variables/local` endpoint (this same endpoint).",
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/$defs/Type",
+            "title": "Type"
+          }
+        },
+        "required": ["type", "id"],
+        "title": "ValuesByMode1",
+        "type": "object"
+      },
+      "VariableCollections": {
+        "properties": {
+          "defaultModeId": {
+            "description": "The identifier of the mode that is considered the default for this variable collection.",
+            "title": "Default Mode Id",
+            "type": "string"
+          },
+          "hiddenFromPublishing": {
+            "description": "Indicates if this entire variable collection is hidden when publishing the current file as a library.",
+            "title": "Hidden From Publishing",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "A unique string identifier for this variable collection.",
+            "title": "Id",
+            "type": "string"
+          },
+          "key": {
+            "description": "The unique, machine-readable key for this variable collection.",
+            "title": "Key",
+            "type": "string"
+          },
+          "modes": {
+            "description": "A list of `Mode` objects defined within this variable collection.",
+            "items": {
+              "$ref": "#/$defs/Mode"
+            },
+            "title": "Modes",
+            "type": "array"
+          },
+          "name": {
+            "description": "The user-facing display name of this variable collection.",
+            "title": "Name",
+            "type": "string"
+          },
+          "remote": {
+            "description": "Indicates if this variable collection is remote (i.e., imported from another Figma library file).",
+            "title": "Remote",
+            "type": "boolean"
+          },
+          "variableIds": {
+            "description": "An ordered list of string identifiers for variables belonging to this collection. The order generally mirrors the Figma Design UI but does not account for variable groups, so it might not precisely match the visual ordering and grouping.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Variable Ids",
+            "type": "array"
+          }
+        },
+        "required": ["id", "name", "key", "modes", "defaultModeId", "remote", "hiddenFromPublishing", "variableIds"],
+        "title": "VariableCollections",
+        "type": "object"
+      },
+      "Variables": {
+        "properties": {
+          "codeSyntax": {
+            "$ref": "#/$defs/CodeSyntax",
+            "description": "An object providing platform-specific code representations for the variable (e.g., for Web, Android, iOS). All platform fields are optional.",
+            "title": "Code Syntax"
+          },
+          "deletedButReferenced": {
+            "default": false,
+            "description": "Optional. If `true`, signifies that the variable was deleted within the Figma editor, yet the document might still contain references to it. Such references can occur through bound values or variable aliases. Defaults to `false` if not present.",
+            "title": "Deleted But Referenced",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "A user-provided description for the variable.",
+            "title": "Description",
+            "type": "string"
+          },
+          "hiddenFromPublishing": {
+            "description": "Indicates if this variable is hidden when publishing the current file as a library. For a variable to be publishable, both the variable itself and its parent `VariableCollection` must have `hiddenFromPublishing` set to `false`.",
+            "title": "Hidden From Publishing",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "A unique string identifier for this variable.",
+            "title": "Id",
+            "type": "string"
+          },
+          "key": {
+            "description": "The unique, machine-readable key for this variable, often used for programmatic access or referencing.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "The user-facing display name of this variable.",
+            "title": "Name",
+            "type": "string"
+          },
+          "remote": {
+            "description": "Indicates if this variable is a remote variable (i.e., imported from a library).",
+            "title": "Remote",
+            "type": "boolean"
+          },
+          "resolvedType": {
+            "$ref": "#/$defs/ResolvedType",
+            "description": "The resolved data type of the variable, such as BOOLEAN, FLOAT, STRING, or COLOR.",
+            "title": "Resolved Type"
+          },
+          "scopes": {
+            "description": "A list of scopes defining where this variable is displayed in the Figma UI's variable picker (e.g., `TEXT_CONTENT`, `CORNER_RADIUS`). This setting controls visibility in the UI picker only and does not prevent the variable from being bound in other scopes programmatically via the API.",
+            "items": {
+              "$ref": "#/$defs/Scope"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "valuesByMode": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/ValuesByMode"
+                },
+                {
+                  "$ref": "#/$defs/ValuesByMode1"
+                }
+              ]
+            },
+            "description": "A dictionary mapping mode IDs to their corresponding values for this variable. The value's structure depends on the `resolvedType` (e.g., boolean, float, string, RGBA color object, or variable alias object).",
+            "title": "Values By Mode",
+            "type": "object"
+          },
+          "variableCollectionId": {
+            "description": "The unique identifier of the `VariableCollection` to which this variable belongs.",
+            "title": "Variable Collection Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "key",
+          "variableCollectionId",
+          "resolvedType",
+          "valuesByMode",
+          "remote",
+          "description",
+          "hiddenFromPublishing",
+          "scopes",
+          "codeSyntax"
+        ],
+        "title": "Variables",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetLocalVariablesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

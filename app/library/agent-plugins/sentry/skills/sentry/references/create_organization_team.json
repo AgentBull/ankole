@@ -1,0 +1,190 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new team in a Sentry organization, requiring either a 'slug' or 'name' to define the team.",
+  "inputSchema": {
+    "description": "Defines the request payload for creating a new team in a Sentry organization.",
+    "properties": {
+      "name": {
+        "description": "Optional. The display name for the new team. If not supplied, it's auto-generated from the `slug` (if `slug` is provided). At least one of `name` or `slug` is required to create a team.",
+        "title": "Name",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization where the new team will be created. This organization must already exist.",
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "slug": {
+        "description": "Optional. A unique, URL-friendly identifier for the new team. If not supplied, it's auto-generated from the `name` (if `name` is provided). Must adhere to the pattern: `^[a-z][a-z0-9_\\-]*$`.",
+        "examples": ["platform-team", "frontend_devs_2"],
+        "pattern": "^[a-z][a-z0-9_\\-]*$",
+        "title": "Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "CreateOrganizationTeamRequest",
+    "type": "object"
+  },
+  "name": "create_organization_team",
+  "outputSchema": {
+    "$defs": {
+      "CreateOrganizationTeamResponse": {
+        "description": "Represents the response structure returned after successfully creating a new team, containing its details.",
+        "properties": {
+          "access": {
+            "description": "List of permission scopes granted to the user for this team",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "avatar": {
+            "$ref": "#/$defs/TeamAvatar",
+            "description": "Avatar information for the team",
+            "title": "Avatar"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the team was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "externalTeams": {
+            "description": "List of external team integrations (only included when expand parameter includes 'externalTeams')",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "External Teams",
+            "type": "array"
+          },
+          "flags": {
+            "$ref": "#/$defs/TeamFlags",
+            "description": "Feature flags associated with the team",
+            "title": "Flags"
+          },
+          "hasAccess": {
+            "description": "Whether the requesting user has access to the team",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the team",
+            "title": "Id",
+            "type": "string"
+          },
+          "isMember": {
+            "description": "Whether the requesting user is a member of the team",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "isPending": {
+            "description": "Whether the user's team membership is pending approval",
+            "title": "Is Pending",
+            "type": "boolean"
+          },
+          "memberCount": {
+            "description": "Total number of members in the team",
+            "title": "Member Count",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Display name of the team",
+            "title": "Name",
+            "type": "string"
+          },
+          "orgRole": {
+            "description": "The organization-level role of the requesting user",
+            "title": "Org Role",
+            "type": "string"
+          },
+          "organization": {
+            "additionalProperties": true,
+            "description": "Parent organization details (only included when expand parameter includes 'organization')",
+            "title": "Organization",
+            "type": "object"
+          },
+          "projects": {
+            "description": "List of projects associated with the team (only included when expand parameter includes 'projects')",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "slug": {
+            "description": "URL-friendly team identifier used in the interface",
+            "title": "Slug",
+            "type": "string"
+          },
+          "teamRole": {
+            "description": "The role of the requesting user within the team (e.g., 'admin', 'contributor'), null if not a member",
+            "title": "Team Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "dateCreated",
+          "isMember",
+          "flags",
+          "access",
+          "hasAccess",
+          "isPending",
+          "memberCount",
+          "avatar"
+        ],
+        "title": "CreateOrganizationTeamResponse",
+        "type": "object"
+      },
+      "TeamAvatar": {
+        "description": "Avatar information for the team.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar')",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the avatar image, null if using default letter avatar",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "TeamAvatar",
+        "type": "object"
+      },
+      "TeamFlags": {
+        "description": "Feature flags associated with the team.",
+        "properties": {
+          "idp:provisioned": {
+            "description": "Whether the team was provisioned via an identity provider",
+            "title": "Idp:Provisioned",
+            "type": "boolean"
+          }
+        },
+        "title": "TeamFlags",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateOrganizationTeamResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

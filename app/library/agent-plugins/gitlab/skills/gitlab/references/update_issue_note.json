@@ -1,0 +1,183 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing note (comment) on a GitLab issue. Use this action when you need to edit the content of a previously created comment on an issue. This is useful for correcting typos, adding additional information, or updating outdated information in issue discussions.",
+  "inputSchema": {
+    "properties": {
+      "body": {
+        "description": "The content of the note. Limited to 1,000,000 characters.",
+        "examples": ["This is an updated comment on the issue."],
+        "title": "Body",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The global ID or URL-encoded path of the project.",
+        "examples": ["my-group/my-project", 5],
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "The internal ID of the project's issue.",
+        "examples": [42],
+        "title": "Issue Iid",
+        "type": "integer"
+      },
+      "note_id": {
+        "description": "The ID of the note (comment) to update.",
+        "examples": [636],
+        "title": "Note Id",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid", "note_id"],
+    "title": "UpdateIssueNoteRequest",
+    "type": "object"
+  },
+  "name": "update_issue_note",
+  "outputSchema": {
+    "$defs": {
+      "Author": {
+        "properties": {
+          "avatar_url": {
+            "description": "Avatar URL of the author.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID of the author.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the author.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "State of the author account (e.g., 'active').",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the author.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Web URL of the author's profile.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "name", "state", "web_url"],
+        "title": "Author",
+        "type": "object"
+      },
+      "UpdateIssueNoteResponse": {
+        "properties": {
+          "attachment": {
+            "description": "URL of any attachment.",
+            "title": "Attachment",
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/$defs/Author",
+            "description": "Author of the note.",
+            "title": "Author"
+          },
+          "body": {
+            "description": "Content of the note.",
+            "title": "Body",
+            "type": "string"
+          },
+          "confidential": {
+            "description": "Whether this note is confidential.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Creation timestamp (ISO 8601).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "ID of the note.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "noteable_id": {
+            "description": "ID of the issue this note belongs to.",
+            "title": "Noteable Id",
+            "type": "integer"
+          },
+          "noteable_iid": {
+            "description": "Internal ID of the noteable entity.",
+            "title": "Noteable Iid",
+            "type": "integer"
+          },
+          "noteable_type": {
+            "description": "Type of the noteable entity.",
+            "title": "Noteable Type",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "ID of the project the note belongs to.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "resolvable": {
+            "description": "Whether this note is resolvable.",
+            "title": "Resolvable",
+            "type": "boolean"
+          },
+          "system": {
+            "description": "Whether it's a system note.",
+            "title": "System",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "description": "Update timestamp (ISO 8601).",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "body",
+          "author",
+          "created_at",
+          "updated_at",
+          "system",
+          "noteable_id",
+          "noteable_type",
+          "project_id",
+          "noteable_iid",
+          "resolvable",
+          "confidential"
+        ],
+        "title": "UpdateIssueNoteResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateIssueNoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

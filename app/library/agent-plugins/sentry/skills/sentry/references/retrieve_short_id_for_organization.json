@@ -1,0 +1,335 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Resolves a Sentry short ID (e.g., 'PROJECT-1A') to its complete issue details including organization slug, project slug, group ID, and full issue metadata. Use this to look up issue information when you have a short ID reference.",
+  "inputSchema": {
+    "description": "Request to retrieve details for a Sentry short ID within an organization.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "ID or slug of the Sentry organization where the short ID will be looked up.",
+        "examples": ["my-company-slug", "sentry"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "short_id": {
+        "description": "The Sentry short ID to resolve (e.g., 'PROJECT-1A', 'APP-XYZ').",
+        "examples": ["PROJECT-1A", "APP-XYZ"],
+        "title": "Short Id",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "short_id"],
+    "title": "RetrieveShortIdForOrganizationRequest",
+    "type": "object"
+  },
+  "name": "retrieve_short_id_for_organization",
+  "outputSchema": {
+    "$defs": {
+      "AssignedTo": {
+        "description": "User or team assigned to this issue.",
+        "properties": {
+          "email": {
+            "description": "Assignee email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Assignee identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Assignee name",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Assignee type (user or team)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "email", "type"],
+        "title": "AssignedTo",
+        "type": "object"
+      },
+      "Group": {
+        "description": "Complete group/issue details.",
+        "properties": {
+          "project": {
+            "$ref": "#/$defs/ProjectInfo",
+            "description": "Project information where the issue occurred",
+            "title": "Project"
+          },
+          "subscriptionDetails": {
+            "description": "Subscription metadata and details",
+            "title": "Subscription Details"
+          },
+          "lastSeen": {
+            "description": "Timestamp when the issue was most recently seen (ISO 8601 date-time format)",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "hasSeen": {
+            "description": "Whether the user has seen this issue",
+            "title": "Has Seen",
+            "type": "boolean"
+          },
+          "isBookmarked": {
+            "description": "Whether the issue is bookmarked by the user",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "culprit": {
+            "description": "Code location where the error occurred",
+            "title": "Culprit",
+            "type": "string"
+          },
+          "logger": {
+            "description": "Logger name that captured this issue",
+            "title": "Logger",
+            "type": "string"
+          },
+          "level": {
+            "description": "Severity level of the issue (e.g., error, warning)",
+            "title": "Level",
+            "type": "string"
+          },
+          "priorityLockedAt": {
+            "description": "Timestamp when priority was locked (ISO 8601 date-time format)",
+            "title": "Priority Locked At",
+            "type": "string"
+          },
+          "annotations": {
+            "description": "List of annotations attached to this issue",
+            "items": {},
+            "title": "Annotations",
+            "type": "array"
+          },
+          "status": {
+            "description": "Resolution status of the issue (e.g., unresolved, resolved)",
+            "title": "Status",
+            "type": "string"
+          },
+          "priority": {
+            "description": "Priority level (e.g., low, medium, high)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "numComments": {
+            "description": "Number of comments on this issue",
+            "title": "Num Comments",
+            "type": "integer"
+          },
+          "seerAutofixLastTriggered": {
+            "description": "Timestamp when autofix was last triggered (ISO 8601 date-time format)",
+            "title": "Seer Autofix Last Triggered",
+            "type": "string"
+          },
+          "permalink": {
+            "description": "Permanent URL link to the issue",
+            "title": "Permalink",
+            "type": "string"
+          },
+          "type": {
+            "description": "Issue type classification",
+            "title": "Type",
+            "type": "string"
+          },
+          "assignedTo": {
+            "$ref": "#/$defs/AssignedTo",
+            "description": "User or team assigned to this issue",
+            "title": "Assigned To"
+          },
+          "shareId": {
+            "description": "Public share identifier for this issue",
+            "title": "Share Id",
+            "type": "string"
+          },
+          "isPublic": {
+            "description": "Whether the issue is publicly accessible",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "count": {
+            "description": "Total number of occurrences of this issue",
+            "title": "Count",
+            "type": "string"
+          },
+          "firstSeen": {
+            "description": "Timestamp when the issue was first seen (ISO 8601 date-time format)",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Platform where the issue occurred",
+            "title": "Platform",
+            "type": "string"
+          },
+          "isSubscribed": {
+            "description": "Whether the user is subscribed to this issue",
+            "title": "Is Subscribed",
+            "type": "boolean"
+          },
+          "shortId": {
+            "description": "Human-readable short identifier (e.g., PUMP-STATION-1)",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "seerFixabilityScore": {
+            "description": "AI-generated fixability score",
+            "title": "Seer Fixability Score",
+            "type": "number"
+          },
+          "userCount": {
+            "description": "Number of unique users affected by this issue",
+            "title": "User Count",
+            "type": "integer"
+          },
+          "issueCategory": {
+            "description": "Issue category classification",
+            "title": "Issue Category",
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/$defs/IssueMetadata",
+            "description": "Additional metadata about the issue",
+            "title": "Metadata"
+          },
+          "id": {
+            "description": "Unique identifier for the issue group",
+            "title": "Id",
+            "type": "string"
+          },
+          "statusDetails": {
+            "description": "Additional details about the issue status",
+            "title": "Status Details"
+          },
+          "substatus": {
+            "description": "Additional status detail (e.g., ongoing)",
+            "title": "Substatus",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title of the issue",
+            "title": "Title",
+            "type": "string"
+          },
+          "issueType": {
+            "description": "Categorized issue type",
+            "title": "Issue Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "shortId",
+          "title",
+          "level",
+          "status",
+          "type",
+          "issueType",
+          "issueCategory",
+          "count",
+          "userCount",
+          "numComments",
+          "project",
+          "isSubscribed",
+          "isPublic",
+          "isBookmarked",
+          "hasSeen",
+          "annotations",
+          "statusDetails"
+        ],
+        "title": "Group",
+        "type": "object"
+      },
+      "IssueMetadata": {
+        "description": "Additional metadata about the issue.",
+        "properties": {
+          "title": {
+            "description": "Issue metadata title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "IssueMetadata",
+        "type": "object"
+      },
+      "ProjectInfo": {
+        "description": "Project information where the issue occurred.",
+        "properties": {
+          "id": {
+            "description": "Project identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Project name",
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Project platform (e.g., python, javascript)",
+            "title": "Platform",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Project slug identifier",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "slug", "platform"],
+        "title": "ProjectInfo",
+        "type": "object"
+      },
+      "RetrieveShortIdForOrganizationResponse": {
+        "description": "Response containing details for the resolved Sentry short ID.",
+        "properties": {
+          "group": {
+            "$ref": "#/$defs/Group",
+            "description": "Complete group/issue details",
+            "title": "Group"
+          },
+          "groupId": {
+            "description": "The issue/group identifier",
+            "title": "Group Id",
+            "type": "string"
+          },
+          "organizationSlug": {
+            "description": "The organization's slug identifier",
+            "title": "Organization Slug",
+            "type": "string"
+          },
+          "projectSlug": {
+            "description": "The project's slug identifier",
+            "title": "Project Slug",
+            "type": "string"
+          },
+          "shortId": {
+            "description": "The short ID that was resolved",
+            "title": "Short Id",
+            "type": "string"
+          }
+        },
+        "required": ["group", "groupId", "organizationSlug", "projectSlug", "shortId"],
+        "title": "RetrieveShortIdForOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveShortIdForOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

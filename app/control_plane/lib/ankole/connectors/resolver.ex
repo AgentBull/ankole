@@ -23,6 +23,12 @@ defmodule Ankole.Connectors.Resolver do
          external_user_id: external_user_id
        }}
     else
+      {:error, {:oauth_consent_required, kind, scopes}} ->
+        OAuth.consent_required(connection_slug(spec, connection), scopes, %{
+          "toolkit" => spec.toolkit,
+          "subject_kind" => kind
+        })
+
       {:error, :oauth_consent_required} ->
         OAuth.consent_required(connection_slug(spec, connection), spec.scopes || [], %{
           "toolkit" => spec.toolkit
@@ -33,15 +39,21 @@ defmodule Ankole.Connectors.Resolver do
     end
   end
 
-  defp access_token(config, %{subject_kind: "human"} = account, adapter) do
+  defp access_token(config, %{subject_kind: kind} = account, adapter) do
     case Credentials.access_token(config, account, adapter) do
-      {:error, :oauth_reauthorization_required} -> {:error, :oauth_consent_required}
-      result -> result
+      {:error, :oauth_reauthorization_required} ->
+        {:error, {:oauth_consent_required, kind, account.granted_scopes}}
+
+      result ->
+        result
     end
   end
 
   defp access_token(config, account, adapter),
     do: Credentials.access_token(config, account, adapter)
+
+  defp require_account(%{auth_scheme: "api_token"}, nil, _human, _adapter),
+    do: {:error, :connection_account_required}
 
   defp require_account(config, nil, human, adapter) do
     if config.auth_scheme == "oauth2" or not function_exported?(adapter, :fetch_app_token, 3) do
@@ -140,13 +152,27 @@ defmodule Ankole.Connectors.Resolver do
          adapter,
          config
        ) do
-    permitted =
-      if function_exported?(adapter, :scopes_satisfied?, 3),
-        do: adapter.scopes_satisfied?(required || [], granted, config),
-        else: Enum.all?(required || [], &(&1 in granted))
+    if scopes_satisfied?(required, granted, adapter, config),
+      do: :ok,
+      else: {:error, :oauth_consent_required}
+  end
 
-    if permitted, do: :ok, else: {:error, :oauth_consent_required}
+  defp scopes(
+         %{scopes: required},
+         %{subject_kind: "app", granted_scopes: granted},
+         adapter,
+         %{auth_scheme: "oauth2"} = config
+       ) do
+    if scopes_satisfied?(required, granted, adapter, config),
+      do: :ok,
+      else: {:error, {:oauth_consent_required, "app", Enum.uniq(granted ++ (required || []))}}
   end
 
   defp scopes(_, _, _, _), do: :ok
+
+  defp scopes_satisfied?(required, granted, adapter, config) do
+    if function_exported?(adapter, :scopes_satisfied?, 3),
+      do: adapter.scopes_satisfied?(required || [], granted, config),
+      else: Enum.all?(required || [], &(&1 in granted))
+  end
 end

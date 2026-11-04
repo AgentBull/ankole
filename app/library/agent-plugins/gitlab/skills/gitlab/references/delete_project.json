@@ -1,0 +1,72 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to delete a GitLab project by its ID. Use when you need to remove a project, either by marking it for later deletion or deleting it immediately.",
+  "inputSchema": {
+    "properties": {
+      "full_path": {
+        "description": "The full path of the project (e.g., namespace/project_name). Used with `permanently_remove=true` for immediate deletion. Available in GitLab Free from 18.0 (previously Premium/Ultimate only since 15.11).",
+        "examples": ["my_namespace/my_project"],
+        "title": "Full Path",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project to be deleted.",
+        "examples": ["123", "group_name/project_name"],
+        "title": "Id"
+      },
+      "permanently_remove": {
+        "description": "If true, the project is deleted immediately. Otherwise, it is marked for deletion and removed after a retention period. Available in GitLab Free from 18.0 (previously Premium/Ultimate only since 15.11).",
+        "examples": [true, false],
+        "title": "Permanently Remove",
+        "type": "boolean"
+      }
+    },
+    "required": ["id"],
+    "title": "DeleteProjectRequest",
+    "type": "object"
+  },
+  "name": "delete_project",
+  "outputSchema": {
+    "$defs": {
+      "DeleteProjectResponse": {
+        "properties": {
+          "message": {
+            "description": "A message indicating the status of the deletion.",
+            "title": "Message",
+            "type": "string"
+          },
+          "status_code": {
+            "description": "HTTP status code of the response.",
+            "title": "Status Code",
+            "type": "integer"
+          }
+        },
+        "required": ["status_code"],
+        "title": "DeleteProjectResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteProjectResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

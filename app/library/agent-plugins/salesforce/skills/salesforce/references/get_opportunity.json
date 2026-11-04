@@ -1,0 +1,431 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a Salesforce opportunity by its ID, optionally requesting a selected set of fields. Use it to inspect the opportunity's details without retrieving every available field.",
+  "inputSchema": {
+    "properties": {
+      "fields": {
+        "description": "Comma-delimited string of Opportunity field API names to retrieve. If omitted, all fields are returned. Custom objects may use non-standard API names for common fields (e.g., primary contact); verify exact field API names and handle null values.",
+        "examples": ["Name,Amount,StageName,CloseDate", "Description,Type,LeadSource,NextStep"],
+        "human_parameter_description": "Which opportunity details you want returned. Provide a comma-separated list of field names (like Name, Amount, StageName) to get only those fields; leave blank to retrieve all fields.",
+        "human_parameter_name": "Opportunity Fields",
+        "title": "Fields",
+        "type": "string"
+      },
+      "opportunity_id": {
+        "description": "The Salesforce ID of the opportunity to retrieve. Must be a valid 15 or 18 character alphanumeric Salesforce ID (e.g., '006Wd000005FG3CIAW'). When multiple similarly named opportunities exist in search results, confirm the correct record by `Id` or other key attributes before passing the ID here.",
+        "examples": ["006Wd000005FG3CIAW", "006XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce ID of the opportunity you want to retrieve. Paste the 15- or 18-character ID from the opportunity's URL or use an ID returned by a previous step.",
+        "human_parameter_name": "Opportunity ID",
+        "title": "Opportunity Id",
+        "type": "string"
+      }
+    },
+    "required": ["opportunity_id"],
+    "title": "GetOpportunityRequest",
+    "type": "object"
+  },
+  "name": "get_opportunity",
+  "outputSchema": {
+    "$defs": {
+      "AccountInfo": {
+        "description": "Account record associated with this Opportunity.",
+        "properties": {
+          "Id": {
+            "description": "ID of the Account.",
+            "title": "Id",
+            "type": "string"
+          },
+          "Name": {
+            "description": "Name of the Account.",
+            "title": "Name",
+            "type": "string"
+          },
+          "attributes": {
+            "additionalProperties": true,
+            "description": "Metadata for the Account object.",
+            "title": "Attributes",
+            "type": "object"
+          }
+        },
+        "required": ["attributes", "Id"],
+        "title": "AccountInfo",
+        "type": "object"
+      },
+      "CampaignInfo": {
+        "description": "Campaign record associated with this Opportunity.",
+        "properties": {
+          "Id": {
+            "description": "ID of the Campaign.",
+            "title": "Id",
+            "type": "string"
+          },
+          "Name": {
+            "description": "Name of the Campaign.",
+            "title": "Name",
+            "type": "string"
+          },
+          "attributes": {
+            "additionalProperties": true,
+            "description": "Metadata for the Campaign object.",
+            "title": "Attributes",
+            "type": "object"
+          }
+        },
+        "required": ["attributes", "Id"],
+        "title": "CampaignInfo",
+        "type": "object"
+      },
+      "GetOpportunityResponse": {
+        "description": "Response containing the full Opportunity record from Salesforce.",
+        "properties": {
+          "IsDeleted": {
+            "description": "Indicates whether the Opportunity has been moved to the Recycle Bin (soft deleted).",
+            "title": "Is Deleted",
+            "type": "boolean"
+          },
+          "HasOpportunityLineItem": {
+            "description": "Indicates whether the Opportunity has associated line items (products).",
+            "title": "Has Opportunity Line Item",
+            "type": "boolean"
+          },
+          "RecordType": {
+            "$ref": "#/$defs/RecordTypeInfo",
+            "description": "RecordType associated with this Opportunity (when queried with relationship fields).",
+            "title": "Record Type"
+          },
+          "ExpectedRevenue": {
+            "description": "Read-only formula field calculated as Amount multiplied by Probability.",
+            "title": "Expected Revenue",
+            "type": "number"
+          },
+          "Campaign": {
+            "$ref": "#/$defs/CampaignInfo",
+            "description": "Campaign record associated with this Opportunity (when queried with relationship fields).",
+            "title": "Campaign"
+          },
+          "attributes": {
+            "$ref": "#/$defs/OpportunityAttributes",
+            "title": "Attributes"
+          },
+          "ForecastCategoryName": {
+            "description": "Display name of the forecast category.",
+            "title": "Forecast Category Name",
+            "type": "string"
+          },
+          "HasOpenActivity": {
+            "description": "Indicates whether the Opportunity has any open activities (tasks or events) associated with it.",
+            "title": "Has Open Activity",
+            "type": "boolean"
+          },
+          "LeadSource": {
+            "description": "Source of the Opportunity, such as 'Advertisement', 'Partner', or 'Web'.",
+            "title": "Lead Source",
+            "type": "string"
+          },
+          "ContractId": {
+            "description": "ID of the Contract associated with this Opportunity.",
+            "title": "Contract Id",
+            "type": "string"
+          },
+          "FiscalQuarter": {
+            "description": "Fiscal quarter in which the Opportunity is expected to close, based on the CloseDate.",
+            "title": "Fiscal Quarter",
+            "type": "integer"
+          },
+          "Description": {
+            "description": "Text description of the Opportunity.",
+            "title": "Description",
+            "type": "string"
+          },
+          "AccountId": {
+            "description": "ID of the Account associated with this Opportunity.",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "IsClosed": {
+            "description": "Indicates whether the Opportunity is closed (won or lost).",
+            "title": "Is Closed",
+            "type": "boolean"
+          },
+          "NextStep": {
+            "description": "Description of the next task or action agreed upon with the buyer.",
+            "title": "Next Step",
+            "type": "string"
+          },
+          "CreatedDate": {
+            "description": "Date and time when the Opportunity was created. Format: ISO 8601.",
+            "title": "Created Date",
+            "type": "string"
+          },
+          "Probability": {
+            "description": "Percentage likelihood that the Opportunity will close, typically determined by the Stage.",
+            "title": "Probability",
+            "type": "number"
+          },
+          "OwnerId": {
+            "description": "ID of the User who owns this Opportunity.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "PrimaryPartnerAccountId": {
+            "description": "ID of the primary partner Account associated with this Opportunity.",
+            "title": "Primary Partner Account Id",
+            "type": "string"
+          },
+          "LastViewedDate": {
+            "description": "Date and time when the current user last viewed this Opportunity. Format: ISO 8601.",
+            "title": "Last Viewed Date",
+            "type": "string"
+          },
+          "IsWon": {
+            "description": "Indicates whether the Opportunity has been closed and won.",
+            "title": "Is Won",
+            "type": "boolean"
+          },
+          "LastActivityDate": {
+            "description": "Date of the most recent activity (task or event) associated with this Opportunity. Format: YYYY-MM-DD.",
+            "title": "Last Activity Date",
+            "type": "string"
+          },
+          "LastModifiedById": {
+            "description": "ID of the User who last modified this Opportunity.",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "TotalOpportunityQuantity": {
+            "description": "Total quantity of all opportunity products (line items) associated with this Opportunity.",
+            "title": "Total Opportunity Quantity",
+            "type": "number"
+          },
+          "Owner": {
+            "$ref": "#/$defs/OwnerInfo",
+            "description": "User record of the Opportunity owner (when queried with relationship fields).",
+            "title": "Owner"
+          },
+          "CreatedById": {
+            "description": "ID of the User who created this Opportunity.",
+            "title": "Created By Id",
+            "type": "string"
+          },
+          "FiscalYear": {
+            "description": "Fiscal year in which the Opportunity is expected to close, based on the CloseDate.",
+            "title": "Fiscal Year",
+            "type": "integer"
+          },
+          "PushCount": {
+            "description": "Number of times the Opportunity data has been pushed, typically related to quote syncing.",
+            "title": "Push Count",
+            "type": "integer"
+          },
+          "LastReferencedDate": {
+            "description": "Date and time when the current user last referenced this Opportunity (viewed or clicked on it). Format: ISO 8601.",
+            "title": "Last Referenced Date",
+            "type": "string"
+          },
+          "Pricebook2": {
+            "$ref": "#/$defs/Pricebook2Info",
+            "description": "Pricebook record associated with this Opportunity (when queried with relationship fields).",
+            "title": "Pricebook2"
+          },
+          "SystemModstamp": {
+            "description": "Read-only system timestamp of when the Opportunity was last modified by any user or automated process. Format: ISO 8601.",
+            "title": "System Modstamp",
+            "type": "string"
+          },
+          "OrderId": {
+            "description": "ID of the Order associated with this Opportunity.",
+            "title": "Order Id",
+            "type": "string"
+          },
+          "CloseDate": {
+            "description": "Date when the Opportunity is expected to close. Format: YYYY-MM-DD.",
+            "title": "Close Date",
+            "type": "string"
+          },
+          "Fiscal": {
+            "description": "Combined fiscal period representation, typically in the format 'Quarter Year' (e.g., 'Q1 2025').",
+            "title": "Fiscal",
+            "type": "string"
+          },
+          "Account": {
+            "$ref": "#/$defs/AccountInfo",
+            "description": "Account record associated with this Opportunity (when queried with relationship fields).",
+            "title": "Account"
+          },
+          "Id": {
+            "description": "Unique identifier of the Opportunity record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "StageName": {
+            "description": "Current stage of the Opportunity in the sales process.",
+            "title": "Stage Name",
+            "type": "string"
+          },
+          "CampaignId": {
+            "description": "ID of the Campaign associated with this Opportunity.",
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "Amount": {
+            "description": "Estimated total sale amount. When products are added, this field becomes read-only and displays the total of all opportunity line items.",
+            "title": "Amount",
+            "type": "number"
+          },
+          "Type": {
+            "description": "Type of Opportunity, such as 'New Business' or 'Renewal'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "ForecastCategory": {
+            "description": "Category used for forecasting, such as 'Pipeline', 'Best Case', 'Commit', 'Omitted', or 'Closed'.",
+            "title": "Forecast Category",
+            "type": "string"
+          },
+          "RecordTypeId": {
+            "description": "ID of the Record Type assigned to this Opportunity.",
+            "title": "Record Type Id",
+            "type": "string"
+          },
+          "Name": {
+            "description": "Name of the Opportunity as it appears in lists and reports.",
+            "title": "Name",
+            "type": "string"
+          },
+          "SyncedQuoteId": {
+            "description": "ID of the Quote that is synced with this Opportunity.",
+            "title": "Synced Quote Id",
+            "type": "string"
+          },
+          "Pricebook2Id": {
+            "description": "ID of the Pricebook associated with this Opportunity.",
+            "title": "Pricebook2 Id",
+            "type": "string"
+          },
+          "IsPrivate": {
+            "description": "Indicates whether the Opportunity is private.",
+            "title": "Is Private",
+            "type": "boolean"
+          },
+          "LastModifiedDate": {
+            "description": "Date and time when the Opportunity was last modified. Format: ISO 8601.",
+            "title": "Last Modified Date",
+            "type": "string"
+          }
+        },
+        "required": ["attributes", "Id", "Name", "StageName", "CloseDate", "OwnerId"],
+        "title": "GetOpportunityResponse",
+        "type": "object"
+      },
+      "OpportunityAttributes": {
+        "description": "Metadata object containing the object type and URL for the record.",
+        "properties": {
+          "type": {
+            "description": "The Salesforce object type, which is 'Opportunity'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The REST API URL to access this specific Opportunity record.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "OpportunityAttributes",
+        "type": "object"
+      },
+      "OwnerInfo": {
+        "description": "User record of the Opportunity owner.",
+        "properties": {
+          "Id": {
+            "description": "ID of the User.",
+            "title": "Id",
+            "type": "string"
+          },
+          "Name": {
+            "description": "Name of the User.",
+            "title": "Name",
+            "type": "string"
+          },
+          "attributes": {
+            "additionalProperties": true,
+            "description": "Metadata for the User object.",
+            "title": "Attributes",
+            "type": "object"
+          }
+        },
+        "required": ["attributes", "Id"],
+        "title": "OwnerInfo",
+        "type": "object"
+      },
+      "Pricebook2Info": {
+        "description": "Pricebook record associated with this Opportunity.",
+        "properties": {
+          "Id": {
+            "description": "ID of the Pricebook.",
+            "title": "Id",
+            "type": "string"
+          },
+          "Name": {
+            "description": "Name of the Pricebook.",
+            "title": "Name",
+            "type": "string"
+          },
+          "attributes": {
+            "additionalProperties": true,
+            "description": "Metadata for the Pricebook2 object.",
+            "title": "Attributes",
+            "type": "object"
+          }
+        },
+        "required": ["attributes", "Id"],
+        "title": "Pricebook2Info",
+        "type": "object"
+      },
+      "RecordTypeInfo": {
+        "description": "RecordType associated with this Opportunity.",
+        "properties": {
+          "DeveloperName": {
+            "description": "API name of the RecordType.",
+            "title": "Developer Name",
+            "type": "string"
+          },
+          "Id": {
+            "description": "ID of the RecordType.",
+            "title": "Id",
+            "type": "string"
+          },
+          "Name": {
+            "description": "Name of the RecordType.",
+            "title": "Name",
+            "type": "string"
+          },
+          "attributes": {
+            "additionalProperties": true,
+            "description": "Metadata for the RecordType object.",
+            "title": "Attributes",
+            "type": "object"
+          }
+        },
+        "required": ["attributes", "Id"],
+        "title": "RecordTypeInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOpportunityResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

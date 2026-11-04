@@ -1,0 +1,153 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list reactions for a specific action. Use when you need to retrieve emoji reactions and the members who added them to an action.",
+  "inputSchema": {
+    "description": "Request schema for `GetActionsReactionsByIdAction`",
+    "properties": {
+      "emoji": {
+        "default": true,
+        "description": "Whether to load the emoji as a nested resource.",
+        "title": "Emoji",
+        "type": "boolean"
+      },
+      "idAction": {
+        "description": "The ID of the action for which to retrieve reactions.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "69925d5542b0c93faa736ae3"],
+        "title": "Id Action",
+        "type": "string"
+      },
+      "member": {
+        "default": true,
+        "description": "Whether to load the member as a nested resource. See Members Nested Resource documentation.",
+        "title": "Member",
+        "type": "boolean"
+      }
+    },
+    "required": ["idAction"],
+    "title": "GetActionsReactionsByIdActionRequest",
+    "type": "object"
+  },
+  "name": "get_actions_reactions_by_id_action",
+  "outputSchema": {
+    "$defs": {
+      "GetActionsReactionsByIdActionResponse": {
+        "description": "Response schema for `GetActionsReactionsByIdAction` - returns list of reactions.",
+        "items": {
+          "$ref": "#/$defs/Reaction"
+        },
+        "title": "GetActionsReactionsByIdActionResponse",
+        "type": "array"
+      },
+      "Reaction": {
+        "description": "Reaction on an action.",
+        "properties": {
+          "emoji": {
+            "$ref": "#/$defs/ReactionEmoji",
+            "description": "Emoji object with properties.",
+            "title": "Emoji"
+          },
+          "id": {
+            "description": "Unique identifier for the reaction.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idEmoji": {
+            "description": "ID of the emoji used.",
+            "title": "Id Emoji",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member who added the reaction.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "idModel": {
+            "description": "ID of the model (action) the reaction is on.",
+            "title": "Id Model",
+            "type": "string"
+          },
+          "member": {
+            "$ref": "#/$defs/ReactionMember",
+            "description": "Member object who added the reaction.",
+            "title": "Member"
+          }
+        },
+        "title": "Reaction",
+        "type": "object"
+      },
+      "ReactionEmoji": {
+        "description": "Emoji object with properties.",
+        "properties": {
+          "native": {
+            "description": "Native emoji character.",
+            "title": "Native",
+            "type": "string"
+          },
+          "shortName": {
+            "description": "Short name identifier for the emoji.",
+            "title": "Short Name",
+            "type": "string"
+          },
+          "skinVariation": {
+            "description": "Skin tone variation if applicable.",
+            "title": "Skin Variation",
+            "type": "string"
+          },
+          "unified": {
+            "description": "Unicode codepoint representation of the emoji.",
+            "title": "Unified",
+            "type": "string"
+          }
+        },
+        "title": "ReactionEmoji",
+        "type": "object"
+      },
+      "ReactionMember": {
+        "description": "Member who added the reaction.",
+        "properties": {
+          "avatarHash": {
+            "description": "Hash string used to construct the avatar URL.",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Full name of the member.",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the member.",
+            "title": "Id",
+            "type": "string"
+          },
+          "initials": {
+            "description": "Member's initials, typically derived from their name.",
+            "title": "Initials",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the member.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "ReactionMember",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetActionsReactionsByIdActionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

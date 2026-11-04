@@ -1,0 +1,216 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists Salesforce Note or ContentNote records using a SOQL query with filtering, sorting, and field selection. Include Id in the selected fields so returned records can be validated.",
+  "inputSchema": {
+    "properties": {
+      "query": {
+        "default": "SELECT Id, Title, Body, IsPrivate, ParentId, OwnerId, CreatedDate, LastModifiedDate FROM Note",
+        "description": "SOQL query to fetch notes. Use standard SOQL syntax to filter, sort, and limit results. This action is specifically designed for Note and ContentNote objects. For other objects like EmailMessage (which uses 'Subject' instead of 'Title'), use the general SOQL query action instead. Always include a LIMIT clause to avoid over-fetching; the default query has no LIMIT and may return very large payloads. Omit Body or use TextPreview (ContentNote only) when full note content is not needed.",
+        "examples": [
+          "SELECT Id, Title FROM Note WHERE ParentId = '001XXXXXXXXXXXXXXX'",
+          "SELECT Id, Title, Body FROM Note WHERE IsPrivate = false ORDER BY CreatedDate DESC",
+          "SELECT Id, Title, ParentId FROM Note WHERE OwnerId = '005XXXXXXXXXXXXXXX' LIMIT 10",
+          "SELECT Id, Title FROM Note WHERE CreatedDate = THIS_MONTH",
+          "SELECT Id, Title, TextPreview FROM ContentNote WHERE CreatedDate = LAST_WEEK"
+        ],
+        "human_parameter_description": "Provide a Salesforce SOQL query to select the notes you want to retrieve from Note or ContentNote objects. Use filters (like ParentId, OwnerId, or date) to narrow the results. Note: For querying EmailMessage objects, use the general SOQL query action instead, as EmailMessage uses 'Subject' field instead of 'Title'.",
+        "human_parameter_name": "SOQL Query",
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "title": "ListNotesRequest",
+    "type": "object"
+  },
+  "name": "list_notes",
+  "outputSchema": {
+    "$defs": {
+      "ListNotesResponse": {
+        "description": "Response schema for salesforce.list_notes action. Salesforce has two note objects: ContentNote (Lightning/Enhanced Notes, API v32.0+) and Note (Classic). Modern implementations use ContentNote.",
+        "properties": {
+          "done": {
+            "description": "Indicates whether all results have been returned. If false, use nextRecordsUrl to retrieve additional results.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "nextRecordsUrl": {
+            "description": "URL path to retrieve the next batch of results when pagination is needed. Only present when done is false.",
+            "title": "Next Records Url",
+            "type": "string"
+          },
+          "records": {
+            "description": "Array of note records.",
+            "items": {
+              "$ref": "#/$defs/NoteRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "totalSize": {
+            "description": "Total number of notes returned by the query.",
+            "title": "Total Size",
+            "type": "integer"
+          }
+        },
+        "required": ["totalSize", "done", "records"],
+        "title": "ListNotesResponse",
+        "type": "object"
+      },
+      "NoteAttributes": {
+        "description": "Metadata about the record.",
+        "properties": {
+          "type": {
+            "description": "Object type, either 'ContentNote' or 'Note'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "REST API URL for accessing the specific record.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "NoteAttributes",
+        "type": "object"
+      },
+      "NoteRecord": {
+        "additionalProperties": true,
+        "description": "Individual note record. Can be either ContentNote (Lightning) or Note (Classic) object.",
+        "properties": {
+          "Body": {
+            "description": "Text content of the note. Available in classic Note object.",
+            "title": "Body",
+            "type": "string"
+          },
+          "Content": {
+            "description": "For ContentNote: Returns a URL pointing to the blob content (requires additional API call to retrieve actual content). Content must be base64 encoded when creating notes.",
+            "title": "Content",
+            "type": "string"
+          },
+          "ContentSize": {
+            "description": "Size of the content in bytes. Available in ContentNote.",
+            "title": "Content Size",
+            "type": "integer"
+          },
+          "CreatedById": {
+            "description": "ID of the user who created the note.",
+            "title": "Created By Id",
+            "type": "string"
+          },
+          "CreatedDate": {
+            "description": "Date and time when the note was created (ISO 8601 format).",
+            "title": "Created Date",
+            "type": "string"
+          },
+          "FileExtension": {
+            "description": "File extension of the note content. Available in ContentNote.",
+            "title": "File Extension",
+            "type": "string"
+          },
+          "FileType": {
+            "description": "Type of file, typically 'SNOTE' for ContentNote.",
+            "title": "File Type",
+            "type": "string"
+          },
+          "Id": {
+            "description": "Unique identifier for the note record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "IsDeleted": {
+            "description": "Indicates whether the note has been deleted.",
+            "title": "Is Deleted",
+            "type": "boolean"
+          },
+          "IsPrivate": {
+            "description": "Indicates whether the note is private. Available in classic Note object.",
+            "title": "Is Private",
+            "type": "boolean"
+          },
+          "IsReadOnly": {
+            "description": "Indicates whether the note is read-only. Available in ContentNote.",
+            "title": "Is Read Only",
+            "type": "boolean"
+          },
+          "LastModifiedById": {
+            "description": "ID of the user who last modified the note.",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "LastModifiedDate": {
+            "description": "Date and time when the note was last modified (ISO 8601 format).",
+            "title": "Last Modified Date",
+            "type": "string"
+          },
+          "LastReferencedDate": {
+            "description": "Date and time when the note was last referenced, including through reports or related lists (ISO 8601 format).",
+            "title": "Last Referenced Date",
+            "type": "string"
+          },
+          "LastViewedDate": {
+            "description": "Date and time when the note was last viewed (ISO 8601 format). Available in ContentNote.",
+            "title": "Last Viewed Date",
+            "type": "string"
+          },
+          "LatestPublishedVersionId": {
+            "description": "ID of the latest published version of the content. Available in ContentNote.",
+            "title": "Latest Published Version Id",
+            "type": "string"
+          },
+          "OwnerId": {
+            "description": "ID of the user who owns the note.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "ParentId": {
+            "description": "ID of the parent record (Account, Contact, Lead, etc.) that the note is associated with. Available in classic Note object.",
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "SharingPrivacy": {
+            "description": "File privacy setting controlling who can access the note. Available in ContentNote.",
+            "title": "Sharing Privacy",
+            "type": "string"
+          },
+          "SystemModstamp": {
+            "description": "Date and time when the note was last modified by any user or system process (ISO 8601 format).",
+            "title": "System Modstamp",
+            "type": "string"
+          },
+          "TextPreview": {
+            "description": "Preview text of the note content. Available in ContentNote.",
+            "title": "Text Preview",
+            "type": "string"
+          },
+          "Title": {
+            "description": "Title of the note. Available in both ContentNote and Note objects.",
+            "title": "Title",
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/$defs/NoteAttributes",
+            "title": "Attributes"
+          }
+        },
+        "required": ["attributes", "Id"],
+        "title": "NoteRecord",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListNotesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,177 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve paginated line items for a PaymentIntent. Use when you need to get detailed product and service information including quantities, prices, discounts, and taxes for a specific payment intent.",
+  "inputSchema": {
+    "description": "Request model for retrieving payment intent amount details line items.",
+    "properties": {
+      "ending_before": {
+        "description": "Cursor for backward pagination. A line item ID that defines your place in the list; returns results before this line item.",
+        "examples": ["piadli_9876543210"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "limit": {
+        "description": "A limit on the number of objects to be returned. Limit can range between 1 and 100, defaults to 10.",
+        "examples": [10, 25, 100],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "payment_intent_id": {
+        "description": "The unique identifier of the PaymentIntent to retrieve line items for.",
+        "examples": ["pi_3ShVXvQvM72TjFrb18hirvOg"],
+        "title": "Payment Intent Id",
+        "type": "string"
+      },
+      "starting_after": {
+        "description": "Cursor for forward pagination. A line item ID that defines your place in the list; returns results after this line item.",
+        "examples": ["piadli_1234567890"],
+        "title": "Starting After",
+        "type": "string"
+      }
+    },
+    "required": ["payment_intent_id"],
+    "title": "GetPaymentIntentAmountDetailsLineItemsRequest",
+    "type": "object"
+  },
+  "name": "get_payment_intent_amount_details_line_items",
+  "outputSchema": {
+    "$defs": {
+      "GetPaymentIntentAmountDetailsLineItemsResponse": {
+        "description": "Response model for retrieving payment intent amount details line items.",
+        "properties": {
+          "data": {
+            "description": "Array of line item objects.",
+            "items": {
+              "$ref": "#/$defs/LineItem"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Indicates whether additional results exist beyond this page.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'list' for list responses.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "API endpoint path for accessing this list.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "GetPaymentIntentAmountDetailsLineItemsResponse",
+        "type": "object"
+      },
+      "LineItem": {
+        "description": "Payment intent amount details line item object.",
+        "properties": {
+          "discount_amount": {
+            "description": "Applied discount amount in smallest currency unit.",
+            "title": "Discount Amount",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the line item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'payment_intent_amount_details_line_item'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "payment_method_options": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                }
+              ]
+            },
+            "description": "Payment method-specific options for this line item (e.g., card commodity codes, Klarna image URLs).",
+            "title": "Payment Method Options",
+            "type": "object"
+          },
+          "product_code": {
+            "description": "SKU or product identifier.",
+            "title": "Product Code",
+            "type": "string"
+          },
+          "product_name": {
+            "description": "Product description.",
+            "title": "Product Name",
+            "type": "string"
+          },
+          "quantity": {
+            "description": "Item quantity.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "tax": {
+            "$ref": "#/$defs/TaxDetails",
+            "description": "Tax details for this line item.",
+            "title": "Tax"
+          },
+          "unit_cost": {
+            "description": "Price per unit in smallest currency unit.",
+            "title": "Unit Cost",
+            "type": "integer"
+          },
+          "unit_of_measure": {
+            "description": "Measurement unit (e.g., 'each').",
+            "title": "Unit Of Measure",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object"],
+        "title": "LineItem",
+        "type": "object"
+      },
+      "TaxDetails": {
+        "description": "Tax details for a line item.",
+        "properties": {
+          "total_tax_amount": {
+            "description": "Tax amount in smallest currency unit.",
+            "title": "Total Tax Amount",
+            "type": "integer"
+          }
+        },
+        "title": "TaxDetails",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetPaymentIntentAmountDetailsLineItemsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

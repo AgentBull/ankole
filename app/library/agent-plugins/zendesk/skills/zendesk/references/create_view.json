@@ -1,0 +1,514 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a new view in Zendesk. Views are saved ticket filters that help agents organize and prioritize their work. They can filter tickets by conditions like status, priority, assignee, and more. Use this action when you need to: - Create a custom view for a specific team or workflow - Set up views for different ticket priorities or statuses - Create views with restricted access for specific groups - Configure views with specific columns, grouping, and sort order Note: At minimum, the 'all' conditions must include a condition checking 'status', 'type', 'group_id', 'assignee_id', or 'requester_id'.",
+  "inputSchema": {
+    "description": "Request parameters for creating a Zendesk view.",
+    "properties": {
+      "active": {
+        "default": true,
+        "description": "Whether the view is active and visible to agents. Set to false to save as a draft.",
+        "examples": [true],
+        "human_parameter_description": "Whether the view is visible to agents. Set to false to create a draft view that won't appear in their list.",
+        "human_parameter_name": "Active",
+        "title": "Active",
+        "type": "boolean"
+      },
+      "conditions": {
+        "additionalProperties": false,
+        "description": "The conditions that define which tickets appear in the view. 'all' conditions must ALL be true; 'any' conditions allow OR logic. At least one 'all' condition is required.",
+        "examples": [
+          {
+            "all": [
+              {
+                "field": "status",
+                "operator": "is",
+                "value": "open"
+              },
+              {
+                "field": "priority",
+                "operator": "is",
+                "value": "high"
+              }
+            ],
+            "any": [
+              {
+                "field": "assignee_id",
+                "operator": "is_set",
+                "value": "null"
+              }
+            ]
+          }
+        ],
+        "human_parameter_description": "Define which tickets appear in the view. 'All' conditions must ALL match; 'any' allows OR logic. At least one 'all' condition is required.",
+        "human_parameter_name": "Conditions",
+        "properties": {
+          "all": {
+            "description": "Array of conditions that ALL must be true for a ticket to appear in the view. At least one 'all' condition is required and should reference: status, type, group_id, assignee_id, or requester_id.",
+            "examples": [
+              [
+                {
+                  "field": "status",
+                  "operator": "is",
+                  "value": "open"
+                },
+                {
+                  "field": "priority",
+                  "operator": "is_not",
+                  "value": "low"
+                }
+              ]
+            ],
+            "human_parameter_description": "ALL conditions must match for a ticket to appear in the view. At least one condition is required, typically checking status, type, group_id, assignee_id, or requester_id.",
+            "human_parameter_name": "All Conditions",
+            "items": {
+              "description": "A single condition item for view conditions (all/any arrays).",
+              "properties": {
+                "field": {
+                  "description": "The field to check in the condition. Common fields: 'status', 'type', 'priority', 'assignee_id', 'group_id', 'requester_id', 'organization_id', 'tags', 'created_at', 'updated_at', 'channel', 'is_public', 'via_id', 'locale_id'.",
+                  "examples": ["status"],
+                  "human_parameter_description": "The ticket field to check (e.g., status, priority, assignee_id). Must be a valid Zendesk ticket field.",
+                  "human_parameter_name": "Field",
+                  "title": "Field",
+                  "type": "string"
+                },
+                "operator": {
+                  "description": "The comparison operator. Common operators: 'is', 'is_not', 'contains', 'does_not_contain', 'starts_with', 'ends_with', 'less_than', 'greater_than', 'less_than_or_equal', 'greater_than_or_equal', 'is_set', 'is_not_set', 'regex'.",
+                  "examples": ["is"],
+                  "human_parameter_description": "How to compare the field value (e.g., 'is', 'is_not', 'contains', 'less_than').",
+                  "human_parameter_name": "Operator",
+                  "title": "Operator",
+                  "type": "string"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The value to compare against. Can be a string (e.g., 'open', 'high'), number, or boolean depending on the field type.",
+                  "examples": ["open"],
+                  "human_parameter_description": "The value the field should match (e.g., 'open' for status, 'high' for priority).",
+                  "human_parameter_name": "Value",
+                  "title": "Value"
+                }
+              },
+              "required": ["field", "operator", "value"],
+              "title": "ViewConditionItem",
+              "type": "object"
+            },
+            "title": "All",
+            "type": "array"
+          },
+          "any": {
+            "description": "Array of conditions where ANY must be true for a ticket to appear in the view.",
+            "examples": [
+              [
+                {
+                  "field": "priority",
+                  "operator": "is",
+                  "value": "high"
+                }
+              ]
+            ],
+            "human_parameter_description": "ANY of these conditions can be true for a ticket to appear in the view. Use for OR logic.",
+            "human_parameter_name": "Any Conditions",
+            "items": {
+              "description": "A single condition item for view conditions (all/any arrays).",
+              "properties": {
+                "field": {
+                  "description": "The field to check in the condition. Common fields: 'status', 'type', 'priority', 'assignee_id', 'group_id', 'requester_id', 'organization_id', 'tags', 'created_at', 'updated_at', 'channel', 'is_public', 'via_id', 'locale_id'.",
+                  "examples": ["status"],
+                  "human_parameter_description": "The ticket field to check (e.g., status, priority, assignee_id). Must be a valid Zendesk ticket field.",
+                  "human_parameter_name": "Field",
+                  "title": "Field",
+                  "type": "string"
+                },
+                "operator": {
+                  "description": "The comparison operator. Common operators: 'is', 'is_not', 'contains', 'does_not_contain', 'starts_with', 'ends_with', 'less_than', 'greater_than', 'less_than_or_equal', 'greater_than_or_equal', 'is_set', 'is_not_set', 'regex'.",
+                  "examples": ["is"],
+                  "human_parameter_description": "How to compare the field value (e.g., 'is', 'is_not', 'contains', 'less_than').",
+                  "human_parameter_name": "Operator",
+                  "title": "Operator",
+                  "type": "string"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The value to compare against. Can be a string (e.g., 'open', 'high'), number, or boolean depending on the field type.",
+                  "examples": ["open"],
+                  "human_parameter_description": "The value the field should match (e.g., 'open' for status, 'high' for priority).",
+                  "human_parameter_name": "Value",
+                  "title": "Value"
+                }
+              },
+              "required": ["field", "operator", "value"],
+              "title": "ViewConditionItem",
+              "type": "object"
+            },
+            "title": "Any",
+            "type": "array"
+          }
+        },
+        "required": ["all"],
+        "title": "Conditions",
+        "type": "object"
+      },
+      "description": {
+        "description": "The description of the view shown to agents.",
+        "examples": ["View all high priority open tickets requiring attention"],
+        "human_parameter_description": "Optional description explaining what this view shows. Shown to agents when they hover over the view name.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "output": {
+        "additionalProperties": false,
+        "description": "Output configuration for view display settings.",
+        "examples": [
+          {
+            "columns": [
+              {
+                "id": "status",
+                "title": "Status"
+              },
+              {
+                "id": "priority",
+                "title": "Priority"
+              }
+            ],
+            "group": {
+              "id": "status",
+              "order": "desc",
+              "title": "Status"
+            },
+            "sort": {
+              "id": "updated",
+              "order": "desc",
+              "title": "Updated"
+            }
+          }
+        ],
+        "human_parameter_description": "Optional display settings for the view: which columns to show, how to group results, and how to sort.",
+        "human_parameter_name": "Output Configuration",
+        "properties": {
+          "columns": {
+            "description": "List of columns to display in the view results.",
+            "examples": [
+              [
+                {
+                  "id": "status",
+                  "title": "Status"
+                },
+                {
+                  "id": "priority",
+                  "title": "Priority"
+                }
+              ]
+            ],
+            "human_parameter_description": "Which ticket fields to display as columns in the view (e.g., status, priority, assignee, created_at).",
+            "human_parameter_name": "Columns",
+            "items": {
+              "description": "Column configuration for view output.",
+              "properties": {
+                "id": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "description": "The column identifier (field ID or standard field name like 'status', 'priority').",
+                  "examples": ["status"],
+                  "human_parameter_description": "The field ID or name to display as a column (e.g., 'status', 'priority', 'assignee_id').",
+                  "human_parameter_name": "Column ID",
+                  "title": "Id"
+                },
+                "title": {
+                  "description": "The display title for the column.",
+                  "examples": ["Status"],
+                  "human_parameter_description": "The label shown for this column in the view (e.g., 'Status', 'Priority', 'Assignee').",
+                  "human_parameter_name": "Column Title",
+                  "title": "Title",
+                  "type": "string"
+                },
+                "type": {
+                  "description": "The type of the column (e.g., 'text', 'boolean').",
+                  "examples": ["text"],
+                  "human_parameter_description": "The data type of this column if it's a custom field (e.g., 'text', 'boolean').",
+                  "human_parameter_name": "Column Type",
+                  "title": "Type",
+                  "type": "string"
+                },
+                "url": {
+                  "description": "The API URL for the column if it's a custom field.",
+                  "examples": ["https://example.zendesk.com/api/v2/ticket_fields/5"],
+                  "human_parameter_description": "API URL for custom fields. Usually not needed for standard fields.",
+                  "human_parameter_name": "Column URL",
+                  "title": "Url",
+                  "type": "string"
+                }
+              },
+              "required": ["id", "title"],
+              "title": "ViewOutputColumn",
+              "type": "object"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "group": {
+            "additionalProperties": false,
+            "description": "Grouping configuration for view output.",
+            "examples": [
+              {
+                "id": "status",
+                "order": "desc",
+                "title": "Status"
+              }
+            ],
+            "human_parameter_description": "Optional grouping configuration to organize tickets by a specific field.",
+            "human_parameter_name": "Group By",
+            "properties": {
+              "id": {
+                "description": "The field ID to group by (e.g., 'status', 'priority', 'assignee_id').",
+                "examples": ["status"],
+                "human_parameter_description": "Which field to group tickets by (e.g., 'status', 'priority', 'assignee_id').",
+                "human_parameter_name": "Group By Field",
+                "title": "Id",
+                "type": "string"
+              },
+              "order": {
+                "default": "desc",
+                "description": "The sort order for grouping ('asc' for ascending, 'desc' for descending).",
+                "enum": ["asc", "desc"],
+                "examples": ["desc"],
+                "human_parameter_description": "Whether groups are sorted ascending or descending.",
+                "human_parameter_name": "Group Order",
+                "title": "Order",
+                "type": "string"
+              },
+              "title": {
+                "description": "The display title for the grouping.",
+                "examples": ["Status"],
+                "human_parameter_description": "The label shown for the grouping (e.g., 'Group by Status').",
+                "human_parameter_name": "Group Title",
+                "title": "Title",
+                "type": "string"
+              }
+            },
+            "required": ["id", "title"],
+            "title": "ViewOutputGroup",
+            "type": "object"
+          },
+          "sort": {
+            "additionalProperties": false,
+            "description": "Sort configuration for view output.",
+            "examples": [
+              {
+                "id": "updated",
+                "order": "desc",
+                "title": "Updated"
+              }
+            ],
+            "human_parameter_description": "Optional sort configuration to order tickets by a specific field.",
+            "human_parameter_name": "Sort By",
+            "properties": {
+              "id": {
+                "description": "The field ID to sort by (e.g., 'updated', 'created_at', 'priority').",
+                "examples": ["updated"],
+                "human_parameter_description": "Which field to sort tickets by (e.g., 'updated', 'created_at', 'priority').",
+                "human_parameter_name": "Sort By Field",
+                "title": "Id",
+                "type": "string"
+              },
+              "order": {
+                "default": "desc",
+                "description": "The sort order ('asc' for ascending, 'desc' for descending).",
+                "enum": ["asc", "desc"],
+                "examples": ["desc"],
+                "human_parameter_description": "Whether to sort ascending or descending.",
+                "human_parameter_name": "Sort Order",
+                "title": "Order",
+                "type": "string"
+              },
+              "title": {
+                "description": "The display title for the sort.",
+                "examples": ["Updated"],
+                "human_parameter_description": "The label shown for the sort (e.g., 'Sort by Updated').",
+                "human_parameter_name": "Sort Title",
+                "title": "Title",
+                "type": "string"
+              }
+            },
+            "required": ["id", "title"],
+            "title": "ViewOutputSort",
+            "type": "object"
+          }
+        },
+        "title": "ViewOutput",
+        "type": "object"
+      },
+      "restriction": {
+        "additionalProperties": false,
+        "description": "Restriction settings for view access.",
+        "examples": [
+          {
+            "ids": [123],
+            "type": "Group"
+          }
+        ],
+        "human_parameter_description": "Optional access control. Restrict to 'Group' members or 'User' to limit who can see this view.",
+        "human_parameter_name": "Access Restriction",
+        "properties": {
+          "id": {
+            "description": "The ID of the group or user who can access this view. Use this for single ID restrictions.",
+            "examples": [123],
+            "human_parameter_description": "The ID of the group or user who can access the view.",
+            "human_parameter_name": "Restriction ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "ids": {
+            "description": "Array of group IDs who can access this view. Preferred over 'id' for Group type restrictions.",
+            "examples": [[1, 2, 3]],
+            "human_parameter_description": "Multiple group IDs that can access the view. Use this instead of 'id' for group restrictions with multiple groups.",
+            "human_parameter_name": "Restriction IDs",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ids",
+            "type": "array"
+          },
+          "type": {
+            "description": "The type of restriction. 'Group' restricts view to members of a specific group. 'User' restricts view to a specific user.",
+            "enum": ["Group", "User"],
+            "examples": ["Group"],
+            "human_parameter_description": "Whether access is restricted to a 'Group' or 'User'.",
+            "human_parameter_name": "Restriction Type",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "ViewRestriction",
+        "type": "object"
+      },
+      "title": {
+        "description": "The title of the view. Must be unique within the account.",
+        "examples": ["High Priority Open Tickets", "Unassigned Tickets"],
+        "human_parameter_description": "A descriptive name for the view so you can identify it in Zendesk (e.g., 'Open Tickets', 'High Priority Issues').",
+        "human_parameter_name": "Title",
+        "title": "Title",
+        "type": "string"
+      }
+    },
+    "required": ["title", "conditions"],
+    "title": "CreateViewRequest",
+    "type": "object"
+  },
+  "name": "create_view",
+  "outputSchema": {
+    "$defs": {
+      "CreateViewResponse": {
+        "description": "Response from creating a Zendesk view.",
+        "properties": {
+          "active": {
+            "description": "Whether the view is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "ISO 8601 timestamp when the view was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "If true, this is a default view",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Description of the view",
+            "title": "Description",
+            "type": "string"
+          },
+          "position": {
+            "description": "Position of the view",
+            "title": "Position",
+            "type": "integer"
+          },
+          "success": {
+            "description": "Indicates whether the view creation was successful",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "The title of the created view",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "ISO 8601 timestamp when the view was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "view_id": {
+            "description": "ID of the created view",
+            "title": "View Id",
+            "type": "integer"
+          },
+          "view_url": {
+            "description": "URL to view the view in Zendesk admin",
+            "title": "View Url",
+            "type": "string"
+          }
+        },
+        "required": ["success", "view_id", "view_url"],
+        "title": "CreateViewResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateViewResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

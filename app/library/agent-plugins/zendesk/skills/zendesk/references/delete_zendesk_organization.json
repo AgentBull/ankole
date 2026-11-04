@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Delete an organization in Zendesk. This operation is irreversible; confirm organization_id and get explicit user confirmation before calling.",
+  "inputSchema": {
+    "properties": {
+      "organization_id": {
+        "description": "ID of the organization to delete",
+        "human_parameter_description": "The unique identifier of the Zendesk organization you want to delete. Use the ID from the organization record or a previous list or search so we remove the correct one.",
+        "human_parameter_name": "Organization ID",
+        "title": "Organization Id",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id"],
+    "title": "DeleteZendeskOrganizationRequest",
+    "type": "object"
+  },
+  "name": "delete_zendesk_organization",
+  "outputSchema": {
+    "$defs": {
+      "DeleteZendeskOrganizationResponse": {
+        "properties": {
+          "success": {
+            "description": "Indicates whether the organization deletion was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "DeleteZendeskOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteZendeskOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

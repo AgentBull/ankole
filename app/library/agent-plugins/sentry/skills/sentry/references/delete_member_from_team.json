@@ -1,0 +1,155 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Removes an organization member from a Sentry team, revoking their team-specific permissions, provided the member is currently part of that team.",
+  "inputSchema": {
+    "description": "Specifies the organization, member, and team for the removal operation.",
+    "properties": {
+      "member_id": {
+        "description": "Identifier (ID) of the organization member to remove from the team (e.g., '234567'). Typically a numerical ID.",
+        "examples": ["234567", "789012"],
+        "title": "Member Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "Identifier (ID) or slug of the Sentry organization (e.g., 'our-company', '123456'). Slugs are typically lowercase and hyphenated.",
+        "examples": ["my-org-slug", "ancient-solutions", "123456"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "team_id_or_slug": {
+        "description": "Identifier (ID) or slug of the Sentry team from which the member will be removed (e.g., 'frontend-developers', '98765'). Team slugs are typically lowercase and hyphenated.",
+        "examples": ["platform-team", "frontend-devs", "98765"],
+        "title": "Team Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "member_id", "team_id_or_slug"],
+    "title": "DeleteMemberFromTeamRequest",
+    "type": "object"
+  },
+  "name": "delete_member_from_team",
+  "outputSchema": {
+    "$defs": {
+      "DeleteMemberFromTeamResponse": {
+        "description": "Response after successfully removing a member from a team. Returns HTTP 200 with team details showing the updated membership status.",
+        "properties": {
+          "access": {
+            "description": "List of permission scopes granted to the user for this team",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "avatar": {
+            "$ref": "#/$defs/TeamAvatar",
+            "description": "Avatar configuration for the team",
+            "title": "Avatar"
+          },
+          "dateCreated": {
+            "description": "Team creation timestamp in ISO 8601 format (nullable)",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "flags": {
+            "additionalProperties": true,
+            "description": "Feature flags for the team (e.g., idp:provisioned)",
+            "title": "Flags",
+            "type": "object"
+          },
+          "hasAccess": {
+            "description": "Whether the user has access to the team",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Team identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "isMember": {
+            "description": "Whether the requester is a member of the team",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "isPending": {
+            "description": "Whether the membership is pending approval",
+            "title": "Is Pending",
+            "type": "boolean"
+          },
+          "memberCount": {
+            "description": "Current number of members in the team",
+            "title": "Member Count",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Human-readable team name",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly team name",
+            "title": "Slug",
+            "type": "string"
+          },
+          "teamRole": {
+            "description": "Member's role on the team (nullable)",
+            "title": "Team Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "isMember",
+          "flags",
+          "access",
+          "hasAccess",
+          "isPending",
+          "memberCount",
+          "avatar"
+        ],
+        "title": "DeleteMemberFromTeamResponse",
+        "type": "object"
+      },
+      "TeamAvatar": {
+        "description": "Avatar configuration for a Sentry team.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., letter_avatar)",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar image (nullable)",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "Unique identifier for the avatar (nullable)",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "TeamAvatar",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteMemberFromTeamResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

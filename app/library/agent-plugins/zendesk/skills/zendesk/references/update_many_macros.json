@@ -1,0 +1,222 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update multiple macros in Zendesk in a single request. Use when you need to bulk update macro settings such as position or active status for multiple macros at once. This action is idempotent — re-running with the same parameters will produce the same result.",
+  "inputSchema": {
+    "description": "Request to update multiple macros in Zendesk.",
+    "properties": {
+      "macros": {
+        "description": "List of macros to update. Each macro must include an 'id' and can optionally include 'position' and 'active'.",
+        "examples": [
+          [
+            {
+              "active": true,
+              "id": 26943047469468
+            },
+            {
+              "id": 26943047469469,
+              "position": 5
+            }
+          ]
+        ],
+        "human_parameter_description": "An array of macro objects to update. Each object requires an 'id' field and can optionally include 'position' and 'active'.",
+        "human_parameter_name": "Macros",
+        "items": {
+          "description": "Individual macro update item for bulk update.",
+          "properties": {
+            "active": {
+              "description": "Whether to activate (true) or deactivate (false) the macro",
+              "examples": [true],
+              "human_parameter_description": "Set to true to activate the macro or false to deactivate it.",
+              "human_parameter_name": "Active",
+              "title": "Active",
+              "type": "boolean"
+            },
+            "id": {
+              "description": "The ID of the macro to update",
+              "examples": [26943047469468],
+              "human_parameter_description": "The unique ID of the Zendesk macro you want to update. You can find macro IDs from the List Macros action.",
+              "human_parameter_name": "Macro ID",
+              "title": "Id",
+              "type": "integer"
+            },
+            "position": {
+              "description": "The new position of the macro in the list",
+              "examples": [8],
+              "human_parameter_description": "Set the new position of the macro in the list (lower numbers appear first).",
+              "human_parameter_name": "Position",
+              "title": "Position",
+              "type": "integer"
+            }
+          },
+          "required": ["id"],
+          "title": "MacroUpdateItem",
+          "type": "object"
+        },
+        "title": "Macros",
+        "type": "array"
+      }
+    },
+    "required": ["macros"],
+    "title": "UpdateManyMacrosRequest",
+    "type": "object"
+  },
+  "name": "update_many_macros",
+  "outputSchema": {
+    "$defs": {
+      "Macro": {
+        "description": "Individual Zendesk macro object returned from update.",
+        "properties": {
+          "actions": {
+            "description": "Actions performed by the macro",
+            "items": {
+              "$ref": "#/$defs/MacroAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "active": {
+            "description": "Whether the macro is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "conditions": {
+            "additionalProperties": true,
+            "description": "Conditions that must be met for the macro to be available",
+            "title": "Conditions",
+            "type": "object"
+          },
+          "created_at": {
+            "description": "Timestamp when the macro was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "description": "ID of the user who created the macro",
+            "title": "Created By",
+            "type": "integer"
+          },
+          "default": {
+            "description": "Whether the macro is a default macro",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique macro ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "position": {
+            "description": "Position in the macro order",
+            "title": "Position",
+            "type": "integer"
+          },
+          "raw_title": {
+            "description": "Raw title without formatting",
+            "title": "Raw Title",
+            "type": "string"
+          },
+          "title": {
+            "description": "Macro title",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the macro was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "updated_by": {
+            "description": "ID of the user who last updated the macro",
+            "title": "Updated By",
+            "type": "integer"
+          },
+          "url": {
+            "description": "API URL of the macro",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "Macro",
+        "type": "object"
+      },
+      "MacroAction": {
+        "description": "Action performed by a macro.",
+        "properties": {
+          "field": {
+            "description": "The field to modify",
+            "title": "Field",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "description": "The value to set",
+            "title": "Value"
+          }
+        },
+        "title": "MacroAction",
+        "type": "object"
+      },
+      "UpdateManyMacrosResponse": {
+        "description": "Response from updating multiple macros.",
+        "properties": {
+          "count": {
+            "description": "Total number of macros updated",
+            "title": "Count",
+            "type": "integer"
+          },
+          "macros": {
+            "description": "List of updated macros returned by the API",
+            "items": {
+              "$ref": "#/$defs/Macro"
+            },
+            "title": "Macros",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["macros", "count"],
+        "title": "UpdateManyMacrosResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateManyMacrosResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

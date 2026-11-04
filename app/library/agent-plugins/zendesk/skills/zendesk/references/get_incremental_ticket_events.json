@@ -1,0 +1,165 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Export incremental ticket events from Zendesk. Use when you need to track changes to tickets over time, monitor agent performance metrics, or sync ticket event data with an external system. This action returns a stream of ticket metric events (like agent work time, reply times) that occurred after the specified start_time. Call repeatedly with the end_time from each response to continue exporting events. Data isn't available for the most recent minute due to eventual consistency. Note: This is a read-only, idempotent operation. The start_time must be at least one minute in the past.",
+  "inputSchema": {
+    "description": "Request parameters for incremental ticket event export.",
+    "properties": {
+      "include": {
+        "description": "Sideloads to include in the response. Accepts a comma-separated list of values. Supports 'comment_events' to include full comment data in the response.",
+        "examples": ["comment_events"],
+        "title": "Include",
+        "type": "string"
+      },
+      "start_time": {
+        "description": "The time to start the incremental export from. Must be at least one minute in the past. Data isn't provided for the most recent minute due to eventual consistency delays.",
+        "examples": [1332034771],
+        "title": "Start Time",
+        "type": "integer"
+      },
+      "support_type_scope": {
+        "description": "Scope for filtering tickets by support type.",
+        "enum": ["all", "agent", "ai_agent"],
+        "examples": ["agent"],
+        "title": "SupportTypeScope",
+        "type": "string"
+      }
+    },
+    "required": ["start_time"],
+    "title": "GetIncrementalTicketEventsRequest",
+    "type": "object"
+  },
+  "name": "get_incremental_ticket_events",
+  "outputSchema": {
+    "$defs": {
+      "ChildEvent": {
+        "description": "A child event within a ticket event.",
+        "properties": {
+          "event_type": {
+            "description": "Type of the event",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "id": {
+            "description": "ID of the child event",
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "event_type"],
+        "title": "ChildEvent",
+        "type": "object"
+      },
+      "GetIncrementalTicketEventsResponse": {
+        "description": "Response containing incremental ticket events.",
+        "properties": {
+          "count": {
+            "description": "Number of ticket events returned in this response",
+            "title": "Count",
+            "type": "integer"
+          },
+          "end_of_stream": {
+            "description": "Whether this is the end of the current stream. When false, use next_page to continue fetching.",
+            "title": "End Of Stream",
+            "type": "boolean"
+          },
+          "end_time": {
+            "description": "The end time of the current export window (Unix timestamp). Use this value as start_time for the next request to get subsequent events.",
+            "title": "End Time",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL to fetch the next page of events. Present when end_of_stream is false. Use the start_time parameter from this URL for pagination.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "ticket_events": {
+            "description": "List of ticket metric events that occurred after the start_time",
+            "items": {
+              "$ref": "#/$defs/TicketMetricEvent"
+            },
+            "title": "Ticket Events",
+            "type": "array"
+          }
+        },
+        "required": ["count", "end_of_stream", "end_time", "ticket_events"],
+        "title": "GetIncrementalTicketEventsResponse",
+        "type": "object"
+      },
+      "TicketMetricEvent": {
+        "description": "A single ticket metric event from the incremental export.",
+        "properties": {
+          "child_events": {
+            "description": "Child events within this ticket event",
+            "items": {
+              "$ref": "#/$defs/ChildEvent"
+            },
+            "title": "Child Events",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "When the event was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "Whether this event has been deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "event_type": {
+            "description": "Type of ticket event",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique ID of the ticket event",
+            "title": "Id",
+            "type": "integer"
+          },
+          "instance_id": {
+            "description": "Instance ID of the event",
+            "title": "Instance Id",
+            "type": "integer"
+          },
+          "metric": {
+            "description": "The metric type (e.g., 'agent_work_time', 'reply_time')",
+            "title": "Metric",
+            "type": "string"
+          },
+          "ticket_id": {
+            "description": "ID of the ticket this event belongs to",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "time": {
+            "description": "Timestamp when the event occurred (ISO 8601)",
+            "title": "Time",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the event (e.g., 'measure')",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "TicketMetricEvent",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetIncrementalTicketEventsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

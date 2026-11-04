@@ -1,0 +1,230 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new contact in Salesforce with the specified information. Writes to live CRM data — obtain explicit user confirmation before executing. Failures may reflect org-specific validation rules, permission restrictions, or duplicate rules rather than invalid inputs.",
+  "inputSchema": {
+    "properties": {
+      "account_id": {
+        "default": "",
+        "description": "ID of the Account this contact is associated with.",
+        "examples": ["001XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "Enter the Salesforce Account ID to link this contact to a company or organization. If you don’t have it handy, you can leave this blank and associate it later.",
+        "human_parameter_name": "Account ID",
+        "title": "Account Id",
+        "type": "string"
+      },
+      "birthdate": {
+        "default": "",
+        "description": "Contact's birthdate in YYYY-MM-DD format.",
+        "examples": ["1990-01-15", "1985-12-25"],
+        "human_parameter_description": "Enter the contact's birthdate in YYYY-MM-DD format. This can be used for greetings or segmentation.",
+        "human_parameter_name": "Birthdate",
+        "title": "Birthdate",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values. Custom field names typically end with '__c' (e.g., 'Level__c', 'Languages__c').",
+        "examples": [
+          {
+            "Languages__c": "English;Spanish",
+            "Level__c": "Primary"
+          }
+        ],
+        "human_parameter_description": "Provide custom field values as key-value pairs. Use the Salesforce API name for each field (usually ending in '__c'). For picklist fields, use the exact picklist value. For multi-select picklists, separate values with semicolons.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "department": {
+        "default": "",
+        "description": "Contact's department.",
+        "examples": ["Sales", "Engineering", "Marketing"],
+        "human_parameter_description": "Specify the department or team the person belongs to. This adds context for routing and outreach.",
+        "human_parameter_name": "Department",
+        "title": "Department",
+        "type": "string"
+      },
+      "email": {
+        "default": "",
+        "description": "Contact's email address.",
+        "examples": ["john.smith@example.com", "contact@company.com"],
+        "human_parameter_description": "Provide the contact’s email address so you can communicate with them and avoid duplicates.",
+        "human_parameter_name": "Email",
+        "title": "Email",
+        "type": "string"
+      },
+      "first_name": {
+        "default": "",
+        "description": "Contact's first name.",
+        "examples": ["John", "Jane", "Michael"],
+        "human_parameter_description": "Enter the contact’s first name as it should appear on the record. Leave blank if unknown.",
+        "human_parameter_name": "First Name",
+        "title": "First Name",
+        "type": "string"
+      },
+      "last_name": {
+        "description": "Contact's last name (required field in Salesforce).",
+        "examples": ["Smith", "Johnson", "Williams"],
+        "human_parameter_description": "Enter the contact’s last name or family name. Salesforce requires a last name to create a contact.",
+        "human_parameter_name": "Last Name",
+        "title": "Last Name",
+        "type": "string"
+      },
+      "lead_source": {
+        "default": "",
+        "description": "Source from which this contact originated.",
+        "examples": ["Web", "Phone Inquiry", "Partner Referral", "Purchased List"],
+        "human_parameter_description": "Indicate how you obtained this contact (e.g., Web, Phone Inquiry, Referral). Tracking the source helps measure lead generation.",
+        "human_parameter_name": "Lead Source",
+        "title": "Lead Source",
+        "type": "string"
+      },
+      "mailing_city": {
+        "default": "",
+        "description": "Contact's mailing city.",
+        "examples": ["San Francisco", "New York", "Chicago"],
+        "human_parameter_description": "Enter the city for the contact’s mailing address.",
+        "human_parameter_name": "Mailing City",
+        "title": "Mailing City",
+        "type": "string"
+      },
+      "mailing_country": {
+        "default": "",
+        "description": "Contact's mailing country.",
+        "examples": ["USA", "United States", "Canada"],
+        "human_parameter_description": "Enter the country for the contact’s mailing address.",
+        "human_parameter_name": "Mailing Country",
+        "title": "Mailing Country",
+        "type": "string"
+      },
+      "mailing_postal_code": {
+        "default": "",
+        "description": "Contact's mailing postal/zip code.",
+        "examples": ["94105", "10001", "60601"],
+        "human_parameter_description": "Enter the ZIP or postal code for the contact’s mailing address.",
+        "human_parameter_name": "Mailing Postal Code",
+        "title": "Mailing Postal Code",
+        "type": "string"
+      },
+      "mailing_state": {
+        "default": "",
+        "description": "Contact's mailing state/province.",
+        "examples": ["CA", "NY", "IL", "California", "New York"],
+        "human_parameter_description": "Enter the state or province for the contact’s mailing address.",
+        "human_parameter_name": "Mailing State",
+        "title": "Mailing State",
+        "type": "string"
+      },
+      "mailing_street": {
+        "default": "",
+        "description": "Contact's mailing street address.",
+        "examples": ["123 Main St", "456 Oak Avenue, Suite 200"],
+        "human_parameter_description": "Enter the street address where the contact receives mail, including suite or unit if applicable.",
+        "human_parameter_name": "Mailing Street",
+        "title": "Mailing Street",
+        "type": "string"
+      },
+      "mobile_phone": {
+        "default": "",
+        "description": "Contact's mobile phone number.",
+        "examples": ["(555) 987-6543", "+1-555-123-4567"],
+        "human_parameter_description": "Provide the contact’s mobile or cell number for direct calls or texts. Leave blank if not needed.",
+        "human_parameter_name": "Mobile Phone",
+        "title": "Mobile Phone",
+        "type": "string"
+      },
+      "phone": {
+        "default": "",
+        "description": "Contact's primary phone number.",
+        "examples": ["(555) 123-4567", "+1-800-555-0123"],
+        "human_parameter_description": "Provide the contact’s primary phone number for general calls. Use a format that’s easy to dial.",
+        "human_parameter_name": "Phone",
+        "title": "Phone",
+        "type": "string"
+      },
+      "title": {
+        "default": "",
+        "description": "Contact's job title.",
+        "examples": ["CEO", "Sales Manager", "Software Engineer"],
+        "human_parameter_description": "Enter the person’s job title at their organization. This helps others understand their role.",
+        "human_parameter_name": "Title",
+        "title": "Title",
+        "type": "string"
+      }
+    },
+    "required": ["last_name"],
+    "title": "CreateContactRequest",
+    "type": "object"
+  },
+  "name": "create_contact",
+  "outputSchema": {
+    "$defs": {
+      "CreateContactResponse": {
+        "description": "Response from creating a contact in Salesforce.",
+        "properties": {
+          "errors": {
+            "description": "Array of error objects containing information about any errors that occurred during the operation. Empty array when successful.",
+            "items": {
+              "$ref": "#/$defs/ErrorDetail"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The unique Salesforce ID of the newly created Contact record (18-character format).",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the Contact creation operation was successful. Returns true if successful, false otherwise.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "success", "errors"],
+        "title": "CreateContactResponse",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "description": "Represents an error returned by Salesforce when contact creation fails.",
+        "properties": {
+          "errorCode": {
+            "description": "Error code that characterizes the type of error (e.g., REQUIRED_FIELD_MISSING, FIELD_CUSTOM_VALIDATION_EXCEPTION, DUPLICATES_DETECTED).",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Array of field API names that caused or are associated with the error.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Descriptive error message explaining what went wrong.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["errorCode", "message"],
+        "title": "ErrorDetail",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateContactResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

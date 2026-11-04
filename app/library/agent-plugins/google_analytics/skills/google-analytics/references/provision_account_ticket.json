@@ -1,0 +1,70 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to request a ticket for creating a Google Analytics account. Use when you need to initiate the account creation flow that requires user acceptance of Terms of Service.",
+  "inputSchema": {
+    "description": "Request model for provisioning an account ticket.",
+    "properties": {
+      "account": {
+        "additionalProperties": false,
+        "description": "Required. Account details including display name and region code.",
+        "properties": {
+          "displayName": {
+            "description": "Required. Human-readable display name for the account to be created.",
+            "examples": ["My Company Analytics", "Test Account"],
+            "title": "Display Name",
+            "type": "string"
+          },
+          "regionCode": {
+            "description": "Required. Country of business. Must be a valid Unicode CLDR region code (e.g., 'US', 'GB', 'CA').",
+            "examples": ["US", "GB", "CA", "AU"],
+            "title": "Region Code",
+            "type": "string"
+          }
+        },
+        "required": ["displayName", "regionCode"],
+        "title": "Account",
+        "type": "object"
+      },
+      "redirectUri": {
+        "description": "Required. Redirect URI where the user will be sent after accepting Terms of Service. Must be configured in Cloud Console as a Redirect URI.",
+        "examples": ["https://example.com/redirect", "https://myapp.com/oauth/callback"],
+        "title": "Redirect Uri",
+        "type": "string"
+      }
+    },
+    "required": ["account", "redirectUri"],
+    "title": "ProvisionAccountTicketRequest",
+    "type": "object"
+  },
+  "name": "provision_account_ticket",
+  "outputSchema": {
+    "$defs": {
+      "ProvisionAccountTicketResponse": {
+        "description": "Response model for provisioning an account ticket.",
+        "properties": {
+          "accountTicketId": {
+            "description": "The account ticket ID to be passed in the Terms of Service link.",
+            "title": "Account Ticket Id",
+            "type": "string"
+          }
+        },
+        "title": "ProvisionAccountTicketResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ProvisionAccountTicketResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

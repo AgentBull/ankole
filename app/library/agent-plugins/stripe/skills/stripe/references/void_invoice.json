@@ -1,0 +1,290 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Voids a finalized Stripe invoice while maintaining a paper trail. Voiding is permanent and cannot be undone; draft invoices should be deleted instead.",
+  "inputSchema": {
+    "description": "Request model for voiding a finalized invoice.",
+    "properties": {
+      "invoice_id": {
+        "description": "The identifier of the invoice to void. Must be a finalized invoice. Draft invoices should be deleted instead of voided.",
+        "examples": ["in_1ShW0SQvM72TjFrbczI7Yv6W", "in_1MtGmCLkdIwHu7ix6PgS6g8S"],
+        "title": "Invoice Id",
+        "type": "string"
+      }
+    },
+    "required": ["invoice_id"],
+    "title": "VoidInvoiceRequest",
+    "type": "object"
+  },
+  "name": "void_invoice",
+  "outputSchema": {
+    "$defs": {
+      "AutomaticTax": {
+        "description": "Tax calculation settings and results.",
+        "properties": {
+          "disabledReason": {
+            "description": "Why automatic tax disabled",
+            "title": "Disabled Reason",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether Stripe automatically computes tax",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "liability": {
+            "$ref": "#/$defs/AutomaticTaxLiability",
+            "description": "Account liable for tax",
+            "title": "Liability"
+          },
+          "status": {
+            "description": "Status (complete, failed, requires_location_inputs)",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTax",
+        "type": "object"
+      },
+      "AutomaticTaxLiability": {
+        "description": "Account liable for tax under automatic tax settings.",
+        "properties": {
+          "account": {
+            "description": "Connected account reference",
+            "title": "Account",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of account (account, self)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AutomaticTaxLiability",
+        "type": "object"
+      },
+      "StatusTransitions": {
+        "description": "Timestamps of status updates.",
+        "properties": {
+          "finalizedAt": {
+            "description": "Invoice finalization timestamp",
+            "title": "Finalized At",
+            "type": "integer"
+          },
+          "markedUncollectibleAt": {
+            "description": "Uncollectible marking timestamp",
+            "title": "Marked Uncollectible At",
+            "type": "integer"
+          },
+          "paidAt": {
+            "description": "Payment completion timestamp",
+            "title": "Paid At",
+            "type": "integer"
+          },
+          "voidedAt": {
+            "description": "Void timestamp",
+            "title": "Voided At",
+            "type": "integer"
+          }
+        },
+        "title": "StatusTransitions",
+        "type": "object"
+      },
+      "VoidInvoiceResponse": {
+        "description": "Response model for a voided invoice.\n\nReturns the complete invoice object with status set to 'void'.",
+        "properties": {
+          "amountDue": {
+            "description": "Final amount due at this time in cents",
+            "title": "Amount Due",
+            "type": "integer"
+          },
+          "amountPaid": {
+            "description": "Amount in cents that was paid",
+            "title": "Amount Paid",
+            "type": "integer"
+          },
+          "amountRemaining": {
+            "description": "Difference between amount_due and amount_paid",
+            "title": "Amount Remaining",
+            "type": "integer"
+          },
+          "attemptCount": {
+            "description": "Number of payment attempts made",
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "attempted": {
+            "description": "Whether payment attempt has been made",
+            "title": "Attempted",
+            "type": "boolean"
+          },
+          "autoAdvance": {
+            "description": "Controls automatic collection behavior",
+            "title": "Auto Advance",
+            "type": "boolean"
+          },
+          "automaticTax": {
+            "$ref": "#/$defs/AutomaticTax",
+            "description": "Tax calculation settings and results",
+            "title": "Automatic Tax"
+          },
+          "billingReason": {
+            "description": "Reason invoice was created",
+            "title": "Billing Reason",
+            "type": "string"
+          },
+          "collectionMethod": {
+            "description": "Either charge_automatically or send_invoice",
+            "title": "Collection Method",
+            "type": "string"
+          },
+          "created": {
+            "description": "Unix timestamp of creation",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code",
+            "title": "Currency",
+            "type": "string"
+          },
+          "customer": {
+            "description": "ID of customer to be billed",
+            "title": "Customer",
+            "type": "string"
+          },
+          "customerEmail": {
+            "description": "Customer email",
+            "title": "Customer Email",
+            "type": "string"
+          },
+          "customerName": {
+            "description": "Customer name",
+            "title": "Customer Name",
+            "type": "string"
+          },
+          "description": {
+            "description": "Arbitrary descriptive string",
+            "title": "Description",
+            "type": "string"
+          },
+          "hostedInvoiceUrl": {
+            "description": "URL for hosted invoice page",
+            "title": "Hosted Invoice Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the invoice",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoicePdf": {
+            "description": "PDF download link",
+            "title": "Invoice Pdf",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live or test mode",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value metadata pairs",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "number": {
+            "description": "Unique identifying string",
+            "title": "Number",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing object type; always 'invoice'",
+            "title": "Object",
+            "type": "string"
+          },
+          "paid": {
+            "description": "Whether payment was successfully collected for this invoice",
+            "title": "Paid",
+            "type": "boolean"
+          },
+          "periodEnd": {
+            "description": "End of usage period for items",
+            "title": "Period End",
+            "type": "integer"
+          },
+          "periodStart": {
+            "description": "Start of usage period for items",
+            "title": "Period Start",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Invoice status; value is 'void' when voided. One of draft, open, paid, uncollectible, or void.",
+            "title": "Status",
+            "type": "string"
+          },
+          "statusTransitions": {
+            "$ref": "#/$defs/StatusTransitions",
+            "description": "Timestamps of status updates",
+            "title": "Status Transitions"
+          },
+          "subtotal": {
+            "description": "Total before invoice discounts/tax",
+            "title": "Subtotal",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total after discounts and taxes",
+            "title": "Total",
+            "type": "integer"
+          },
+          "webhooksDeliveredAt": {
+            "description": "Successful webhook delivery timestamp",
+            "title": "Webhooks Delivered At",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amountDue",
+          "amountPaid",
+          "amountRemaining",
+          "attemptCount",
+          "attempted",
+          "automaticTax",
+          "collectionMethod",
+          "created",
+          "currency",
+          "livemode",
+          "paid",
+          "periodEnd",
+          "periodStart",
+          "statusTransitions",
+          "subtotal",
+          "total"
+        ],
+        "title": "VoidInvoiceResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/VoidInvoiceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

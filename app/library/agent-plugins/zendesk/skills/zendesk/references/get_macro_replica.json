@@ -1,0 +1,215 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Show a macro replica (unpersisted macro representation) based on a macro ID and ticket ID. Use when you need to preview how a macro will look when applied to a specific ticket, allowing you to see the actions and values that will be applied without actually applying the macro. This is useful for testing macro configurations or displaying macro previews in your interface. This action is read-only and idempotent.",
+  "inputSchema": {
+    "description": "Request parameters for showing a macro replica.",
+    "properties": {
+      "macro_id": {
+        "description": "The ID of the macro to replicate",
+        "examples": [26923127755548],
+        "human_parameter_description": "The ID of the macro you want to preview. You can find this ID in the macro URL or from a macro list.",
+        "human_parameter_name": "Macro ID",
+        "title": "Macro Id",
+        "type": "integer"
+      },
+      "ticket_id": {
+        "description": "The ID of the ticket from which to build a macro replica",
+        "examples": [2],
+        "human_parameter_description": "The ID of the ticket to use as context for the macro preview. The macro will be rendered with the ticket's data.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["macro_id", "ticket_id"],
+    "title": "GetMacroReplicaRequest",
+    "type": "object"
+  },
+  "name": "get_macro_replica",
+  "outputSchema": {
+    "$defs": {
+      "GetMacroReplicaResponse": {
+        "description": "Response containing a macro replica.",
+        "properties": {
+          "macro": {
+            "$ref": "#/$defs/ZendeskMacroReplica",
+            "description": "The macro replica object returned by the API",
+            "title": "Macro"
+          }
+        },
+        "required": ["macro"],
+        "title": "GetMacroReplicaResponse",
+        "type": "object"
+      },
+      "MacroAction": {
+        "description": "Action performed by a macro.",
+        "properties": {
+          "field": {
+            "description": "Field to be modified by the action",
+            "title": "Field",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "description": "Value to set for the field",
+            "title": "Value"
+          }
+        },
+        "title": "MacroAction",
+        "type": "object"
+      },
+      "MacroRestriction": {
+        "description": "Restriction on macro usage.",
+        "properties": {
+          "id": {
+            "description": "ID of the restriction",
+            "title": "Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Type of the restriction (e.g., User, Group)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "MacroRestriction",
+        "type": "object"
+      },
+      "ZendeskMacroReplica": {
+        "description": "Zendesk macro replica object returned from the Show Macro Replica endpoint.",
+        "properties": {
+          "actions": {
+            "description": "Actions to be performed by the macro",
+            "items": {
+              "$ref": "#/$defs/MacroAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "active": {
+            "description": "Whether the macro is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "app_installation": {
+            "description": "Associated app installation ID",
+            "title": "App Installation",
+            "type": "string"
+          },
+          "categories": {
+            "description": "Categories assigned to the macro",
+            "title": "Categories",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the macro was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether this is a default macro",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Description of the macro",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique macro ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "permissions": {
+            "description": "Permission settings for the macro",
+            "title": "Permissions",
+            "type": "string"
+          },
+          "position": {
+            "description": "Position of the macro in the list",
+            "title": "Position",
+            "type": "integer"
+          },
+          "raw_title": {
+            "description": "Raw macro title",
+            "title": "Raw Title",
+            "type": "string"
+          },
+          "restriction": {
+            "$ref": "#/$defs/MacroRestriction",
+            "description": "Restrictions on who can use the macro",
+            "title": "Restriction"
+          },
+          "title": {
+            "description": "Macro title",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the macro was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the macro",
+            "title": "Url",
+            "type": "string"
+          },
+          "usage_1h": {
+            "description": "Usage count in the last hour",
+            "title": "Usage 1H",
+            "type": "integer"
+          },
+          "usage_24h": {
+            "description": "Usage count in the last 24 hours",
+            "title": "Usage 24H",
+            "type": "integer"
+          },
+          "usage_30d": {
+            "description": "Usage count in the last 30 days",
+            "title": "Usage 30D",
+            "type": "integer"
+          },
+          "usage_7d": {
+            "description": "Usage count in the last 7 days",
+            "title": "Usage 7D",
+            "type": "integer"
+          }
+        },
+        "title": "ZendeskMacroReplica",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMacroReplicaResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

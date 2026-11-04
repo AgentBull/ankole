@@ -1,0 +1,152 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to get a Salesforce org's active theme and directory of supported objects. Use when you need to discover available objects that are supported by the User Interface API, including their CRUD permissions, labels, and theme information.",
+  "inputSchema": {
+    "properties": {
+      "q": {
+        "description": "Comma-separated list of object API names to filter the response. When provided, only returns metadata for the specified objects. If omitted, returns all available objects.",
+        "examples": ["Account,Contact,Opportunity", "Lead,Case", "Account"],
+        "title": "Q",
+        "type": "string"
+      }
+    },
+    "title": "GetSupportedObjectsDirectoryRequest",
+    "type": "object"
+  },
+  "name": "get_supported_objects_directory",
+  "outputSchema": {
+    "$defs": {
+      "GetSupportedObjectsDirectoryResponse": {
+        "additionalProperties": true,
+        "description": "Response containing directory of supported objects and active theme.",
+        "properties": {
+          "eTag": {
+            "description": "Version identifier for caching and conditional HTTP requests.",
+            "title": "E Tag",
+            "type": "string"
+          },
+          "objects": {
+            "additionalProperties": {
+              "$ref": "#/$defs/ObjectInfoDirectoryEntry"
+            },
+            "description": "Map where keys are object API names (e.g., Account, Contact) and values are object metadata entries.",
+            "title": "Objects",
+            "type": "object"
+          },
+          "themeInfo": {
+            "$ref": "#/$defs/ThemeInfo",
+            "description": "Object containing color and icon information for the active theme.",
+            "title": "Theme Info"
+          }
+        },
+        "required": ["objects"],
+        "title": "GetSupportedObjectsDirectoryResponse",
+        "type": "object"
+      },
+      "ObjectInfoDirectoryEntry": {
+        "additionalProperties": true,
+        "description": "Metadata entry for a single object in the directory.",
+        "properties": {
+          "apiName": {
+            "description": "The API name of the object.",
+            "title": "Api Name",
+            "type": "string"
+          },
+          "createable": {
+            "description": "Whether new records can be created.",
+            "title": "Createable",
+            "type": "boolean"
+          },
+          "custom": {
+            "description": "True if custom object, false for standard.",
+            "title": "Custom",
+            "type": "boolean"
+          },
+          "deletable": {
+            "description": "Whether records can be deleted.",
+            "title": "Deletable",
+            "type": "boolean"
+          },
+          "feedEnabled": {
+            "description": "Whether Chatter feed is enabled.",
+            "title": "Feed Enabled",
+            "type": "boolean"
+          },
+          "keyPrefix": {
+            "description": "Three-character prefix used in record IDs.",
+            "title": "Key Prefix",
+            "type": "string"
+          },
+          "label": {
+            "description": "The user-facing display label for the object.",
+            "title": "Label",
+            "type": "string"
+          },
+          "labelPlural": {
+            "description": "The plural form of the object label.",
+            "title": "Label Plural",
+            "type": "string"
+          },
+          "layoutable": {
+            "description": "Whether the object supports page layouts.",
+            "title": "Layoutable",
+            "type": "boolean"
+          },
+          "queryable": {
+            "description": "Whether the object can be queried using SOQL.",
+            "title": "Queryable",
+            "type": "boolean"
+          },
+          "searchable": {
+            "description": "Whether the object can be searched using SOSL.",
+            "title": "Searchable",
+            "type": "boolean"
+          },
+          "themeInfo": {
+            "$ref": "#/$defs/ThemeInfo",
+            "description": "Theme information specific to this object.",
+            "title": "Theme Info"
+          },
+          "updateable": {
+            "description": "Whether records can be updated.",
+            "title": "Updateable",
+            "type": "boolean"
+          }
+        },
+        "title": "ObjectInfoDirectoryEntry",
+        "type": "object"
+      },
+      "ThemeInfo": {
+        "description": "Theme information containing color and icon details.",
+        "properties": {
+          "color": {
+            "description": "Hex color code for the theme (e.g., #7F8DE1).",
+            "title": "Color",
+            "type": "string"
+          },
+          "iconUrl": {
+            "description": "URL path to the icon resource for the object.",
+            "title": "Icon Url",
+            "type": "string"
+          }
+        },
+        "title": "ThemeInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetSupportedObjectsDirectoryResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

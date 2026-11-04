@@ -1,0 +1,195 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Bulk updates attributes of issues in a Sentry project, selecting issues by ID or status. If IDs are omitted when a status filter is used, the update targets all issues matching that status.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateProjectIssueStatusAndDetails`",
+    "properties": {
+      "assignedTo": {
+        "description": "Actor ID (e.g., `user:123` or `team:456`) or username for assignment. Use an empty string or null to unassign.",
+        "examples": ["user:123", "team:456", "test@example.com"],
+        "title": "Assigned To",
+        "type": "string"
+      },
+      "hasSeen": {
+        "description": "If called with user context: true to mark issue as seen by the user, false as unseen.",
+        "examples": [true, false],
+        "title": "Has Seen",
+        "type": "boolean"
+      },
+      "id": {
+        "description": "Issue IDs to update. Accepts a list of integers for bulk updates. Optional; if omitted and the 'status' query parameter (filter) is used, updates all issues matching that status.",
+        "examples": [[1, 2, 3], [123456]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Id",
+        "type": "array"
+      },
+      "ignoreDuration": {
+        "description": "Minutes to ignore this issue (alternative to `statusDetails.ignoreDuration`).",
+        "examples": [30, 120],
+        "title": "Ignore Duration",
+        "type": "integer"
+      },
+      "isBookmarked": {
+        "description": "If called with user context: true to bookmark issue for the user, false to remove bookmark.",
+        "examples": [true, false],
+        "title": "Is Bookmarked",
+        "type": "boolean"
+      },
+      "isPublic": {
+        "description": "Set to true for public, false for private.",
+        "examples": [true, false],
+        "title": "Is Public",
+        "type": "boolean"
+      },
+      "merge": {
+        "description": "Set to true to merge issues, false to unmerge. If merging, ensure the target issue ID is correctly specified.",
+        "examples": [true, false],
+        "title": "Merge",
+        "type": "boolean"
+      },
+      "organization_id_or_slug": {
+        "description": "ID or slug of the Sentry organization.",
+        "examples": ["my-organization", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "ID or slug of the Sentry project.",
+        "examples": ["my-project", "67890"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      },
+      "status": {
+        "description": "The new status to apply to the selected issues (request body parameter). Valid values are `\"resolved\"`, `\"resolvedInNextRelease\"`, `\"unresolved\"`, and `\"ignored\"`.",
+        "examples": ["resolved", "ignored"],
+        "title": "Status",
+        "type": "string"
+      },
+      "statusDetails__ignoreCount": {
+        "description": "Number of times to ignore the issue before it resurfaces.",
+        "examples": [100, 1000],
+        "title": "Status Details  Ignore Count",
+        "type": "integer"
+      },
+      "statusDetails__ignoreDuration": {
+        "description": "Duration (in minutes) to ignore the issue.",
+        "examples": [60, 1440],
+        "title": "Status Details  Ignore Duration",
+        "type": "integer"
+      },
+      "statusDetails__ignoreUserCount": {
+        "description": "Number of unique users affected before a previously ignored issue resurfaces.",
+        "examples": [10, 50],
+        "title": "Status Details  Ignore User Count",
+        "type": "integer"
+      },
+      "statusDetails__ignoreUserWindow": {
+        "description": "Time window (in minutes) for `ignoreUserCount`.",
+        "examples": [60, 1440],
+        "title": "Status Details  Ignore User Window",
+        "type": "integer"
+      },
+      "statusDetails__ignoreWindow": {
+        "description": "Time window (in minutes) for `ignoreCount`.",
+        "examples": [60, 1440],
+        "title": "Status Details  Ignore Window",
+        "type": "integer"
+      },
+      "statusDetails__inCommit": {
+        "description": "Commit ID in which the issue is resolved.",
+        "examples": ["abcdef1234567890"],
+        "title": "Status Details  In Commit",
+        "type": "string"
+      },
+      "statusDetails__inNextRelease": {
+        "description": "Indicates if the issue is resolved in the next release.",
+        "examples": [true, false],
+        "title": "Status Details  In Next Release",
+        "type": "boolean"
+      },
+      "statusDetails__inRelease": {
+        "description": "Version/release in which the issue is resolved.",
+        "examples": ["1.0.0", "my-release-tag"],
+        "title": "Status Details  In Release",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "UpdateProjectIssueStatusAndDetailsRequest",
+    "type": "object"
+  },
+  "name": "update_project_issue_status_and_details",
+  "outputSchema": {
+    "$defs": {
+      "UpdateProjectIssueStatusAndDetailsResponse": {
+        "additionalProperties": true,
+        "description": "Response schema for `UpdateProjectIssueStatusAndDetails`",
+        "properties": {
+          "assignedTo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "User or team the issue is assigned to",
+            "title": "Assigned To"
+          },
+          "hasSeen": {
+            "description": "Whether the user has seen the issue",
+            "title": "Has Seen",
+            "type": "boolean"
+          },
+          "isBookmarked": {
+            "description": "Whether the issue is bookmarked",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "isPublic": {
+            "description": "Whether the issue is public",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "shareId": {
+            "description": "Share ID if the issue was made public",
+            "title": "Share Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "The updated status of the issue(s)",
+            "examples": ["resolved", "ignored", "unresolved"],
+            "title": "Status",
+            "type": "string"
+          },
+          "statusDetails": {
+            "additionalProperties": true,
+            "description": "Additional details about the status change",
+            "title": "Status Details",
+            "type": "object"
+          }
+        },
+        "title": "UpdateProjectIssueStatusAndDetailsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateProjectIssueStatusAndDetailsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently removes a user from an organization in Zendesk by deleting the organization membership. This action is irreversible — the membership cannot be recovered once deleted. Use this action when you need to remove a user's association with an organization. This operation requires admin permissions.",
+  "inputSchema": {
+    "properties": {
+      "organization_membership_id": {
+        "description": "The ID of the organization membership to delete",
+        "examples": [26925586918940],
+        "human_parameter_description": "The numeric ID of the Zendesk organization membership you want to delete. This removes a user from an organization. You can find this ID from listing organization memberships.",
+        "human_parameter_name": "Organization Membership ID",
+        "title": "Organization Membership Id",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_membership_id"],
+    "title": "DeleteOrganizationMembershipRequest",
+    "type": "object"
+  },
+  "name": "delete_organization_membership",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationMembershipResponse": {
+        "properties": {
+          "success": {
+            "description": "Indicates whether the membership deletion was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "DeleteOrganizationMembershipResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationMembershipResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

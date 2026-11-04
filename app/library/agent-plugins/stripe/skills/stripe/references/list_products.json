@@ -1,0 +1,261 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of Stripe products, with optional filtering and pagination; `starting_after`/`ending_before` cursors must be valid product IDs from a previous response.",
+  "inputSchema": {
+    "properties": {
+      "active": {
+        "description": "Filter products based on their active status. Set to `True` to return only active products, or `False` for inactive ones.",
+        "examples": [true, false],
+        "title": "Active",
+        "type": "boolean"
+      },
+      "created": {
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "description": "Filters products by their creation date range. Provide a dictionary with keys like 'gt' (greater than), 'gte' (greater than or equal to), 'lt' (less than), or 'lte' (less than or equal to) and Unix timestamp values (seconds since epoch). For instance, `{'gte': 1609459200, 'lte': 1640995200}` filters for products created from January 1, 2021, to January 1, 2022.",
+        "examples": ["{'gte': 1609459200, 'lte': 1640995200}", "{'gt': 1609459200}"],
+        "title": "Created",
+        "type": "object"
+      },
+      "ending_before": {
+        "description": "A cursor for use in pagination to fetch the previous page of results. `ending_before` is an object ID that defines your place in the list. For instance, if a list request returns objects ending with `prod_XYZ`, your subsequent call can include `ending_before='prod_XYZ'` to fetch the previous page.",
+        "examples": ["prod_XyZ123", "prod_AbC456"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "ids": {
+        "description": "A list of product IDs to retrieve. If provided, only products with these specific IDs will be returned.",
+        "examples": ["['prod_123', 'prod_456']", "['prod_789']"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Ids",
+        "type": "array"
+      },
+      "limit": {
+        "description": "A limit on the number of product objects to be returned. The value must be an integer between 1 and 100, inclusive. If not specified, the default is 10.",
+        "examples": ["10", "25", "100"],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "shippable": {
+        "description": "Filter products based on whether they are shippable. Set to `True` to return only shippable products, or `False` for non-shippable ones.",
+        "examples": [true, false],
+        "title": "Shippable",
+        "type": "boolean"
+      },
+      "starting_after": {
+        "description": "A cursor for use in pagination to fetch the next page of results. `starting_after` is an object ID that defines your place in the list. For instance, if a list request returns objects and the last object's ID is `prod_ABC`, your subsequent call can include `starting_after='prod_ABC'` to fetch the next page.",
+        "examples": ["prod_AbC456", "prod_XyZ789"],
+        "title": "Starting After",
+        "type": "string"
+      },
+      "url": {
+        "description": "Filter products by a specific URL. Only products with this exact URL will be returned.",
+        "examples": ["https://example.com/my-product", "https://store.example.org/item/shoe"],
+        "title": "Url",
+        "type": "string"
+      }
+    },
+    "title": "ListProductsRequest",
+    "type": "object"
+  },
+  "name": "list_products",
+  "outputSchema": {
+    "$defs": {
+      "ListProductsResponse": {
+        "description": "Response from listing Stripe products with pagination.",
+        "properties": {
+          "data": {
+            "description": "An array containing the actual product objects, paginated by any request parameters.",
+            "items": {
+              "$ref": "#/$defs/Product"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether or not there are more elements available after this set. If false, this set comprises the end of the list.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL for accessing this list.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "ListProductsResponse",
+        "type": "object"
+      },
+      "MarketingFeature": {
+        "description": "A marketing feature for a product.",
+        "properties": {
+          "name": {
+            "description": "The marketing feature name. Up to 80 characters long. Nullable.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "MarketingFeature",
+        "type": "object"
+      },
+      "PackageDimensions": {
+        "description": "The dimensions of a product for shipping purposes.",
+        "properties": {
+          "height": {
+            "description": "Height, in inches.",
+            "title": "Height",
+            "type": "number"
+          },
+          "length": {
+            "description": "Length, in inches.",
+            "title": "Length",
+            "type": "number"
+          },
+          "weight": {
+            "description": "Weight, in ounces.",
+            "title": "Weight",
+            "type": "number"
+          },
+          "width": {
+            "description": "Width, in inches.",
+            "title": "Width",
+            "type": "number"
+          }
+        },
+        "required": ["height", "length", "width", "weight"],
+        "title": "PackageDimensions",
+        "type": "object"
+      },
+      "Product": {
+        "description": "A Stripe Product object.",
+        "properties": {
+          "active": {
+            "description": "Whether the product is currently available for purchase.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "default_price": {
+            "description": "The ID of the Price object that is the default price for this product. Nullable.",
+            "title": "Default Price",
+            "type": "string"
+          },
+          "description": {
+            "description": "The product's description, meant to be displayable to the customer. Nullable.",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "images": {
+            "description": "A list of up to 8 URLs of images for this product, meant to be displayable to the customer.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Images",
+            "type": "array"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "marketing_features": {
+            "description": "A list of up to 15 marketing features for this product. These are displayed in pricing tables.",
+            "items": {
+              "$ref": "#/$defs/MarketingFeature"
+            },
+            "title": "Marketing Features",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs that you can attach to an object. This can be useful for storing additional information about the object in a structured format.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "The product's name, meant to be displayable to the customer.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'product'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "package_dimensions": {
+            "$ref": "#/$defs/PackageDimensions",
+            "description": "The dimensions of this product for shipping purposes. Nullable.",
+            "title": "Package Dimensions"
+          },
+          "shippable": {
+            "description": "Whether this product is shipped (i.e., physical goods). Nullable.",
+            "title": "Shippable",
+            "type": "boolean"
+          },
+          "statement_descriptor": {
+            "description": "Extra information about a product which will appear on your customer's credit card statement. Nullable.",
+            "title": "Statement Descriptor",
+            "type": "string"
+          },
+          "tax_code": {
+            "description": "A tax code ID. Nullable.",
+            "title": "Tax Code",
+            "type": "string"
+          },
+          "unit_label": {
+            "description": "A label that represents units of this product. Nullable.",
+            "title": "Unit Label",
+            "type": "string"
+          },
+          "updated": {
+            "description": "Time at which the object was last updated. Measured in seconds since the Unix epoch.",
+            "title": "Updated",
+            "type": "integer"
+          },
+          "url": {
+            "description": "A URL of a publicly-accessible webpage for this product. Nullable.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "active", "created", "updated", "name", "livemode", "metadata"],
+        "title": "Product",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListProductsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

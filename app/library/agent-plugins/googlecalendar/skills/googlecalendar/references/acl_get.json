@@ -1,0 +1,96 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a specific access control rule for a calendar. Use when you need to check permissions for a specific user, group, or domain.",
+  "inputSchema": {
+    "properties": {
+      "calendar_id": {
+        "description": "Calendar identifier. To retrieve calendar IDs call the calendarList.list method. If you want to access the primary calendar of the currently logged in user, use the \"primary\" keyword.",
+        "examples": ["primary"],
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "rule_id": {
+        "description": "ACL rule identifier. Format: 'scope_type:scope_value' or 'default'. Valid scope types: 'user' (email), 'group' (group email), 'domain' (domain name), 'default' (public access). Examples: 'user:john@example.com', 'group:team@example.com', 'domain:example.com', 'default'. Note: 'me' is NOT valid; use actual email/domain. The rule must exist - use GOOGLECALENDAR_LIST_ACL_RULES to find valid IDs.",
+        "examples": ["user:email@domain.com", "group:group@domain.com", "domain:example.com", "default"],
+        "title": "Rule Id",
+        "type": "string"
+      }
+    },
+    "required": ["calendar_id", "rule_id"],
+    "title": "AclGetRequest",
+    "type": "object"
+  },
+  "name": "acl_get",
+  "outputSchema": {
+    "$defs": {
+      "AclGetResponse": {
+        "properties": {
+          "display_url": {
+            "description": "Direct link to the calendar settings page where this ACL rule can be managed.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the resource.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identifier of the ACL rule.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of the resource. Always 'calendar#aclRule'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "role": {
+            "description": "The role assigned to the scope. Possible values: 'none', 'freeBusyReader', 'reader', 'writer', 'owner'.",
+            "title": "Role",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/$defs/AclRuleScope",
+            "description": "The extent to which calendar access is granted by this ACL rule.",
+            "title": "Scope"
+          }
+        },
+        "title": "AclGetResponse",
+        "type": "object"
+      },
+      "AclRuleScope": {
+        "properties": {
+          "type": {
+            "description": "The type of the scope. Possible values: 'default', 'user', 'group', 'domain'.",
+            "enum": ["default", "user", "group", "domain"],
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The email address of a user or group, or the name of a domain, depending on the scope type. Omitted for type 'default'.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AclRuleScope",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AclGetResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

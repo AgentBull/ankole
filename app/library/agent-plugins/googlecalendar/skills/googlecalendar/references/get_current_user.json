@@ -1,0 +1,60 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Identifies the Google user connected to Calendar from the primary calendar resource. Returns the account identifier, email when available, display name, timezone, and primary calendar ID. This is Calendar identity metadata, not a full Google Account or People profile.",
+  "inputSchema": {
+    "properties": {},
+    "title": "GetCurrentUserRequest",
+    "type": "object"
+  },
+  "name": "get_current_user",
+  "outputSchema": {
+    "$defs": {
+      "GetCurrentUserResponse": {
+        "properties": {
+          "account_id": {
+            "description": "Identifier of the connected Calendar principal, taken from the primary calendar ID. For a user account this is normally the account email address.",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "Display name of the connected user's primary calendar.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "Connected user's email address when the primary calendar ID has email form.",
+            "title": "Email",
+            "type": "string"
+          },
+          "primary_calendar_id": {
+            "description": "Identifier of the connected principal's primary calendar.",
+            "title": "Primary Calendar Id",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "IANA timezone configured for the connected user's primary calendar.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": ["account_id", "primary_calendar_id"],
+        "title": "GetCurrentUserResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCurrentUserResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

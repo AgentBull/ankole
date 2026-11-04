@@ -1,0 +1,142 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List ticket metric events in Zendesk that occurred on or after a specified time. This action supports incremental data export — use the end_time from one response as the start_time for the next request to retrieve subsequent events. This action is read-only and idempotent — use it to monitor ticket metrics, track SLA compliance, or build analytics dashboards. Note: deleted tickets can create orphan metric events; use exclude_deleted=true to filter these out.",
+  "inputSchema": {
+    "description": "Request parameters for listing incremental ticket metric events in Zendesk.",
+    "properties": {
+      "exclude_deleted": {
+        "description": "When true, excludes ticket metric events for deleted tickets. Use this to avoid receiving events for tickets that have been deleted.",
+        "human_parameter_description": "Filter out metric events from tickets that have been deleted, keeping your results focused on active tickets only.",
+        "human_parameter_name": "Exclude Deleted",
+        "title": "Exclude Deleted",
+        "type": "boolean"
+      },
+      "include_changes": {
+        "description": "This optional parameter enhances incremental data retrieval, delivering a consistent and accurate representation of data changes.",
+        "human_parameter_description": "When enabled, includes detailed change information for each metric event, providing a complete picture of what changed.",
+        "human_parameter_name": "Include Changes",
+        "title": "Include Changes",
+        "type": "boolean"
+      },
+      "page": {
+        "description": "Page number for offset pagination. Zendesk returns up to 1000 records per page for incremental exports.",
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of records per page (max 1000 for incremental exports).",
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "start_time": {
+        "description": "The Unix UTC epoch time of the oldest event you're interested in. Only events that occurred on or after this time are returned. Example: 1332034771.",
+        "examples": [1332034771],
+        "human_parameter_description": "The Unix timestamp (UTC) for the earliest event to retrieve. Only metric events occurring at or after this time will be returned. Example: 1332034771.",
+        "human_parameter_name": "Start Time",
+        "minimum": 0,
+        "title": "Start Time",
+        "type": "integer"
+      }
+    },
+    "required": ["start_time"],
+    "title": "GetIncrementalTicketMetricEventsRequest",
+    "type": "object"
+  },
+  "name": "get_incremental_ticket_metric_events",
+  "outputSchema": {
+    "$defs": {
+      "GetIncrementalTicketMetricEventsResponse": {
+        "description": "Response containing list of Zendesk ticket metric events with pagination info.",
+        "properties": {
+          "count": {
+            "description": "Number of events returned in this response",
+            "title": "Count",
+            "type": "integer"
+          },
+          "end_time": {
+            "description": "Unix timestamp of the latest event returned. Use this as the start_time for the next request to continue paginating.",
+            "title": "End Time",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for the next page of results. If null, there are no more events to retrieve.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "ticket_metric_events": {
+            "description": "List of ticket metric events that occurred on or after the start_time",
+            "items": {
+              "$ref": "#/$defs/TicketMetricEvent"
+            },
+            "title": "Ticket Metric Events",
+            "type": "array"
+          }
+        },
+        "required": ["ticket_metric_events", "count"],
+        "title": "GetIncrementalTicketMetricEventsResponse",
+        "type": "object"
+      },
+      "TicketMetricEvent": {
+        "description": "A single ticket metric event object.",
+        "properties": {
+          "brand_id": {
+            "description": "ID of the brand associated with the ticket",
+            "title": "Brand Id",
+            "type": "integer"
+          },
+          "created_at": {
+            "description": "ISO 8601 timestamp when the event occurred",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the metric event",
+            "title": "Id",
+            "type": "integer"
+          },
+          "metric": {
+            "description": "The specific metric being tracked (e.g., 'assignee_at', 'status_updated_at')",
+            "title": "Metric",
+            "type": "string"
+          },
+          "old_value": {
+            "description": "Previous numeric value before the change",
+            "title": "Old Value",
+            "type": "integer"
+          },
+          "ticket_id": {
+            "description": "ID of the ticket this event relates to",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Type of metric event (e.g., 'Assignment', 'Status', 'Priority', 'SLA')",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "Numeric value associated with the metric event (often a timestamp or duration)",
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "title": "TicketMetricEvent",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetIncrementalTicketMetricEventsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

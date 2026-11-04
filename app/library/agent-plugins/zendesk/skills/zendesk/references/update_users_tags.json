@@ -1,0 +1,66 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update (replace) tags for a specific Zendesk user. Use when you need to assign or modify tags on a user account for organizing, filtering, or categorizing user data. This action replaces all existing tags on the user with the provided list.",
+  "inputSchema": {
+    "description": "Request parameters for updating tags on a specific Zendesk user.",
+    "properties": {
+      "tags": {
+        "description": "An array of tag strings to assign to the user. This will replace all existing tags on the user with the provided list. Tags are used to categorize and organize users.",
+        "examples": [["vip", "enterprise", "priority-support"]],
+        "human_parameter_description": "A list of tag strings to assign to the user. This replaces any existing tags.",
+        "human_parameter_name": "Tags",
+        "items": {
+          "type": "string"
+        },
+        "title": "Tags",
+        "type": "array"
+      },
+      "user_id": {
+        "description": "The numeric ID of the user whose tags to update. This is the user ID found in ticket payloads or user search results.",
+        "examples": [26925585612700],
+        "human_parameter_description": "The numeric ID of the Zendesk user whose tags you want to update.",
+        "human_parameter_name": "User ID",
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id", "tags"],
+    "title": "UpdateUsersTagsRequest",
+    "type": "object"
+  },
+  "name": "update_users_tags",
+  "outputSchema": {
+    "$defs": {
+      "UpdateUsersTagsResponse": {
+        "description": "Response containing the updated tags for a Zendesk user.",
+        "properties": {
+          "tags": {
+            "description": "An array of tag strings now assigned to the user. These tags have replaced any previously assigned tags.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags"],
+        "title": "UpdateUsersTagsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateUsersTagsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

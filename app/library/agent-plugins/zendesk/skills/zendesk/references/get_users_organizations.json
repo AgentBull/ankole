@@ -1,0 +1,188 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List organizations associated with a specific Zendesk user. Returns a page of organization details, including name, domain names, tags, and custom fields, with pagination options.",
+  "inputSchema": {
+    "description": "Request parameters for listing organizations associated with a user.",
+    "properties": {
+      "page": {
+        "description": "Pagination parameter. Supports both traditional offset and cursor-based pagination: traditional '?page=2' or cursor '?page[size]=50&page[after]=cursor'. These are mutually exclusive.",
+        "examples": ["2"],
+        "title": "Page",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Number of records to return per page",
+        "examples": [50],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort": {
+        "description": "Field to sort results by. Prefix with '-' for descending order. Example: ?sort=name or ?sort=-created_at",
+        "examples": ["name"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "user_id": {
+        "description": "The numeric ID of the user whose organizations to retrieve",
+        "examples": [26923127464348],
+        "minimum": 1,
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id"],
+    "title": "GetUsersOrganizationsRequest",
+    "type": "object"
+  },
+  "name": "get_users_organizations",
+  "outputSchema": {
+    "$defs": {
+      "GetUsersOrganizationsResponse": {
+        "description": "Response model for listing organizations associated with a user.",
+        "properties": {
+          "count": {
+            "description": "Total count of organizations",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "organizations": {
+            "description": "List of organizations associated with the user",
+            "items": {
+              "$ref": "#/$defs/Organization"
+            },
+            "title": "Organizations",
+            "type": "array"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["organizations"],
+        "title": "GetUsersOrganizationsResponse",
+        "type": "object"
+      },
+      "Organization": {
+        "description": "Zendesk organization object.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when organization was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "description": "Details about the organization",
+            "title": "Details",
+            "type": "string"
+          },
+          "domain_names": {
+            "description": "Domain names associated with the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Domain Names",
+            "type": "array"
+          },
+          "external_id": {
+            "description": "Case-insensitive external identifier for linking to external records",
+            "title": "External Id",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "Group ID for automatic ticket routing",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Auto-assigned organization identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Unique organization name",
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Internal notes about the organization",
+            "title": "Notes",
+            "type": "string"
+          },
+          "organization_fields": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "description": "Custom field values for the organization",
+            "title": "Organization Fields",
+            "type": "object"
+          },
+          "shared_comments": {
+            "description": "Whether end users can comment on each other's tickets",
+            "title": "Shared Comments",
+            "type": "boolean"
+          },
+          "shared_tickets": {
+            "description": "Whether end users can view each other's tickets",
+            "title": "Shared Tickets",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "Organization tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "updated_at": {
+            "description": "Timestamp of the last update",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API endpoint URL for this organization",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "Organization",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUsersOrganizationsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

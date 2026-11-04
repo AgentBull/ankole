@@ -1,0 +1,70 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Stars a Trello board for a member at a specified position; the board must exist and be accessible to the member.",
+  "inputSchema": {
+    "description": "Request schema for `CreateMemberBoardStar`",
+    "properties": {
+      "idBoard": {
+        "description": "The ID of the Trello board to be starred. The board must exist and be accessible to the specified member.",
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID or username of the Trello member for whom the board star will be added.",
+        "title": "Id Member",
+        "type": "string"
+      },
+      "pos": {
+        "description": "The desired position for the new board star in the member's list of starred boards. Valid values are 'top', 'bottom', or a positive integer.",
+        "examples": ["top", "bottom", "1", "42"],
+        "title": "Pos",
+        "type": "string"
+      }
+    },
+    "required": ["idMember", "idBoard", "pos"],
+    "title": "CreateMemberBoardStarRequest",
+    "type": "object"
+  },
+  "name": "create_member_board_star",
+  "outputSchema": {
+    "$defs": {
+      "CreateMemberBoardStarResponse": {
+        "description": "Response schema for `CreateMemberBoardStar`",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the board star. A 24-character hexadecimal string (TrelloID).",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "Unique identifier of the board that was starred. A 24-character hexadecimal string (TrelloID).",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position value for ordering starred boards. Used to determine the display order of starred boards in the user's interface.",
+            "title": "Pos",
+            "type": "number"
+          }
+        },
+        "required": ["id", "idBoard", "pos"],
+        "title": "CreateMemberBoardStarResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateMemberBoardStarResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Identifies the type of a Trello resource (member or organization) given its ID. Returns a 'type' field indicating whether the resource is a 'member' or 'organization'. Note: This endpoint only works for members and organizations; boards, cards, and lists are not supported.",
+  "inputSchema": {
+    "description": "Request schema for `GetTypesById`",
+    "properties": {
+      "id": {
+        "description": "The ID of a Trello resource (member or organization) to identify its type. Use 'me' for the current authenticated user, a member ID (24-character hex string), or an organization ID.",
+        "examples": ["me", "685d087bcd631bece512b720", "6973c302b1c98d958606c14a"],
+        "title": "Id",
+        "type": "string"
+      }
+    },
+    "required": ["id"],
+    "title": "GetTypesByIdRequest",
+    "type": "object"
+  },
+  "name": "get_types_by_id",
+  "outputSchema": {
+    "$defs": {
+      "GetTypesByIdResponse": {
+        "description": "Response schema for `GetTypesById`",
+        "properties": {
+          "type": {
+            "description": "The type of the Trello resource. Known values include 'member' and 'organization'. Returns 'member' for member IDs and the special value 'me', 'organization' for organization IDs. Other resource types (boards, cards, lists) return 'model not found' error.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "GetTypesByIdResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTypesByIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

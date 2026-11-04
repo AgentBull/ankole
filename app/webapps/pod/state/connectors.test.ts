@@ -1,12 +1,14 @@
 import { expect, test } from 'bun:test'
-import { podRouteID } from '../../common/pod-url'
+import { localReturnPath, podRouteID } from '../../common/pod-url'
 import i18n, { loadLocale } from '../../common/i18n'
 import {
   automationJobID,
   connectorAutomationContext,
   connectorAutomationReturnTo,
   connectorFailureMessage,
-  connectorReturnTo
+  connectorReturnTo,
+  connectorTriggerConfigFromURL,
+  ConnectorsModel
 } from './connectors'
 
 test('subscription diagnostics keep the upstream reason and localize missing authorization', async () => {
@@ -71,4 +73,106 @@ test('invalid return contexts do not become another Job or an external return UR
   expect(
     connectorAutomationContext(new URLSearchParams({ automation_page: 'https://elsewhere.test', automation_job: '42' }))
   ).toBeUndefined()
+})
+
+test('authorization preserves the original task intent', () => {
+  const origin = 'https://ankole.test'
+  for (const path of [
+    '/conversations/0024h36h2ncsvrh6daqf6dvvqz',
+    '/pages/0024h36h2ncsvrh6daqf6dvvqz?automation_job=42',
+    '/conversations/abc?thread=1'
+  ]) {
+    const params = new URL(connectorReturnTo({ connection: 'figma', intent: path }), origin).searchParams
+    expect(params.get('intent')).toBe(path)
+    expect(localReturnPath(params.get('intent'), origin)).toBe(path)
+  }
+})
+
+const hostedConnection = {
+  id: null,
+  plugin_id: 'calendly',
+  mode: 'cloud',
+  slug: 'calendly',
+  display_name: 'Calendly',
+  auth_scheme: 'oauth2',
+  status: 'active',
+  is_default: false,
+  public_metadata: {},
+  configured_credential_fields: [],
+  inserted_at: null,
+  updated_at: null
+}
+
+test('personal subscription submission includes the platform default and chosen connected account', () => {
+  const model = new ConnectorsModel()
+  try {
+    model.openTrigger({
+      connection: hostedConnection,
+      type: 'calendly.invitee.created',
+      scope: 'https://api.calendly.com/organizations/org-1'
+    })
+    expect(model.triggerAttributes({ scope: 'user' }, 'my-account')).toEqual({
+      auth_config_id: undefined,
+      connection: 'calendly',
+      trigger_type: 'calendly.invitee.created',
+      scope_key: 'https://api.calendly.com/organizations/org-1',
+      connected_account_id: 'my-account',
+      config: { scope: 'user' }
+    })
+  } finally {
+    model[Symbol.dispose]()
+  }
+})
+
+test('authorization round trip preserves an explicit Figma context in the submitted subscription', () => {
+  const model = new ConnectorsModel()
+  const connection = { ...hostedConnection, plugin_id: 'figma', slug: 'figma', auth_scheme: 'personal_token' }
+  const draft = { type: 'figma.file.updated', scope: 'project-42', config: { context: 'project' } }
+  const params = new URL(
+    connectorReturnTo({ connection: 'figma', subjectKind: 'human', trigger: draft, intent: 'watch-design' }),
+    'https://ankole.test'
+  ).searchParams
+  try {
+    model.openTrigger({
+      connection,
+      type: params.get('trigger_type')!,
+      scope: params.get('scope_key')!,
+      config: connectorTriggerConfigFromURL(params)
+    })
+    const submitted = model.triggerAttributes({ context: 'file' }, 'figma-personal')
+    expect(submitted.config).toEqual({ context: 'project' })
+    expect(submitted.scope_key).toBe('project-42')
+    expect(submitted.connected_account_id).toBe('figma-personal')
+    expect(params.get('intent')).toBe('watch-design')
+
+    model.openTrigger({ connection, type: 'figma.file_comment.created', scope: 'file-42' })
+    expect(model.triggerAttributes({ context: 'file' }, 'figma-personal').config).toEqual({ context: 'file' })
+  } finally {
+    model[Symbol.dispose]()
+  }
+})
+
+test('an invalid trigger config URL leaves the platform defaults available', () => {
+  for (const value of ['invalid-json', 'null', '[]']) {
+    expect(connectorTriggerConfigFromURL(new URLSearchParams({ trigger_config: value }))).toEqual({})
+  }
+})
+
+test('account-wide subscriptions submit the declared scope without asking for a resource', () => {
+  const model = new ConnectorsModel()
+  try {
+    for (const plugin of ['stripe', 'zendesk']) {
+      model.openTrigger({
+        connection: { ...hostedConnection, plugin_id: plugin, slug: plugin, auth_scheme: 'api_token' },
+        type: plugin === 'stripe' ? 'stripe.invoice.paid' : 'zendesk.ticket.created',
+        subject: 'app'
+      })
+      expect(model.triggerScope.value).toBe('')
+      const submitted = model.triggerAttributes({}, 'shared-account', 'account')
+      expect(submitted.scope_key).toBe('account')
+      expect(submitted.connected_account_id).toBe('shared-account')
+    }
+  } finally {
+    model[Symbol.dispose]()
+  }
 })

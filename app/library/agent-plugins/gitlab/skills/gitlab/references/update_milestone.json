@@ -1,0 +1,146 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing milestone in a GitLab project, allowing you to modify the title, description, dates, or state. Use this action when you need to change milestone details, adjust deadlines, or close/reopen a milestone.",
+  "inputSchema": {
+    "properties": {
+      "description": {
+        "description": "The new description of the milestone.",
+        "examples": ["This milestone tracks all tasks for the 2.0 release."],
+        "title": "Description",
+        "type": "string"
+      },
+      "due_date": {
+        "description": "The new due date of the milestone in YYYY-MM-DD format.",
+        "examples": ["2024-12-31"],
+        "title": "Due Date",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["my-group/my-project", 5],
+        "title": "Id"
+      },
+      "milestone_id": {
+        "description": "The ID of the project's milestone to update.",
+        "examples": [42],
+        "title": "Milestone Id",
+        "type": "integer"
+      },
+      "start_date": {
+        "description": "The new start date of the milestone in YYYY-MM-DD format.",
+        "examples": ["2024-01-01"],
+        "title": "Start Date",
+        "type": "string"
+      },
+      "state_event": {
+        "description": "The state event to apply to the milestone. Use 'close' to close the milestone or 'activate' to reopen it.",
+        "enum": ["close", "activate"],
+        "title": "State Event",
+        "type": "string"
+      },
+      "title": {
+        "description": "The new title of the milestone.",
+        "examples": ["Version 2.0 Release"],
+        "title": "Title",
+        "type": "string"
+      }
+    },
+    "required": ["id", "milestone_id"],
+    "title": "UpdateMilestoneRequest",
+    "type": "object"
+  },
+  "name": "update_milestone",
+  "outputSchema": {
+    "$defs": {
+      "UpdateMilestoneResponse": {
+        "properties": {
+          "created_at": {
+            "description": "Timestamp of when the milestone was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the milestone.",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "The due date of the milestone.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "expired": {
+            "description": "Indicates whether the milestone has expired.",
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The ID of the milestone.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "The internal ID of the milestone.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "project_id": {
+            "description": "The ID of the project the milestone belongs to.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "start_date": {
+            "description": "The start date of the milestone.",
+            "title": "Start Date",
+            "type": "string"
+          },
+          "state": {
+            "description": "The state of the milestone (e.g., active, closed).",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "The title of the milestone.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp of when the milestone was last updated.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "The web URL of the milestone.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "iid", "project_id", "title", "state", "created_at", "updated_at", "expired"],
+        "title": "UpdateMilestoneResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateMilestoneResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

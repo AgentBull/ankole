@@ -4,6 +4,7 @@ import { parseMarkdown, printMarkdown } from '../src/document/markdown'
 import { normalizeTree } from '../src/document/normalize'
 import { DocumentError, element as e, limits, text as t, type Element } from '../src/document/tree'
 import { parseXml, printXml } from '../src/document/xml'
+import { pageDocument } from '../src/editor/convert'
 import { page as pages } from './arbitrary'
 
 const page = (...children: Element[]) => e('page', {}, children)
@@ -13,6 +14,20 @@ const p = (...children: (Element | string)[]) =>
     {},
     children.map(child => (typeof child === 'string' ? t(child) : child))
   )
+
+test('page documents normalize edits to a previously parsed tree', () => {
+  for (const [source, expected] of [
+    ['hello\nworld', 'hello world'],
+    ['你\n好', '你好']
+  ] as const) {
+    const tree = parseXml('<page><p>original</p></page>')
+    const paragraph = tree.children[0] as Element
+    paragraph.children = [t(source)]
+    const doc = pageDocument(tree)
+    expect(doc.textContent()).toBe(expected)
+    expect(doc.eq(pageDocument(structuredClone(tree)))).toBe(true)
+  }
+})
 
 // Canonical Markdown, canonical XML and the tree, each written independently.
 const pairs: [string, string, string, Element][] = [

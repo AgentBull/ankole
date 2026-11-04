@@ -252,10 +252,10 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       |> get(ctx.origin <> "/api/v2/browser/session")
       |> api_response(200)
 
-    assert session["consoleURL"] == ctx.site_origin <> "/site-admin-console"
+    assert session["consoleURL"] == AnkoleWeb.SiteAdminConsole.url(ctx.signed)
 
     {:ok, console_ticket} =
-      WebSession.seal_console_return("/site-admin-console/tenants", ctx.tenant.id)
+      WebSession.seal_console_return(console_path("/tenants"), ctx.tenant.id)
 
     shell = chooser(ctx.signed, ctx.tenant)
 
@@ -290,7 +290,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       select(shell, ctx.tenant, ctx.a_ref, %{consoleReturn: console_ticket})
 
     assert api_response(selected, 200)["returnTo"] ==
-             ctx.site_origin <> "/site-admin-console/tenants"
+             AnkoleWeb.SiteAdminConsole.url(ctx.signed, console_path("/tenants"))
   end
 
   @tag :foss_sign_in

@@ -1,0 +1,84 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates the authenticated user's preference for showing or hiding members in a specific Trello board's sidebar, affecting only the current user's view.",
+  "inputSchema": {
+    "description": "Request schema for updating the user's preference for showing members in the board sidebar.",
+    "properties": {
+      "idBoard": {
+        "description": "The unique identifier of the Trello board for which the sidebar member visibility preference will be updated.",
+        "title": "Id Board",
+        "type": "string"
+      },
+      "value": {
+        "description": "Determines whether to show members in the board sidebar. Set to 'true' to show members, or 'false' to hide them. This is a per-user preference.",
+        "examples": ["true", "false"],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard"],
+    "title": "UpdateBoardSidebarMembersPrefRequest",
+    "type": "object"
+  },
+  "name": "update_board_sidebar_members_pref",
+  "outputSchema": {
+    "$defs": {
+      "UpdateBoardSidebarMembersPrefResponse": {
+        "description": "Response schema for updating the user's preference for showing members in the board sidebar.\n\nReturns the full user preferences object for the board after the update.",
+        "properties": {
+          "emailPosition": {
+            "description": "Position of email in the board (e.g., 'bottom', 'top').",
+            "title": "Email Position",
+            "type": "string"
+          },
+          "idEmailList": {
+            "description": "ID of the email list for this board.",
+            "title": "Id Email List",
+            "type": "string"
+          },
+          "showCompactMirrorCards": {
+            "description": "Whether compact mirror cards are shown.",
+            "title": "Show Compact Mirror Cards",
+            "type": "boolean"
+          },
+          "showSidebar": {
+            "description": "Whether the sidebar is shown.",
+            "title": "Show Sidebar",
+            "type": "boolean"
+          },
+          "showSidebarActivity": {
+            "description": "Whether activity is shown in the sidebar.",
+            "title": "Show Sidebar Activity",
+            "type": "boolean"
+          },
+          "showSidebarBoardActions": {
+            "description": "Whether board actions are shown in the sidebar.",
+            "title": "Show Sidebar Board Actions",
+            "type": "boolean"
+          },
+          "showSidebarMembers": {
+            "description": "Whether members are shown in the board sidebar.",
+            "title": "Show Sidebar Members",
+            "type": "boolean"
+          }
+        },
+        "title": "UpdateBoardSidebarMembersPrefResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateBoardSidebarMembersPrefResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

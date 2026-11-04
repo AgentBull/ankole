@@ -1,0 +1,107 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a specific checkItem on a card. Use when you need to check the status or details of a specific item in a card's checklist.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a specific checkItem from a card.",
+    "properties": {
+      "fields": {
+        "default": "name,nameData,pos,state,due,dueReminder,idMember",
+        "description": "Determines which fields to include in the response. Specify 'all' or a comma-separated list of: 'name', 'nameData', 'pos', 'state', 'type', 'due', 'dueReminder', 'idMember'.",
+        "examples": ["name,state,pos", "all"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "id": {
+        "description": "The ID of the Card",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id",
+        "type": "string"
+      },
+      "idCheckItem": {
+        "description": "The ID of the checkitem",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id Check Item",
+        "type": "string"
+      }
+    },
+    "required": ["id", "idCheckItem"],
+    "title": "GetCardsCheckItemRequest",
+    "type": "object"
+  },
+  "name": "get_cards_check_item",
+  "outputSchema": {
+    "$defs": {
+      "GetCardsCheckItemResponse": {
+        "description": "Response schema for `GetCardsCheckItem`, containing the details of the retrieved checkItem.",
+        "properties": {
+          "due": {
+            "description": "ISO 8601 formatted due date for the check item (e.g., '2021-02-12T07:00:00.000Z'). Requires Business Class or higher subscription. Null if not set.",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Reminder time in milliseconds before due date. Requires Business Class or higher subscription. Null if not set.",
+            "title": "Due Reminder",
+            "type": "number"
+          },
+          "id": {
+            "description": "The unique identifier for the check item",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "The ID of the parent checklist containing this check item",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "The ID of the member assigned to this check item. Requires Business Class or higher subscription. Null if not assigned.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "The text/name of the check item",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "description": "Additional data associated with the name (typically null)",
+            "title": "Name Data"
+          },
+          "pos": {
+            "description": "The position of the check item within the checklist",
+            "title": "Pos",
+            "type": "number"
+          },
+          "state": {
+            "description": "The completion state of the check item. Possible values: 'complete' or 'incomplete'",
+            "title": "State",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of the check item",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "GetCardsCheckItemResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCardsCheckItemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

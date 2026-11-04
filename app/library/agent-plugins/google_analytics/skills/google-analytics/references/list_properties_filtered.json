@@ -1,0 +1,148 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list GA4 properties based on filter criteria. Use when you need to find properties under a specific parent account or with specific firebase projects. Supports pagination and including soft-deleted properties.",
+  "inputSchema": {
+    "description": "Request model for listing GA4 properties.",
+    "properties": {
+      "filter": {
+        "description": "Required. Expression for filtering the results. Fields eligible for filtering: `parent:` (resource name of parent account/property), `ancestor:` (resource name of parent account), or `firebase_project:` (id or number of linked firebase project). Examples: 'parent:accounts/123' (account with id 123), 'parent:properties/123' (property with id 123), 'ancestor:accounts/123' (account with id 123), 'firebase_project:project-id' (firebase project with id project-id), 'firebase_project:123' (firebase project with number 123).",
+        "examples": ["parent:accounts/123456789", "ancestor:accounts/123456789"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "pageSize": {
+        "description": "Optional. Maximum number of properties to return (1-200). Default is 50.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. Token from previous ListProperties call to retrieve the next page.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "showDeleted": {
+        "description": "Optional. Whether to include soft-deleted (trashed) properties. Default is false.",
+        "title": "Show Deleted",
+        "type": "boolean"
+      }
+    },
+    "required": ["filter"],
+    "title": "ListPropertiesFilteredRequest",
+    "type": "object"
+  },
+  "name": "list_properties_filtered",
+  "outputSchema": {
+    "$defs": {
+      "ListPropertiesFilteredResponse": {
+        "description": "Response model for listing GA4 properties.",
+        "properties": {
+          "nextPageToken": {
+            "description": "Token to retrieve the next page of results, if any.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "properties": {
+            "description": "List of Property resources matching the filter criteria.",
+            "items": {
+              "$ref": "#/$defs/Property"
+            },
+            "title": "Properties",
+            "type": "array"
+          }
+        },
+        "title": "ListPropertiesFilteredResponse",
+        "type": "object"
+      },
+      "Property": {
+        "description": "Schema for a GA4 Property resource.",
+        "properties": {
+          "account": {
+            "description": "Parent account resource name. Format: accounts/{account_id}.",
+            "title": "Account",
+            "type": "string"
+          },
+          "createTime": {
+            "description": "Timestamp when the property was created (RFC 3339 format).",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "currencyCode": {
+            "description": "Currency code for this property in ISO 4217 format.",
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "deleteTime": {
+            "description": "Timestamp when property was trashed (if applicable).",
+            "title": "Delete Time",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Human-readable display name for this property.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "expireTime": {
+            "description": "Permanent deletion time for trashed property (if applicable).",
+            "title": "Expire Time",
+            "type": "string"
+          },
+          "industryCategory": {
+            "description": "Industry category for this property.",
+            "title": "Industry Category",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name of this property. Format: properties/{property_id}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "parent": {
+            "description": "Parent resource name. Format: accounts/{account_id}.",
+            "title": "Parent",
+            "type": "string"
+          },
+          "propertyType": {
+            "description": "Property classification type.",
+            "title": "Property Type",
+            "type": "string"
+          },
+          "serviceLevel": {
+            "description": "Service level tier of this property.",
+            "title": "Service Level",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "Reporting time zone for this property in IANA format.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updateTime": {
+            "description": "Timestamp when the property was last updated (RFC 3339 format).",
+            "title": "Update Time",
+            "type": "string"
+          }
+        },
+        "title": "Property",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListPropertiesFilteredResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

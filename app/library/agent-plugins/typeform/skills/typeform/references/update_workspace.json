@@ -1,0 +1,184 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to update a workspace's name or manage team member access (add/remove members) in Typeform. Use when you need to rename a workspace or modify its member list using JSON Patch operations.",
+  "inputSchema": {
+    "properties": {
+      "operations": {
+        "description": "List of patch operations to apply to the workspace. Each operation modifies a specific property.",
+        "examples": [
+          [
+            {
+              "op": "replace",
+              "path": "/name",
+              "value": "Updated Workspace Name"
+            }
+          ],
+          [
+            {
+              "op": "add",
+              "path": "/members",
+              "value": "user@example.com"
+            }
+          ],
+          [
+            {
+              "op": "remove",
+              "path": "/members",
+              "value": "user@example.com"
+            }
+          ]
+        ],
+        "items": {
+          "properties": {
+            "op": {
+              "description": "Operation type: 'replace' for updating name, 'add' for adding members, 'remove' for removing members",
+              "enum": ["replace", "add", "remove"],
+              "examples": ["replace", "add", "remove"],
+              "title": "Op",
+              "type": "string"
+            },
+            "path": {
+              "description": "Property path to modify. Valid values: '/name' for workspace name, '/members' for team members",
+              "examples": ["/name", "/members"],
+              "title": "Path",
+              "type": "string"
+            },
+            "value": {
+              "description": "New value for replace/add operations. For 'replace' with '/name', provide the new workspace name. For 'add' with '/members', provide the member email. Not used for 'remove' operations.",
+              "examples": ["Updated Workspace Name", "user@example.com"],
+              "title": "Value",
+              "type": "string"
+            }
+          },
+          "required": ["op", "path"],
+          "title": "PatchOperation",
+          "type": "object"
+        },
+        "minItems": 1,
+        "title": "Operations",
+        "type": "array"
+      },
+      "workspace_id": {
+        "description": "Unique workspace identifier",
+        "examples": ["dZMAWB", "ucdZbu"],
+        "title": "Workspace Id",
+        "type": "string"
+      }
+    },
+    "required": ["workspace_id", "operations"],
+    "title": "UpdateWorkspaceRequest",
+    "type": "object"
+  },
+  "name": "update_workspace",
+  "outputSchema": {
+    "$defs": {
+      "UpdateWorkspaceResponse": {
+        "properties": {
+          "account_id": {
+            "description": "ID in the ULID format of the account where workspace belongs to",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "forms": {
+            "$ref": "#/$defs/WorkspaceForms",
+            "description": "Forms information for the workspace",
+            "title": "Forms"
+          },
+          "id": {
+            "description": "Unique identifier for the workspace",
+            "title": "Id",
+            "type": "string"
+          },
+          "members": {
+            "description": "Team member details",
+            "items": {
+              "$ref": "#/$defs/WorkspaceMember"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "name": {
+            "description": "Name of the workspace",
+            "title": "Name",
+            "type": "string"
+          },
+          "self": {
+            "$ref": "#/$defs/WorkspaceSelf",
+            "description": "Workspace reference link",
+            "title": "Self"
+          },
+          "shared": {
+            "description": "Indicates team sharing status",
+            "title": "Shared",
+            "type": "boolean"
+          }
+        },
+        "title": "UpdateWorkspaceResponse",
+        "type": "object"
+      },
+      "WorkspaceForms": {
+        "properties": {
+          "count": {
+            "description": "Number of typeforms in the workspace",
+            "title": "Count",
+            "type": "integer"
+          },
+          "href": {
+            "description": "Link to typeforms in the workspace",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "title": "WorkspaceForms",
+        "type": "object"
+      },
+      "WorkspaceMember": {
+        "properties": {
+          "email": {
+            "description": "Member email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "Member name",
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "description": "Role assignment (owner or member)",
+            "enum": ["owner", "member"],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "title": "WorkspaceMember",
+        "type": "object"
+      },
+      "WorkspaceSelf": {
+        "properties": {
+          "href": {
+            "description": "Link to the workspace",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "title": "WorkspaceSelf",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateWorkspaceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

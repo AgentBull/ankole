@@ -1,0 +1,87 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Upsert a Salesforce record by external ID, creating or updating it based on the matching value. An update-only option prevents creation when no record matches.",
+  "inputSchema": {
+    "properties": {
+      "field_name": {
+        "description": "The API name of the external ID field. This field must be marked as 'External ID' in Salesforce.",
+        "examples": ["Id", "ExternalId__c", "CustomExternalField__c"],
+        "title": "Field Name",
+        "type": "string"
+      },
+      "field_value": {
+        "description": "The value of the external ID for the specific record to upsert.",
+        "examples": ["001dN00000lvZZ9QAM", "EXT-12345", "CUSTOM-ID-789"],
+        "title": "Field Value",
+        "type": "string"
+      },
+      "fields": {
+        "additionalProperties": true,
+        "description": "JSON object containing the fields to create or update. Field names should be the Salesforce API names with their corresponding values.",
+        "examples": [
+          {
+            "Industry": "Finance",
+            "Name": "Updated Account via PATCH"
+          },
+          {
+            "Email": "john@example.com",
+            "FirstName": "John",
+            "LastName": "Doe"
+          }
+        ],
+        "title": "Fields",
+        "type": "object"
+      },
+      "sobject": {
+        "description": "The API name of the Salesforce object (e.g., Account, Contact, CustomObject__c).",
+        "examples": ["Account", "Contact", "Lead", "CustomObject__c"],
+        "title": "Sobject",
+        "type": "string"
+      },
+      "update_only": {
+        "description": "Available in API v62.0+. When set to true, only updates existing records without creating new ones. Returns 404 if record doesn't exist.",
+        "title": "Update Only",
+        "type": "boolean"
+      }
+    },
+    "required": ["sobject", "field_name", "field_value", "fields"],
+    "title": "UpsertSobjectByExternalIdRequest",
+    "type": "object"
+  },
+  "name": "upsert_sobject_by_external_id",
+  "outputSchema": {
+    "$defs": {
+      "UpsertSobjectByExternalIdResponse": {
+        "description": "Response from Salesforce upsert operation.\n\nHTTP 204 No Content - Salesforce returns empty body on successful update.\nHTTP 201 Created - Salesforce returns the created record ID (for insert).\nError responses (4xx/5xx) are handled via raise_for_status().",
+        "properties": {
+          "created": {
+            "description": "True if a new record was created. Only present for insert operations (201 Created).",
+            "title": "Created",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The Salesforce record ID (18-character ID). Only present for insert operations (201 Created).",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "title": "UpsertSobjectByExternalIdResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpsertSobjectByExternalIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a development resource (used to link Figma design elements to external developer information like code or tasks) from a specified Figma file.",
+  "inputSchema": {
+    "description": "Defines the `file_key` and `dev_resource_id` for deleting a dev resource.",
+    "properties": {
+      "dev_resource_id": {
+        "description": "Identifier of the dev resource to delete from the file.",
+        "examples": ["dev_res_123abc"],
+        "title": "Dev Resource Id",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "Identifier of the Figma file from which to delete the dev resource. Must be a main file key, not a branch key.",
+        "examples": ["sFpP99JA1Z42wZcR5yB12d"],
+        "title": "File Key",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "dev_resource_id"],
+    "title": "DeleteDevResourceRequest",
+    "type": "object"
+  },
+  "name": "delete_dev_resource",
+  "outputSchema": {
+    "$defs": {
+      "DeleteDevResourceResponse": {
+        "description": "Response from deleting a dev resource. Nothing is returned from this endpoint on successful deletion (HTTP 204 No Content or 200 OK with empty body).",
+        "properties": {},
+        "title": "DeleteDevResourceResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteDevResourceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

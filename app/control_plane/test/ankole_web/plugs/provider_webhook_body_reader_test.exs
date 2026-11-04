@@ -25,6 +25,24 @@ defmodule AnkoleWeb.Plugs.ProviderWebhookBodyReaderTest do
     assert ProviderWebhookBodyReader.body(conn) == body
   end
 
+  test "cloud connector signatures receive the exact bytes across native and upstream routes" do
+    body = ~s({"data": {"id":"1"},  "type":"updated"})
+
+    for path <- [
+          "/webhooks/cloud/connectors/endpoint-1",
+          "/webhooks/cloud/connectors/composio/events"
+        ] do
+      parsed =
+        :post
+        |> conn(path, body)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Plug.Parsers.call(@parsers)
+
+      assert parsed.body_params["type"] == "updated"
+      assert ProviderWebhookBodyReader.body(parsed) == body
+    end
+  end
+
   test "keeps no copy for requests outside the provider webhook route" do
     conn =
       :post

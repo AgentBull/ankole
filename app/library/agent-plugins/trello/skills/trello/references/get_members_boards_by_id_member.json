@@ -1,0 +1,332 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves Trello boards associated with a member ID or username, with filters and customizable board details, including an option to request lists.",
+  "inputSchema": {
+    "description": "Request schema for `GetMembersBoardsByIdMember`",
+    "properties": {
+      "action_fields": {
+        "default": "all",
+        "description": "Specifies fields for returned actions if actions are requested. Accepts 'all' or a comma-separated list: 'data', 'date', 'idMemberCreator', 'type'.",
+        "examples": ["all", "data,date", "idMemberCreator"],
+        "title": "Action Fields",
+        "type": "string"
+      },
+      "actions": {
+        "description": "Specifies which actions to return for each board. Accepts 'all' or a comma-separated list of action types. Possible action types: 'addAttachmentToCard', 'addChecklistToCard', 'addMemberToBoard', 'addMemberToCard', 'addMemberToOrganization', 'addToOrganizationBoard', 'commentCard', 'convertToCardFromCheckItem', 'copyBoard', 'copyCard', 'copyCommentCard', 'createBoard', 'createCard', 'createList', 'createOrganization', 'deleteAttachmentFromCard', 'deleteBoardInvitation', 'deleteCard', 'deleteOrganizationInvitation', 'disablePowerUp', 'emailCard', 'enablePowerUp', 'makeAdminOfBoard', 'makeNormalMemberOfBoard', 'makeNormalMemberOfOrganization', 'makeObserverOfBoard', 'memberJoinedTrello', 'moveCardFromBoard', 'moveCardToBoard', 'moveListFromBoard', 'moveListToBoard', 'removeChecklistFromCard', 'removeFromOrganizationBoard', 'removeMemberFromCard', 'unconfirmedBoardInvitation', 'unconfirmedOrganizationInvitation', 'updateBoard', 'updateCard', 'updateCard:closed', 'updateCard:desc', 'updateCard:idList', 'updateCard:name', 'updateCheckItemStateOnCard', 'updateChecklist', 'updateList', 'updateList:closed', 'updateList:name', 'updateMember', 'updateOrganization'.",
+        "examples": ["all", "commentCard,createList"],
+        "title": "Actions",
+        "type": "string"
+      },
+      "actions_entities": {
+        "description": "Determines whether to return entity data for actions. Valid values: 'true' or 'false'.",
+        "examples": ["true", "false"],
+        "title": "Actions Entities",
+        "type": "string"
+      },
+      "actions_format": {
+        "default": "list",
+        "description": "The format for returned actions. Valid values: 'count', 'list', or 'minimal'.",
+        "examples": ["list", "count", "minimal"],
+        "title": "Actions Format",
+        "type": "string"
+      },
+      "actions_limit": {
+        "default": "5",
+        "description": "The maximum number of actions to return, from 0 to 1000.",
+        "examples": ["50", "100", "0"],
+        "title": "Actions Limit",
+        "type": "string"
+      },
+      "actions_since": {
+        "description": "Filters actions to those that occurred after this date, or accepts 'null' or 'lastView'.",
+        "examples": ["2023-01-01T00:00:00Z", "lastView", "null"],
+        "title": "Actions Since",
+        "type": "string"
+      },
+      "fields": {
+        "default": "all",
+        "description": "Specifies the fields to return for each board. Accepts 'all' or a comma-separated list of field names. Possible field names: 'closed', 'dateLastActivity', 'dateLastView', 'desc', 'descData', 'idOrganization', 'invitations', 'invited', 'labelNames', 'memberships', 'name', 'pinned', 'powerUps', 'prefs', 'shortLink', 'shortUrl', 'starred', 'subscribed', 'url'.",
+        "examples": ["all", "name,url", "prefs,shortUrl"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "filter": {
+        "default": "all",
+        "description": "Filters the boards returned. Valid values are 'all' or a comma-separated list of: 'closed', 'members', 'open', 'organization', 'pinned', 'public', 'starred', 'unpinned'.",
+        "examples": ["all", "open,starred", "organization,public"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "idMember": {
+        "default": "me",
+        "description": "The ID or username of the Trello member. Use 'me' to refer to the authenticated user. Defaults to 'me' if not provided.",
+        "examples": ["me", "johndoe", "60d5f1b3e4b5f67890abcdef"],
+        "title": "Id Member",
+        "type": "string"
+      },
+      "lists": {
+        "default": "open",
+        "description": "Filters the lists returned for each board. Valid values: 'all', 'closed', 'none', 'open'.",
+        "examples": ["open", "all", "none", "closed"],
+        "title": "Lists",
+        "type": "string"
+      },
+      "memberships": {
+        "default": "none",
+        "description": "Filters boards by the member's membership type. Accepts 'all' or a comma-separated list of: 'active', 'admin', 'deactivated', 'me', 'normal'.",
+        "examples": ["all", "me", "admin,normal"],
+        "title": "Memberships",
+        "type": "string"
+      },
+      "organization": {
+        "description": "Determines whether to return organization data for boards. Valid values: 'true' or 'false'.",
+        "examples": ["true", "false"],
+        "title": "Organization",
+        "type": "string"
+      },
+      "organization_fields": {
+        "default": "name and displayName",
+        "description": "Specifies the fields to return for the organization if 'organization' is 'true'. Accepts 'all' or a comma-separated list of field names. Possible field names: 'billableMemberCount', 'desc', 'descData', 'displayName', 'idBoards', 'invitations', 'invited', 'logoHash', 'memberships', 'name', 'powerUps', 'prefs', 'premiumFeatures', 'products', 'url', 'website'.",
+        "examples": ["all", "name,displayName", "products,url,idBoards"],
+        "title": "Organization Fields",
+        "type": "string"
+      }
+    },
+    "title": "GetMembersBoardsByIdMemberRequest",
+    "type": "object"
+  },
+  "name": "get_members_boards_by_id_member",
+  "outputSchema": {
+    "$defs": {
+      "Board": {
+        "description": "A Trello board object",
+        "properties": {
+          "closed": {
+            "description": "Whether the board is archived/closed",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "dateLastActivity": {
+            "description": "ISO 8601 timestamp of the last activity on the board",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "dateLastView": {
+            "description": "ISO 8601 timestamp of when the current user last viewed the board",
+            "title": "Date Last View",
+            "type": "string"
+          },
+          "desc": {
+            "description": "The description of the board",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "Custom emoji data for descriptions",
+            "title": "Desc Data"
+          },
+          "enterpriseOwned": {
+            "description": "Whether the board is owned by an enterprise",
+            "title": "Enterprise Owned",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The unique identifier for the board (24-character string)",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "The ID of the member who created the board",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "idOrganization": {
+            "description": "The ID of the organization (workspace) to which the board belongs",
+            "title": "Id Organization",
+            "type": "string"
+          },
+          "labelNames": {
+            "additionalProperties": true,
+            "description": "Custom label names organized by color",
+            "title": "Label Names",
+            "type": "object"
+          },
+          "limits": {
+            "additionalProperties": true,
+            "description": "Resource limits for the board",
+            "title": "Limits",
+            "type": "object"
+          },
+          "lists": {
+            "description": "Lists on the board when 'lists' parameter is specified",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Lists",
+            "type": "array"
+          },
+          "memberships": {
+            "description": "User-board relationship objects showing member permissions",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Memberships",
+            "type": "array"
+          },
+          "name": {
+            "description": "The name/title of the board",
+            "title": "Name",
+            "type": "string"
+          },
+          "pinned": {
+            "description": "Whether the board is pinned for the current user",
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "powerUps": {
+            "description": "List of enabled Power-Ups on the board",
+            "items": {
+              "type": "string"
+            },
+            "title": "Power Ups",
+            "type": "array"
+          },
+          "prefs": {
+            "$ref": "#/$defs/BoardPrefs",
+            "description": "Board preferences and settings",
+            "title": "Prefs"
+          },
+          "shortLink": {
+            "description": "Short identifier used in URLs",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "Shortened URL for the board using its short ID",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "starred": {
+            "description": "Whether the current user has starred the board",
+            "title": "Starred",
+            "type": "boolean"
+          },
+          "subscribed": {
+            "description": "Whether the current user is subscribed to the board",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "Persistent URL for the board",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "Board",
+        "type": "object"
+      },
+      "BoardPrefs": {
+        "description": "Board preferences and settings",
+        "properties": {
+          "background": {
+            "description": "Board background color or setting",
+            "title": "Background",
+            "type": "string"
+          },
+          "backgroundImage": {
+            "description": "URL of the background image",
+            "title": "Background Image",
+            "type": "string"
+          },
+          "backgroundImageScaled": {
+            "description": "Scaled versions of the background image",
+            "items": {},
+            "title": "Background Image Scaled",
+            "type": "array"
+          },
+          "calendarFeedEnabled": {
+            "description": "Whether calendar feed is enabled",
+            "title": "Calendar Feed Enabled",
+            "type": "boolean"
+          },
+          "cardAging": {
+            "description": "Card aging mode",
+            "title": "Card Aging",
+            "type": "string"
+          },
+          "cardCovers": {
+            "description": "Whether card covers are enabled",
+            "title": "Card Covers",
+            "type": "boolean"
+          },
+          "comments": {
+            "description": "Comment permissions",
+            "title": "Comments",
+            "type": "string"
+          },
+          "hideVotes": {
+            "description": "Whether votes are hidden",
+            "title": "Hide Votes",
+            "type": "boolean"
+          },
+          "isTemplate": {
+            "description": "Whether the board is a template",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "permissionLevel": {
+            "description": "Permission level for the board",
+            "title": "Permission Level",
+            "type": "string"
+          },
+          "selfJoin": {
+            "description": "Whether users can join the board themselves",
+            "title": "Self Join",
+            "type": "boolean"
+          },
+          "voting": {
+            "description": "Voting settings",
+            "title": "Voting",
+            "type": "string"
+          }
+        },
+        "title": "BoardPrefs",
+        "type": "object"
+      },
+      "GetMembersBoardsByIdMemberResponse": {
+        "description": "Response schema for `GetMembersBoardsByIdMember` - Trello API returns array of Board objects directly\n\nThe Trello API returns the boards as a JSON array directly (not wrapped in an object).\nUses RootModel to handle the direct array response from the API.",
+        "items": {
+          "$ref": "#/$defs/Board"
+        },
+        "title": "GetMembersBoardsByIdMemberResponse",
+        "type": "array"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMembersBoardsByIdMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

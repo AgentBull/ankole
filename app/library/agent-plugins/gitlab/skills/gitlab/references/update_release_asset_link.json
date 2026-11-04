@@ -1,0 +1,106 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update an existing asset link for a project release. Supply at least one of name or url; optionally change the direct asset path or link type. Supported URL protocols are HTTP, HTTPS, and FTP. See https://docs.gitlab.com/api/releases/links/#update-a-release-link.",
+  "inputSchema": {
+    "properties": {
+      "direct_asset_path": {
+        "description": "Optional path for a direct asset link.",
+        "title": "Direct Asset Path",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "ID or unencoded path of the project.",
+        "title": "Id"
+      },
+      "link_id": {
+        "description": "ID of the release asset link.",
+        "title": "Link Id",
+        "type": "integer"
+      },
+      "link_type": {
+        "description": "Link type; GitLab defaults to other.",
+        "enum": ["other", "runbook", "image", "package"],
+        "title": "Link Type",
+        "type": "string"
+      },
+      "name": {
+        "description": "Link name. Supply at least one of name or url.",
+        "title": "Name",
+        "type": "string"
+      },
+      "tag_name": {
+        "description": "Tag associated with the release.",
+        "title": "Tag Name",
+        "type": "string"
+      },
+      "url": {
+        "description": "Link URL. Supply at least one of name or url.",
+        "title": "Url",
+        "type": "string"
+      }
+    },
+    "required": ["id", "tag_name", "link_id"],
+    "title": "UpdateReleaseAssetLinkRequest",
+    "type": "object"
+  },
+  "name": "update_release_asset_link",
+  "outputSchema": {
+    "$defs": {
+      "UpdateReleaseAssetLinkResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "direct_asset_url": {
+            "description": "Direct asset download URL.",
+            "title": "Direct Asset Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Asset link ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "link_type": {
+            "description": "Asset link type.",
+            "title": "Link Type",
+            "type": "string"
+          },
+          "name": {
+            "description": "Asset link name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "Asset link URL.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "UpdateReleaseAssetLinkResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateReleaseAssetLinkResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

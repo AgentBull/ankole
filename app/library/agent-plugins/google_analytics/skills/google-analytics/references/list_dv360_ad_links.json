@@ -1,0 +1,108 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list Display & Video 360 advertiser links on a property. Use when you need to retrieve DisplayVideo360AdvertiserLink resources associated with a Google Analytics property. Results support pagination for large datasets.",
+  "inputSchema": {
+    "description": "Request model for listing DisplayVideo360AdvertiserLinks on a Google Analytics property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of resources to return. The service may return fewer than this value. If unspecified, at most 50 resources will be returned. The maximum value is 200; higher values will be coerced to the maximum.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous ListDisplayVideo360AdvertiserLinks call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided must match the call that provided the page token.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The name of the property to list DisplayVideo360AdvertiserLinks under. Format: properties/{property_id} (e.g., properties/1234).",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "DisplayVideo360AdvertiserLinksListRequest",
+    "type": "object"
+  },
+  "name": "list_dv360_ad_links",
+  "outputSchema": {
+    "$defs": {
+      "DisplayVideo360AdvertiserLink": {
+        "description": "Schema for a DisplayVideo360AdvertiserLink resource.",
+        "properties": {
+          "adsPersonalizationEnabled": {
+            "description": "Enables personalized advertising features with this integration. Defaulted to true if not set.",
+            "title": "Ads Personalization Enabled",
+            "type": "boolean"
+          },
+          "advertiserDisplayName": {
+            "description": "Output only. The display name of the Display & Video 360 Advertiser.",
+            "title": "Advertiser Display Name",
+            "type": "string"
+          },
+          "advertiserId": {
+            "description": "Immutable. The Display & Video 360 Advertiser's advertiser ID.",
+            "title": "Advertiser Id",
+            "type": "string"
+          },
+          "campaignDataSharingEnabled": {
+            "description": "Immutable. Enables the import of campaign data from Display & Video 360 into Google Analytics. Defaulted to true if not set.",
+            "title": "Campaign Data Sharing Enabled",
+            "type": "boolean"
+          },
+          "costDataSharingEnabled": {
+            "description": "Immutable. Enables the import of cost data. Can only be enabled if campaign data sharing is enabled. Defaulted to true if not set.",
+            "title": "Cost Data Sharing Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Output only. Resource name for this DisplayVideo360AdvertiserLink. Format: properties/{propertyId}/displayVideo360AdvertiserLinks/{linkId}.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "DisplayVideo360AdvertiserLink",
+        "type": "object"
+      },
+      "DisplayVideo360AdvertiserLinksListResponse": {
+        "description": "Response model for listing DisplayVideo360AdvertiserLinks.",
+        "properties": {
+          "displayVideo360AdvertiserLinks": {
+            "description": "List of DisplayVideo360AdvertiserLink resources.",
+            "items": {
+              "$ref": "#/$defs/DisplayVideo360AdvertiserLink"
+            },
+            "title": "Display Video360 Advertiser Links",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "Token for retrieving the subsequent page. Omitted if no further pages exist.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "DisplayVideo360AdvertiserLinksListResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DisplayVideo360AdvertiserLinksListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

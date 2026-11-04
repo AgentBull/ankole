@@ -1,0 +1,110 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a single GA4 Property by its resource name. Use when you need detailed property configuration including display name, time zone, currency, and other settings.",
+  "inputSchema": {
+    "description": "Request model for retrieving a single GA4 Property.",
+    "properties": {
+      "name": {
+        "description": "Required. The resource name of the Property to retrieve. Must be in the exact format: properties/{property_id} where property_id is a numeric identifier. IMPORTANT: Must start with 'properties/' prefix, contain no forward slashes in the property_id, have no trailing slashes, and no additional path segments. Valid example: 'properties/489591273'. Invalid examples: '489591273' (missing prefix), 'properties/489591273/' (trailing slash), 'properties/489591273/extra' (extra segments)",
+        "examples": ["properties/489591273", "properties/1000"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "GetPropertyRequest",
+    "type": "object"
+  },
+  "name": "get_property",
+  "outputSchema": {
+    "$defs": {
+      "GetPropertyResponse": {
+        "description": "Response model for GetProperty action representing a GA4 Property resource.",
+        "properties": {
+          "account": {
+            "description": "Parent account resource name. Format: accounts/{id}; immutable.",
+            "title": "Account",
+            "type": "string"
+          },
+          "createTime": {
+            "description": "Timestamp when the property was originally created (RFC 3339 format).",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "currencyCode": {
+            "description": "Currency for reports in ISO 4217 format (e.g., 'USD').",
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "deleteTime": {
+            "description": "Timestamp when property was trashed (if applicable, output only).",
+            "title": "Delete Time",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Human-readable display name (max 100 UTF-16 code units).",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "expireTime": {
+            "description": "Permanent deletion time for trashed property (if applicable, output only).",
+            "title": "Expire Time",
+            "type": "string"
+          },
+          "industryCategory": {
+            "description": "Industry classification for benchmarking.",
+            "title": "Industry Category",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name of this property. Format: properties/{property_id}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "parent": {
+            "description": "Parent resource name. Format: accounts/{id} or properties/{id}; immutable.",
+            "title": "Parent",
+            "type": "string"
+          },
+          "propertyType": {
+            "description": "Property classification (ORDINARY_PROPERTY by default); immutable.",
+            "title": "Property Type",
+            "type": "string"
+          },
+          "serviceLevel": {
+            "description": "Google Analytics service level (output only).",
+            "title": "Service Level",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "Reporting time zone in IANA format.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updateTime": {
+            "description": "Timestamp when the property was last updated (RFC 3339 format).",
+            "title": "Update Time",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "title": "GetPropertyResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetPropertyResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

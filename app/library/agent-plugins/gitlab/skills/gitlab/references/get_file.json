@@ -1,0 +1,128 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a single file from a GitLab repository at a specific ref (branch, tag, or commit). Returns the file content as base64-encoded data along with metadata like size, encoding, and commit information. Use this action when you need to fetch the contents or details of a specific file from a GitLab project repository.",
+  "inputSchema": {
+    "properties": {
+      "file_path": {
+        "description": "URL-encoded full path to the file in the repository.",
+        "examples": ["README.md", "lib/class.rb", "src/main.py"],
+        "title": "File Path",
+        "type": "string"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": [123, "namespace/project-name"],
+        "title": "Project Id"
+      },
+      "ref": {
+        "description": "Name of branch, tag, or commit. Use 'HEAD' to automatically use the default branch.",
+        "examples": ["main", "develop", "v1.0.0", "HEAD"],
+        "title": "Ref",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "file_path", "ref"],
+    "title": "GetFileRequest",
+    "type": "object"
+  },
+  "name": "get_file",
+  "outputSchema": {
+    "$defs": {
+      "GetFileResponse": {
+        "properties": {
+          "blob_id": {
+            "description": "The Git blob ID of the file.",
+            "title": "Blob Id",
+            "type": "string"
+          },
+          "commit_id": {
+            "description": "The commit ID of the last commit that modified this file.",
+            "title": "Commit Id",
+            "type": "string"
+          },
+          "content": {
+            "description": "The file content, base64-encoded.",
+            "title": "Content",
+            "type": "string"
+          },
+          "content_sha256": {
+            "description": "SHA256 hash of the file content.",
+            "title": "Content Sha256",
+            "type": "string"
+          },
+          "encoding": {
+            "description": "The encoding of the content (typically 'base64').",
+            "title": "Encoding",
+            "type": "string"
+          },
+          "execute_filemode": {
+            "description": "Whether the file has execute permissions.",
+            "title": "Execute Filemode",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "The name of the file.",
+            "title": "File Name",
+            "type": "string"
+          },
+          "file_path": {
+            "description": "The full path to the file in the repository.",
+            "title": "File Path",
+            "type": "string"
+          },
+          "last_commit_id": {
+            "description": "The last commit ID (same as commit_id).",
+            "title": "Last Commit Id",
+            "type": "string"
+          },
+          "ref": {
+            "description": "The branch, tag, or commit ref used to retrieve the file.",
+            "title": "Ref",
+            "type": "string"
+          },
+          "size": {
+            "description": "The size of the file in bytes.",
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file_name",
+          "file_path",
+          "size",
+          "encoding",
+          "content",
+          "content_sha256",
+          "ref",
+          "blob_id",
+          "commit_id",
+          "last_commit_id"
+        ],
+        "title": "GetFileResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetFileResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,930 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to update an existing Typeform by completely replacing its configuration. PUT request overwrites the entire form - any fields not included will be deleted along with their response data. Always retrieve the form first using Get Form, modify the desired properties, then send the complete updated form definition.",
+  "inputSchema": {
+    "properties": {
+      "fields": {
+        "description": "Array of form field objects defining questions and inputs. Each field must have: ref (unique reference), title (question text), type (field type like short_text, email, multiple_choice, etc.), properties (field-specific config), and optionally validations and attachments. Include all existing fields with their original 'id' values to preserve them.",
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Fields",
+        "type": "array"
+      },
+      "form_id": {
+        "description": "Unique form identifier to update",
+        "examples": ["Y78g1cmS"],
+        "title": "Form Id",
+        "type": "string"
+      },
+      "hidden": {
+        "description": "Array of hidden field variable names for passing data via URL parameters.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Hidden",
+        "type": "array"
+      },
+      "logic": {
+        "description": "Array of logic jump objects for conditional branching. Each contains: type (field), ref (field reference), and actions (array with action, condition, and details).",
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Logic",
+        "type": "array"
+      },
+      "settings": {
+        "additionalProperties": true,
+        "description": "Form settings object including language, is_public, progress_bar, show_progress_bar, show_typeform_branding, autosave_progress, hide_navigation, captcha, redirect_after_submit_url, meta (with allow_indexing, description, image), and tracking properties.",
+        "title": "Settings",
+        "type": "object"
+      },
+      "thankyou_screens": {
+        "description": "Array of thank you screen objects shown after form completion. Each contains: ref, title, type, properties (show_button, share_icons, button_mode, button_text), and optionally attachment.",
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Thankyou Screens",
+        "type": "array"
+      },
+      "theme": {
+        "additionalProperties": true,
+        "description": "Theme object containing 'href' field with theme URL to apply design styling to the form.",
+        "title": "Theme",
+        "type": "object"
+      },
+      "title": {
+        "description": "The form's title/name",
+        "examples": ["Customer Feedback Form"],
+        "title": "Title",
+        "type": "string"
+      },
+      "type": {
+        "description": "Form type category such as 'quiz', 'classification', 'score', 'branching', etc.",
+        "examples": ["quiz", "form"],
+        "title": "Type",
+        "type": "string"
+      },
+      "variables": {
+        "additionalProperties": true,
+        "description": "Variables object for tracking score, price, or enrichment calculations.",
+        "title": "Variables",
+        "type": "object"
+      },
+      "welcome_screens": {
+        "description": "Array of welcome screen objects shown before the form. Each contains: ref, title, properties, and optionally attachment.",
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Welcome Screens",
+        "type": "array"
+      },
+      "workspace": {
+        "additionalProperties": true,
+        "description": "Workspace object containing 'href' field with workspace URL. If not specified, form remains in current workspace.",
+        "title": "Workspace",
+        "type": "object"
+      }
+    },
+    "required": ["form_id"],
+    "title": "TypeformUpdateFormRequest",
+    "type": "object"
+  },
+  "name": "update_form",
+  "outputSchema": {
+    "$defs": {
+      "Attachment": {
+        "description": "Attachment object for fields and screens",
+        "properties": {
+          "href": {
+            "description": "URL to the attachment resource",
+            "title": "Href",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/$defs/AttachmentProperties",
+            "description": "Attachment properties",
+            "title": "Properties"
+          },
+          "scale": {
+            "description": "Scale of the attachment (0.4, 0.6, 0.8, or 1)",
+            "title": "Scale",
+            "type": "number"
+          },
+          "type": {
+            "description": "Attachment type (image or video)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "href"],
+        "title": "Attachment",
+        "type": "object"
+      },
+      "AttachmentProperties": {
+        "description": "Attachment properties",
+        "properties": {
+          "description": {
+            "description": "Attachment description",
+            "title": "Description",
+            "type": "string"
+          }
+        },
+        "title": "AttachmentProperties",
+        "type": "object"
+      },
+      "Choice": {
+        "description": "Choice option for choice-based fields",
+        "properties": {
+          "attachment": {
+            "$ref": "#/$defs/Attachment",
+            "description": "Attachment object",
+            "title": "Attachment"
+          },
+          "id": {
+            "description": "Unique identifier for the choice",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "description": "Choice label text",
+            "title": "Label",
+            "type": "string"
+          },
+          "ref": {
+            "description": "Unique reference for the choice",
+            "title": "Ref",
+            "type": "string"
+          }
+        },
+        "required": ["label"],
+        "title": "Choice",
+        "type": "object"
+      },
+      "FieldProperties": {
+        "description": "Field properties (varies by field type)",
+        "properties": {
+          "allow_multiple_selection": {
+            "description": "Whether multiple selections are allowed",
+            "title": "Allow Multiple Selection",
+            "type": "boolean"
+          },
+          "allow_other_choice": {
+            "description": "Whether to allow 'Other' choice",
+            "title": "Allow Other Choice",
+            "type": "boolean"
+          },
+          "alphabetical_order": {
+            "description": "Whether to sort alphabetically",
+            "title": "Alphabetical Order",
+            "type": "boolean"
+          },
+          "button_text": {
+            "description": "Button text",
+            "title": "Button Text",
+            "type": "string"
+          },
+          "choices": {
+            "description": "List of choices",
+            "items": {
+              "$ref": "#/$defs/Choice"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "currency": {
+            "description": "Currency code",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Field description",
+            "title": "Description",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Nested fields for group/matrix/contact_info",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "hide_marks": {
+            "description": "Whether to hide marks",
+            "title": "Hide Marks",
+            "type": "boolean"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Labels (left, right, center)",
+            "title": "Labels",
+            "type": "object"
+          },
+          "randomize": {
+            "description": "Whether to randomize choice order",
+            "title": "Randomize",
+            "type": "boolean"
+          },
+          "separator": {
+            "description": "Date separator (/, -, .)",
+            "title": "Separator",
+            "type": "string"
+          },
+          "shape": {
+            "description": "Shape for rating fields",
+            "title": "Shape",
+            "type": "string"
+          },
+          "show_labels": {
+            "description": "Whether to show labels",
+            "title": "Show Labels",
+            "type": "boolean"
+          },
+          "start_at_one": {
+            "description": "Whether to start at one",
+            "title": "Start At One",
+            "type": "boolean"
+          },
+          "steps": {
+            "description": "Number of steps (5-11)",
+            "title": "Steps",
+            "type": "integer"
+          },
+          "structure": {
+            "description": "Date structure (DDMMYYYY, MMDDYYYY, YYYYMMDD)",
+            "title": "Structure",
+            "type": "string"
+          },
+          "supersized": {
+            "description": "Whether to use supersized",
+            "title": "Supersized",
+            "type": "boolean"
+          },
+          "vertical_alignment": {
+            "description": "Whether to use vertical alignment",
+            "title": "Vertical Alignment",
+            "type": "boolean"
+          }
+        },
+        "title": "FieldProperties",
+        "type": "object"
+      },
+      "FieldValidations": {
+        "description": "Field validation rules",
+        "properties": {
+          "max_length": {
+            "description": "Maximum length",
+            "title": "Max Length",
+            "type": "integer"
+          },
+          "max_selection": {
+            "description": "Maximum selection count",
+            "title": "Max Selection",
+            "type": "integer"
+          },
+          "max_value": {
+            "description": "Maximum value",
+            "title": "Max Value",
+            "type": "number"
+          },
+          "min_selection": {
+            "description": "Minimum selection count",
+            "title": "Min Selection",
+            "type": "integer"
+          },
+          "min_value": {
+            "description": "Minimum value",
+            "title": "Min Value",
+            "type": "number"
+          },
+          "required": {
+            "description": "Whether the field is required",
+            "title": "Required",
+            "type": "boolean"
+          }
+        },
+        "title": "FieldValidations",
+        "type": "object"
+      },
+      "FormField": {
+        "description": "Form field object",
+        "properties": {
+          "attachment": {
+            "$ref": "#/$defs/Attachment",
+            "description": "Attachment object",
+            "title": "Attachment"
+          },
+          "id": {
+            "description": "Unique identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/$defs/FieldProperties",
+            "description": "Field properties",
+            "title": "Properties"
+          },
+          "ref": {
+            "description": "Unique reference string",
+            "title": "Ref",
+            "type": "string"
+          },
+          "title": {
+            "description": "Field title/question text",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Field type (short_text, email, multiple_choice, etc.)",
+            "title": "Type",
+            "type": "string"
+          },
+          "validations": {
+            "$ref": "#/$defs/FieldValidations",
+            "description": "Validation rules",
+            "title": "Validations"
+          }
+        },
+        "required": ["ref", "title", "type"],
+        "title": "FormField",
+        "type": "object"
+      },
+      "FormSettings": {
+        "description": "Form settings object",
+        "properties": {
+          "are_uploads_public": {
+            "description": "Whether file uploads are publicly accessible",
+            "title": "Are Uploads Public",
+            "type": "boolean"
+          },
+          "auto_translate": {
+            "description": "Whether to enable automatic translation",
+            "title": "Auto Translate",
+            "type": "boolean"
+          },
+          "autosave_progress": {
+            "description": "Whether to auto-save respondent progress",
+            "title": "Autosave Progress",
+            "type": "boolean"
+          },
+          "captcha": {
+            "description": "Whether captcha is enabled",
+            "title": "Captcha",
+            "type": "boolean"
+          },
+          "free_form_navigation": {
+            "description": "Whether to allow free-form navigation",
+            "title": "Free Form Navigation",
+            "type": "boolean"
+          },
+          "hide_navigation": {
+            "description": "Whether to hide navigation buttons",
+            "title": "Hide Navigation",
+            "type": "boolean"
+          },
+          "is_public": {
+            "description": "Whether the form is publicly accessible",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "is_trial": {
+            "description": "Whether the form is in trial mode",
+            "title": "Is Trial",
+            "type": "boolean"
+          },
+          "language": {
+            "description": "Language code (e.g., en, es)",
+            "title": "Language",
+            "type": "string"
+          },
+          "meta": {
+            "$ref": "#/$defs/FormSettingsMetadata",
+            "description": "Metadata settings",
+            "title": "Meta"
+          },
+          "partial_responses_to_all_integrations": {
+            "description": "Whether to send partial responses to all integrations",
+            "title": "Partial Responses To All Integrations",
+            "type": "boolean"
+          },
+          "pro_subdomain_enabled": {
+            "description": "Whether pro subdomain is enabled",
+            "title": "Pro Subdomain Enabled",
+            "type": "boolean"
+          },
+          "progress_bar": {
+            "description": "Progress bar style (proportion or percentage)",
+            "title": "Progress Bar",
+            "type": "string"
+          },
+          "show_cookie_consent": {
+            "description": "Whether to show cookie consent banner",
+            "title": "Show Cookie Consent",
+            "type": "boolean"
+          },
+          "show_key_hint_on_choices": {
+            "description": "Whether to show keyboard hints on choices",
+            "title": "Show Key Hint On Choices",
+            "type": "boolean"
+          },
+          "show_number_of_submissions": {
+            "description": "Whether to show number of submissions",
+            "title": "Show Number Of Submissions",
+            "type": "boolean"
+          },
+          "show_progress_bar": {
+            "description": "Whether to display the progress bar",
+            "title": "Show Progress Bar",
+            "type": "boolean"
+          },
+          "show_question_number": {
+            "description": "Whether to show question numbers",
+            "title": "Show Question Number",
+            "type": "boolean"
+          },
+          "show_time_to_complete": {
+            "description": "Whether to show estimated completion time",
+            "title": "Show Time To Complete",
+            "type": "boolean"
+          },
+          "show_typeform_branding": {
+            "description": "Whether to show Typeform branding",
+            "title": "Show Typeform Branding",
+            "type": "boolean"
+          },
+          "use_lead_qualification": {
+            "description": "Whether to use lead qualification",
+            "title": "Use Lead Qualification",
+            "type": "boolean"
+          }
+        },
+        "title": "FormSettings",
+        "type": "object"
+      },
+      "FormSettingsMetadata": {
+        "description": "Metadata settings for a form",
+        "properties": {
+          "allow_indexing": {
+            "description": "Whether to allow search engine indexing",
+            "title": "Allow Indexing",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Meta description",
+            "title": "Description",
+            "type": "string"
+          },
+          "facebook_pixel": {
+            "description": "Facebook Pixel tracking ID",
+            "title": "Facebook Pixel",
+            "type": "string"
+          },
+          "google_analytics": {
+            "description": "Google Analytics tracking ID",
+            "title": "Google Analytics",
+            "type": "string"
+          },
+          "google_tag_manager": {
+            "description": "Google Tag Manager ID",
+            "title": "Google Tag Manager",
+            "type": "string"
+          },
+          "image": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Meta image with href",
+            "title": "Image",
+            "type": "object"
+          },
+          "redirect_after_submit_url": {
+            "description": "URL to redirect to after form submission",
+            "title": "Redirect After Submit Url",
+            "type": "string"
+          },
+          "title": {
+            "description": "Meta title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "FormSettingsMetadata",
+        "type": "object"
+      },
+      "LinksResponse": {
+        "description": "Form links object",
+        "properties": {
+          "display": {
+            "description": "URI to display the form",
+            "title": "Display",
+            "type": "string"
+          },
+          "edit": {
+            "description": "URI to edit form",
+            "title": "Edit",
+            "type": "string"
+          },
+          "json": {
+            "description": "URI for JSON export",
+            "title": "Json",
+            "type": "string"
+          },
+          "responses": {
+            "description": "URI for form responses",
+            "title": "Responses",
+            "type": "string"
+          },
+          "results": {
+            "description": "URI for results",
+            "title": "Results",
+            "type": "string"
+          },
+          "self": {
+            "description": "URI for API access",
+            "title": "Self",
+            "type": "string"
+          }
+        },
+        "title": "LinksResponse",
+        "type": "object"
+      },
+      "LogicAction": {
+        "description": "Action to take when condition is met",
+        "properties": {
+          "action": {
+            "description": "Action type (jump, add, subtract, multiply, divide, set)",
+            "title": "Action",
+            "type": "string"
+          },
+          "condition": {
+            "$ref": "#/$defs/LogicCondition",
+            "description": "Condition to evaluate",
+            "title": "Condition"
+          },
+          "details": {
+            "$ref": "#/$defs/LogicActionDetails",
+            "description": "Action details",
+            "title": "Details"
+          }
+        },
+        "required": ["action", "condition"],
+        "title": "LogicAction",
+        "type": "object"
+      },
+      "LogicActionDetails": {
+        "description": "Details for logic action",
+        "properties": {
+          "target": {
+            "additionalProperties": true,
+            "description": "Target for variable operations",
+            "title": "Target",
+            "type": "object"
+          },
+          "to": {
+            "additionalProperties": true,
+            "description": "Jump target",
+            "title": "To",
+            "type": "object"
+          },
+          "value": {
+            "additionalProperties": true,
+            "description": "Value to set",
+            "title": "Value",
+            "type": "object"
+          }
+        },
+        "title": "LogicActionDetails",
+        "type": "object"
+      },
+      "LogicCondition": {
+        "description": "Condition for logic jump",
+        "properties": {
+          "op": {
+            "description": "Operator (is, is_not, equal, greater_than, contains, etc.)",
+            "title": "Op",
+            "type": "string"
+          },
+          "vars": {
+            "description": "List of variables in the condition",
+            "items": {
+              "$ref": "#/$defs/LogicConditionVar"
+            },
+            "title": "Vars",
+            "type": "array"
+          }
+        },
+        "required": ["op", "vars"],
+        "title": "LogicCondition",
+        "type": "object"
+      },
+      "LogicConditionVar": {
+        "description": "Variable in logic condition",
+        "properties": {
+          "type": {
+            "description": "Variable type (field, hidden, variable, constant, choice)",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "Variable value",
+            "title": "Value"
+          }
+        },
+        "required": ["type", "value"],
+        "title": "LogicConditionVar",
+        "type": "object"
+      },
+      "LogicJump": {
+        "description": "Logic jump object for conditional branching",
+        "properties": {
+          "actions": {
+            "description": "List of actions to execute",
+            "items": {
+              "$ref": "#/$defs/LogicAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "ref": {
+            "description": "Reference to field or hidden variable",
+            "title": "Ref",
+            "type": "string"
+          },
+          "type": {
+            "description": "Logic type (field or hidden)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "ref", "actions"],
+        "title": "LogicJump",
+        "type": "object"
+      },
+      "ThankYouScreen": {
+        "description": "Thank you screen object",
+        "properties": {
+          "attachment": {
+            "$ref": "#/$defs/Attachment",
+            "description": "Attachment object",
+            "title": "Attachment"
+          },
+          "id": {
+            "description": "Unique identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/$defs/ThankYouScreenProperties",
+            "description": "Thank you screen properties",
+            "title": "Properties"
+          },
+          "ref": {
+            "description": "Unique reference string",
+            "title": "Ref",
+            "type": "string"
+          },
+          "title": {
+            "description": "Thank you screen title",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Screen type (thankyou_screen or url_redirect)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["ref", "title"],
+        "title": "ThankYouScreen",
+        "type": "object"
+      },
+      "ThankYouScreenProperties": {
+        "description": "Thank you screen properties",
+        "properties": {
+          "button_mode": {
+            "description": "Button mode (reload, default_redirect, or redirect)",
+            "title": "Button Mode",
+            "type": "string"
+          },
+          "button_text": {
+            "description": "Button text",
+            "title": "Button Text",
+            "type": "string"
+          },
+          "redirect_url": {
+            "description": "Redirect URL",
+            "title": "Redirect Url",
+            "type": "string"
+          },
+          "share_icons": {
+            "description": "Whether to show share icons",
+            "title": "Share Icons",
+            "type": "boolean"
+          },
+          "show_button": {
+            "description": "Whether to show the button",
+            "title": "Show Button",
+            "type": "boolean"
+          }
+        },
+        "title": "ThankYouScreenProperties",
+        "type": "object"
+      },
+      "ThemeResponse": {
+        "description": "Theme reference object",
+        "properties": {
+          "href": {
+            "description": "URL reference to the theme",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "required": ["href"],
+        "title": "ThemeResponse",
+        "type": "object"
+      },
+      "TypeformUpdateFormResponse": {
+        "properties": {
+          "_links": {
+            "$ref": "#/$defs/LinksResponse",
+            "description": "Related links",
+            "title": " Links"
+          },
+          "fields": {
+            "description": "List of form fields with their configurations",
+            "items": {
+              "$ref": "#/$defs/FormField"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "hidden": {
+            "description": "List of hidden field variable names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Hidden",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier of the updated form",
+            "title": "Id",
+            "type": "string"
+          },
+          "language": {
+            "description": "Language code of the form",
+            "title": "Language",
+            "type": "string"
+          },
+          "logic": {
+            "description": "Logic jumps configuration",
+            "items": {
+              "$ref": "#/$defs/LogicJump"
+            },
+            "title": "Logic",
+            "type": "array"
+          },
+          "settings": {
+            "$ref": "#/$defs/FormSettings",
+            "description": "Form settings",
+            "title": "Settings"
+          },
+          "thankyou_screens": {
+            "description": "Thank you screens configuration",
+            "items": {
+              "$ref": "#/$defs/ThankYouScreen"
+            },
+            "title": "Thankyou Screens",
+            "type": "array"
+          },
+          "theme": {
+            "$ref": "#/$defs/ThemeResponse",
+            "description": "Theme configuration",
+            "title": "Theme"
+          },
+          "title": {
+            "description": "Title of the form",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Form type category",
+            "title": "Type",
+            "type": "string"
+          },
+          "variables": {
+            "additionalProperties": true,
+            "description": "Form variables (dynamic key-value pairs for score, price, or custom variables)",
+            "title": "Variables",
+            "type": "object"
+          },
+          "welcome_screens": {
+            "description": "Welcome screens configuration",
+            "items": {
+              "$ref": "#/$defs/WelcomeScreen"
+            },
+            "title": "Welcome Screens",
+            "type": "array"
+          },
+          "workspace": {
+            "$ref": "#/$defs/WorkspaceResponse",
+            "description": "Workspace information",
+            "title": "Workspace"
+          }
+        },
+        "title": "TypeformUpdateFormResponse",
+        "type": "object"
+      },
+      "WelcomeScreen": {
+        "description": "Welcome screen object",
+        "properties": {
+          "attachment": {
+            "$ref": "#/$defs/Attachment",
+            "description": "Attachment object",
+            "title": "Attachment"
+          },
+          "id": {
+            "description": "Unique identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/$defs/WelcomeScreenProperties",
+            "description": "Welcome screen properties",
+            "title": "Properties"
+          },
+          "ref": {
+            "description": "Unique reference string",
+            "title": "Ref",
+            "type": "string"
+          },
+          "title": {
+            "description": "Welcome screen title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["ref", "title"],
+        "title": "WelcomeScreen",
+        "type": "object"
+      },
+      "WelcomeScreenProperties": {
+        "description": "Welcome screen properties",
+        "properties": {
+          "button_text": {
+            "description": "Button text",
+            "title": "Button Text",
+            "type": "string"
+          },
+          "description": {
+            "description": "Welcome screen description",
+            "title": "Description",
+            "type": "string"
+          },
+          "show_button": {
+            "description": "Whether to show the button",
+            "title": "Show Button",
+            "type": "boolean"
+          }
+        },
+        "title": "WelcomeScreenProperties",
+        "type": "object"
+      },
+      "WorkspaceResponse": {
+        "description": "Workspace reference object",
+        "properties": {
+          "href": {
+            "description": "URL reference to the workspace",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "required": ["href"],
+        "title": "WorkspaceResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/TypeformUpdateFormResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

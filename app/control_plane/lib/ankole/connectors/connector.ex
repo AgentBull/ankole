@@ -4,6 +4,8 @@ defmodule Ankole.Connectors.Connector do
   @callback upstream_auth(Ankole.Connectors.ToolSpec.t(), map() | nil, map()) :: atom()
   @callback scopes_satisfied?([String.t()], [String.t()], map()) :: boolean()
   @callback tools() :: [Ankole.Connectors.ToolSpec.t()]
+  @callback platform_application(map()) :: {:ok, String.t() | nil} | {:error, term()}
+  @callback validate_credentials(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback call(Ankole.Connectors.ToolSpec.t(), map(), map()) :: {:ok, map()} | {:error, term()}
   @callback fetch_app_token(map(), map(), map() | nil) ::
               {:ok, %{access_token: String.t(), expires_in: non_neg_integer()}} | {:error, term()}
@@ -18,6 +20,8 @@ defmodule Ankole.Connectors.Connector do
               {:ok, %{external_subscription_id: String.t() | nil}} | {:error, term()}
 
   @optional_callbacks upstream_auth: 3,
+                      platform_application: 1,
+                      validate_credentials: 2,
                       scopes_satisfied?: 3,
                       fetch_app_token: 3,
                       refresh_token: 3,

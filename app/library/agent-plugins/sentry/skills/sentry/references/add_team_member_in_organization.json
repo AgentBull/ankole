@@ -1,0 +1,164 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Adds an existing organization member to one of its teams, or may generate an access request when permission to join is needed. An already-existing membership is reported as an error.",
+  "inputSchema": {
+    "description": "Request to add an organization member to a team.",
+    "properties": {
+      "member_id": {
+        "description": "ID of the existing organization member to be added to the team.",
+        "examples": ["1001", "2053"],
+        "title": "Member Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization. Slugs are typically lowercase and use hyphens.",
+        "examples": ["my-awesome-org", "acme-corporation"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "team_id_or_slug": {
+        "description": "The ID or slug of the team to which the member will be added. Slugs are typically lowercase and use hyphens.",
+        "examples": ["backend-developers", "frontend-team"],
+        "title": "Team Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "member_id", "team_id_or_slug"],
+    "title": "AddTeamMemberInOrganizationRequest",
+    "type": "object"
+  },
+  "name": "add_team_member_in_organization",
+  "outputSchema": {
+    "$defs": {
+      "AddTeamMemberInOrganizationResponse": {
+        "description": "Response after successfully adding an organization member to a team, returns the team object.",
+        "properties": {
+          "access": {
+            "description": "List of permissions granted to the user (e.g., 'event:read', 'event:write', 'team:read', 'org:read', 'project:read', 'member:read', 'project:releases', 'alerts:read').",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "avatar": {
+            "$ref": "#/$defs/Avatar",
+            "description": "Contains avatar metadata for the team.",
+            "title": "Avatar"
+          },
+          "dateCreated": {
+            "description": "Timestamp when the team was created (ISO 8601 date-time format, nullable).",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "flags": {
+            "additionalProperties": true,
+            "description": "Feature flags associated with the team, supporting additional properties like 'idp:provisioned'.",
+            "title": "Flags",
+            "type": "object"
+          },
+          "hasAccess": {
+            "description": "Denotes whether the user has permissions to access team resources.",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the team.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isMember": {
+            "description": "Indicates whether the authenticated user belongs to this team.",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "isPending": {
+            "description": "Shows if the user's membership is awaiting confirmation.",
+            "title": "Is Pending",
+            "type": "boolean"
+          },
+          "memberCount": {
+            "description": "Total number of team members.",
+            "title": "Member Count",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Display name of the team.",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly identifier for the team.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "teamRole": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The authenticated user's role within the team (nullable, e.g., 'contributor', 'admin').",
+            "title": "Team Role"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "dateCreated",
+          "isMember",
+          "teamRole",
+          "flags",
+          "access",
+          "hasAccess",
+          "isPending",
+          "memberCount",
+          "avatar"
+        ],
+        "title": "AddTeamMemberInOrganizationResponse",
+        "type": "object"
+      },
+      "Avatar": {
+        "description": "Avatar metadata for the team.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar', 'upload').",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar image (nullable).",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the uploaded avatar image (nullable).",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "Avatar",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddTeamMemberInOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

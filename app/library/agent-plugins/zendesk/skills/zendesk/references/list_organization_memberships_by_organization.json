@@ -1,0 +1,151 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List organization memberships for a specific Zendesk organization, including membership metadata such as default status and ticket viewing permissions. Supports pagination and sorting.",
+  "inputSchema": {
+    "description": "Request parameters for listing organization memberships by organization.",
+    "properties": {
+      "include": {
+        "description": "Sideloads to include in the response. Accepts a comma-separated list of values. Valid values: users, organizations.",
+        "enum": ["users", "organizations"],
+        "examples": ["organizations"],
+        "title": "Include",
+        "type": "string"
+      },
+      "organization_id": {
+        "description": "Numeric ID of the organization to list memberships for. Must be a non-null integer; cast to int if sourced from tools that return it as a string.",
+        "examples": [123456],
+        "human_parameter_description": "The numeric ID of the organization whose memberships you want to retrieve. You can find this from the organization's page or from a previous search.",
+        "human_parameter_name": "Organization ID",
+        "minimum": 1,
+        "title": "Organization Id",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Pagination parameter. Supports both traditional offset and cursor-based pagination. Traditional: `?page=2` (integer page number). Cursor: `?page[size]=50&page[after]=cursor`. These are mutually exclusive.",
+        "examples": ["2"],
+        "title": "Page",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Number of records to return per page. Default and maximum values vary by endpoint.",
+        "examples": [25],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort": {
+        "description": "Field to sort results by. Prefix with `-` for descending order. Example: `?sort=name` or `?sort=-created_at`",
+        "examples": ["name"],
+        "title": "Sort",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id"],
+    "title": "ListOrganizationMembershipsByOrganizationRequest",
+    "type": "object"
+  },
+  "name": "list_organization_memberships_by_organization",
+  "outputSchema": {
+    "$defs": {
+      "ListOrganizationMembershipsByOrganizationResponse": {
+        "description": "Response model for listing organization memberships by organization.",
+        "properties": {
+          "count": {
+            "description": "Total count of memberships",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for next page of results (offset pagination)",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "organization_memberships": {
+            "description": "List of organization memberships for the specified organization",
+            "items": {
+              "$ref": "#/$defs/OrganizationMembership"
+            },
+            "title": "Organization Memberships",
+            "type": "array"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results (offset pagination)",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["organization_memberships"],
+        "title": "ListOrganizationMembershipsByOrganizationResponse",
+        "type": "object"
+      },
+      "OrganizationMembership": {
+        "description": "Organization membership object.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the membership was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether this is the default organization",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the membership",
+            "title": "Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "ID of the organization in the membership",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "organization_name": {
+            "description": "Name of the organization",
+            "title": "Organization Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the membership was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the membership",
+            "title": "Url",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "ID of the user in the membership",
+            "title": "User Id",
+            "type": "integer"
+          },
+          "view_tickets": {
+            "description": "Whether the user can view tickets in this organization",
+            "title": "View Tickets",
+            "type": "boolean"
+          }
+        },
+        "required": ["user_id", "organization_id", "default", "view_tickets"],
+        "title": "OrganizationMembership",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListOrganizationMembershipsByOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

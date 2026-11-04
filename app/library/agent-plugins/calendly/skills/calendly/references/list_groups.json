@@ -1,0 +1,131 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Returns a list of groups for a specified Calendly organization URI, supporting pagination.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a list of groups associated with an organization.",
+    "properties": {
+      "count": {
+        "default": 20,
+        "description": "The maximum number of groups to return per page. The value can range from 1 to 100.",
+        "examples": [10, 20, 50],
+        "title": "Count",
+        "type": "integer"
+      },
+      "organization": {
+        "description": "The URI of the organization to filter groups by. For example, 'https://api.calendly.com/organizations/ORGANIZATION_UUID'.",
+        "examples": ["https://api.calendly.com/organizations/AAAAAAAAAAAAAAAA"],
+        "title": "Organization",
+        "type": "string"
+      },
+      "page_token": {
+        "description": "A token to retrieve a specific page of results. Pass this value from a previous response's 'next_page_token' to fetch the next set of groups, or 'previous_page_token' for the previous set.",
+        "examples": ["NEXT_PAGE_TOKEN_EXAMPLE"],
+        "title": "Page Token",
+        "type": "string"
+      }
+    },
+    "required": ["organization"],
+    "title": "ListGroupsRequest",
+    "type": "object"
+  },
+  "name": "list_groups",
+  "outputSchema": {
+    "$defs": {
+      "Group": {
+        "description": "Represents a single group object returned by the API.",
+        "properties": {
+          "created_at": {
+            "description": "Moment when the group was created in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the group.",
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Moment when the group was last updated in ISO 8601 format.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the group.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "name", "created_at", "updated_at"],
+        "title": "Group",
+        "type": "object"
+      },
+      "ListGroupsResponse": {
+        "description": "Response schema for `ListGroups`, containing a collection of groups and pagination information.",
+        "properties": {
+          "collection": {
+            "description": "Array of group objects returned by the API.",
+            "items": {
+              "$ref": "#/$defs/Group"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection", "pagination"],
+        "title": "ListGroupsResponse",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination information for navigating through result sets.",
+        "properties": {
+          "count": {
+            "description": "The number of rows returned in the current response.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "The URL to retrieve the next page of results. Returns null when there are no more pages.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "next_page_token": {
+            "description": "The page token to use for retrieving the next page of results.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "The URL to retrieve the previous page of results. Returns null when on the first page.",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "previous_page_token": {
+            "description": "The page token to use for retrieving the previous page of results.",
+            "title": "Previous Page Token",
+            "type": "string"
+          }
+        },
+        "required": ["count"],
+        "title": "Pagination",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListGroupsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

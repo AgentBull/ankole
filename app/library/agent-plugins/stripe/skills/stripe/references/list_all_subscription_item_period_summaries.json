@@ -1,0 +1,143 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists a page of legacy usage record summaries for a subscription item across billing periods, with cursor pagination. DEPRECATED: Stripe removed this endpoint in Basil; legacy usage requires a pre-Basil API version. Migrate to Stripe meters for usage-based billing.",
+  "inputSchema": {
+    "properties": {
+      "ending_before": {
+        "description": "A cursor for use in pagination. ending_before is an object ID that defines your place in the list. For instance, if you make a list request and receive 100 objects, starting with obj_bar, your subsequent call can include ending_before=obj_bar in order to fetch the previous page of the list.",
+        "examples": ["sis_xyz789"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "limit": {
+        "description": "A limit on the number of objects to be returned. Limit can range between 1 and 100, and the default is 10.",
+        "examples": [10, 25, 100],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "starting_after": {
+        "description": "A cursor for use in pagination. starting_after is an object ID that defines your place in the list. For instance, if you make a list request and receive 100 objects, ending with obj_foo, your subsequent call can include starting_after=obj_foo in order to fetch the next page of the list.",
+        "examples": ["sis_abc123"],
+        "title": "Starting After",
+        "type": "string"
+      },
+      "subscription_item": {
+        "description": "The ID of the subscription item whose usage record summaries to retrieve.",
+        "examples": ["si_TepDluBnWaV16o"],
+        "title": "Subscription Item",
+        "type": "string"
+      }
+    },
+    "required": ["subscription_item"],
+    "title": "ListAllSubscriptionItemPeriodSummariesRequest",
+    "type": "object"
+  },
+  "name": "list_all_subscription_item_period_summaries",
+  "outputSchema": {
+    "$defs": {
+      "ListAllSubscriptionItemPeriodSummariesResponse": {
+        "properties": {
+          "data": {
+            "description": "An array containing the actual response elements (usage record summary objects), paginated by any request parameters.",
+            "items": {
+              "$ref": "#/$defs/UsageRecordSummary"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether or not there are more elements available after this set.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL for accessing this list.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "ListAllSubscriptionItemPeriodSummariesResponse",
+        "type": "object"
+      },
+      "Period": {
+        "properties": {
+          "end": {
+            "description": "Unix timestamp representing the end of the usage period (inclusive). Can be null if the period is ongoing.",
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "description": "Unix timestamp representing the beginning of the usage period.",
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": ["start"],
+        "title": "Period",
+        "type": "object"
+      },
+      "UsageRecordSummary": {
+        "properties": {
+          "id": {
+            "description": "Unique identifier for the usage record summary object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "The invoice in which this usage period has been billed for. If the usage period has not been billed yet, this field will be null.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'usage_record_summary'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "period": {
+            "$ref": "#/$defs/Period",
+            "description": "Start and end dates of this usage period.",
+            "title": "Period"
+          },
+          "subscription_item": {
+            "description": "The ID of the subscription item this summary is describing.",
+            "title": "Subscription Item",
+            "type": "string"
+          },
+          "total_usage": {
+            "description": "The total usage within this usage period.",
+            "title": "Total Usage",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "object", "livemode", "period", "subscription_item", "total_usage"],
+        "title": "UsageRecordSummary",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListAllSubscriptionItemPeriodSummariesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

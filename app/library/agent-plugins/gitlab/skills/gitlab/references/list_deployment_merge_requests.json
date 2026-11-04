@@ -1,0 +1,703 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List one page of merge requests shipped with a deployment. Not all deployments can be associated with merge requests. Supports the Merge Requests API filters; follow next_page to retrieve subsequent pages. https://docs.gitlab.com/api/deployments/#list-all-merge-requests-associated-with-a-deployment",
+  "inputSchema": {
+    "properties": {
+      "non_archived": {
+        "description": "Only non-archived projects when true; default false.",
+        "title": "Non Archived",
+        "type": "boolean"
+      },
+      "environment": {
+        "description": "Deployment environment name.",
+        "title": "Environment",
+        "type": "string"
+      },
+      "assignee_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "Assignee ID, None for unassigned, or Any for assigned; mutually exclusive with assignee_username.",
+        "title": "Assignee Id"
+      },
+      "author_username": {
+        "description": "Author username; mutually exclusive with author_id.",
+        "title": "Author Username",
+        "type": "string"
+      },
+      "reviewer_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "Reviewer ID, None for no reviewers, or Any for any reviewer; mutually exclusive with reviewer_username.",
+        "title": "Reviewer Id"
+      },
+      "with_merge_status_recheck": {
+        "description": "Request asynchronous merge-status recalculation; not guaranteed and may require Developer or higher.",
+        "title": "With Merge Status Recheck",
+        "type": "boolean"
+      },
+      "merge_user_id": {
+        "description": "Merging user ID; mutually exclusive with merge_user_username.",
+        "title": "Merge User Id",
+        "type": "integer"
+      },
+      "updated_after": {
+        "description": "Inclusive ISO 8601 update lower bound.",
+        "title": "Updated After",
+        "type": "string"
+      },
+      "draft": {
+        "description": "Filter draft status; mutually exclusive with wip.",
+        "title": "Draft",
+        "type": "boolean"
+      },
+      "reviewer_username": {
+        "description": "Reviewer username, None, or Any; mutually exclusive with reviewer_id.",
+        "title": "Reviewer Username",
+        "type": "string"
+      },
+      "created_before": {
+        "description": "Inclusive ISO 8601 creation upper bound.",
+        "title": "Created Before",
+        "type": "string"
+      },
+      "approver_ids": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          {
+            "enum": ["None", "Any"],
+            "type": "string"
+          }
+        ],
+        "description": "Eligible approver IDs, None for no eligible approvers, or Any for at least one. Premium/Ultimate only.",
+        "title": "Approver Ids"
+      },
+      "view": {
+        "const": "simple",
+        "description": "Return only basic merge request fields when simple.",
+        "title": "View",
+        "type": "string"
+      },
+      "iids": {
+        "description": "Return merge requests with these project-local IIDs.",
+        "items": {
+          "type": "integer"
+        },
+        "title": "Iids",
+        "type": "array"
+      },
+      "my_reaction_emoji": {
+        "description": "Current user's reaction emoji, None for no reaction, or Any for a reaction.",
+        "title": "My Reaction Emoji",
+        "type": "string"
+      },
+      "merged_after": {
+        "description": "Inclusive ISO 8601 merge lower bound.",
+        "title": "Merged After",
+        "type": "string"
+      },
+      "order_by": {
+        "description": "Sort field; default created_at.",
+        "enum": [
+          "created_at",
+          "updated_at",
+          "merged_at",
+          "label_priority",
+          "priority",
+          "milestone_due",
+          "popularity",
+          "title"
+        ],
+        "title": "Order By",
+        "type": "string"
+      },
+      "deployed_before": {
+        "description": "ISO 8601 deployment upper bound.",
+        "title": "Deployed Before",
+        "type": "string"
+      },
+      "with_labels_details": {
+        "description": "Include label details rather than names; default false.",
+        "title": "With Labels Details",
+        "type": "boolean"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "wip": {
+        "description": "Deprecated in GitLab 19.0; use draft. Mutually exclusive with draft.",
+        "enum": ["yes", "no"],
+        "title": "Wip",
+        "type": "string"
+      },
+      "merge_user_username": {
+        "description": "Merging username; mutually exclusive with merge_user_id.",
+        "title": "Merge User Username",
+        "type": "string"
+      },
+      "scope": {
+        "description": "Scope; defaults to created_by_me.",
+        "enum": ["created_by_me", "assigned_to_me", "reviews_for_me", "all"],
+        "title": "Scope",
+        "type": "string"
+      },
+      "created_after": {
+        "description": "Inclusive ISO 8601 creation lower bound.",
+        "title": "Created After",
+        "type": "string"
+      },
+      "not": {
+        "additionalProperties": false,
+        "description": "Exclude merge requests matching these filters.",
+        "properties": {
+          "assignee_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Excluded assignee ID, None, or Any.",
+            "title": "Assignee Id"
+          },
+          "assignee_username": {
+            "description": "Excluded assignee usernames.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Assignee Username",
+            "type": "array"
+          },
+          "author_id": {
+            "description": "Excluded author ID.",
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "author_username": {
+            "description": "Excluded author username.",
+            "title": "Author Username",
+            "type": "string"
+          },
+          "labels": {
+            "description": "Excluded comma-separated labels.",
+            "title": "Labels",
+            "type": "string"
+          },
+          "milestone": {
+            "description": "Excluded milestone title.",
+            "title": "Milestone",
+            "type": "string"
+          },
+          "my_reaction_emoji": {
+            "description": "Excluded reaction emoji.",
+            "title": "My Reaction Emoji",
+            "type": "string"
+          },
+          "reviewer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Excluded reviewer ID, None, or Any.",
+            "title": "Reviewer Id"
+          },
+          "reviewer_username": {
+            "description": "Excluded reviewer username.",
+            "title": "Reviewer Username",
+            "type": "string"
+          }
+        },
+        "title": "DeploymentMergeRequestExclusions",
+        "type": "object"
+      },
+      "target_branch": {
+        "description": "Target branch name.",
+        "title": "Target Branch",
+        "type": "string"
+      },
+      "author_id": {
+        "description": "Author ID; mutually exclusive with author_username. Combine with scope=all or assigned_to_me.",
+        "title": "Author Id",
+        "type": "integer"
+      },
+      "assignee_username": {
+        "description": "Assignee usernames; mutually exclusive with assignee_id.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Assignee Username",
+        "type": "array"
+      },
+      "approved_by_ids": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          {
+            "enum": ["None", "Any"],
+            "type": "string"
+          }
+        ],
+        "description": "Approved by all these user IDs (up to 5), None for no approvals, or Any for an approval.",
+        "title": "Approved By Ids"
+      },
+      "milestone": {
+        "description": "Milestone title, None for no milestone, or Any for an assigned milestone.",
+        "title": "Milestone",
+        "type": "string"
+      },
+      "merged_before": {
+        "description": "Inclusive ISO 8601 merge upper bound.",
+        "title": "Merged Before",
+        "type": "string"
+      },
+      "labels": {
+        "description": "Comma-separated labels, None for no labels, or Any for at least one label.",
+        "title": "Labels",
+        "type": "string"
+      },
+      "deployed_after": {
+        "description": "ISO 8601 deployment lower bound.",
+        "title": "Deployed After",
+        "type": "string"
+      },
+      "state": {
+        "description": "Merge request state; default all.",
+        "enum": ["all", "opened", "closed", "locked", "merged"],
+        "title": "State",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "sort": {
+        "description": "Sort direction; default desc.",
+        "enum": ["asc", "desc"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "in": {
+        "description": "Search in title, description, or their comma-separated combination; defaults to both.",
+        "title": "In",
+        "type": "string"
+      },
+      "deployment_id": {
+        "description": "Deployment ID.",
+        "title": "Deployment Id",
+        "type": "integer"
+      },
+      "search": {
+        "description": "Search title and description; combine with in.",
+        "title": "Search",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "updated_before": {
+        "description": "Inclusive ISO 8601 update upper bound.",
+        "title": "Updated Before",
+        "type": "string"
+      },
+      "source_branch": {
+        "description": "Source branch name.",
+        "title": "Source Branch",
+        "type": "string"
+      },
+      "approved_by_usernames": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "enum": ["None", "Any"],
+            "type": "string"
+          }
+        ],
+        "description": "Approved by all these usernames (up to 5), None for no approvals, or Any for an approval.",
+        "title": "Approved By Usernames"
+      }
+    },
+    "required": ["id", "deployment_id"],
+    "title": "ListDeploymentMergeRequestsRequest",
+    "type": "object"
+  },
+  "name": "list_deployment_merge_requests",
+  "outputSchema": {
+    "$defs": {
+      "CommitMergeRequestMilestone": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "description": "Milestone ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Project-local milestone ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Milestone title.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "CommitMergeRequestMilestone",
+        "type": "object"
+      },
+      "CommitMergeRequestTimeStats": {
+        "additionalProperties": true,
+        "properties": {
+          "human_time_estimate": {
+            "description": "Readable time estimate.",
+            "title": "Human Time Estimate",
+            "type": "string"
+          },
+          "human_total_time_spent": {
+            "description": "Readable time spent.",
+            "title": "Human Total Time Spent",
+            "type": "string"
+          },
+          "time_estimate": {
+            "description": "Estimated time in seconds.",
+            "title": "Time Estimate",
+            "type": "integer"
+          },
+          "total_time_spent": {
+            "description": "Time spent in seconds.",
+            "title": "Total Time Spent",
+            "type": "integer"
+          }
+        },
+        "title": "CommitMergeRequestTimeStats",
+        "type": "object"
+      },
+      "CommitMergeRequestUser": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "User avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "User profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "CommitMergeRequestUser",
+        "type": "object"
+      },
+      "DeploymentMergeRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "assignee": {
+            "$ref": "#/$defs/CommitMergeRequestUser",
+            "description": "Assigned user.",
+            "title": "Assignee"
+          },
+          "author": {
+            "$ref": "#/$defs/CommitMergeRequestUser",
+            "description": "Author.",
+            "title": "Author"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Merge request description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "description": "Discussion lock flag.",
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "downvotes": {
+            "description": "Downvote count.",
+            "title": "Downvotes",
+            "type": "integer"
+          },
+          "draft": {
+            "description": "Whether the merge request is a draft.",
+            "title": "Draft",
+            "type": "boolean"
+          },
+          "force_remove_source_branch": {
+            "description": "Whether source branch removal is forced.",
+            "title": "Force Remove Source Branch",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Global merge request ID; may be absent in simple view.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Project-local merge request ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Label names or detailed label objects.",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/DeploymentMergeRequestLabel"
+                }
+              ]
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "merge_commit_sha": {
+            "description": "Merge commit SHA, or null.",
+            "title": "Merge Commit Sha",
+            "type": "string"
+          },
+          "merge_status": {
+            "description": "Merge status.",
+            "title": "Merge Status",
+            "type": "string"
+          },
+          "merge_when_pipeline_succeeds": {
+            "description": "Whether to merge when the pipeline succeeds.",
+            "title": "Merge When Pipeline Succeeds",
+            "type": "boolean"
+          },
+          "milestone": {
+            "$ref": "#/$defs/CommitMergeRequestMilestone",
+            "description": "Milestone.",
+            "title": "Milestone"
+          },
+          "project_id": {
+            "description": "Project ID; may be absent in simple view.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "sha": {
+            "description": "Merge request head SHA.",
+            "title": "Sha",
+            "type": "string"
+          },
+          "should_remove_source_branch": {
+            "description": "Whether to remove the source branch after merging.",
+            "title": "Should Remove Source Branch",
+            "type": "boolean"
+          },
+          "source_branch": {
+            "description": "Source branch name.",
+            "title": "Source Branch",
+            "type": "string"
+          },
+          "source_project_id": {
+            "description": "Source project ID.",
+            "title": "Source Project Id",
+            "type": "integer"
+          },
+          "squash_commit_sha": {
+            "description": "Squash commit SHA, or null.",
+            "title": "Squash Commit Sha",
+            "type": "string"
+          },
+          "state": {
+            "description": "Merge request state.",
+            "title": "State",
+            "type": "string"
+          },
+          "target_branch": {
+            "description": "Target branch name.",
+            "title": "Target Branch",
+            "type": "string"
+          },
+          "target_project_id": {
+            "description": "Target project ID.",
+            "title": "Target Project Id",
+            "type": "integer"
+          },
+          "time_stats": {
+            "$ref": "#/$defs/CommitMergeRequestTimeStats",
+            "description": "Time tracking statistics.",
+            "title": "Time Stats"
+          },
+          "title": {
+            "description": "Merge request title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "upvotes": {
+            "description": "Upvote count.",
+            "title": "Upvotes",
+            "type": "integer"
+          },
+          "user_notes_count": {
+            "description": "User note count.",
+            "title": "User Notes Count",
+            "type": "integer"
+          },
+          "web_url": {
+            "description": "Merge request web URL.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "work_in_progress": {
+            "description": "Work-in-progress flag.",
+            "title": "Work In Progress",
+            "type": "boolean"
+          }
+        },
+        "required": ["iid", "title", "state"],
+        "title": "DeploymentMergeRequest",
+        "type": "object"
+      },
+      "DeploymentMergeRequestLabel": {
+        "additionalProperties": true,
+        "properties": {
+          "color": {
+            "description": "Label color.",
+            "title": "Color",
+            "type": "string"
+          },
+          "description": {
+            "description": "Label description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_html": {
+            "description": "Rendered label description.",
+            "title": "Description Html",
+            "type": "string"
+          },
+          "name": {
+            "description": "Label name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "text_color": {
+            "description": "Label text color.",
+            "title": "Text Color",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "title": "DeploymentMergeRequestLabel",
+        "type": "object"
+      },
+      "ListDeploymentMergeRequestsResponse": {
+        "properties": {
+          "merge_requests": {
+            "description": "One page of merge requests shipped with the deployment.",
+            "items": {
+              "$ref": "#/$defs/DeploymentMergeRequest"
+            },
+            "title": "Merge Requests",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          }
+        },
+        "required": ["merge_requests"],
+        "title": "ListDeploymentMergeRequestsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListDeploymentMergeRequestsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

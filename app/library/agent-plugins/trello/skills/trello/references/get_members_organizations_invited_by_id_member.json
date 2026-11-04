@@ -1,0 +1,191 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves organizations a Trello member has been invited to but has not yet accepted or declined.",
+  "inputSchema": {
+    "description": "Request schema for retrieving organizations a Trello member has been invited to.",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Fields to return for invited organizations. Accepts 'all' or a comma-separated list (e.g., 'name,url', 'displayName,descData,idBoards'). Available: billableMemberCount, desc, descData, displayName, idBoards, invitations, invited, logoHash, memberships, name, powerUps, prefs, premiumFeatures, products, url, website.",
+        "examples": ["all", "name,url", "displayName,descData,idBoards"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID or username of the Trello member.",
+        "title": "Id Member",
+        "type": "string"
+      }
+    },
+    "required": ["idMember"],
+    "title": "GetMembersOrganizationsInvitedByIdMemberRequest",
+    "type": "object"
+  },
+  "name": "get_members_organizations_invited_by_id_member",
+  "outputSchema": {
+    "$defs": {
+      "GetMembersOrganizationsInvitedByIdMemberResponse": {
+        "description": "Response schema containing a list of organizations the member has been invited to.",
+        "properties": {
+          "organizations": {
+            "description": "Array of Organization objects representing workspaces the member has been invited to",
+            "items": {
+              "$ref": "#/$defs/Organization"
+            },
+            "title": "Organizations",
+            "type": "array"
+          }
+        },
+        "required": ["organizations"],
+        "title": "GetMembersOrganizationsInvitedByIdMemberResponse",
+        "type": "object"
+      },
+      "Organization": {
+        "description": "Trello organization (workspace) object.",
+        "properties": {
+          "activeMembershipCount": {
+            "description": "Count of active memberships in the organization",
+            "title": "Active Membership Count",
+            "type": "number"
+          },
+          "billableMemberCount": {
+            "description": "Count of billable members in the organization",
+            "title": "Billable Member Count",
+            "type": "integer"
+          },
+          "dateLastActivity": {
+            "description": "ISO 8601 timestamp of the most recent activity in the organization",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "desc": {
+            "description": "Description text of the organization",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "additionalProperties": true,
+            "description": "Structured metadata for the organization description including emoji data",
+            "title": "Desc Data",
+            "type": "object"
+          },
+          "displayName": {
+            "description": "Display name shown for the organization",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the organization (TrelloID format)",
+            "title": "Id",
+            "type": "string"
+          },
+          "idActiveAdmins": {
+            "description": "Array of member IDs who are active administrators",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Active Admins",
+            "type": "array"
+          },
+          "idBoards": {
+            "description": "Array of board IDs belonging to the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "invitations": {
+            "description": "Array of pending invitation records for the organization",
+            "items": {},
+            "title": "Invitations",
+            "type": "array"
+          },
+          "invited": {
+            "description": "Whether the organization has pending invitations",
+            "title": "Invited",
+            "type": "boolean"
+          },
+          "logoHash": {
+            "description": "Hash identifier for the organization's logo image",
+            "title": "Logo Hash",
+            "type": "string"
+          },
+          "logoUrl": {
+            "description": "Direct URL to the organization's logo image",
+            "title": "Logo Url",
+            "type": "string"
+          },
+          "memberships": {
+            "description": "Array of membership objects containing member relationship data and permissions",
+            "items": {},
+            "title": "Memberships",
+            "type": "array"
+          },
+          "name": {
+            "description": "Internal name of the organization",
+            "title": "Name",
+            "type": "string"
+          },
+          "powerUps": {
+            "description": "Array of Power-Up identifiers enabled for the organization",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Power Ups",
+            "type": "array"
+          },
+          "prefs": {
+            "additionalProperties": true,
+            "description": "Organization preferences and settings object",
+            "title": "Prefs",
+            "type": "object"
+          },
+          "premiumFeatures": {
+            "description": "Array of premium feature identifiers available to the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Premium Features",
+            "type": "array"
+          },
+          "products": {
+            "description": "Array of product identifiers associated with the organization",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "url": {
+            "description": "URL to the organization on Trello",
+            "title": "Url",
+            "type": "string"
+          },
+          "website": {
+            "description": "External website URL for the organization",
+            "title": "Website",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "Organization",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMembersOrganizationsInvitedByIdMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

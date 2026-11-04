@@ -1,7 +1,16 @@
 defmodule Ankole.Connectors.Store do
   @moduledoc false
   require Ash.Query
-  alias Ankole.Connectors.{Accounts, AuthConfig, ConnectedAccount, Credentials}
+
+  alias Ankole.Connectors.{
+    Accounts,
+    AuthConfig,
+    CloudProvider,
+    ConnectedAccount,
+    Credentials,
+    Registry
+  }
+
   alias Ankole.Repo
 
   def active_auth_configs(plugin_id),
@@ -15,33 +24,126 @@ defmodule Ankole.Connectors.Store do
   end
 
   def list_public_auth_configs do
-    {:ok,
-     AuthConfig
-     |> Ash.Query.sort(plugin_id: :asc, slug: :asc)
-     |> Ankole.Ash.read!()
-     |> Enum.map(&public/1)}
+    with {:ok, configs} <- available_configs(), do: {:ok, Enum.map(configs, &public/1)}
   end
 
-  def get_auth_config(selector, plugin_id \\ nil) do
-    query =
-      if plugin_id,
-        do: Ash.Query.filter(AuthConfig, plugin_id == ^plugin_id),
-        else: Ash.Query.new(AuthConfig)
+  def get_auth_config(selector, plugin_id \\ nil)
+  def get_auth_config(nil, nil), do: {:error, :connection_required}
 
-    query =
-      cond do
-        is_nil(selector) -> Ash.Query.filter(query, is_default == true)
-        match?({:ok, _}, Ecto.UUID.dump(selector)) -> Ash.Query.filter(query, id == ^selector)
-        true -> Ash.Query.filter(query, slug == ^selector)
+  def get_auth_config(selector, plugin_id) do
+    with {:ok, stored} <- stored_configs() do
+      case select_config(stored, selector, plugin_id) do
+        {:error, :connection_required} ->
+          with {:ok, configs} <- add_cloud_defaults(stored),
+               do: select_config(configs, selector, plugin_id)
+
+        result ->
+          result
       end
-
-    case Ankole.Ash.read_one(query) do
-      {:ok, %AuthConfig{status: "active"} = config} -> {:ok, config}
-      {:ok, %AuthConfig{}} -> {:error, :connection_disabled}
-      {:ok, nil} -> {:error, :connection_required}
-      error -> error
     end
   end
+
+  defp select_config(configs, selector, plugin_id) do
+    configs = if plugin_id, do: Enum.filter(configs, &(&1.plugin_id == plugin_id)), else: configs
+
+    selected =
+      if is_nil(selector) do
+        active = Enum.filter(configs, &(&1.status == "active"))
+
+        case Enum.filter(active, &(&1.mode == "local")) do
+          [] -> Enum.find(active, &(&1.mode == "cloud"))
+          [config] -> config
+          many -> Enum.find(many, & &1.is_default)
+        end
+      else
+        Enum.find(configs, &(&1.id == selector or &1.slug == selector))
+      end
+
+    case selected do
+      %AuthConfig{status: "active"} = config -> {:ok, config}
+      %AuthConfig{} -> {:error, :connection_disabled}
+      nil -> {:error, :connection_required}
+    end
+  end
+
+  defp stored_configs,
+    do: AuthConfig |> Ash.Query.sort(plugin_id: :asc, slug: :asc) |> Ankole.Ash.read()
+
+  defp available_configs do
+    with {:ok, stored} <- stored_configs(), do: add_cloud_defaults(stored)
+  end
+
+  defp add_cloud_defaults(stored) do
+    with {:ok, cloud} <- CloudProvider.available_connectors() do
+      missing =
+        Enum.reject(cloud, fn item ->
+          Enum.any?(stored, &(&1.plugin_id == item["plugin_id"] and &1.mode == "cloud"))
+        end)
+
+      generated =
+        for item <- missing, match?({:ok, _}, Registry.adapter(item["plugin_id"])) do
+          %AuthConfig{
+            id: nil,
+            tenant_id: Repo.tenant_id!(),
+            mode: "cloud",
+            plugin_id: item["plugin_id"],
+            slug: cloud_slug(item["plugin_id"], stored),
+            display_name: item["display_name"],
+            auth_scheme: item["auth_scheme"],
+            status: "active",
+            is_default: false,
+            public_metadata: %{},
+            secret_version: 1
+          }
+        end
+
+      {:ok, stored ++ generated}
+    end
+  end
+
+  defp cloud_slug(plugin, configs) do
+    slugs = MapSet.new(configs, & &1.slug)
+
+    Stream.concat(
+      [plugin, plugin <> "-cloud"],
+      Stream.iterate(2, &(&1 + 1)) |> Stream.map(&(plugin <> "-cloud-" <> to_string(&1)))
+    )
+    |> Enum.find(&(not MapSet.member?(slugs, &1)))
+  end
+
+  def materialize(%AuthConfig{id: nil, mode: "cloud"} = config, actor_uid) do
+    Repo.transact_top_level(fn ->
+      :ok = lock_default_in_tx(config.plugin_id)
+
+      with {:ok, _current} <- get_auth_config(config.slug, config.plugin_id) do
+        case AuthConfig
+             |> Ash.Query.filter(plugin_id == ^config.plugin_id and mode == "cloud")
+             |> Ankole.Ash.read_one() do
+          {:ok, nil} ->
+            # Resolve the slug again while holding the platform's configuration lock.
+            {:ok, stored} = Ankole.Ash.read(AuthConfig)
+
+            Ankole.Ash.create(AuthConfig, :create, %{
+              plugin_id: config.plugin_id,
+              mode: "cloud",
+              slug: cloud_slug(config.plugin_id, stored),
+              display_name: config.display_name,
+              auth_scheme: config.auth_scheme,
+              public_metadata: %{},
+              created_by_uid: actor_uid
+            })
+
+          {:ok, row} ->
+            {:ok, row}
+
+          error ->
+            error
+        end
+      end
+    end)
+  end
+
+  def materialize(config, _actor_uid), do: {:ok, config}
 
   def get_auth_config_for_configuration(id, plugin_id \\ nil) do
     query = Ash.Query.filter(AuthConfig, id == ^id)
@@ -166,7 +268,7 @@ defmodule Ankole.Connectors.Store do
     |> Ash.Query.sort(id: :asc)
     |> Ash.Query.lock(:for_update)
     |> Ankole.Ash.read!(lock_identity: {:rows, "connector_auth_configs", :id})
-    |> Enum.filter(&(&1.is_default && &1.id != selected_id))
+    |> Enum.filter(&(&1.mode == "local" && &1.is_default && &1.id != selected_id))
     |> Enum.reduce_while(:ok, fn config, :ok ->
       case Ankole.Ash.update(config, :update, %{is_default: false}) do
         {:ok, _} -> {:cont, :ok}
@@ -335,6 +437,7 @@ defmodule Ankole.Connectors.Store do
     |> Map.take([
       :id,
       :plugin_id,
+      :mode,
       :slug,
       :display_name,
       :auth_scheme,
@@ -420,6 +523,18 @@ defmodule Ankole.Connectors.Store do
   end
 
   defp application_identity(plugin, config) do
+    case Registry.adapter(plugin) do
+      {:ok, adapter} ->
+        if function_exported?(adapter, :platform_application, 1),
+          do: adapter.platform_application(config),
+          else: legacy_application_identity(plugin, config)
+
+      _ ->
+        legacy_application_identity(plugin, config)
+    end
+  end
+
+  defp legacy_application_identity(plugin, config) do
     adapter_id = if plugin == "microsoft365", do: "teams", else: plugin
 
     with {:ok, definition} <- Ankole.Signals.Adapters.fetch(adapter_id),

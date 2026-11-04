@@ -1,0 +1,58 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently removes specified issues from a Sentry project; if no issue IDs are provided, it removes the oldest 1000 issues.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteProjectIssues` action, specifying the organization, project, and optionally, specific issues to delete.",
+    "properties": {
+      "id": {
+        "description": "A list of specific issue IDs to be permanently removed. If not provided, the action removes the oldest 1000 issues in the project.",
+        "examples": [[1001, 1002, 1003]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Id",
+        "type": "array"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID or slug) of the Sentry organization to which the project and its issues belong.",
+        "examples": ["my-organization-slug", "acme-corp"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The unique identifier (ID or slug) of the Sentry project from which issues will be removed.",
+        "examples": ["my-project-slug", "frontend-app"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "DeleteProjectIssuesRequest",
+    "type": "object"
+  },
+  "name": "delete_project_issues",
+  "outputSchema": {
+    "$defs": {
+      "DeleteProjectIssuesResponse": {
+        "description": "Response schema for `DeleteProjectIssues` action. The API returns an empty response body on success (HTTP 204/202).",
+        "properties": {},
+        "title": "DeleteProjectIssuesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteProjectIssuesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,400 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves details for a Trello organization by ID or unique name, with options to request related resources. The validated response contains organization fields.",
+  "inputSchema": {
+    "description": "Request schema for `GetOrganizationsByIdOrg`",
+    "properties": {
+      "action_fields": {
+        "default": "all",
+        "description": "Specifies the fields to return for each action. Use 'all' or provide a comma-separated list of field names: data, date, idMemberCreator, or type.",
+        "examples": ["data,date", "idMemberCreator,type"],
+        "title": "Action Fields",
+        "type": "string"
+      },
+      "actions": {
+        "description": "Comma-separated list of action types (e.g., 'addMemberToBoard', 'createCard', 'updateOrganization') or 'all'. For a full list of types, consult the Trello API documentation. If not provided, Trello's default behavior applies.",
+        "title": "Actions",
+        "type": "string"
+      },
+      "actions_display": {
+        "description": "Include a 'display' object with rendering info for each action. Valid: 'true', 'false'. If not provided, display info is typically not included.",
+        "examples": ["true", "false"],
+        "title": "Actions Display",
+        "type": "string"
+      },
+      "actions_entities": {
+        "description": "Include an 'entities' object with details for each action. Valid: 'true', 'false'. If not provided, entities are typically not included.",
+        "examples": ["true", "false"],
+        "title": "Actions Entities",
+        "type": "string"
+      },
+      "actions_limit": {
+        "default": "50",
+        "description": "The maximum number of actions to return. Must be a number between 0 and 1000.",
+        "examples": ["100", "500"],
+        "title": "Actions Limit",
+        "type": "string"
+      },
+      "board_action_fields": {
+        "default": "all",
+        "description": "Specifies the fields to return for each board action. Use 'all' or provide a comma-separated list of field names: data, date, idMemberCreator, or type.",
+        "examples": ["data,idMemberCreator", "all"],
+        "title": "Board Action Fields",
+        "type": "string"
+      },
+      "board_actions": {
+        "description": "Comma-separated list of board action types (e.g., 'addAttachmentToCard', 'updateBoard') or 'all', specific to board actions. For a full list, consult the Trello API documentation. If not provided, Trello's default behavior applies.",
+        "title": "Board Actions",
+        "type": "string"
+      },
+      "board_actions_display": {
+        "description": "Include a 'display' object for board actions. Valid: 'true', 'false'. If not provided, display info is typically not included.",
+        "examples": ["true", "false"],
+        "title": "Board Actions Display",
+        "type": "string"
+      },
+      "board_actions_entities": {
+        "description": "Include an 'entities' object with details for board actions. Valid: 'true', 'false'. If not provided, entities are typically not included.",
+        "examples": ["true", "false"],
+        "title": "Board Actions Entities",
+        "type": "string"
+      },
+      "board_actions_format": {
+        "default": "list",
+        "description": "Specifies the format for returning board actions. Valid values: 'count', 'list', 'minimal'.",
+        "examples": ["count", "list", "minimal"],
+        "title": "Board Actions Format",
+        "type": "string"
+      },
+      "board_actions_limit": {
+        "default": "50",
+        "description": "The maximum number of board actions to return. Must be a number between 0 and 1000.",
+        "examples": ["10", "100"],
+        "title": "Board Actions Limit",
+        "type": "string"
+      },
+      "board_actions_since": {
+        "description": "Retrieve board actions after a specific ISO 8601 date/time, 'null', or 'lastView'. If not provided, recent actions are typically returned.",
+        "examples": ["2023-01-01T00:00:00Z", "lastView"],
+        "title": "Board Actions Since",
+        "type": "string"
+      },
+      "board_fields": {
+        "default": "all",
+        "description": "Specifies the fields to return for each board. Use 'all' or provide a comma-separated list of field names: closed, dateLastActivity, dateLastView, desc, descData, idOrganization, invitations, invited, labelNames, memberships, name, pinned, powerUps, prefs, shortLink, shortUrl, starred, subscribed, or url.",
+        "examples": ["name,url,desc", "all"],
+        "title": "Board Fields",
+        "type": "string"
+      },
+      "board_lists": {
+        "default": "open",
+        "description": "Filters the lists to be returned for each board. Valid values: 'all', 'closed', 'none', 'open'.",
+        "examples": ["all", "closed", "open"],
+        "title": "Board Lists",
+        "type": "string"
+      },
+      "boards": {
+        "default": "none",
+        "description": "Filters the boards to return. Use 'all' or provide a comma-separated list of board states/types: closed, members, open, organization, pinned, public, starred, or unpinned.",
+        "examples": ["open,starred", "all"],
+        "title": "Boards",
+        "type": "string"
+      },
+      "fields": {
+        "default": "name,displayName,desc,descData,url,website,logoHash,products,powerUps",
+        "description": "Specifies the fields to return for the organization itself. Use 'all' or provide a comma-separated list of field names: billableMemberCount, desc, descData, displayName, idBoards, invitations, invited, logoHash, memberships, name, powerUps, prefs, premiumFeatures, products, url, or website.",
+        "examples": ["name,displayName,url", "all"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idOrg": {
+        "description": "The ID or unique name of the Trello organization to retrieve.",
+        "examples": ["myorganizationname", "605c72ef312e89754b568123"],
+        "title": "Id Org",
+        "type": "string"
+      },
+      "member_activity": {
+        "description": "Include member activity data (Trello Premium organizations only). Valid: 'true', 'false'. If not provided, activity is typically not included.",
+        "examples": ["true", "false"],
+        "title": "Member Activity",
+        "type": "string"
+      },
+      "member_fields": {
+        "default": "avatarHash,fullName,initials,username,confirmed",
+        "description": "Specifies the fields to return for each member. Use 'all' or provide a comma-separated list of field names: avatarHash, bio, bioData, confirmed, fullName, idPremOrgsAdmin, initials, memberType, products, status, url, or username.",
+        "examples": ["fullName,username,bio", "all"],
+        "title": "Member Fields",
+        "type": "string"
+      },
+      "members": {
+        "default": "none",
+        "description": "Filters which members of the organization to return. Valid values: 'admins', 'all', 'none', 'normal', 'owners'.",
+        "examples": ["admins", "all", "normal"],
+        "title": "Members",
+        "type": "string"
+      },
+      "membersInvited": {
+        "default": "none",
+        "description": "Filters which invited (pending) members of the organization to return. Valid values: 'admins', 'all', 'none', 'normal', 'owners'.",
+        "examples": ["admins", "all"],
+        "title": "Members Invited",
+        "type": "string"
+      },
+      "membersInvited_fields": {
+        "default": "avatarHash,initials,fullName,username",
+        "description": "Specifies the fields to return for each invited member. Use 'all' or provide a comma-separated list of field names: avatarHash, bio, bioData, confirmed, fullName, idPremOrgsAdmin, initials, memberType, products, status, url, or username.",
+        "examples": ["fullName,username", "all"],
+        "title": "Members Invited Fields",
+        "type": "string"
+      },
+      "memberships": {
+        "default": "none",
+        "description": "Filters the memberships to return. Use 'all' or provide a comma-separated list of membership types: active, admin, deactivated, me, or normal.",
+        "examples": ["active,admin", "me"],
+        "title": "Memberships",
+        "type": "string"
+      },
+      "memberships_member": {
+        "description": "Include the member object for each membership. Valid: 'true', 'false'. If not provided, member objects are typically not included.",
+        "examples": ["true", "false"],
+        "title": "Memberships Member",
+        "type": "string"
+      },
+      "memberships_member_fields": {
+        "default": "fullName,username",
+        "description": "Specifies the member fields to return for memberships. Use 'all' or provide a comma-separated list of field names: avatarHash, bio, bioData, confirmed, fullName, idPremOrgsAdmin, initials, memberType, products, status, url, or username.",
+        "examples": ["fullName,avatarHash", "all"],
+        "title": "Memberships Member Fields",
+        "type": "string"
+      },
+      "paid_account": {
+        "description": "Include organization's paid account status. Valid: 'true', 'false'. If not provided, this info is typically not included.",
+        "examples": ["true", "false"],
+        "title": "Paid Account",
+        "type": "string"
+      }
+    },
+    "required": ["idOrg"],
+    "title": "GetOrganizationsByIdOrgRequest",
+    "type": "object"
+  },
+  "name": "get_organizations_by_id_org",
+  "outputSchema": {
+    "$defs": {
+      "BoardVisibilityRestrict": {
+        "description": "Board visibility restriction settings",
+        "properties": {
+          "org": {
+            "description": "Visibility restriction for organization boards",
+            "title": "Org",
+            "type": "string"
+          },
+          "private": {
+            "description": "Visibility restriction for private boards",
+            "title": "Private",
+            "type": "string"
+          },
+          "public": {
+            "description": "Visibility restriction for public boards",
+            "title": "Public",
+            "type": "string"
+          }
+        },
+        "title": "BoardVisibilityRestrict",
+        "type": "object"
+      },
+      "GetOrganizationsByIdOrgResponse": {
+        "description": "Response schema for `GetOrganizationsByIdOrg`",
+        "properties": {
+          "billableMemberCount": {
+            "description": "Number of billable members in the organization",
+            "title": "Billable Member Count",
+            "type": "integer"
+          },
+          "dateLastActivity": {
+            "description": "ISO 8601 timestamp of the last activity in the organization",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "desc": {
+            "description": "Description of the organization",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "description": "Structured description data (typically used for rich text formatting)",
+            "title": "Desc Data",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "The display name for the organization",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier for the organization (TrelloID format)",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "Array of board IDs belonging to the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idEnterprise": {
+            "description": "The ID of the associated enterprise (if applicable)",
+            "title": "Id Enterprise",
+            "type": "string"
+          },
+          "invitations": {
+            "description": "Array of pending invitations to the organization",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Invitations",
+            "type": "array"
+          },
+          "invited": {
+            "description": "Whether the current user has been invited to the organization",
+            "title": "Invited",
+            "type": "boolean"
+          },
+          "logoHash": {
+            "description": "Hash identifier for the organization's logo (used to construct logo URLs)",
+            "title": "Logo Hash",
+            "type": "string"
+          },
+          "memberships": {
+            "description": "Array of membership objects or IDs for members of the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Memberships",
+            "type": "array"
+          },
+          "name": {
+            "description": "The organization's short name (used in URLs)",
+            "title": "Name",
+            "type": "string"
+          },
+          "offering": {
+            "description": "The type of Trello offering (e.g., 'trello.enterprise')",
+            "title": "Offering",
+            "type": "string"
+          },
+          "powerUps": {
+            "description": "Array of Power-Up IDs enabled for the organization",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Power Ups",
+            "type": "array"
+          },
+          "prefs": {
+            "$ref": "#/$defs/OrganizationPrefs",
+            "description": "Organization preferences and settings",
+            "title": "Prefs"
+          },
+          "premiumFeatures": {
+            "description": "List of enabled premium features for the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Premium Features",
+            "type": "array"
+          },
+          "products": {
+            "description": "Array of product IDs or product information associated with the organization",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "url": {
+            "description": "URL to the organization on Trello",
+            "title": "Url",
+            "type": "string"
+          },
+          "website": {
+            "description": "The organization's website URL",
+            "title": "Website",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "GetOrganizationsByIdOrgResponse",
+        "type": "object"
+      },
+      "OrganizationPrefs": {
+        "description": "Organization preferences and settings",
+        "properties": {
+          "associatedDomain": {
+            "description": "Domain associated with the organization",
+            "title": "Associated Domain",
+            "type": "string"
+          },
+          "attachmentRestrictions": {
+            "description": "List of allowed attachment sources",
+            "items": {
+              "type": "string"
+            },
+            "title": "Attachment Restrictions",
+            "type": "array"
+          },
+          "boardDeleteRestrict": {
+            "additionalProperties": true,
+            "description": "Restrictions on board deletion",
+            "title": "Board Delete Restrict",
+            "type": "object"
+          },
+          "boardVisibilityRestrict": {
+            "$ref": "#/$defs/BoardVisibilityRestrict",
+            "description": "Restrictions on board visibility",
+            "title": "Board Visibility Restrict"
+          },
+          "externalMembersDisabled": {
+            "description": "Whether external members are disabled for the organization",
+            "title": "External Members Disabled",
+            "type": "boolean"
+          },
+          "googleAppsVersion": {
+            "description": "Version of Google Apps integration",
+            "title": "Google Apps Version",
+            "type": "integer"
+          },
+          "orgInviteRestrict": {
+            "description": "Restrictions on who can be invited to the organization",
+            "title": "Org Invite Restrict",
+            "type": "string"
+          },
+          "permissionLevel": {
+            "description": "Permission level for the organization (values: 'org', 'private', 'public', 'enterprise', 'domain')",
+            "title": "Permission Level",
+            "type": "string"
+          }
+        },
+        "title": "OrganizationPrefs",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationsByIdOrgResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

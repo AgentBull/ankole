@@ -1,9 +1,11 @@
 import { pageMetadata } from './page-metadata'
-import { expect, test } from 'bun:test'
-import { InfiniteQueryObserver, QueryClient } from '@tanstack/react-query'
+import { expect, spyOn, test } from 'bun:test'
+import { InfiniteQueryObserver, QueryClient, QueryObserver } from '@tanstack/react-query'
 import {
   contentKeys,
+  cachedPageMap,
   cachedPages,
+  pagesByID,
   directoryCapabilitiesQuery,
   pageAPI,
   pageChildrenQuery,
@@ -16,8 +18,10 @@ import {
   pageCreated,
   pageMoved,
   pageRemoved,
+  updatePageCaches,
   updatePageMetadata
 } from './navigation-cache'
+import { pageHrefFor } from '../use-page-metadata'
 
 const row = (id: string, parent_id: string | null = null, position = id): NavigationPage => ({
   id,
@@ -482,4 +486,95 @@ test('renaming a Page updates shared metadata without rewriting descendant read 
     ['root', row('root').title],
     ['parent', 'parent']
   ])
+})
+
+test('known pages stay indexed until the content cache changes', () => {
+  const client = new QueryClient()
+  const id = '019a0000-0000-7000-8000-000000000001'
+  const page = row(id)
+  client.setQueryData(contentKeys.navigation(), { path: [page] })
+  const first = cachedPages(client)
+  expect(cachedPages(client)).toBe(first)
+  expect(cachedPageMap(client).get(id)).toEqual(page)
+  const renamed = { ...page, title: 'Renamed' }
+  client.setQueryData(contentKeys.navigation(), { path: [renamed] })
+  expect(cachedPages(client)).not.toBe(first)
+  expect(cachedPageMap(client).get(id)?.title).toBe('Renamed')
+  const indexed = cachedPageMap(client)
+  const stored = indexed.get(id)
+  expect(stored).toBeDefined()
+  expect(pagesByID(client, [stored!])).toBe(indexed)
+  expect(pageHrefFor(client, id, 'Renamed')).toContain('/pages/')
+  client.clear()
+  expect(cachedPages(client)).toEqual([])
+})
+
+test('subscribing a closed directory does not rebuild the page index', () => {
+  const client = new QueryClient()
+  const id = '019a0000-0000-7000-8000-000000000002'
+  client.setQueryData(contentKeys.navigation(), { path: [row(id)] })
+  const indexed = cachedPages(client)
+  const observer = new QueryObserver(client, {
+    queryKey: contentKeys.children('space', id),
+    queryFn: () => ({ pages: [], pageParams: [] }),
+    enabled: false
+  })
+  const stop = observer.subscribe(() => {})
+  expect(cachedPages(client)).toBe(indexed)
+  stop()
+  client.clear()
+})
+
+test('page index rebuilds only when read after a burst of cache updates', () => {
+  const client = new QueryClient()
+  for (let index = 0; index < 200; index++) {
+    client.setQueryData(contentKeys.search(`query ${index}`), {
+      pages: [row('shared'), ...Array.from({ length: 9 }, (_, offset) => row(`${index}:${offset}`))],
+      ancestors: []
+    })
+  }
+  const scans = spyOn(client, 'getQueriesData')
+  const subscriptions = spyOn(client.getQueryCache(), 'subscribe')
+  try {
+    expect(cachedPages(client)).toHaveLength(1801)
+    expect(scans).toHaveBeenCalledTimes(1)
+    for (const title of ['Renamed', 'Renamed again']) {
+      const previousScans = scans.mock.calls.length
+      updatePageCaches(client, page => (page.id === 'shared' ? { ...page, title } : page))
+      expect(scans).toHaveBeenCalledTimes(previousScans)
+      expect(cachedPageMap(client).get('shared')?.title).toBe(title)
+      const pages = cachedPages(client)
+      expect(cachedPages(client)).toBe(pages)
+      expect(scans).toHaveBeenCalledTimes(previousScans + 1)
+      expect(subscriptions).toHaveBeenCalledTimes(1)
+    }
+    client.clear()
+    expect(scans).toHaveBeenCalledTimes(3)
+    expect(cachedPages(client)).toEqual([])
+    expect(scans).toHaveBeenCalledTimes(4)
+    expect(subscriptions).toHaveBeenCalledTimes(1)
+  } finally {
+    scans.mockRestore()
+    subscriptions.mockRestore()
+    client.clear()
+  }
+})
+
+test('page index follows initial query data, direct state updates and resets', async () => {
+  const client = new QueryClient()
+  try {
+    expect(cachedPages(client)).toEqual([])
+    const observer = new QueryObserver(client, {
+      queryKey: contentKeys.navigation(),
+      enabled: false,
+      initialData: { path: [row('seeded')] }
+    })
+    expect(cachedPageMap(client).get('seeded')?.title).toBe('seeded')
+    observer.getCurrentQuery().setState({ data: { path: [{ ...row('seeded'), title: 'Renamed' }] } })
+    expect(cachedPageMap(client).get('seeded')?.title).toBe('Renamed')
+    await client.resetQueries({ queryKey: contentKeys.navigation() })
+    expect(cachedPageMap(client).get('seeded')?.title).toBe('seeded')
+  } finally {
+    client.clear()
+  }
 })

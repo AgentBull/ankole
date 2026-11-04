@@ -1,0 +1,396 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Search for Salesforce tasks using multiple criteria like subject, status, priority, assigned user, related records, or dates. Always provide at least one filter criterion — no filters produces broad, slow results. For complex filtering not supported here, use salesforce.run_soql_query.",
+  "inputSchema": {
+    "properties": {
+      "account_name": {
+        "description": "Search by related account name. Supports partial matches.",
+        "examples": ["Acme Corp", "Tech Solutions"],
+        "human_parameter_description": "The account linked to the task you’re looking for. Type the account’s name or part of it.",
+        "human_parameter_name": "Related Account",
+        "title": "Account Name",
+        "type": "string"
+      },
+      "activity_date_from": {
+        "description": "Search tasks with activity date from this date (YYYY-MM-DD). Date filtering may not strictly bound results; verify ActivityDate in returned records when date accuracy matters.",
+        "examples": ["2024-01-01"],
+        "human_parameter_description": "The earliest due date to include (YYYY-MM-DD). Use this to show tasks due on or after this date.",
+        "human_parameter_name": "Activity Date From",
+        "title": "Activity Date From",
+        "type": "string"
+      },
+      "activity_date_to": {
+        "description": "Search tasks with activity date before this date (YYYY-MM-DD).",
+        "examples": ["2024-12-31"],
+        "human_parameter_description": "The latest due date to include (YYYY-MM-DD). Use this to show tasks due on or before this date.",
+        "human_parameter_name": "Activity Date To",
+        "title": "Activity Date To",
+        "type": "string"
+      },
+      "assigned_to_name": {
+        "description": "Search by assigned user name. Supports partial matches.",
+        "examples": ["John Smith", "Jane"],
+        "human_parameter_description": "The name of the person the task is assigned to. Enter a full or partial name to find their tasks.",
+        "human_parameter_name": "Assigned User",
+        "title": "Assigned To Name",
+        "type": "string"
+      },
+      "contact_name": {
+        "description": "Search by related contact name. Supports partial matches.",
+        "examples": ["John Smith", "Jane Doe"],
+        "human_parameter_description": "The contact associated with the task. Enter the person’s name or part of it to match.",
+        "human_parameter_name": "Related Contact",
+        "title": "Contact Name",
+        "type": "string"
+      },
+      "fields": {
+        "default": "Id,Subject,Status,Priority,ActivityDate,IsClosed,Description,OwnerId,Owner.Name,WhatId,What.Name,WhoId,Who.Name",
+        "description": "Comma-separated list of Task fields to retrieve. WhoId/Who.Name, WhatId/What.Name, OwnerId/Owner.Name, and Description can be null on Task records — guard against null before accessing nested .Name fields. Call-specific fields (CallType, CallDurationInSeconds) are frequently null and unreliable as sole filters.",
+        "examples": [
+          "Id,Subject,Status,Priority,ActivityDate,IsClosed",
+          "Id,Subject,Status,Priority,ActivityDate,IsClosed,OwnerId,Owner.Name,WhatId,What.Name"
+        ],
+        "human_parameter_description": "A comma-separated list of task fields to return. Keep the default unless you need specific columns.",
+        "title": "Fields",
+        "type": "string"
+      },
+      "is_closed": {
+        "description": "Filter by closed status. True for completed tasks, False for open tasks.",
+        "human_parameter_description": "Choose whether to show completed tasks (true) or open tasks (false). Leave blank to include both.",
+        "human_parameter_name": "Closed Status",
+        "title": "Is Closed",
+        "type": "boolean"
+      },
+      "limit": {
+        "default": 50,
+        "description": "Maximum number of tasks to return. Maximum is 2000. When returned record count equals limit or nextRecordsUrl is present in the response, paginate to retrieve all matching tasks.",
+        "human_parameter_description": "The maximum number of tasks to return. Increase for more results or decrease for a shorter, faster list.",
+        "human_parameter_name": "Task Limit",
+        "maximum": 2000,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "priority": {
+        "description": "Search by task priority.",
+        "examples": ["High", "Normal", "Low"],
+        "human_parameter_description": "The priority level to filter by (High, Normal, or Low). Use this to focus on more important tasks.",
+        "human_parameter_name": "Task Priority",
+        "title": "Priority",
+        "type": "string"
+      },
+      "status": {
+        "description": "Search by task status.",
+        "examples": ["Not Started", "In Progress", "Completed", "Waiting on someone else"],
+        "human_parameter_description": "The task status to filter by, like Not Started or Completed. Use this to see tasks at a specific stage.",
+        "human_parameter_name": "Task Status",
+        "title": "Status",
+        "type": "string"
+      },
+      "subject": {
+        "description": "Search by task subject. Supports partial matches. Many Tasks are system-generated or email-related; combine with activity_date_from/activity_date_to, status, and priority for better precision.",
+        "examples": ["Follow up", "Call", "Meeting"],
+        "human_parameter_description": "Words from the task’s subject you want to search for. Enter part of the title to find matching tasks.",
+        "human_parameter_name": "Task Subject",
+        "title": "Subject",
+        "type": "string"
+      }
+    },
+    "title": "SearchTasksRequest",
+    "type": "object"
+  },
+  "name": "search_tasks",
+  "outputSchema": {
+    "$defs": {
+      "SearchTasksResponse": {
+        "additionalProperties": true,
+        "description": "Response from searching Salesforce tasks. Supports custom fields via extra='allow'.",
+        "properties": {
+          "done": {
+            "description": "Boolean indicating if all records have been retrieved. When false, more records are available via nextRecordsUrl.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "nextRecordsUrl": {
+            "description": "Query identifier URL used to retrieve the next batch of records when results exceed 2000 records. Only present when done is false.",
+            "title": "Next Records Url",
+            "type": "string"
+          },
+          "records": {
+            "description": "Array of Task records returned by the query.",
+            "items": {
+              "$ref": "#/$defs/TaskRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "totalSize": {
+            "description": "Total number of records matching the query.",
+            "title": "Total Size",
+            "type": "integer"
+          }
+        },
+        "required": ["totalSize", "done", "records"],
+        "title": "SearchTasksResponse",
+        "type": "object"
+      },
+      "TaskRecord": {
+        "additionalProperties": true,
+        "description": "A Salesforce Task record. Supports custom fields via extra='allow'.",
+        "properties": {
+          "IsDeleted": {
+            "description": "Indicates whether the task has been soft deleted.",
+            "title": "Is Deleted",
+            "type": "boolean"
+          },
+          "ReminderDateTime": {
+            "description": "The date and time when a reminder is scheduled to fire for the task.",
+            "title": "Reminder Date Time",
+            "type": "string"
+          },
+          "RecurrenceRegeneratedType": {
+            "description": "What triggers the task to repeat. Values include 'After due date' and 'After date completed'.",
+            "title": "Recurrence Regenerated Type",
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/$defs/TaskRecordAttributes",
+            "description": "Metadata about the record.",
+            "title": "Attributes"
+          },
+          "CompletedDateTime": {
+            "description": "Date and time when the task was completed. This field is set automatically by the system when the task status is marked as completed.",
+            "title": "Completed Date Time",
+            "type": "string"
+          },
+          "IsReminderSet": {
+            "description": "Indicates whether a reminder has been set for the task.",
+            "title": "Is Reminder Set",
+            "type": "boolean"
+          },
+          "RecurrenceMonthOfYear": {
+            "description": "The month of the year on which the task repeats.",
+            "title": "Recurrence Month Of Year",
+            "type": "string"
+          },
+          "RecurrenceDayOfMonth": {
+            "description": "Day of the month (1-31) on which the task recurs. If the specified day exceeds the days in a month, the last day of that month is used.",
+            "title": "Recurrence Day Of Month",
+            "type": "integer"
+          },
+          "TaskSubtype": {
+            "description": "Standard subtypes to facilitate creating and searching for specific task subtypes. This field is createable but not updateable.",
+            "title": "Task Subtype",
+            "type": "string"
+          },
+          "Status": {
+            "description": "The current status of the task (e.g., 'Not Started', 'In Progress', 'Completed').",
+            "title": "Status",
+            "type": "string"
+          },
+          "RecurrenceStartDateOnly": {
+            "description": "The date when the recurring task begins.",
+            "title": "Recurrence Start Date Only",
+            "type": "string"
+          },
+          "IsVisibleInSelfService": {
+            "description": "Indicates whether the task is visible in self-service portals.",
+            "title": "Is Visible In Self Service",
+            "type": "boolean"
+          },
+          "RecurrenceInstance": {
+            "description": "Picklist field indicating the frequency of the recurring task (e.g., '1st', '2nd', '3rd').",
+            "title": "Recurrence Instance",
+            "type": "string"
+          },
+          "Description": {
+            "description": "Detailed description or notes about the task.",
+            "title": "Description",
+            "type": "string"
+          },
+          "AccountId": {
+            "description": "ID of the related Account. This field is automatically populated based on WhoId or WhatId and is not directly writable.",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "IsClosed": {
+            "description": "Indicates whether the task is closed or completed.",
+            "title": "Is Closed",
+            "type": "boolean"
+          },
+          "CreatedDate": {
+            "description": "The date and time when the task was created.",
+            "title": "Created Date",
+            "type": "string"
+          },
+          "IsArchived": {
+            "description": "Indicates whether the task has been archived.",
+            "title": "Is Archived",
+            "type": "boolean"
+          },
+          "RecurrenceActivityId": {
+            "description": "ID that links recurring task instances together.",
+            "title": "Recurrence Activity Id",
+            "type": "string"
+          },
+          "OwnerId": {
+            "description": "ID of the user who owns the task.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "EmailMessageId": {
+            "description": "ID of the related EmailMessage record when the task is associated with an email.",
+            "title": "Email Message Id",
+            "type": "string"
+          },
+          "Subject": {
+            "description": "The subject or title of the task.",
+            "title": "Subject",
+            "type": "string"
+          },
+          "WhoId": {
+            "description": "ID of the related Lead or Contact. Represents the person associated with the task.",
+            "title": "Who Id",
+            "type": "string"
+          },
+          "RecurrenceEndDateOnly": {
+            "description": "The last date on which the task repeats.",
+            "title": "Recurrence End Date Only",
+            "type": "string"
+          },
+          "LastModifiedById": {
+            "description": "ID of the user who last modified the task.",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "Priority": {
+            "description": "The priority level of the task (e.g., 'Normal', 'High', 'Low').",
+            "title": "Priority",
+            "type": "string"
+          },
+          "WhatId": {
+            "description": "ID of the related non-person record such as Account, Opportunity, or Custom Object. Represents what the task is related to.",
+            "title": "What Id",
+            "type": "string"
+          },
+          "RecurrenceInterval": {
+            "description": "The number of days between the trigger (due date or close date) and the due date of the next repeating task.",
+            "title": "Recurrence Interval",
+            "type": "integer"
+          },
+          "CreatedById": {
+            "description": "ID of the user who created the task.",
+            "title": "Created By Id",
+            "type": "string"
+          },
+          "RecurrenceDayOfWeekMask": {
+            "description": "Bitmask indicating the day(s) of the week on which the task repeats. Values: Sunday=1, Monday=2, Tuesday=4, Wednesday=8, Thursday=16, Friday=32, Saturday=64.",
+            "title": "Recurrence Day Of Week Mask",
+            "type": "integer"
+          },
+          "SystemModstamp": {
+            "description": "The date and time when the task was last modified by a user or automated process. Always greater than or equal to LastModifiedDate.",
+            "title": "System Modstamp",
+            "type": "string"
+          },
+          "RecurrenceType": {
+            "description": "Indicates how often the task repeats (e.g., 'RecursDaily', 'RecursWeekly', 'RecursMonthly', 'RecursYearly').",
+            "title": "Recurrence Type",
+            "type": "string"
+          },
+          "CallObject": {
+            "description": "Reference to the related call object.",
+            "title": "Call Object",
+            "type": "string"
+          },
+          "IsHighPriority": {
+            "description": "Indicates whether the task is marked as high priority.",
+            "title": "Is High Priority",
+            "type": "boolean"
+          },
+          "ActivityDate": {
+            "description": "The due date of the task.",
+            "title": "Activity Date",
+            "type": "string"
+          },
+          "RecurrenceTimeZoneSidKey": {
+            "description": "Time zone associated with the recurring task.",
+            "title": "Recurrence Time Zone Sid Key",
+            "type": "string"
+          },
+          "CallType": {
+            "description": "Type of call (e.g., 'Inbound', 'Outbound', 'Internal').",
+            "title": "Call Type",
+            "type": "string"
+          },
+          "Id": {
+            "description": "Unique identifier of the Task record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "Type": {
+            "description": "The type of task (e.g., 'Call', 'Email', 'Meeting').",
+            "title": "Type",
+            "type": "string"
+          },
+          "CallDurationInSeconds": {
+            "description": "Duration of the call in seconds for call-type tasks.",
+            "title": "Call Duration In Seconds",
+            "type": "integer"
+          },
+          "CallDisposition": {
+            "description": "Disposition or outcome of the call.",
+            "title": "Call Disposition",
+            "type": "string"
+          },
+          "IsRecurrence": {
+            "description": "Indicates whether the task is a recurring task.",
+            "title": "Is Recurrence",
+            "type": "boolean"
+          },
+          "LastModifiedDate": {
+            "description": "The date and time when the task was last modified by a user.",
+            "title": "Last Modified Date",
+            "type": "string"
+          }
+        },
+        "required": ["attributes", "Id"],
+        "title": "TaskRecord",
+        "type": "object"
+      },
+      "TaskRecordAttributes": {
+        "additionalProperties": true,
+        "description": "Metadata about the Task record.",
+        "properties": {
+          "type": {
+            "description": "The object type, which is 'Task'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL for accessing the details of this record.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "TaskRecordAttributes",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SearchTasksResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

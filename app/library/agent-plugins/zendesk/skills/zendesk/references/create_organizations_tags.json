@@ -1,0 +1,67 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Set organization tags in Zendesk by making a POST request to replace the tags on an organization. Use when you need to categorize or label organizations with specific tags for filtering and organization purposes. This operation replaces all existing tags on the organization with the new set provided. Note: This action is not idempotent as it replaces existing tags rather than adding to them.",
+  "inputSchema": {
+    "description": "Request parameters for setting organization tags.",
+    "properties": {
+      "organization_id": {
+        "description": "The ID of the organization to set tags for. Must be a non-null integer. Obtain from zendesk.get_all_zendesk_organizations or zendesk.search_zendesk_ORGANIZATIONS; do not guess or fabricate IDs.",
+        "examples": [26943134365468],
+        "human_parameter_description": "Enter the numeric ID of the organization for which you want to set tags. You can find organization IDs by listing or searching organizations in Zendesk.",
+        "human_parameter_name": "Organization ID",
+        "minimum": 1,
+        "title": "Organization Id",
+        "type": "integer"
+      },
+      "tags": {
+        "description": "An array of tag strings to set for the organization. Tags are used to categorize and filter organizations. Existing tags on the organization will be replaced with this new set of tags.",
+        "examples": [["test-tag-1", "test-tag-2"]],
+        "human_parameter_description": "Enter a list of tag strings to assign to the organization. These tags will replace any existing tags. Examples: ['customer', 'vip', 'enterprise']",
+        "human_parameter_name": "Tags",
+        "items": {
+          "type": "string"
+        },
+        "title": "Tags",
+        "type": "array"
+      }
+    },
+    "required": ["organization_id", "tags"],
+    "title": "CreateOrganizationsTagsRequest",
+    "type": "object"
+  },
+  "name": "create_organizations_tags",
+  "outputSchema": {
+    "$defs": {
+      "CreateOrganizationsTagsResponse": {
+        "description": "Response containing the tags set for the organization.",
+        "properties": {
+          "tags": {
+            "description": "An array of tag strings that are now associated with the organization. These tags replace any previously set tags.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags"],
+        "title": "CreateOrganizationsTagsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateOrganizationsTagsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

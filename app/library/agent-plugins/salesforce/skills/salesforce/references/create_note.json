@@ -1,0 +1,151 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new note attached to a Salesforce record with the specified title and content. Does not deduplicate — identical calls create duplicate notes. High-volume creation can trigger REQUEST_LIMIT_EXCEEDED; apply exponential backoff on retries.",
+  "inputSchema": {
+    "properties": {
+      "body": {
+        "default": "",
+        "description": "Body/content of the note. Can contain detailed text information.",
+        "examples": [
+          "Discussed product features and pricing. Customer is interested in premium plan.",
+          "Called customer at 2pm. They requested a follow-up next week.",
+          "Important: Contract expires on Dec 31st. Need to start renewal discussions."
+        ],
+        "human_parameter_description": "Write the main content of the note. Add details, decisions, and follow-ups you want to remember.",
+        "human_parameter_name": "Note Body",
+        "title": "Body",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values. Custom field names typically end with '__c' (e.g., 'Priority__c', 'Category__c'). Use this to set any custom fields defined on the Note object in your Salesforce org.",
+        "examples": [
+          {
+            "Category__c": "Meeting",
+            "Priority__c": "High"
+          },
+          {
+            "Custom_Field__c": "Custom Value"
+          }
+        ],
+        "human_parameter_description": "Add any custom fields your organization has defined for Notes. Enter field API names (ending in __c) and their values as key-value pairs.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "is_private": {
+        "default": false,
+        "description": "Whether the note should be private (only visible to owner and users with Modify All Data permission).",
+        "human_parameter_description": "Choose whether only you (and admins with full access) can see this note. Turn this on for sensitive information.",
+        "human_parameter_name": "Private Note",
+        "title": "Is Private",
+        "type": "boolean"
+      },
+      "owner_id": {
+        "default": "",
+        "description": "ID of the user who will own the note. Defaults to the current user if not specified.",
+        "examples": ["005XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "Who should own this note. Enter a Salesforce User ID to assign it to someone else, or leave blank to assign it to yourself.",
+        "human_parameter_name": "Owner ID",
+        "title": "Owner Id",
+        "type": "string"
+      },
+      "parent_id": {
+        "description": "ID of the record to attach the note to (required field in Salesforce). Can be any record that supports notes like Account, Contact, Lead, Opportunity, etc.",
+        "examples": ["001XXXXXXXXXXXXXXX", "003XXXXXXXXXXXXXXX", "00QXXXXXXXXXXXXXXX", "006XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The record you want to attach this note to. Paste the Salesforce ID of the Account, Contact, Lead, Opportunity, or other record where the note should live.",
+        "human_parameter_name": "Parent ID",
+        "title": "Parent Id",
+        "type": "string"
+      },
+      "title": {
+        "description": "Title of the note (required field in Salesforce).",
+        "examples": [
+          "Meeting Notes",
+          "Call Summary",
+          "Important Information",
+          "Follow-up Required",
+          "Customer Feedback"
+        ],
+        "human_parameter_description": "What you want to call the note. Keep it short so it's easy to find later.",
+        "human_parameter_name": "Title",
+        "title": "Title",
+        "type": "string"
+      }
+    },
+    "required": ["parent_id", "title"],
+    "title": "CreateNoteRequest",
+    "type": "object"
+  },
+  "name": "create_note",
+  "outputSchema": {
+    "$defs": {
+      "CreateNoteError": {
+        "description": "Represents an error in the note creation response.",
+        "properties": {
+          "fields": {
+            "description": "Array of field names that caused the error. This field is present when the error is related to specific fields.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "A descriptive error message explaining what went wrong.",
+            "title": "Message",
+            "type": "string"
+          },
+          "statusCode": {
+            "description": "The error code type identifier (e.g., MALFORMED_ID, INVALID_FIELD, FIELD_CUSTOM_VALIDATION_EXCEPTION, UNABLE_TO_LOCK_ROW).",
+            "title": "Status Code",
+            "type": "string"
+          }
+        },
+        "required": ["statusCode", "message"],
+        "title": "CreateNoteError",
+        "type": "object"
+      },
+      "CreateNoteResponse": {
+        "description": "Response from creating a note in Salesforce.",
+        "properties": {
+          "errors": {
+            "description": "Array containing error information if the operation failed, or an empty array if successful.",
+            "items": {
+              "$ref": "#/$defs/CreateNoteError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The unique Salesforce ID of the newly created note record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the note creation operation was successful. Returns true if successful, false otherwise.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "success", "errors"],
+        "title": "CreateNoteResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateNoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,330 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists all Sentry projects the authenticated token has membership access to across all organizations. IMPORTANT: This endpoint returns projects where the token's user is a member. An empty result does NOT mean no projects exist - it means the token lacks project membership. This commonly happens when: - The auth token has organization-level access but not explicit project membership - Projects exist in organizations you can access, but you're not a project member If you receive an empty list but know projects exist, use sentry.retrieve_organization_projects instead, which lists all projects within a specific organization (requires organization_id_or_slug parameter).",
+  "inputSchema": {
+    "description": "Request schema for listing Sentry projects.",
+    "properties": {
+      "cursor": {
+        "description": "Opaque cursor for paginating through project lists, typically obtained from pagination details in a previous API response.",
+        "examples": ["1603897200000:3454890832:0"],
+        "title": "Cursor",
+        "type": "string"
+      }
+    },
+    "title": "GetProjectListRequest",
+    "type": "object"
+  },
+  "name": "get_project_list",
+  "outputSchema": {
+    "$defs": {
+      "GetProjectListResponse": {
+        "description": "Response schema containing an array of Sentry project objects.",
+        "items": {
+          "$ref": "#/$defs/Project"
+        },
+        "title": "GetProjectListResponse",
+        "type": "array"
+      },
+      "LatestRelease": {
+        "description": "Information about the most recent release deployed to the project.",
+        "properties": {
+          "version": {
+            "description": "Version identifier of the latest release",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["version"],
+        "title": "LatestRelease",
+        "type": "object"
+      },
+      "Project": {
+        "description": "Represents a Sentry project with all its associated metadata.",
+        "properties": {
+          "hasSessions": {
+            "description": "Whether the project has session tracking enabled and has received session data",
+            "title": "Has Sessions",
+            "type": "boolean"
+          },
+          "access": {
+            "description": "Array of permission strings granted to the current user (e.g., 'project:read', 'event:write', 'alerts:read')",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "firstTransactionEvent": {
+            "description": "Whether the project has received at least one transaction event",
+            "title": "First Transaction Event",
+            "type": "boolean"
+          },
+          "hasTraceMetrics": {
+            "description": "Whether the project has trace metrics data",
+            "title": "Has Trace Metrics",
+            "type": "boolean"
+          },
+          "isBookmarked": {
+            "description": "Whether the project is bookmarked by the current user",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "hasInsightsVitals": {
+            "description": "Whether the project has web vitals insights",
+            "title": "Has Insights Vitals",
+            "type": "boolean"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the project was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly identifier for the project",
+            "title": "Slug",
+            "type": "string"
+          },
+          "hasInsightsScreenLoad": {
+            "description": "Whether the project has screen load performance insights",
+            "title": "Has Insights Screen Load",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Display name of the project",
+            "title": "Name",
+            "type": "string"
+          },
+          "hasLogs": {
+            "description": "Whether the project has log ingestion enabled",
+            "title": "Has Logs",
+            "type": "boolean"
+          },
+          "hasInsightsMCP": {
+            "description": "Whether the project has MCP (Model Context Protocol) insights",
+            "title": "Has Insights Mcp",
+            "type": "boolean"
+          },
+          "hasFeedbacks": {
+            "description": "Whether the project has received user feedback",
+            "title": "Has Feedbacks",
+            "type": "boolean"
+          },
+          "platforms": {
+            "description": "Array of platform identifiers associated with the project",
+            "items": {
+              "type": "string"
+            },
+            "title": "Platforms",
+            "type": "array"
+          },
+          "hasInsightsDb": {
+            "description": "Whether the project has database insights data",
+            "title": "Has Insights Db",
+            "type": "boolean"
+          },
+          "isMember": {
+            "description": "Whether the current user is a member of the project",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "hasProfiles": {
+            "description": "Whether the project has profiling enabled and has received profile data",
+            "title": "Has Profiles",
+            "type": "boolean"
+          },
+          "hasMonitors": {
+            "description": "Whether the project has cron monitors configured",
+            "title": "Has Monitors",
+            "type": "boolean"
+          },
+          "latestDeploys": {
+            "additionalProperties": true,
+            "description": "Information about the most recent deployments. Null if no deployments.",
+            "title": "Latest Deploys",
+            "type": "object"
+          },
+          "firstEvent": {
+            "description": "ISO 8601 timestamp of the first event received by the project. Null if no events have been received.",
+            "title": "First Event",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Primary platform of the project (e.g., 'node-express', 'python'). Can be null if not set.",
+            "title": "Platform",
+            "type": "string"
+          },
+          "hasInsightsAppStart": {
+            "description": "Whether the project has app start performance insights",
+            "title": "Has Insights App Start",
+            "type": "boolean"
+          },
+          "hasInsightsAgentMonitoring": {
+            "description": "Whether the project has AI agent monitoring insights",
+            "title": "Has Insights Agent Monitoring",
+            "type": "boolean"
+          },
+          "hasFlags": {
+            "description": "Whether the project has feature flags integration",
+            "title": "Has Flags",
+            "type": "boolean"
+          },
+          "latestRelease": {
+            "$ref": "#/$defs/LatestRelease",
+            "description": "Information about the most recent release deployed to the project. Null if no releases.",
+            "title": "Latest Release"
+          },
+          "environments": {
+            "description": "Array of environment names configured for the project (e.g., 'production', 'staging', 'local')",
+            "items": {
+              "type": "string"
+            },
+            "title": "Environments",
+            "type": "array"
+          },
+          "teams": {
+            "description": "Array of all teams associated with the project",
+            "items": {
+              "$ref": "#/$defs/Team"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
+          "hasAccess": {
+            "description": "Whether the current user has access to the project",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "hasInsightsAssets": {
+            "description": "Whether the project has asset insights data",
+            "title": "Has Insights Assets",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier of the project",
+            "title": "Id",
+            "type": "string"
+          },
+          "hasUserReports": {
+            "description": "Whether the project has received user crash reports",
+            "title": "Has User Reports",
+            "type": "boolean"
+          },
+          "hasNewFeedbacks": {
+            "description": "Whether the project has new feedback submissions",
+            "title": "Has New Feedbacks",
+            "type": "boolean"
+          },
+          "hasInsightsQueues": {
+            "description": "Whether the project has queue performance insights",
+            "title": "Has Insights Queues",
+            "type": "boolean"
+          },
+          "hasReplays": {
+            "description": "Whether the project has session replay enabled and has received replay data",
+            "title": "Has Replays",
+            "type": "boolean"
+          },
+          "hasInsightsCaches": {
+            "description": "Whether the project has cache performance insights",
+            "title": "Has Insights Caches",
+            "type": "boolean"
+          },
+          "team": {
+            "$ref": "#/$defs/Team",
+            "description": "Primary team object associated with the project. Can be null.",
+            "title": "Team"
+          },
+          "features": {
+            "description": "Array of enabled feature identifiers (e.g., 'alert-filters', 'data-forwarding', 'rate-limits', 'similarity-indexing')",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "hasInsightsHttp": {
+            "description": "Whether the project has HTTP insights data",
+            "title": "Has Insights Http",
+            "type": "boolean"
+          },
+          "hasMinifiedStackTrace": {
+            "description": "Whether the project has received minified stack traces",
+            "title": "Has Minified Stack Trace",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "dateCreated",
+          "isBookmarked",
+          "isMember",
+          "hasAccess",
+          "access",
+          "features",
+          "firstTransactionEvent",
+          "hasSessions",
+          "hasProfiles",
+          "hasReplays",
+          "hasFlags",
+          "hasMonitors",
+          "hasFeedbacks",
+          "hasNewFeedbacks",
+          "hasMinifiedStackTrace",
+          "hasInsightsHttp",
+          "hasInsightsDb",
+          "hasInsightsAssets",
+          "hasInsightsAppStart",
+          "hasInsightsScreenLoad",
+          "hasInsightsVitals",
+          "hasInsightsCaches",
+          "hasInsightsQueues",
+          "hasInsightsAgentMonitoring",
+          "hasInsightsMCP",
+          "hasLogs",
+          "hasTraceMetrics"
+        ],
+        "title": "Project",
+        "type": "object"
+      },
+      "Team": {
+        "description": "Represents a team associated with a project.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the team",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the team",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly identifier for the team",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "slug"],
+        "title": "Team",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetProjectListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

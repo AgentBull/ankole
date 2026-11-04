@@ -9,6 +9,7 @@ config :ankole, Ankole.Repo, types: Ankole.PostgrexTypes
 
 config :ankole, :control_plane_plugin_modules, [
   Ankole.Plugins.ChinaMarketAIProviders,
+  Ankole.Plugins.CloudConnectorsAdapter,
   Ankole.Plugins.DingTalkAdapter,
   Ankole.Plugins.DiscordAdapter,
   Ankole.Plugins.EmailAdapter,

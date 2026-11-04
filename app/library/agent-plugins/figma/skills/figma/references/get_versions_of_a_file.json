@@ -1,0 +1,152 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves the version history for a Figma file or branch, as specified by its `file_key`.",
+  "inputSchema": {
+    "description": "Request schema for retrieving the version history of a Figma file.",
+    "properties": {
+      "after": {
+        "description": "Version ID for pagination; retrieves versions created strictly after this ID.",
+        "examples": ["1588291200", "1590969600"],
+        "title": "After",
+        "type": "integer"
+      },
+      "before": {
+        "description": "Version ID for pagination; retrieves versions created strictly before this ID.",
+        "examples": ["1609459200", "1612137600"],
+        "title": "Before",
+        "type": "integer"
+      },
+      "file_key": {
+        "description": "The key of the Figma file or branch from which to retrieve the version history. Extract from file URL: https://www.figma.com/design/{file_key}/... or https://www.figma.com/file/{file_key}/... For branch keys, use `GET /v1/files/:key` with the `branch_data` query param to obtain it. The authenticated user must have access to the file; otherwise a 404 'Not found' error is returned.",
+        "examples": ["sFHgQh9dL6369o5wrZHmdR", "ABC123xyz"],
+        "title": "File Key",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Number of version items per page. The API defaults to 30 if this parameter is not sent.",
+        "examples": ["30", "50"],
+        "title": "Page Size",
+        "type": "integer"
+      }
+    },
+    "required": ["file_key"],
+    "title": "GetVersionsOfAFileRequest",
+    "type": "object"
+  },
+  "name": "get_versions_of_a_file",
+  "outputSchema": {
+    "$defs": {
+      "GetVersionsOfAFileResponse": {
+        "description": "Response schema containing the version history of the specified Figma file.",
+        "properties": {
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "description": "Pagination details with URLs for next/previous pages.",
+            "title": "Pagination"
+          },
+          "versions": {
+            "description": "A list containing the file version objects.",
+            "items": {
+              "$ref": "#/$defs/Version"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": ["versions", "pagination"],
+        "title": "GetVersionsOfAFileResponse",
+        "type": "object"
+      },
+      "Pagination": {
+        "properties": {
+          "next_page": {
+            "description": "URL to retrieve the next page of version results.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "prev_page": {
+            "description": "URL to retrieve the previous page of version results.",
+            "title": "Prev Page",
+            "type": "string"
+          }
+        },
+        "title": "Pagination",
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "handle": {
+            "description": "The display name or handle of the user.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique and stable identifier for the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "img_url": {
+            "description": "The URL for the user's profile image.",
+            "title": "Img Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "handle", "img_url"],
+        "title": "User",
+        "type": "object"
+      },
+      "Version": {
+        "properties": {
+          "created_at": {
+            "description": "The timestamp in UTC ISO 8601 format indicating when this version was created.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description entered in the Figma editor for this version.",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier for this specific file version.",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "description": "Label assigned in the Figma editor for this version.",
+            "title": "Label",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "URL for a thumbnail image of this file version.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Details of the user who created this version.",
+            "title": "User"
+          }
+        },
+        "required": ["id", "created_at", "user"],
+        "title": "Version",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetVersionsOfAFileResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

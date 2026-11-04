@@ -1,0 +1,500 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List comments on a Zendesk ticket, including available author, content and attachment details. Supports sort order, page size and inclusion of inline images; comment body fields may be absent.",
+  "inputSchema": {
+    "description": "Request parameters for listing comments on a Zendesk ticket.",
+    "properties": {
+      "include": {
+        "description": "Accepts 'users'. Use this parameter to list email CCs by side-loading users. Example: `?include=users`. Note: If the comment source is email, a deleted user will be represented as the CC'd email address. If the comment source is anything else, a deleted user will be represented as the user name.",
+        "examples": ["users"],
+        "human_parameter_description": "Enter 'users' to include user information (such as email CCs) side-loaded with the comments.",
+        "human_parameter_name": "Include Side-Loaded Data",
+        "title": "Include",
+        "type": "string"
+      },
+      "include_inline_images": {
+        "description": "When true, inline images are also listed as attachments in the response. Defaults to false.",
+        "human_parameter_description": "Set to true to include inline images as attachments in the response.",
+        "human_parameter_name": "Include Inline Images",
+        "title": "Include Inline Images",
+        "type": "boolean"
+      },
+      "per_page": {
+        "description": "Number of records to return per page (max 100).",
+        "examples": [50],
+        "human_parameter_description": "How many comments to show per page. You can choose up to 100.",
+        "human_parameter_name": "Results Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort_order": {
+        "description": "Sort order for comments. Defaults to 'asc' (oldest first). Use 'desc' for newest first.",
+        "enum": ["asc", "desc"],
+        "examples": ["asc"],
+        "human_parameter_description": "Choose 'asc' to see oldest comments first, or 'desc' to see newest comments first.",
+        "human_parameter_name": "Sort Order",
+        "title": "Sort Order",
+        "type": "string"
+      },
+      "ticket_id": {
+        "description": "The ID of the ticket to retrieve comments for.",
+        "examples": [123456],
+        "human_parameter_description": "The unique identifier of the Zendesk ticket. You can find this ID in the ticket URL or from a ticket list.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "GetTicketCommentsRequest",
+    "type": "object"
+  },
+  "name": "get_ticket_comments",
+  "outputSchema": {
+    "$defs": {
+      "Attachment": {
+        "description": "Attachment object in a comment.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the file",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to access the attachment file",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "Whether attachment has been removed",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Name of the attached file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels; null if unknown",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Attachment identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "Whether attachment is excluded from attachment list",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malware_access_override": {
+            "description": "Controls download access for flagged attachments",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malware_scan_result": {
+            "description": "Scan outcome: malware_found, malware_not_found, etc.",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mapped_content_url": {
+            "description": "URL the attachment has been mapped to",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "Array of thumbnail attachments for images",
+            "items": {
+              "$ref": "#/$defs/Thumbnail"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          },
+          "url": {
+            "description": "URL to access the attachment details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels; null if unknown",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "Attachment",
+        "type": "object"
+      },
+      "Comment": {
+        "description": "A comment on a Zendesk ticket.",
+        "properties": {
+          "attachments": {
+            "description": "List of attachments associated with the comment",
+            "items": {
+              "$ref": "#/$defs/Attachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "audit_id": {
+            "description": "The audit ID associated with the comment",
+            "title": "Audit Id",
+            "type": "integer"
+          },
+          "author_id": {
+            "description": "The ID of the author of the comment",
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "body": {
+            "description": "The body content of the comment",
+            "title": "Body",
+            "type": "string"
+          },
+          "channel_back": {
+            "description": "Channel back identifier",
+            "title": "Channel Back",
+            "type": "string"
+          },
+          "channel_source_id": {
+            "description": "Channel source identifier",
+            "title": "Channel Source Id",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "The timestamp when the comment was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "html_body": {
+            "description": "The HTML formatted body of the comment",
+            "title": "Html Body",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the comment",
+            "title": "Id",
+            "type": "integer"
+          },
+          "metadata": {
+            "$ref": "#/$defs/Metadata",
+            "description": "Additional metadata related to the comment",
+            "title": "Metadata"
+          },
+          "plain_body": {
+            "description": "The plain text body of the comment",
+            "title": "Plain Body",
+            "type": "string"
+          },
+          "public": {
+            "description": "Indicates if the comment is public",
+            "title": "Public",
+            "type": "boolean"
+          },
+          "translate_to": {
+            "description": "Translation target language",
+            "title": "Translate To",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of the comment",
+            "title": "Type",
+            "type": "string"
+          },
+          "uploads": {
+            "description": "Array of upload token strings for pending attachments",
+            "items": {
+              "type": "string"
+            },
+            "title": "Uploads",
+            "type": "array"
+          },
+          "via": {
+            "$ref": "#/$defs/Via",
+            "description": "The method through which the comment was added",
+            "title": "Via"
+          }
+        },
+        "title": "Comment",
+        "type": "object"
+      },
+      "GetTicketCommentsResponse": {
+        "description": "Response containing list of comments for a Zendesk ticket.",
+        "properties": {
+          "comments": {
+            "description": "List of comments on the ticket",
+            "items": {
+              "$ref": "#/$defs/Comment"
+            },
+            "title": "Comments",
+            "type": "array"
+          },
+          "count": {
+            "description": "Total number of comments on the ticket",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for the next page of comments, null if no more pages",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for the previous page of comments, null if on first page",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["comments"],
+        "title": "GetTicketCommentsResponse",
+        "type": "object"
+      },
+      "Metadata": {
+        "description": "Metadata object for a comment.",
+        "properties": {
+          "custom": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom metadata (up to 1KB)",
+            "title": "Custom",
+            "type": "object"
+          },
+          "flags": {
+            "description": "Array of integer flag codes",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "flags_options": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Additional flag context information",
+            "title": "Flags Options",
+            "type": "object"
+          },
+          "suspension_type_id": {
+            "description": "Suspension type identifier if applicable",
+            "title": "Suspension Type Id",
+            "type": "integer"
+          },
+          "system": {
+            "$ref": "#/$defs/MetadataSystem",
+            "description": "System-generated information",
+            "title": "System"
+          }
+        },
+        "title": "Metadata",
+        "type": "object"
+      },
+      "MetadataSystem": {
+        "description": "System metadata for a comment.",
+        "properties": {
+          "client": {
+            "description": "Client/browser information",
+            "title": "Client",
+            "type": "string"
+          },
+          "ip_address": {
+            "description": "IP address of the client",
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "latitude": {
+            "description": "Latitude coordinate",
+            "title": "Latitude",
+            "type": "number"
+          },
+          "location": {
+            "description": "Geographic location",
+            "title": "Location",
+            "type": "string"
+          },
+          "longitude": {
+            "description": "Longitude coordinate",
+            "title": "Longitude",
+            "type": "number"
+          }
+        },
+        "title": "MetadataSystem",
+        "type": "object"
+      },
+      "Thumbnail": {
+        "description": "Thumbnail attachment object.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the file",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to access the attachment file",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "Whether attachment has been removed",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Name of the attached file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels; null if unknown",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Attachment identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "Whether attachment is excluded from attachment list",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malware_access_override": {
+            "description": "Controls download access for flagged attachments",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malware_scan_result": {
+            "description": "Scan outcome: malware_found, malware_not_found, etc.",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mapped_content_url": {
+            "description": "URL the attachment has been mapped to",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL to access the attachment details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels; null if unknown",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "Thumbnail",
+        "type": "object"
+      },
+      "Via": {
+        "description": "Via object describing how the comment was created.",
+        "properties": {
+          "channel": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "How the comment was created (via type or via ID)",
+            "title": "Channel"
+          },
+          "source": {
+            "$ref": "#/$defs/ViaSource",
+            "description": "Additional source information",
+            "title": "Source"
+          }
+        },
+        "title": "Via",
+        "type": "object"
+      },
+      "ViaSource": {
+        "description": "Source information in via object.",
+        "properties": {
+          "from": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Source sender information (address, name, phone, etc.)",
+            "title": "From",
+            "type": "object"
+          },
+          "rel": {
+            "description": "Relationship type (e.g., direct_message, voicemail, trigger)",
+            "title": "Rel",
+            "type": "string"
+          },
+          "to": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Source recipient information",
+            "title": "To",
+            "type": "object"
+          }
+        },
+        "title": "ViaSource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTicketCommentsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

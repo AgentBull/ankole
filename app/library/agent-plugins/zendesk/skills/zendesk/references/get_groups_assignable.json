@@ -1,0 +1,148 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List all groups that can be assigned to tickets or users in your Zendesk account. Use when you need to enumerate available groups for assignment operations, check group availability, or retrieve group metadata. This is a read-only, idempotent operation.",
+  "inputSchema": {
+    "description": "Request parameters for listing assignable groups in Zendesk.",
+    "properties": {
+      "page": {
+        "description": "Page number for offset pagination (1-100). Limited to first 100 pages or 10,000 records total.",
+        "examples": [1],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "page_after": {
+        "description": "Cursor value to retrieve the next page of results. Obtained from previous response's 'next_page' or cursor.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "title": "Page After",
+        "type": "string"
+      },
+      "page_before": {
+        "description": "Cursor value to retrieve the previous page of results. Obtained from previous response's 'prev' or cursor.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "title": "Page Before",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Number of records per page for cursor pagination (max 100). Use this for large datasets.",
+        "examples": [100],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of records to return per page (max 100). Default and maximum values vary by endpoint.",
+        "examples": [25],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      }
+    },
+    "title": "GetGroupsAssignableRequest",
+    "type": "object"
+  },
+  "name": "get_groups_assignable",
+  "outputSchema": {
+    "$defs": {
+      "GetGroupsAssignableResponse": {
+        "description": "Response containing list of assignable Zendesk groups.",
+        "properties": {
+          "count": {
+            "description": "Total count of assignable groups",
+            "title": "Count",
+            "type": "integer"
+          },
+          "groups": {
+            "description": "List of assignable groups returned by the API",
+            "items": {
+              "$ref": "#/$defs/ZendeskGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["groups"],
+        "title": "GetGroupsAssignableResponse",
+        "type": "object"
+      },
+      "ZendeskGroup": {
+        "description": "Zendesk group object.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the group was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether this is the default group",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "deleted": {
+            "description": "Whether the group has been deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Description of the group",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the group",
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_public": {
+            "description": "Whether the group is public",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Name of the group",
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the group was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL for the group",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ZendeskGroup",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetGroupsAssignableResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

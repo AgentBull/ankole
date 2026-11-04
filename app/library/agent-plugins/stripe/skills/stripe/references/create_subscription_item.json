@@ -1,0 +1,384 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to add a new item to an existing subscription without changing existing items. Use when adding a product or service to a customer's subscription.",
+  "inputSchema": {
+    "description": "Request model for creating a subscription item.",
+    "properties": {
+      "billing_thresholds": {
+        "additionalProperties": false,
+        "description": "Billing threshold configuration.",
+        "properties": {
+          "usage_gte": {
+            "description": "Number of units that meets the billing threshold to advance the subscription to a new billing period.",
+            "examples": [100, 1000, 10000],
+            "title": "Usage Gte",
+            "type": "integer"
+          }
+        },
+        "required": ["usage_gte"],
+        "title": "BillingThresholdsInput",
+        "type": "object"
+      },
+      "discounts": {
+        "description": "The coupons or promotion codes to redeem.",
+        "items": {
+          "description": "Discount configuration.",
+          "properties": {
+            "coupon": {
+              "description": "ID of the coupon to create a new discount.",
+              "examples": ["25OFF"],
+              "title": "Coupon",
+              "type": "string"
+            },
+            "discount": {
+              "description": "ID of an existing discount to reuse.",
+              "examples": ["di_1234567890"],
+              "title": "Discount",
+              "type": "string"
+            },
+            "promotion_code": {
+              "description": "ID of the promotion code to create a new discount.",
+              "examples": ["promo_1234567890"],
+              "title": "Promotion Code",
+              "type": "string"
+            }
+          },
+          "title": "DiscountInput",
+          "type": "object"
+        },
+        "title": "Discounts",
+        "type": "array"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Set of key-value pairs for storing structured data.",
+        "examples": [
+          {
+            "customer_ref": "abc",
+            "order_id": "12345"
+          }
+        ],
+        "title": "Metadata",
+        "type": "object"
+      },
+      "payment_behavior": {
+        "description": "Payment behavior options for handling incomplete payments.",
+        "enum": ["allow_incomplete", "default_incomplete", "pending_if_incomplete", "error_if_incomplete"],
+        "title": "Payment Behavior",
+        "type": "string"
+      },
+      "price": {
+        "description": "The ID of the price object. Either price or price_data is required.",
+        "examples": ["price_1234567890"],
+        "title": "Price",
+        "type": "string"
+      },
+      "price_data": {
+        "additionalProperties": false,
+        "description": "Data for generating a new Price object inline.",
+        "properties": {
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase (e.g., 'usd', 'eur').",
+            "examples": ["usd", "eur", "gbp"],
+            "title": "Currency",
+            "type": "string"
+          },
+          "product": {
+            "description": "The ID of the product that this price will belong to.",
+            "examples": ["prod_12345"],
+            "title": "Product",
+            "type": "string"
+          },
+          "recurring": {
+            "additionalProperties": false,
+            "description": "The recurring components of the price.",
+            "properties": {
+              "interval": {
+                "description": "Billing frequency. One of day, week, month, or year.",
+                "enum": ["day", "week", "month", "year"],
+                "title": "Interval",
+                "type": "string"
+              },
+              "interval_count": {
+                "description": "Number of intervals between billings. Must be a positive integer.",
+                "examples": [1, 2, 3, 12],
+                "title": "Interval Count",
+                "type": "integer"
+              }
+            },
+            "required": ["interval"],
+            "title": "Recurring",
+            "type": "object"
+          },
+          "tax_behavior": {
+            "description": "Specifies whether the price is considered inclusive or exclusive of taxes.",
+            "enum": ["inclusive", "exclusive", "unspecified"],
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "Positive integer in cents (or 0 for free) representing unit amount.",
+            "examples": [1000, 2500, 5000],
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Decimal value representing the unit amount in cents (max 12 decimal places).",
+            "examples": ["10.50", "25.99"],
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["currency", "product", "recurring"],
+        "title": "PriceData",
+        "type": "object"
+      },
+      "proration_behavior": {
+        "description": "Determines how to handle prorations. Default is create_prorations.",
+        "enum": ["always_invoice", "create_prorations", "none"],
+        "title": "Proration Behavior",
+        "type": "string"
+      },
+      "proration_date": {
+        "description": "Unix timestamp used to calculate proration amounts.",
+        "examples": [1640995200],
+        "title": "Proration Date",
+        "type": "integer"
+      },
+      "quantity": {
+        "description": "The quantity you'd like to apply to the subscription item.",
+        "examples": [1, 5, 10],
+        "title": "Quantity",
+        "type": "integer"
+      },
+      "subscription": {
+        "description": "The identifier of the subscription to modify.",
+        "examples": ["sub_1ShVc8QvM72TjFrbRD0soIlT"],
+        "title": "Subscription",
+        "type": "string"
+      },
+      "tax_rates": {
+        "description": "List of Tax Rate IDs to override subscription default.",
+        "examples": [["txr_1234567890", "txr_0987654321"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Tax Rates",
+        "type": "array"
+      }
+    },
+    "required": ["subscription"],
+    "title": "CreateSubscriptionItemRequest",
+    "type": "object"
+  },
+  "name": "create_subscription_item",
+  "outputSchema": {
+    "$defs": {
+      "BillingThresholds": {
+        "description": "Billing thresholds for subscription item.",
+        "properties": {
+          "usage_gte": {
+            "description": "Usage threshold that triggers the subscription to create an invoice.",
+            "title": "Usage Gte",
+            "type": "integer"
+          }
+        },
+        "title": "BillingThresholds",
+        "type": "object"
+      },
+      "CreateSubscriptionItemResponse": {
+        "description": "Response model for created subscription item.",
+        "properties": {
+          "billing_thresholds": {
+            "$ref": "#/$defs/BillingThresholds",
+            "description": "Define thresholds at which an invoice will be sent for this subscription item.",
+            "title": "Billing Thresholds"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the subscription item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Set of key-value pairs attached to the object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "const": "subscription_item",
+            "description": "String representing the object's type. Always 'subscription_item'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/$defs/Price",
+            "description": "The price object.",
+            "title": "Price"
+          },
+          "quantity": {
+            "description": "The quantity of the plan to which the customer should be subscribed.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "subscription": {
+            "description": "The ID of the subscription that this subscription item belongs to.",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "tax_rates": {
+            "description": "The tax rates which apply to this subscription_item.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Tax Rates",
+            "type": "array"
+          }
+        },
+        "required": ["id", "object", "created", "metadata", "price", "subscription"],
+        "title": "CreateSubscriptionItemResponse",
+        "type": "object"
+      },
+      "Price": {
+        "description": "Price object.",
+        "properties": {
+          "active": {
+            "description": "Whether the price can be used for new purchases.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "billing_scheme": {
+            "description": "Describes how to compute the price per period.",
+            "title": "Billing Scheme",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the price.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "lookup_key": {
+            "description": "A lookup key used to retrieve prices dynamically.",
+            "title": "Lookup Key",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Set of key-value pairs attached to the object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "nickname": {
+            "description": "A brief description of the price.",
+            "title": "Nickname",
+            "type": "string"
+          },
+          "object": {
+            "const": "price",
+            "description": "String representing the object's type. Always 'price'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "product": {
+            "description": "The ID of the product this price is associated with.",
+            "title": "Product",
+            "type": "string"
+          },
+          "recurring": {
+            "$ref": "#/$defs/PriceRecurring",
+            "description": "The recurring components of a price such as interval and usage_type.",
+            "title": "Recurring"
+          },
+          "tax_behavior": {
+            "description": "Tax calculation behavior.",
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "type": {
+            "description": "One of one_time or recurring.",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "The unit amount in cents to be charged.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "The unit amount in cents represented as a decimal string.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "active", "currency"],
+        "title": "Price",
+        "type": "object"
+      },
+      "PriceRecurring": {
+        "description": "Recurring components of a price.",
+        "properties": {
+          "interval": {
+            "description": "The billing frequency. One of day, week, month or year.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "interval_count": {
+            "description": "The number of intervals between subscription billings.",
+            "title": "Interval Count",
+            "type": "integer"
+          },
+          "meter": {
+            "description": "The meter tracking the usage of a metered price.",
+            "title": "Meter",
+            "type": "string"
+          },
+          "usage_type": {
+            "description": "Configures how the quantity per period should be determined. Either metered or licensed.",
+            "title": "Usage Type",
+            "type": "string"
+          }
+        },
+        "required": ["interval", "interval_count"],
+        "title": "PriceRecurring",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateSubscriptionItemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

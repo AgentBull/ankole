@@ -1,0 +1,162 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates and attaches multiple uniquely-URLed development resources to specified Figma nodes, up to 10 per node.",
+  "inputSchema": {
+    "description": "Request payload for bulk creating development resources in Figma.",
+    "properties": {
+      "dev_resources": {
+        "description": "List of development resources to create.",
+        "items": {
+          "description": "Defines a single development resource to be created and linked to a Figma node.",
+          "properties": {
+            "file_key": {
+              "description": "Identifier of the Figma file for attachment.",
+              "examples": ["sFGlH86EjS22t4K1g23D4F", "anotherFileKeyXYZ789"],
+              "title": "File Key",
+              "type": "string"
+            },
+            "name": {
+              "description": "Visible name for the dev resource in Figma.",
+              "examples": ["Jira Ticket - Dark Mode", "GitHub Issue #42 UI Fix", "Component Specifications"],
+              "title": "Name",
+              "type": "string"
+            },
+            "node_id": {
+              "description": "Identifier of the node within the Figma file for attachment.",
+              "examples": ["123:456", "205:12", "0:1"],
+              "title": "Node Id",
+              "type": "string"
+            },
+            "url": {
+              "description": "URL for the dev resource (e.g., Jira ticket, GitHub issue, documentation).",
+              "examples": [
+                "https://mycompany.jira.com/browse/DESIGN-101",
+                "https://github.com/figma/plugin-samples/issues/123",
+                "https://www.example.com/docs/component-spec"
+              ],
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          "required": ["name", "url", "file_key", "node_id"],
+          "title": "CreateDevResourcesdevResourcesRequest",
+          "type": "object"
+        },
+        "title": "Dev Resources",
+        "type": "array"
+      }
+    },
+    "required": ["dev_resources"],
+    "title": "CreateDevResourcesRequest",
+    "type": "object"
+  },
+  "name": "create_dev_resources",
+  "outputSchema": {
+    "$defs": {
+      "CreateDevResourcesResponse": {
+        "description": "Response payload detailing the outcome of the bulk dev resource creation attempt.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Successfully created dev resources and any errors.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "CreateDevResourcesResponse",
+        "type": "object"
+      },
+      "Error": {
+        "properties": {
+          "error": {
+            "description": "Detailed error message.",
+            "title": "Error",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "Identifier of the Figma file related to the error, if applicable.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Identifier of the Figma node related to the error, if applicable.",
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "required": ["error"],
+        "title": "Error",
+        "type": "object"
+      },
+      "LinksCreatedItem": {
+        "properties": {
+          "file_key": {
+            "description": "Identifier of the Figma file where attached.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identifier of the created dev resource.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the created dev resource.",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Identifier of the Figma node where attached.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL of the created dev resource.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "url", "file_key", "node_id"],
+        "title": "LinksCreatedItem",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "errors": {
+            "description": "Errors encountered during creation, if any.",
+            "items": {
+              "$ref": "#/$defs/Error"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "links_created": {
+            "description": "Successfully created development resources.",
+            "items": {
+              "$ref": "#/$defs/LinksCreatedItem"
+            },
+            "title": "Links Created",
+            "type": "array"
+          }
+        },
+        "required": ["links_created"],
+        "title": "Model",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateDevResourcesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

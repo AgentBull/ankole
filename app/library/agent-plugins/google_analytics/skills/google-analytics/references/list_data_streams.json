@@ -1,0 +1,174 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list DataStreams on a property. Use when you need to retrieve data stream configurations for a Google Analytics property.",
+  "inputSchema": {
+    "description": "Request model for listing DataStreams on a property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of resources to return. If unspecified, at most 50 resources will be returned. The maximum value is 200",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous ListDataStreams call. Provide this to retrieve the subsequent page",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The Google Analytics property identifier. Must be in format 'properties/NUMERIC_ID' where NUMERIC_ID is your actual property ID (e.g., 'properties/489591273'). Do NOT use placeholder syntax like 'properties/{propertyId}' - replace the placeholder with a real numeric property ID.",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListDataStreamsRequest",
+    "type": "object"
+  },
+  "name": "list_data_streams",
+  "outputSchema": {
+    "$defs": {
+      "AndroidAppStreamData": {
+        "description": "Schema for Android app stream specific data.",
+        "properties": {
+          "firebaseAppId": {
+            "description": "Firebase App ID",
+            "title": "Firebase App Id",
+            "type": "string"
+          },
+          "packageName": {
+            "description": "Android package name",
+            "title": "Package Name",
+            "type": "string"
+          }
+        },
+        "title": "AndroidAppStreamData",
+        "type": "object"
+      },
+      "DataStream": {
+        "description": "Schema for a DataStream resource.",
+        "properties": {
+          "androidAppStreamData": {
+            "$ref": "#/$defs/AndroidAppStreamData",
+            "description": "Android app stream specific data. Populated when type=ANDROID_APP_DATA_STREAM",
+            "title": "Android App Stream Data"
+          },
+          "createTime": {
+            "description": "Output only. Time when the stream was originally created in RFC 3339 format",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Human-readable display name. Max length: 255 UTF-16 code units",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "iosAppStreamData": {
+            "$ref": "#/$defs/IosAppStreamData",
+            "description": "iOS app stream specific data. Populated when type=IOS_APP_DATA_STREAM",
+            "title": "Ios App Stream Data"
+          },
+          "name": {
+            "description": "Output only. Resource name. Format: properties/{property_id}/dataStreams/{stream_id}",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Stream type. Values: DATA_STREAM_TYPE_UNSPECIFIED, WEB_DATA_STREAM, ANDROID_APP_DATA_STREAM, IOS_APP_DATA_STREAM",
+            "title": "Type",
+            "type": "string"
+          },
+          "updateTime": {
+            "description": "Output only. Time when stream fields were last updated in RFC 3339 format",
+            "title": "Update Time",
+            "type": "string"
+          },
+          "webStreamData": {
+            "$ref": "#/$defs/WebStreamData",
+            "description": "Web stream specific data. Populated when type=WEB_DATA_STREAM",
+            "title": "Web Stream Data"
+          }
+        },
+        "title": "DataStream",
+        "type": "object"
+      },
+      "IosAppStreamData": {
+        "description": "Schema for iOS app stream specific data.",
+        "properties": {
+          "bundleId": {
+            "description": "iOS bundle ID",
+            "title": "Bundle Id",
+            "type": "string"
+          },
+          "firebaseAppId": {
+            "description": "Firebase App ID",
+            "title": "Firebase App Id",
+            "type": "string"
+          }
+        },
+        "title": "IosAppStreamData",
+        "type": "object"
+      },
+      "ListDataStreamsResponse": {
+        "description": "Response model for listing DataStreams.",
+        "properties": {
+          "dataStreams": {
+            "description": "List of DataStream resources",
+            "items": {
+              "$ref": "#/$defs/DataStream"
+            },
+            "title": "Data Streams",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "A token for retrieving the next page of results. Omitted if no subsequent pages exist",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "ListDataStreamsResponse",
+        "type": "object"
+      },
+      "WebStreamData": {
+        "description": "Schema for web stream specific data.",
+        "properties": {
+          "defaultUri": {
+            "description": "Default URI for the web data stream",
+            "title": "Default Uri",
+            "type": "string"
+          },
+          "firebaseAppId": {
+            "description": "Firebase App ID",
+            "title": "Firebase App Id",
+            "type": "string"
+          },
+          "measurementId": {
+            "description": "Analytics Measurement ID",
+            "title": "Measurement Id",
+            "type": "string"
+          }
+        },
+        "title": "WebStreamData",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListDataStreamsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

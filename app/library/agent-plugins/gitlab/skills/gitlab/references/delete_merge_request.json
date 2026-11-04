@@ -1,0 +1,66 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to permanently delete a merge request from a GitLab project. Use when you need to remove a merge request entirely, though closing is typically preferred to preserve the discussion history and audit trail. This action is irreversible — the merge request and its associated data cannot be recovered once deleted.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": [123, "group/project-name"],
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Internal ID of the merge request to delete.",
+        "examples": [42],
+        "title": "Merge Request Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid"],
+    "title": "DeleteMergeRequestRequest",
+    "type": "object"
+  },
+  "name": "delete_merge_request",
+  "outputSchema": {
+    "$defs": {
+      "DeleteMergeRequestResponse": {
+        "properties": {
+          "message": {
+            "description": "Status message about the deletion operation.",
+            "title": "Message",
+            "type": "string"
+          },
+          "status_code": {
+            "description": "HTTP status code of the response (typically 204).",
+            "title": "Status Code",
+            "type": "integer"
+          }
+        },
+        "required": ["status_code"],
+        "title": "DeleteMergeRequestResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteMergeRequestResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

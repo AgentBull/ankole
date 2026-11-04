@@ -1,0 +1,209 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve information about a specific branch in a project. Use when you need to get details for a single branch.",
+  "inputSchema": {
+    "properties": {
+      "branch_name": {
+        "description": "The URL-encoded name of the branch.",
+        "examples": ["main", "feature%2Fnew-feature"],
+        "title": "Branch Name",
+        "type": "string"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["5", "group_name/project_name"],
+        "title": "Project Id"
+      }
+    },
+    "required": ["project_id", "branch_name"],
+    "title": "GetRepositoryBranchRequest",
+    "type": "object"
+  },
+  "name": "get_repository_branch",
+  "outputSchema": {
+    "$defs": {
+      "Commit": {
+        "properties": {
+          "author_email": {
+            "description": "Email of the commit author.",
+            "title": "Author Email",
+            "type": "string"
+          },
+          "author_name": {
+            "description": "Name of the commit author.",
+            "title": "Author Name",
+            "type": "string"
+          },
+          "authored_date": {
+            "description": "Timestamp of when the commit was authored.",
+            "title": "Authored Date",
+            "type": "string"
+          },
+          "committed_date": {
+            "description": "Timestamp of when the commit was committed.",
+            "title": "Committed Date",
+            "type": "string"
+          },
+          "committer_email": {
+            "description": "Email of the committer.",
+            "title": "Committer Email",
+            "type": "string"
+          },
+          "committer_name": {
+            "description": "Name of the committer.",
+            "title": "Committer Name",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp of commit creation.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Commit ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Commit message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "parent_ids": {
+            "description": "List of parent commit IDs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parent Ids",
+            "type": "array"
+          },
+          "short_id": {
+            "description": "Short commit ID.",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Commit title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "trailers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Commit trailers.",
+            "title": "Trailers",
+            "type": "object"
+          },
+          "web_url": {
+            "description": "URL of the commit in the GitLab UI.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "short_id",
+          "created_at",
+          "parent_ids",
+          "title",
+          "message",
+          "author_name",
+          "author_email",
+          "authored_date",
+          "committer_name",
+          "committer_email",
+          "committed_date",
+          "trailers",
+          "web_url"
+        ],
+        "title": "Commit",
+        "type": "object"
+      },
+      "GetRepositoryBranchResponse": {
+        "properties": {
+          "can_push": {
+            "description": "Indicates if the current user can push to this branch.",
+            "title": "Can Push",
+            "type": "boolean"
+          },
+          "commit": {
+            "$ref": "#/$defs/Commit",
+            "description": "Details of the last commit on this branch.",
+            "title": "Commit"
+          },
+          "default": {
+            "description": "Indicates if this is the default branch.",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "developers_can_merge": {
+            "description": "Indicates if developers can merge this branch.",
+            "title": "Developers Can Merge",
+            "type": "boolean"
+          },
+          "developers_can_push": {
+            "description": "Indicates if developers can push to this branch.",
+            "title": "Developers Can Push",
+            "type": "boolean"
+          },
+          "merged": {
+            "description": "Indicates if the branch has been merged.",
+            "title": "Merged",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The name of the branch.",
+            "title": "Name",
+            "type": "string"
+          },
+          "protected": {
+            "description": "Indicates if the branch is protected.",
+            "title": "Protected",
+            "type": "boolean"
+          },
+          "web_url": {
+            "description": "The URL of the branch in the GitLab UI.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "merged",
+          "protected",
+          "default",
+          "developers_can_push",
+          "developers_can_merge",
+          "can_push",
+          "web_url",
+          "commit"
+        ],
+        "title": "GetRepositoryBranchResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRepositoryBranchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,150 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Partially updates (PATCHes) an existing Google Calendar, modifying only the fields provided. At least one of summary, description, location, or timezone must be provided. Empty strings for `description` or `location` clear them.",
+  "inputSchema": {
+    "properties": {
+      "calendar_id": {
+        "description": "The unique identifier of the Google Calendar to update. Use 'primary' for the main calendar, or a calendar's unique ID (typically in email format like 'abc123@group.calendar.google.com'). IMPORTANT: This is NOT the calendar's display name/title - use googlecalendar.list_calendars to find the 'id' field for a calendar.",
+        "examples": ["primary", "c_abc123def456@group.calendar.google.com", "user@example.com"],
+        "human_parameter_description": "The unique identifier of the calendar to update. Use 'primary' for your main calendar, or the calendar's unique ID (found in calendar settings or via GOOGLECALENDAR_LIST_CALENDARS). WARNING: Do NOT use the calendar's display name/title here - the ID is typically in email format (e.g., 'abc123@group.calendar.google.com').",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "description": {
+        "description": "New description for the calendar.",
+        "human_parameter_description": "A short summary that describes what this calendar is for. Provide the text you want people to see when viewing the calendar.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "location": {
+        "description": "New geographic location of the calendar (e.g., 'Paris, France').",
+        "examples": ["Paris, France", "London"],
+        "human_parameter_description": "The city or place this calendar is associated with (for example, 'Paris, France'). This helps set context for the calendar's region; leave blank if you don't want to specify one.",
+        "human_parameter_name": "Location",
+        "title": "Location",
+        "type": "string"
+      },
+      "summary": {
+        "description": "New title for the calendar; cannot be an empty string when provided. At least one of summary, description, location, or timezone must be provided.",
+        "examples": ["Team Meetings", "Project Alpha Milestones"],
+        "human_parameter_description": "The new name of the calendar that will appear in Google Calendar. Choose something clear and recognizable, like 'Team Meetings'. Leave blank to keep the current title.",
+        "human_parameter_name": "Summary",
+        "title": "Summary",
+        "type": "string"
+      },
+      "timezone": {
+        "description": "New IANA Time Zone Database name for the calendar (e.g., 'Europe/Zurich', 'America/New_York'). Calendars duplicated via googlecalendar.duplicate_calendar may default to UTC; set the correct timezone explicitly after duplication.",
+        "examples": ["Europe/Zurich", "America/New_York", "Asia/Tokyo"],
+        "human_parameter_description": "The time zone you want the calendar to use (for example, 'America/New_York'). Pick the zone where most events happen so times show correctly.",
+        "human_parameter_name": "Timezone",
+        "title": "Timezone",
+        "type": "string"
+      }
+    },
+    "required": ["calendar_id"],
+    "title": "PatchCalendarRequest",
+    "type": "object"
+  },
+  "name": "patch_calendar",
+  "outputSchema": {
+    "$defs": {
+      "CalendarResource": {
+        "properties": {
+          "conferenceProperties": {
+            "$ref": "#/$defs/ConferenceProperties",
+            "description": "Conference-related settings for events in this calendar. Present when conference-related properties are configured or returned by the API.",
+            "title": "Conference Properties"
+          },
+          "description": {
+            "description": "Description of the calendar.",
+            "title": "Description",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the resource. Used for versioning and caching.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identifier of the calendar. Commonly an email address (e.g., primary calendars) or a unique opaque ID for secondary calendars.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "calendar#calendar",
+            "description": "Type of the resource. Always \"calendar#calendar\".",
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "description": "Geographic location of the calendar as free-form text.",
+            "title": "Location",
+            "type": "string"
+          },
+          "summary": {
+            "description": "Title of the calendar (display name).",
+            "title": "Summary",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "The calendar’s time zone, specified as an IANA time zone ID (e.g., \"America/Los_Angeles\").",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "etag", "id", "summary"],
+        "title": "CalendarResource",
+        "type": "object"
+      },
+      "ConferenceProperties": {
+        "properties": {
+          "allowedConferenceSolutionTypes": {
+            "description": "The types of conference solutions that are allowed for the calendar. If omitted, defaults may apply based on account/domain settings.",
+            "items": {
+              "enum": ["eventHangout", "eventNamedHangout", "hangoutsMeet"],
+              "type": "string"
+            },
+            "title": "Allowed Conference Solution Types",
+            "type": "array"
+          }
+        },
+        "required": ["allowedConferenceSolutionTypes"],
+        "title": "ConferenceProperties",
+        "type": "object"
+      },
+      "PatchCalendarResponse": {
+        "properties": {
+          "display_url": {
+            "description": "Direct URL to view this calendar in the Google Calendar web interface.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "response_data": {
+            "$ref": "#/$defs/CalendarResource",
+            "description": "Calendar resource returned by the Google Calendar API Calendars.patch method. Represents metadata for a calendar.",
+            "title": "Response Data"
+          }
+        },
+        "required": ["response_data"],
+        "title": "PatchCalendarResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/PatchCalendarResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

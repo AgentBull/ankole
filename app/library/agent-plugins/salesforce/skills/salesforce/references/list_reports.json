@@ -1,0 +1,82 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists reports with basic metadata including name, ID, and URLs. Note: the Analytics REST API (GET /analytics/reports) returns only up to ~200 recently-viewed reports, not the org's entire report catalog.",
+  "inputSchema": {
+    "properties": {},
+    "title": "ListReportsRequest",
+    "type": "object"
+  },
+  "name": "list_reports",
+  "outputSchema": {
+    "$defs": {
+      "ListReportsResponse": {
+        "description": "Response containing list of Salesforce reports.",
+        "properties": {
+          "reports": {
+            "description": "List of reports available in the Salesforce organization with metadata.",
+            "items": {
+              "$ref": "#/$defs/Report"
+            },
+            "title": "Reports",
+            "type": "array"
+          }
+        },
+        "required": ["reports"],
+        "title": "ListReportsResponse",
+        "type": "object"
+      },
+      "Report": {
+        "description": "Represents a Salesforce report with metadata from the Analytics REST API.",
+        "properties": {
+          "describeUrl": {
+            "description": "Resource URL to get the report metadata and describe information.",
+            "title": "Describe Url",
+            "type": "string"
+          },
+          "fieldsUrl": {
+            "description": "Resource URL to get the report fields metadata.",
+            "title": "Fields Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the report.",
+            "title": "Id",
+            "type": "string"
+          },
+          "instancesUrl": {
+            "description": "Resource URL to access report instances (asynchronous runs).",
+            "title": "Instances Url",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the report.",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "Resource URL to access and run the report synchronously.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "Report",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListReportsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,356 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve tickets modified since a specified start time using the incremental ticket export, and use the response's end_time for subsequent requests. The support type defaults to agent; select all to include other support types, and note that data from the most recent minute is not provided.",
+  "inputSchema": {
+    "description": "Request parameters for incremental ticket export.",
+    "properties": {
+      "per_page": {
+        "description": "Number of tickets to return per page (max 1000). Default varies by API tier.",
+        "examples": [100],
+        "human_parameter_description": "How many ticket records to return on each page. You can request up to 1000 per page. Use with next_page from previous response for pagination.",
+        "human_parameter_name": "Tickets Per Page",
+        "maximum": 1000,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "start_time": {
+        "description": "Unix timestamp (seconds since epoch) to start the incremental export from. Must be at least one minute in the past. Data isn't provided for the most recent minute. Use the end_time from a previous response for subsequent pagination.",
+        "examples": [1332034771],
+        "human_parameter_description": "The Unix timestamp (in seconds) marking where to start fetching incremental data. Must be at least one minute in the past. Use the end_time from a previous response to get the next batch of changes.",
+        "human_parameter_name": "Start Time",
+        "minimum": 0,
+        "title": "Start Time",
+        "type": "integer"
+      },
+      "support_type_scope": {
+        "default": "agent",
+        "description": "Filter tickets by support type. Possible values are 'all', 'agent', or 'ai_agent'. Defaults to 'agent'.",
+        "enum": ["all", "agent", "ai_agent"],
+        "examples": ["agent"],
+        "human_parameter_description": "Choose which type of tickets to include: 'agent' tickets (default), 'ai_agent' tickets, or 'all' tickets. Use 'ai_agent' to get AI Agent-generated tickets only.",
+        "human_parameter_name": "Support Type Scope",
+        "title": "Support Type Scope",
+        "type": "string"
+      }
+    },
+    "required": ["start_time"],
+    "title": "GetIncrementalTicketsRequest",
+    "type": "object"
+  },
+  "name": "get_incremental_tickets",
+  "outputSchema": {
+    "$defs": {
+      "GetIncrementalTicketsResponse": {
+        "description": "Response containing incrementally exported tickets.",
+        "properties": {
+          "count": {
+            "description": "Number of tickets in this response",
+            "title": "Count",
+            "type": "integer"
+          },
+          "end_of_stream": {
+            "description": "Whether this is the end of the incremental export stream",
+            "title": "End Of Stream",
+            "type": "boolean"
+          },
+          "end_time": {
+            "description": "Unix timestamp marking the end of this export window. Use this as the start_time for the next request to continue fetching changes.",
+            "title": "End Time",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for the next page of results. Use this to continue pagination if there are more records.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "tickets": {
+            "description": "List of ticket records",
+            "items": {
+              "$ref": "#/$defs/IncrementalZendeskTicket"
+            },
+            "title": "Tickets",
+            "type": "array"
+          }
+        },
+        "required": ["count", "end_of_stream", "tickets"],
+        "title": "GetIncrementalTicketsResponse",
+        "type": "object"
+      },
+      "IncrementalTicketCustomField": {
+        "description": "Custom field value in a ticket.",
+        "properties": {
+          "id": {
+            "description": "Custom field ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "Custom field value",
+            "title": "Value"
+          }
+        },
+        "title": "IncrementalTicketCustomField",
+        "type": "object"
+      },
+      "IncrementalTicketSatisfactionRating": {
+        "description": "Satisfaction rating for a ticket.",
+        "properties": {
+          "comment": {
+            "description": "Optional comment for the rating",
+            "title": "Comment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Satisfaction rating ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "score": {
+            "description": "Satisfaction score (good, bad, none)",
+            "title": "Score",
+            "type": "string"
+          }
+        },
+        "title": "IncrementalTicketSatisfactionRating",
+        "type": "object"
+      },
+      "IncrementalTicketVia": {
+        "description": "Via object describing how the ticket was created.",
+        "properties": {
+          "channel": {
+            "description": "Channel through which the ticket was created (web, email, api, etc.)",
+            "title": "Channel",
+            "type": "string"
+          }
+        },
+        "title": "IncrementalTicketVia",
+        "type": "object"
+      },
+      "IncrementalZendeskTicket": {
+        "description": "Zendesk ticket object from incremental export.",
+        "properties": {
+          "recipient": {
+            "description": "Email address of the ticket recipient",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "assignee_id": {
+            "description": "ID of the assigned agent",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "requester_id": {
+            "description": "ID of the user who requested support",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "url": {
+            "description": "API endpoint URL for this ticket",
+            "title": "Url",
+            "type": "string"
+          },
+          "problem_id": {
+            "description": "ID of the related problem ticket (for incident type)",
+            "title": "Problem Id",
+            "type": "integer"
+          },
+          "external_id": {
+            "description": "External ID linking to records in another system",
+            "title": "External Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp of the last update",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "has_incidents": {
+            "description": "Whether the ticket has related incidents",
+            "title": "Has Incidents",
+            "type": "boolean"
+          },
+          "collaborator_ids": {
+            "description": "IDs of users CC'd on the ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "group_id": {
+            "description": "ID of the assigned group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Ticket description/body",
+            "title": "Description",
+            "type": "string"
+          },
+          "submitter_id": {
+            "description": "ID of the user who submitted the ticket",
+            "title": "Submitter Id",
+            "type": "integer"
+          },
+          "tags": {
+            "description": "Tags associated with the ticket",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Timestamp when ticket was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "status": {
+            "description": "Ticket status (new, open, pending, hold, solved, closed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "priority": {
+            "description": "Ticket priority (urgent, high, normal, low)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "follower_ids": {
+            "description": "IDs of users following the ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Follower Ids",
+            "type": "array"
+          },
+          "type": {
+            "description": "Ticket type (problem, incident, question, task)",
+            "title": "Type",
+            "type": "string"
+          },
+          "raw_subject": {
+            "description": "Raw subject with dynamic content placeholders",
+            "title": "Raw Subject",
+            "type": "string"
+          },
+          "brand_id": {
+            "description": "ID of the brand associated with the ticket",
+            "title": "Brand Id",
+            "type": "integer"
+          },
+          "custom_fields": {
+            "description": "Custom field values",
+            "items": {
+              "$ref": "#/$defs/IncrementalTicketCustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "is_public": {
+            "description": "Whether the ticket is publicly visible",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "from_messaging_channel": {
+            "description": "Whether the ticket originated from a messaging channel",
+            "title": "From Messaging Channel",
+            "type": "boolean"
+          },
+          "ticket_form_id": {
+            "description": "ID of the ticket form used",
+            "title": "Ticket Form Id",
+            "type": "integer"
+          },
+          "due_at": {
+            "description": "Due date for task-type tickets",
+            "title": "Due At",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Ticket subject/title",
+            "title": "Subject",
+            "type": "string"
+          },
+          "custom_status_id": {
+            "description": "Custom status ID for the ticket",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique ticket identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "sharing_agreement_ids": {
+            "description": "IDs of sharing agreements for this ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sharing Agreement Ids",
+            "type": "array"
+          },
+          "satisfaction_rating": {
+            "$ref": "#/$defs/IncrementalTicketSatisfactionRating",
+            "description": "Satisfaction rating if provided",
+            "title": "Satisfaction Rating"
+          },
+          "via": {
+            "$ref": "#/$defs/IncrementalTicketVia",
+            "description": "How the ticket was created",
+            "title": "Via"
+          },
+          "generated_timestamp": {
+            "description": "Unix timestamp of when the ticket data was generated",
+            "title": "Generated Timestamp",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "ID of the requester's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id"],
+        "title": "IncrementalZendeskTicket",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetIncrementalTicketsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

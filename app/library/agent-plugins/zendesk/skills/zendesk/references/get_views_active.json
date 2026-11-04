@@ -1,0 +1,305 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List all active shared and personal views available in Zendesk. Use when you need to retrieve, audit, or present the view configuration in your Zendesk account. Views define how tickets are filtered, grouped, and displayed to agents. Supports filtering by access type (personal, shared, account), group membership, and sorting preferences.",
+  "inputSchema": {
+    "description": "Request parameters for listing active views.",
+    "properties": {
+      "access": {
+        "description": "Possible values for view access type.",
+        "enum": ["personal", "shared", "account"],
+        "examples": ["shared"],
+        "title": "ViewAccess",
+        "type": "string"
+      },
+      "group_id": {
+        "description": "Only views belonging to given group",
+        "examples": [4],
+        "title": "Group Id",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Page number for offset pagination. Zendesk returns up to 100 records per page.",
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of views per page for offset pagination (max 100).",
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort_by": {
+        "description": "Possible values for sorting views.",
+        "enum": ["alphabetical", "created_at", "updated_at"],
+        "examples": ["alphabetical"],
+        "title": "SortBy",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Possible values for sort order direction.",
+        "enum": ["asc", "desc"],
+        "examples": ["asc"],
+        "title": "SortOrder",
+        "type": "string"
+      }
+    },
+    "title": "GetViewsActiveRequest",
+    "type": "object"
+  },
+  "name": "get_views_active",
+  "outputSchema": {
+    "$defs": {
+      "Execution": {
+        "description": "Execution configuration for view display.",
+        "properties": {
+          "columns": {
+            "description": "Columns to display in the view",
+            "items": {
+              "$ref": "#/$defs/ExecutionColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "group": {
+            "$ref": "#/$defs/ExecutionGroup",
+            "description": "Grouping configuration",
+            "title": "Group"
+          },
+          "sort": {
+            "$ref": "#/$defs/ExecutionSort",
+            "description": "Sort configuration",
+            "title": "Sort"
+          }
+        },
+        "title": "Execution",
+        "type": "object"
+      },
+      "ExecutionColumn": {
+        "description": "Column configuration for view execution.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "Column identifier",
+            "title": "Id"
+          },
+          "title": {
+            "description": "Column title",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Column type",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "Column URL",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ExecutionColumn",
+        "type": "object"
+      },
+      "ExecutionGroup": {
+        "description": "Grouping configuration for view execution.",
+        "properties": {
+          "id": {
+            "description": "Grouping field identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "order": {
+            "description": "Grouping order",
+            "title": "Order",
+            "type": "string"
+          },
+          "title": {
+            "description": "Grouping field title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "ExecutionGroup",
+        "type": "object"
+      },
+      "ExecutionSort": {
+        "description": "Sort configuration for view execution.",
+        "properties": {
+          "id": {
+            "description": "Sort field identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "order": {
+            "description": "Sort order",
+            "title": "Order",
+            "type": "string"
+          },
+          "title": {
+            "description": "Sort field title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "ExecutionSort",
+        "type": "object"
+      },
+      "GetViewsActiveResponse": {
+        "description": "Response containing list of active Zendesk views.",
+        "properties": {
+          "count": {
+            "description": "Total number of active views",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "views": {
+            "description": "List of active views returned by the API",
+            "items": {
+              "$ref": "#/$defs/View"
+            },
+            "title": "Views",
+            "type": "array"
+          }
+        },
+        "required": ["views", "count"],
+        "title": "GetViewsActiveResponse",
+        "type": "object"
+      },
+      "Restriction": {
+        "description": "Restriction on view visibility.",
+        "properties": {
+          "id": {
+            "description": "Restriction identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Restriction type",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "Restriction",
+        "type": "object"
+      },
+      "View": {
+        "description": "Individual Zendesk view object.",
+        "properties": {
+          "active": {
+            "description": "Whether the view is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "conditions": {
+            "$ref": "#/$defs/ViewCondition",
+            "description": "Conditions that define when tickets match this view",
+            "title": "Conditions"
+          },
+          "created_at": {
+            "description": "Timestamp when the view was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether the view is a default view",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "View description",
+            "title": "Description",
+            "type": "string"
+          },
+          "execution": {
+            "$ref": "#/$defs/Execution",
+            "description": "Display configuration for the view",
+            "title": "Execution"
+          },
+          "id": {
+            "description": "Unique view ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "position": {
+            "description": "Position in the view order",
+            "title": "Position",
+            "type": "integer"
+          },
+          "restriction": {
+            "$ref": "#/$defs/Restriction",
+            "description": "Restriction on who can access the view",
+            "title": "Restriction"
+          },
+          "title": {
+            "description": "View title",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the view was last updated",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "title": "View",
+        "type": "object"
+      },
+      "ViewCondition": {
+        "description": "Condition object for view rules.",
+        "properties": {
+          "all": {
+            "description": "Conditions that must all be true for the view to match",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "All",
+            "type": "array"
+          },
+          "any": {
+            "description": "Conditions where any one must be true for the view to match",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Any",
+            "type": "array"
+          }
+        },
+        "title": "ViewCondition",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetViewsActiveResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -46,6 +46,7 @@ defmodule Ankole.Connectors.Access do
       {:ok,
        %{
          actor: actor,
+         return_to: applet_return_to(page.id, claims["job"]),
          read_only: claims["read_only"],
          deadline: System.monotonic_time(:millisecond) + remaining
        }}
@@ -56,6 +57,11 @@ defmodule Ankole.Connectors.Access do
   end
 
   def authorize(_), do: {:error, :unauthorized}
+
+  defp applet_return_to(page_id, %{"id" => job_id}),
+    do: AnkoleWeb.PodURL.page_path(page_id) <> "?" <> URI.encode_query(automation_job: job_id)
+
+  defp applet_return_to(page_id, _job), do: AnkoleWeb.PodURL.page_path(page_id)
 
   defp caller(%{"caller_uid" => nil}), do: {:ok, nil}
 

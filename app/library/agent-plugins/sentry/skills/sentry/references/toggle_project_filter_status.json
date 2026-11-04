@@ -1,0 +1,92 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates the status or configuration of a specific inbound data filter for a Sentry project; use `active` for most filters, or `subfilters` if `filter_id` is `legacy-browsers`.",
+  "inputSchema": {
+    "description": "Request to update an inbound data filter's status for a project.",
+    "properties": {
+      "active": {
+        "description": "Enable (`true`) or disable (`false`) the filter. Required if `filter_id` is not `legacy-browsers`; not used if `filter_id` is `legacy-browsers` (use `subfilters` then).",
+        "title": "Active",
+        "type": "boolean"
+      },
+      "filter_id": {
+        "description": "Identifier of the inbound data filter to update. Each `filter_id` has a specific behavior:\n- `browser-extensions`: Filters errors known to be caused by browser extensions.\n- `localhost`: Filters events originating from localhost (IPv4: `127.0.0.1`, IPv6: `::1`).\n- `filtered-transaction`: Filters transactions for health check and ping endpoints.\n- `web-crawlers`: Filters known web crawlers, as they may cause errors unlikely for normal users.\n- `legacy-browsers`: Filters known errors from legacy browsers (often providing less accurate context). Use `subfilters` to configure specific browsers for this filter.",
+        "examples": ["browser-extensions", "localhost", "legacy-browsers"],
+        "title": "Filter Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "ID or slug of the Sentry organization.",
+        "examples": ["my-org-slug", "123456"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "ID or slug of the Sentry project.",
+        "examples": ["my-project-slug", "789012"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      },
+      "subfilters": {
+        "description": "List of legacy browser subfilters to enable (unlisted ones will be disabled). Required and only used if `filter_id` is `legacy-browsers`.\nAvailable options:\n- `ie`: Internet Explorer (v11 and older)\n- `edge`: Edge (v18 and older, non-Chromium)\n- `safari`: Safari (v11 and older)\n- `firefox`: Firefox (v66 and older)\n- `chrome`: Chrome (v62 and older)\n- `opera`: Opera (v50 and older)\n- `android`: Android Browser (v3 and older)\n- `opera_mini`: Opera Mini (v34 and older)\nDeprecated options (still functional but may be removed in the future):\n- `ie_pre_9`: Internet Explorer (v8 and older)\n- `ie9`: Internet Explorer v9\n- `ie10`: Internet Explorer v10\n- `ie11`: Internet Explorer v11\n- `safari_pre_6`: Safari (v5 and older)\n- `opera_pre_15`: Opera (v14 and older)\n- `opera_mini_pre_8`: Opera Mini (v8 and older)\n- `android_pre_4`: Android Browser (v3 and older)\n- `edge_pre_79`: Edge (v18 and older, non-Chromium based)",
+        "examples": [
+          ["ie", "safari"],
+          ["chrome", "firefox", "opera_mini"]
+        ],
+        "items": {
+          "enum": [
+            "ie",
+            "edge",
+            "safari",
+            "firefox",
+            "chrome",
+            "opera",
+            "android",
+            "opera_mini",
+            "ie_pre_9",
+            "ie9",
+            "ie10",
+            "ie11",
+            "opera_pre_15",
+            "android_pre_4",
+            "safari_pre_6",
+            "opera_mini_pre_8",
+            "edge_pre_79"
+          ],
+          "title": "SubfiltersEnm",
+          "type": "string"
+        },
+        "title": "Subfilters",
+        "type": "array"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug", "filter_id"],
+    "title": "ToggleProjectFilterStatusRequest",
+    "type": "object"
+  },
+  "name": "toggle_project_filter_status",
+  "outputSchema": {
+    "$defs": {
+      "ToggleProjectFilterStatusResponse": {
+        "description": "Response for successful filter status update. Returns HTTP 204 No Content with no response body.",
+        "properties": {},
+        "title": "ToggleProjectFilterStatusResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ToggleProjectFilterStatusResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

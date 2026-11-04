@@ -1,0 +1,54 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List all tags associated with a specific Zendesk ticket. Use when you need to retrieve the tags assigned to a particular ticket for categorization, filtering, or reporting purposes.",
+  "inputSchema": {
+    "description": "Request parameters for listing tags on a specific Zendesk ticket.",
+    "properties": {
+      "ticket_id": {
+        "description": "The numeric ID of the ticket whose tags to retrieve. Must be a non-null integer. Obtain from zendesk.list_zendesk_tickets, zendesk.get_zendesk_ticket_by_id, or other ticket-related actions.",
+        "examples": [123456, 82],
+        "minimum": 1,
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "GetZendeskTicketsTagsRequest",
+    "type": "object"
+  },
+  "name": "get_zendesk_tickets_tags",
+  "outputSchema": {
+    "$defs": {
+      "GetZendeskTicketsTagsResponse": {
+        "description": "Response containing tags for a specific Zendesk ticket.",
+        "properties": {
+          "tags": {
+            "description": "An array of tag names associated with the ticket.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags"],
+        "title": "GetZendeskTicketsTagsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetZendeskTicketsTagsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a specific service hook from a Sentry project using its organization, project, and hook identifiers.",
+  "inputSchema": {
+    "description": "Defines the request parameters for deleting a service hook from a Sentry project.",
+    "properties": {
+      "hook_id": {
+        "description": "The unique identifier (GUID) of the service hook to be deleted from the specified project.",
+        "examples": ["f04dee70-c824-491e-9b0b-4708ac7368e5"],
+        "title": "Hook Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization to which the project and service hook belong.",
+        "examples": ["my-organization-slug", "acme-corp"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry project from which the service hook will be removed.",
+        "examples": ["my-project-slug", "frontend-app"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug", "hook_id"],
+    "title": "DeleteProjectHookRequest",
+    "type": "object"
+  },
+  "name": "delete_project_hook",
+  "outputSchema": {
+    "$defs": {
+      "DeleteProjectHookResponse": {
+        "description": "Response for deleting a project service hook. The API returns 204 No Content with no response body on success.",
+        "properties": {},
+        "title": "DeleteProjectHookResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteProjectHookResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

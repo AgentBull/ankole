@@ -1,0 +1,54 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to delete a workspace from your Typeform account. Use when you need to remove a workspace. Note: The default 'My Workspace' cannot be deleted, and workspaces containing forms cannot be deleted (will return an error).",
+  "inputSchema": {
+    "properties": {
+      "workspace_id": {
+        "description": "Unique workspace identifier. Note: Default 'My Workspace' cannot be deleted, and workspaces containing forms cannot be deleted.",
+        "examples": ["ucdZbu"],
+        "title": "Workspace Id",
+        "type": "string"
+      }
+    },
+    "required": ["workspace_id"],
+    "title": "DeleteWorkspaceRequest",
+    "type": "object"
+  },
+  "name": "delete_workspace",
+  "outputSchema": {
+    "$defs": {
+      "DeleteWorkspaceResponse": {
+        "properties": {
+          "message": {
+            "default": "Workspace deleted successfully",
+            "description": "Status message for the deletion operation",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "description": "Indicates successful deletion of the workspace",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "DeleteWorkspaceResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteWorkspaceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

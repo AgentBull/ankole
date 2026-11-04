@@ -1,0 +1,88 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to get all references (branches or tags) a commit is pushed to. Use when you need to find out which branches or tags a specific commit belongs to in a GitLab project.",
+  "inputSchema": {
+    "properties": {
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["123", "namespace/project-name"],
+        "title": "Project Id"
+      },
+      "ref_type": {
+        "default": "all",
+        "description": "The scope of commits to list. Possible values are `branch`, `tag`, or `all`.",
+        "enum": ["branch", "tag", "all"],
+        "examples": ["branch"],
+        "title": "Ref Type",
+        "type": "string"
+      },
+      "sha": {
+        "description": "The commit hash.",
+        "examples": ["a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"],
+        "title": "Sha",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "sha"],
+    "title": "GetCommitRefsRequest",
+    "type": "object"
+  },
+  "name": "get_commit_refs",
+  "outputSchema": {
+    "$defs": {
+      "CommitRef": {
+        "properties": {
+          "name": {
+            "description": "The name of the branch or tag.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of reference (e.g., \"branch\", \"tag\").",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "name"],
+        "title": "CommitRef",
+        "type": "object"
+      },
+      "GetCommitRefsResponse": {
+        "properties": {
+          "references": {
+            "description": "A list of references (branches or tags) the commit is pushed to.",
+            "items": {
+              "$ref": "#/$defs/CommitRef"
+            },
+            "title": "References",
+            "type": "array"
+          }
+        },
+        "title": "GetCommitRefsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCommitRefsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

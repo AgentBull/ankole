@@ -1,0 +1,103 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves details for the Trello board associated with a specific action ID, returning board information only.",
+  "inputSchema": {
+    "description": "Request schema for `GetActionsBoardByIdAction`",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Board fields to return: 'all', or a comma-separated list of field names. Allowed values: closed, dateLastActivity, dateLastView, desc, descData, idOrganization, invitations, invited, labelNames, memberships, name, pinned, powerUps, prefs, shortLink, shortUrl, starred, subscribed, url.",
+        "examples": ["all", "name,desc", "idOrganization,prefs,url"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idAction": {
+        "description": "ID of the Trello action to retrieve its associated board.",
+        "examples": ["5a9a7f8b9c0d1e2f3a4b5c6d"],
+        "title": "Id Action",
+        "type": "string"
+      }
+    },
+    "required": ["idAction"],
+    "title": "GetActionsBoardByIdActionRequest",
+    "type": "object"
+  },
+  "name": "get_actions_board_by_id_action",
+  "outputSchema": {
+    "$defs": {
+      "GetActionsBoardByIdActionResponse": {
+        "description": "Response schema for `GetActionsBoardByIdAction`",
+        "properties": {
+          "closed": {
+            "description": "Whether the board is closed.",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "desc": {
+            "description": "Description of the board.",
+            "title": "Desc",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the board.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "ID of the member who created the board.",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "idOrganization": {
+            "description": "ID of the organization the board belongs to.",
+            "title": "Id Organization",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the board.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pinned": {
+            "description": "Whether the board is pinned.",
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "prefs": {
+            "additionalProperties": true,
+            "description": "Board preferences and settings.",
+            "title": "Prefs",
+            "type": "object"
+          },
+          "shortUrl": {
+            "description": "Short URL of the board.",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "Full URL of the board.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "GetActionsBoardByIdActionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetActionsBoardByIdActionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

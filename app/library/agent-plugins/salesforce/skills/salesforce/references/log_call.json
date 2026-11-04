@@ -1,0 +1,219 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Logs a completed phone call as a task in Salesforce with call-specific details like duration, type, and disposition.",
+  "inputSchema": {
+    "properties": {
+      "call_date": {
+        "description": "Date of the call in YYYY-MM-DD format. Defaults to today if not specified.",
+        "examples": ["2025-08-28", "2025-09-01"],
+        "human_parameter_description": "The date the call happened (YYYY-MM-DD). Leave blank to use today’s date automatically.",
+        "human_parameter_name": "Call Date",
+        "title": "Call Date",
+        "type": "string"
+      },
+      "call_disposition": {
+        "default": "",
+        "description": "Outcome or result of the call. Restricted picklist — only org-configured values are accepted; unlisted values cause validation errors.",
+        "examples": ["Contact Made", "Left Message", "No Answer", "Busy", "Wrong Number", "Successful"],
+        "human_parameter_description": "What happened on the call. Use a clear outcome like 'Contact Made' or 'Left Message' to summarize the result.",
+        "human_parameter_name": "Call Disposition",
+        "title": "Call Disposition",
+        "type": "string"
+      },
+      "call_duration_seconds": {
+        "description": "Duration of the call in seconds.",
+        "examples": [300, 600, 1800],
+        "human_parameter_description": "How long the call lasted, in seconds. This helps measure talk time and reporting.",
+        "human_parameter_name": "Call Duration",
+        "title": "Call Duration Seconds",
+        "type": "integer"
+      },
+      "call_type": {
+        "default": "Outbound",
+        "description": "Standard Salesforce Task CallType values. This is a restricted picklist.",
+        "enum": ["Inbound", "Outbound", "Internal"],
+        "human_parameter_description": "How the call happened—Inbound, Outbound, or Internal. This is a restricted field that only accepts these three standard values.",
+        "human_parameter_name": "Call Type",
+        "title": "CallTypeEnum",
+        "type": "string"
+      },
+      "comments": {
+        "default": "",
+        "description": "Detailed notes or description of what was discussed during the call.",
+        "examples": [
+          "Discussed product features and pricing. Customer interested in premium plan.",
+          "Left voicemail about upcoming renewal.",
+          "Resolved technical issue with login. Customer satisfied."
+        ],
+        "human_parameter_description": "Notes about what was discussed and any next steps. Include enough detail so teammates understand the context.",
+        "human_parameter_name": "Comments",
+        "title": "Comments",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": "Dictionary of custom field API names and their values. Custom field names typically end with '__c' (e.g., 'Call_Outcome__c').",
+        "examples": [
+          {
+            "Call_Outcome__c": "Left Voicemail",
+            "Follow_Up_Required__c": true
+          },
+          {
+            "External_Call_ID__c": "CALL-12345"
+          }
+        ],
+        "human_parameter_description": "Provide custom Salesforce fields to store org-specific call data. Use the API field name (ending in '__c') as the key.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "subject": {
+        "default": "Call",
+        "description": "Subject line for the call log. Defaults to 'Call'.",
+        "examples": ["Call", "Follow-up Call", "Sales Call", "Support Call"],
+        "human_parameter_description": "A short title for the call log. Keep it descriptive so it’s easy to recognize on timelines and reports.",
+        "human_parameter_name": "Subject",
+        "title": "Subject",
+        "type": "string"
+      },
+      "what_id": {
+        "default": "",
+        "description": "ID of the related record (Account, Opportunity, Case, etc.) associated with the call.",
+        "examples": ["001XXXXXXXXXXXXXXX", "006XXXXXXXXXXXXXXX", "500XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The record this call is about (like an Account, Opportunity, or Case). Paste its Salesforce ID to attach the call to that record.",
+        "human_parameter_name": "What ID",
+        "title": "What Id",
+        "type": "string"
+      },
+      "who_id": {
+        "default": "",
+        "description": "ID of the Contact or Lead associated with the call. Invalid or non-existent IDs create orphaned or mislinked activity records.",
+        "examples": ["003XXXXXXXXXXXXXXX", "00QXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The person you spoke with. Paste the Salesforce Contact or Lead ID to link the call to their record for easy tracking.",
+        "human_parameter_name": "Who ID",
+        "title": "Who Id",
+        "type": "string"
+      }
+    },
+    "title": "LogCallRequest",
+    "type": "object"
+  },
+  "name": "log_call",
+  "outputSchema": {
+    "$defs": {
+      "ErrorDetail": {
+        "description": "Details about an error that occurred during the API call.",
+        "properties": {
+          "errorCode": {
+            "description": "A specific error code identifier indicating the type of error (e.g., 'MALFORMED_ID', 'FIELD_CUSTOM_VALIDATION_EXCEPTION', 'REQUIRED_FIELD_MISSING').",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "extendedErrorDetails": {
+            "description": "Additional detailed error information when available.",
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Extended Error Details",
+            "type": "array"
+          },
+          "fields": {
+            "description": "Array of field names that caused the error. Present when the error is related to specific field(s).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable error message describing the error details.",
+            "title": "Message",
+            "type": "string"
+          },
+          "statusCode": {
+            "description": "HTTP status code or Salesforce-specific status code associated with the error.",
+            "title": "Status Code",
+            "type": "string"
+          }
+        },
+        "required": ["errorCode", "message"],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "LogCallResponse": {
+        "description": "Response from Salesforce after creating a Task record for logging a call.",
+        "properties": {
+          "errors": {
+            "description": "Array of error objects containing details about any errors that occurred. Empty array when the operation is successful.",
+            "items": {
+              "$ref": "#/$defs/ErrorDetail"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The unique Salesforce ID of the newly created Task record. Returns an 18-character Salesforce record identifier when the call is successful. Null when the operation fails.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the API call was successful. Returns true when the Task record was created successfully, false otherwise.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "LogCallResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/LogCallResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

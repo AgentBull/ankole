@@ -80,7 +80,7 @@ defmodule AnkoleWeb.SpaController do
         if reusable_target_session?(params, target) and is_map(active_pod_session) do
           destination =
             if is_binary(target.console_return_to),
-              do: PodURL.site_origin(conn) <> target.console_return_to,
+              do: AnkoleWeb.SiteAdminConsole.url(conn, target.console_return_to),
               else: PodURL.origin(conn, tenant) <> target.return_to
 
           redirect(conn, external: destination)
@@ -133,7 +133,7 @@ defmodule AnkoleWeb.SpaController do
 
   defp redirect_pod_target(conn, %{console_return_to: console_return_to})
        when is_binary(console_return_to),
-       do: redirect(conn, external: PodURL.site_origin(conn) <> console_return_to)
+       do: redirect(conn, external: AnkoleWeb.SiteAdminConsole.url(conn, console_return_to))
 
   defp redirect_pod_target(conn, target), do: redirect(conn, to: target.return_to)
 

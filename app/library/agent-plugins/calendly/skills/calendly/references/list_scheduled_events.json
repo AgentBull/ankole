@@ -1,0 +1,469 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a list of scheduled Calendly events. Use when you need to view events for a specific user, organization, or group. Provide one scope parameter, or organization plus user or group to list that member's or group's events as an organization admin/owner. Use user alone for your own personal events.",
+  "inputSchema": {
+    "description": "Request model for retrieving a list of scheduled events.",
+    "properties": {
+      "count": {
+        "description": "Number of events to return per page. Must be a positive integer.",
+        "examples": [20, 50, 100],
+        "title": "Count",
+        "type": "integer"
+      },
+      "group": {
+        "description": "Full Calendly API URI of the group (team) whose events you want to list. MUST be a complete URI in the format 'https://api.calendly.com/groups/{uuid}'. Use alone with organization admin/owner or group admin privilege. Organization admins/owners can also provide `organization` to list this group's events within it.",
+        "examples": ["https://api.calendly.com/groups/abcdef12-3456-7890-abcd-ef1234567890"],
+        "title": "Group",
+        "type": "string"
+      },
+      "invitee_email": {
+        "description": "Return events that are scheduled with the invitee associated with this email address. This is a filter parameter and must be used together with one of the scope parameters (user, organization, or group).",
+        "examples": ["invitee@example.com"],
+        "title": "Invitee Email",
+        "type": "string"
+      },
+      "max_start_time": {
+        "description": "Include events with start times prior to this time. Must be in UTC format (ISO 8601).",
+        "examples": ["2024-12-31T23:59:59.999999Z"],
+        "title": "Max Start Time",
+        "type": "string"
+      },
+      "min_start_time": {
+        "description": "Include events with start times after this time. Must be in UTC format (ISO 8601).",
+        "examples": ["2024-01-01T00:00:00.000000Z"],
+        "title": "Min Start Time",
+        "type": "string"
+      },
+      "organization": {
+        "description": "Full Calendly API URI of the organization whose events you want to list. MUST be a complete URI in the format 'https://api.calendly.com/organizations/{uuid}'. Use alone for organization events, with `user` for that member's events, or with `group` for that group's events. Requires organization admin/owner privilege.",
+        "examples": ["https://api.calendly.com/organizations/abcdef12-3456-7890-abcd-ef1234567890"],
+        "title": "Organization",
+        "type": "string"
+      },
+      "page_token": {
+        "description": "Pagination token to retrieve a specific page of results. Use the 'next_page_token' from a previous response to get the next page.",
+        "title": "Page Token",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Order results by the specified field and direction. Format: 'field:direction'. Supported field: 'start_time'. Supported directions: 'asc' (ascending), 'desc' (descending).",
+        "examples": ["start_time:asc", "start_time:desc"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "status": {
+        "description": "Filter events by their status. Can be 'active' for active events or 'canceled' for canceled events.",
+        "enum": ["active", "canceled"],
+        "examples": ["active", "canceled"],
+        "title": "Status",
+        "type": "string"
+      },
+      "user": {
+        "description": "Full Calendly API URI of the user whose events you want to list. MUST be a complete URI in the format 'https://api.calendly.com/users/{uuid}'. Shortcuts like 'me' are NOT supported - use CALENDLY_GET_CURRENT_USER to get the user URI first. Use `user` alone for your own events. To list another user's events within your organization, also provide `organization` (requires organization admin/owner privilege).",
+        "examples": ["https://api.calendly.com/users/abcdef12-3456-7890-abcd-ef1234567890"],
+        "title": "User",
+        "type": "string"
+      }
+    },
+    "title": "ListScheduledEventsRequest",
+    "type": "object"
+  },
+  "name": "list_scheduled_events",
+  "outputSchema": {
+    "$defs": {
+      "CalendarEvent": {
+        "description": "Information about the event in the external calendar provider.",
+        "properties": {
+          "external_id": {
+            "description": "External calendar provider's event ID.",
+            "title": "External Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Calendar provider type (e.g., 'google', 'outlook').",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "CalendarEvent",
+        "type": "object"
+      },
+      "DialInNumber": {
+        "description": "Global dial-in number for virtual conference.",
+        "properties": {
+          "city": {
+            "description": "City for the dial-in number.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Country code for the dial-in number.",
+            "title": "Country",
+            "type": "string"
+          },
+          "country_name": {
+            "description": "Country name for the dial-in number.",
+            "title": "Country Name",
+            "type": "string"
+          },
+          "number": {
+            "description": "Dial-in phone number.",
+            "title": "Number",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of number (e.g., 'toll' or 'toll_free').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "DialInNumber",
+        "type": "object"
+      },
+      "Event": {
+        "description": "A scheduled event object.",
+        "properties": {
+          "booking_method": {
+            "description": "Method used to book the event (e.g., 'instant').",
+            "title": "Booking Method",
+            "type": "string"
+          },
+          "calendar_event": {
+            "$ref": "#/$defs/CalendarEvent",
+            "description": "Information about the event in the external calendar provider.",
+            "title": "Calendar Event"
+          },
+          "created_at": {
+            "description": "Timestamp when the event was created in ISO 8601 format (e.g., '2024-12-13T13:26:31.739208Z').",
+            "title": "Created At",
+            "type": "string"
+          },
+          "end_time": {
+            "description": "End time of the event in ISO 8601 format (e.g., '2025-01-06T17:30:00.000000Z').",
+            "title": "End Time",
+            "type": "string"
+          },
+          "event_guests": {
+            "description": "Array of guest email addresses added to the event.",
+            "items": {
+              "$ref": "#/$defs/EventGuest"
+            },
+            "title": "Event Guests",
+            "type": "array"
+          },
+          "event_memberships": {
+            "description": "Array of event host/member information.",
+            "items": {
+              "$ref": "#/$defs/EventMembership"
+            },
+            "title": "Event Memberships",
+            "type": "array"
+          },
+          "event_type": {
+            "description": "URI reference to the event type resource (e.g., 'https://api.calendly.com/event_types/GBGBDCAADAEDCRZ2').",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "invitees_counter": {
+            "$ref": "#/$defs/InviteesCounter",
+            "title": "Invitees Counter"
+          },
+          "location": {
+            "$ref": "#/$defs/Location",
+            "description": "Location details for the event, which can be physical or virtual meeting information.",
+            "title": "Location"
+          },
+          "meeting_notes_html": {
+            "description": "HTML formatted meeting notes.",
+            "title": "Meeting Notes Html",
+            "type": "string"
+          },
+          "meeting_notes_plain": {
+            "description": "Plain text meeting notes.",
+            "title": "Meeting Notes Plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the event (e.g., '15 Minute Meeting').",
+            "title": "Name",
+            "type": "string"
+          },
+          "start_time": {
+            "description": "Start time of the event in ISO 8601 format (e.g., '2025-01-06T17:00:00.000000Z').",
+            "title": "Start Time",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the event. Possible values: 'active' or 'canceled'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the event was last updated in ISO 8601 format.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Unique identifier URI for the scheduled event.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri",
+          "name",
+          "status",
+          "start_time",
+          "end_time",
+          "event_type",
+          "invitees_counter",
+          "created_at",
+          "updated_at",
+          "event_memberships",
+          "event_guests"
+        ],
+        "title": "Event",
+        "type": "object"
+      },
+      "EventGuest": {
+        "description": "Guest information for the event.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the guest was added in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address of the guest.",
+            "title": "Email",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the guest was last updated in ISO 8601 format.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["email", "created_at", "updated_at"],
+        "title": "EventGuest",
+        "type": "object"
+      },
+      "EventMembership": {
+        "description": "Event host/member information.",
+        "properties": {
+          "buffered_end_time": {
+            "description": "Event end time including any after-event buffer in ISO 8601 format.",
+            "title": "Buffered End Time",
+            "type": "string"
+          },
+          "buffered_start_time": {
+            "description": "Event start time including any before-event buffer in ISO 8601 format.",
+            "title": "Buffered Start Time",
+            "type": "string"
+          },
+          "user": {
+            "description": "URI reference to the Calendly user hosting the event.",
+            "title": "User",
+            "type": "string"
+          },
+          "user_email": {
+            "description": "Email address of the user hosting the event.",
+            "title": "User Email",
+            "type": "string"
+          },
+          "user_name": {
+            "description": "Name of the user hosting the event.",
+            "title": "User Name",
+            "type": "string"
+          }
+        },
+        "required": ["user"],
+        "title": "EventMembership",
+        "type": "object"
+      },
+      "InviteesCounter": {
+        "description": "Counts of invitees for the event.",
+        "properties": {
+          "active": {
+            "description": "Number of active invitees (not canceled).",
+            "title": "Active",
+            "type": "integer"
+          },
+          "limit": {
+            "description": "Maximum number of invitees allowed for the event.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total number of invitees that have scheduled for the event.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": ["total", "active", "limit"],
+        "title": "InviteesCounter",
+        "type": "object"
+      },
+      "ListScheduledEventsResponse": {
+        "description": "Response model containing the collection of scheduled events and pagination information.",
+        "properties": {
+          "collection": {
+            "description": "Array of scheduled event objects.",
+            "items": {
+              "$ref": "#/$defs/Event"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection", "pagination"],
+        "title": "ListScheduledEventsResponse",
+        "type": "object"
+      },
+      "Location": {
+        "description": "Location details for the event, which can be physical or virtual meeting information.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/LocationData",
+            "description": "Additional meeting data for virtual conferences.",
+            "title": "Data"
+          },
+          "join_url": {
+            "description": "URL to join the virtual meeting (e.g., Zoom or Google Meet link).",
+            "title": "Join Url",
+            "type": "string"
+          },
+          "location": {
+            "description": "Location details or address (e.g., 'Calendly Office').",
+            "title": "Location",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the location or meeting room.",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of location (e.g., 'physical', 'google_conference', 'zoom_conference', 'gotomeeting', 'microsoft_teams', 'custom').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "Location",
+        "type": "object"
+      },
+      "LocationData": {
+        "description": "Additional meeting data for virtual conferences.",
+        "properties": {
+          "extra": {
+            "$ref": "#/$defs/LocationExtra",
+            "description": "Extra meeting information.",
+            "title": "Extra"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "Meeting ID for the virtual conference (e.g., Zoom meeting ID).",
+            "title": "Id"
+          },
+          "password": {
+            "description": "Password for the virtual meeting.",
+            "title": "Password",
+            "type": "string"
+          },
+          "settings": {
+            "$ref": "#/$defs/LocationSettings",
+            "description": "Conference settings including dial-in numbers and other options.",
+            "title": "Settings"
+          }
+        },
+        "title": "LocationData",
+        "type": "object"
+      },
+      "LocationExtra": {
+        "description": "Extra meeting information.",
+        "properties": {
+          "intl_numbers_url": {
+            "description": "URL for international dial-in numbers.",
+            "title": "Intl Numbers Url",
+            "type": "string"
+          }
+        },
+        "title": "LocationExtra",
+        "type": "object"
+      },
+      "LocationSettings": {
+        "description": "Conference settings including dial-in numbers.",
+        "properties": {
+          "global_dial_in_numbers": {
+            "description": "Array of global dial-in numbers for the conference.",
+            "items": {
+              "$ref": "#/$defs/DialInNumber"
+            },
+            "title": "Global Dial In Numbers",
+            "type": "array"
+          }
+        },
+        "title": "LocationSettings",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination information for navigating through large result sets.",
+        "properties": {
+          "count": {
+            "description": "Number of events returned in the current page.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for the next page of results. Not present if this is the last page.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "next_page_token": {
+            "description": "Token to use for fetching the next page. Can be used with the page_token query parameter.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for the previous page of results. Not present if this is the first page.",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "previous_page_token": {
+            "description": "Token to use for fetching the previous page.",
+            "title": "Previous Page Token",
+            "type": "string"
+          }
+        },
+        "required": ["count"],
+        "title": "Pagination",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListScheduledEventsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

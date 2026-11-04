@@ -1,0 +1,141 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists projects accessible to the authenticated user, with filtering and pagination. Private or group projects may be omitted if access is insufficient; each request returns one page.",
+  "inputSchema": {
+    "properties": {
+      "archived": {
+        "description": "Limit by archived status.",
+        "title": "Archived",
+        "type": "boolean"
+      },
+      "id_after": {
+        "description": "Limit results to projects with IDs greater than the specified ID.",
+        "minimum": 1,
+        "title": "Id After",
+        "type": "integer"
+      },
+      "id_before": {
+        "description": "Limit results to projects with IDs less than the specified ID.",
+        "minimum": 1,
+        "title": "Id Before",
+        "type": "integer"
+      },
+      "membership": {
+        "description": "Limit by projects that the current user is a member of.",
+        "title": "Membership",
+        "type": "boolean"
+      },
+      "min_access_level": {
+        "description": "Limit by current user minimal role (access_level).",
+        "minimum": 0,
+        "title": "Min Access Level",
+        "type": "integer"
+      },
+      "order_by": {
+        "description": "Return projects ordered by this field. Default is 'created_at'.",
+        "enum": ["id", "name", "path", "created_at", "updated_at", "star_count", "last_activity_at"],
+        "title": "Order By",
+        "type": "string"
+      },
+      "owned": {
+        "description": "Limit by projects explicitly owned by the current user.",
+        "title": "Owned",
+        "type": "boolean"
+      },
+      "page": {
+        "description": "Page number for pagination. Iterate incrementally until an empty result is returned to retrieve a complete project inventory.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of items per page (1-100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "search": {
+        "description": "Return list of projects matching search criteria (case-insensitive substring).",
+        "title": "Search",
+        "type": "string"
+      },
+      "simple": {
+        "description": "Return only limited fields for each project.",
+        "title": "Simple",
+        "type": "boolean"
+      },
+      "sort": {
+        "description": "Return projects sorted in 'asc' or 'desc' order. Default is 'desc'.",
+        "enum": ["asc", "desc"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "starred": {
+        "description": "Limit by projects starred by the current user.",
+        "title": "Starred",
+        "type": "boolean"
+      },
+      "statistics": {
+        "description": "Include project statistics. Available to Reporter role and above.",
+        "title": "Statistics",
+        "type": "boolean"
+      },
+      "visibility": {
+        "description": "Limit by project visibility.",
+        "enum": ["private", "internal", "public"],
+        "title": "Visibility",
+        "type": "string"
+      },
+      "with_custom_attributes": {
+        "description": "Include custom attributes in response (admin only).",
+        "title": "With Custom Attributes",
+        "type": "boolean"
+      },
+      "with_issues_enabled": {
+        "description": "Limit by enabled issues feature.",
+        "title": "With Issues Enabled",
+        "type": "boolean"
+      },
+      "with_merge_requests_enabled": {
+        "description": "Limit by enabled merge requests feature.",
+        "title": "With Merge Requests Enabled",
+        "type": "boolean"
+      },
+      "with_programming_language": {
+        "description": "Limit by projects which use the given programming language.",
+        "title": "With Programming Language",
+        "type": "string"
+      }
+    },
+    "title": "GetProjectsRequest",
+    "type": "object"
+  },
+  "name": "get_projects",
+  "outputSchema": {
+    "$defs": {
+      "GetProjectsResponse": {
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "GetProjectsResponse",
+        "type": "array"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetProjectsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

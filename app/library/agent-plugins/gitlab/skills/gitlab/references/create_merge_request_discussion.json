@@ -1,0 +1,492 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a replyable merge request discussion on the overview or a diff position. For added lines supply new_line only; for removed lines supply old_line only; for unchanged lines supply both. Use line_range for multiline comments.",
+  "inputSchema": {
+    "properties": {
+      "body": {
+        "description": "Content of the new discussion thread.",
+        "title": "Body",
+        "type": "string"
+      },
+      "commit_id": {
+        "description": "Commit SHA to start this discussion on.",
+        "title": "Commit Id",
+        "type": "string"
+      },
+      "created_at": {
+        "description": "ISO 8601 creation timestamp; requires administrator or project/group owner rights.",
+        "title": "Created At",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespaced project path.",
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Project-local IID of the merge request.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "position": {
+        "additionalProperties": true,
+        "description": "Diff position; use the latest merge request version's base/head/start SHAs. Omit for an overview thread.",
+        "properties": {
+          "base_sha": {
+            "description": "Base commit SHA in the source branch.",
+            "title": "Base Sha",
+            "type": "string"
+          },
+          "head_sha": {
+            "description": "Merge request HEAD commit SHA.",
+            "title": "Head Sha",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height for an image diff note.",
+            "title": "Height",
+            "type": "integer"
+          },
+          "line_range": {
+            "additionalProperties": true,
+            "description": "Range for a multiline diff comment.",
+            "properties": {
+              "end": {
+                "additionalProperties": true,
+                "description": "Ending line of a multiline diff comment.",
+                "properties": {
+                  "line_code": {
+                    "description": "GitLab line code: filename SHA1_old_new.",
+                    "title": "Line Code",
+                    "type": "string"
+                  },
+                  "new_line": {
+                    "description": "Line number after the change.",
+                    "title": "New Line",
+                    "type": "integer"
+                  },
+                  "old_line": {
+                    "description": "Line number before the change.",
+                    "title": "Old Line",
+                    "type": "integer"
+                  },
+                  "type": {
+                    "description": "Use new for added lines, otherwise old.",
+                    "enum": ["new", "old"],
+                    "title": "Type",
+                    "type": "string"
+                  }
+                },
+                "required": ["line_code", "type"],
+                "title": "DiscussionRangeLine",
+                "type": "object"
+              },
+              "start": {
+                "additionalProperties": true,
+                "description": "Starting line of a multiline diff comment.",
+                "properties": {
+                  "line_code": {
+                    "description": "GitLab line code: filename SHA1_old_new.",
+                    "title": "Line Code",
+                    "type": "string"
+                  },
+                  "new_line": {
+                    "description": "Line number after the change.",
+                    "title": "New Line",
+                    "type": "integer"
+                  },
+                  "old_line": {
+                    "description": "Line number before the change.",
+                    "title": "Old Line",
+                    "type": "integer"
+                  },
+                  "type": {
+                    "description": "Use new for added lines, otherwise old.",
+                    "enum": ["new", "old"],
+                    "title": "Type",
+                    "type": "string"
+                  }
+                },
+                "required": ["line_code", "type"],
+                "title": "DiscussionRangeLine",
+                "type": "object"
+              }
+            },
+            "title": "DiscussionLineRange",
+            "type": "object"
+          },
+          "new_line": {
+            "description": "Text diff line after the change.",
+            "title": "New Line",
+            "type": "integer"
+          },
+          "new_path": {
+            "description": "File path after the change.",
+            "title": "New Path",
+            "type": "string"
+          },
+          "old_line": {
+            "description": "Text diff line before the change.",
+            "title": "Old Line",
+            "type": "integer"
+          },
+          "old_path": {
+            "description": "File path before the change.",
+            "title": "Old Path",
+            "type": "string"
+          },
+          "position_type": {
+            "description": "Type of position reference: text, image, or file.",
+            "enum": ["text", "image", "file"],
+            "title": "Position Type",
+            "type": "string"
+          },
+          "start_sha": {
+            "description": "Commit SHA in the target branch.",
+            "title": "Start Sha",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width for an image diff note.",
+            "title": "Width",
+            "type": "integer"
+          },
+          "x": {
+            "description": "Image diff note X coordinate.",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Image diff note Y coordinate.",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": ["base_sha", "head_sha", "start_sha", "position_type"],
+        "title": "CreateDiscussionPosition",
+        "type": "object"
+      }
+    },
+    "required": ["id", "merge_request_iid", "body"],
+    "title": "CreateMergeRequestDiscussionRequest",
+    "type": "object"
+  },
+  "name": "create_merge_request_discussion",
+  "outputSchema": {
+    "$defs": {
+      "CreateMergeRequestDiscussionResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "description": "Created discussion ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "individual_note": {
+            "description": "Whether this discussion represents an individual note.",
+            "title": "Individual Note",
+            "type": "boolean"
+          },
+          "notes": {
+            "description": "Notes belonging to the created discussion.",
+            "items": {
+              "$ref": "#/$defs/CreatedDiscussionNote"
+            },
+            "title": "Notes",
+            "type": "array"
+          }
+        },
+        "required": ["id"],
+        "title": "CreateMergeRequestDiscussionResponse",
+        "type": "object"
+      },
+      "CreatedDiscussionNote": {
+        "additionalProperties": true,
+        "properties": {
+          "attachment": {
+            "description": "Attachment URL, when present.",
+            "title": "Attachment",
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/$defs/MergeRequestNoteAuthor",
+            "description": "Note author.",
+            "title": "Author"
+          },
+          "body": {
+            "description": "Note content.",
+            "title": "Body",
+            "type": "string"
+          },
+          "commit_id": {
+            "description": "Associated commit SHA.",
+            "title": "Commit Id",
+            "type": "string"
+          },
+          "confidential": {
+            "description": "Whether the note is confidential.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Created note or emoji reaction ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "internal": {
+            "description": "Whether the note is internal.",
+            "title": "Internal",
+            "type": "boolean"
+          },
+          "noteable_id": {
+            "description": "Merge request's global numeric ID as a precision-preserving decimal string.",
+            "title": "Noteable Id",
+            "type": "string"
+          },
+          "noteable_iid": {
+            "description": "Merge request's project-local IID.",
+            "title": "Noteable Iid",
+            "type": "integer"
+          },
+          "noteable_type": {
+            "description": "Type of the note's resource.",
+            "title": "Noteable Type",
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/$defs/DiscussionPosition",
+            "description": "Stored diff position.",
+            "title": "Position"
+          },
+          "project_id": {
+            "description": "Project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "resolvable": {
+            "description": "Whether the note can be resolved.",
+            "title": "Resolvable",
+            "type": "boolean"
+          },
+          "resolved": {
+            "description": "Whether the note is resolved.",
+            "title": "Resolved",
+            "type": "boolean"
+          },
+          "system": {
+            "description": "Whether this is a system note.",
+            "title": "System",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "Note type, such as DiscussionNote or DiffNote.",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "CreatedDiscussionNote",
+        "type": "object"
+      },
+      "DiscussionLineRange": {
+        "additionalProperties": true,
+        "properties": {
+          "end": {
+            "$ref": "#/$defs/DiscussionRangeLine",
+            "description": "Ending line of a multiline diff comment.",
+            "title": "End"
+          },
+          "start": {
+            "$ref": "#/$defs/DiscussionRangeLine",
+            "description": "Starting line of a multiline diff comment.",
+            "title": "Start"
+          }
+        },
+        "title": "DiscussionLineRange",
+        "type": "object"
+      },
+      "DiscussionPosition": {
+        "additionalProperties": true,
+        "properties": {
+          "base_sha": {
+            "description": "Base commit SHA in the source branch.",
+            "title": "Base Sha",
+            "type": "string"
+          },
+          "head_sha": {
+            "description": "Merge request HEAD commit SHA.",
+            "title": "Head Sha",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height for an image diff note.",
+            "title": "Height",
+            "type": "integer"
+          },
+          "line_range": {
+            "$ref": "#/$defs/DiscussionLineRange",
+            "description": "Range for a multiline diff comment.",
+            "title": "Line Range"
+          },
+          "new_line": {
+            "description": "Text diff line after the change.",
+            "title": "New Line",
+            "type": "integer"
+          },
+          "new_path": {
+            "description": "File path after the change.",
+            "title": "New Path",
+            "type": "string"
+          },
+          "old_line": {
+            "description": "Text diff line before the change.",
+            "title": "Old Line",
+            "type": "integer"
+          },
+          "old_path": {
+            "description": "File path before the change.",
+            "title": "Old Path",
+            "type": "string"
+          },
+          "position_type": {
+            "description": "Type of position reference.",
+            "enum": ["text", "image", "file"],
+            "title": "Position Type",
+            "type": "string"
+          },
+          "start_sha": {
+            "description": "Commit SHA in the target branch.",
+            "title": "Start Sha",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width for an image diff note.",
+            "title": "Width",
+            "type": "integer"
+          },
+          "x": {
+            "description": "Image diff note X coordinate.",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Image diff note Y coordinate.",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "title": "DiscussionPosition",
+        "type": "object"
+      },
+      "DiscussionRangeLine": {
+        "additionalProperties": true,
+        "properties": {
+          "line_code": {
+            "description": "GitLab line code: filename SHA1_old_new.",
+            "title": "Line Code",
+            "type": "string"
+          },
+          "new_line": {
+            "description": "Line number after the change.",
+            "title": "New Line",
+            "type": "integer"
+          },
+          "old_line": {
+            "description": "Line number before the change.",
+            "title": "Old Line",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Use new for added lines, otherwise old.",
+            "enum": ["new", "old"],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["line_code", "type"],
+        "title": "DiscussionRangeLine",
+        "type": "object"
+      },
+      "MergeRequestNoteAuthor": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Author's avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "User creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Author's email, when returned.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Author's user ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Author's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Author's username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Author's profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "MergeRequestNoteAuthor",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateMergeRequestDiscussionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

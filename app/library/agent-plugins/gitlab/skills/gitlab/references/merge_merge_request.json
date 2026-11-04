@@ -1,0 +1,209 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Merge a GitLab merge request immediately or enable auto-merge when checks pass. A successful merge is irreversible, and should_remove_source_branch can also delete the source branch.",
+  "inputSchema": {
+    "properties": {
+      "auto_merge": {
+        "description": "If true, merge automatically when all required checks pass.",
+        "title": "Auto Merge",
+        "type": "boolean"
+      },
+      "merge_commit_message": {
+        "description": "Custom message for the merge commit.",
+        "title": "Merge Commit Message",
+        "type": "string"
+      },
+      "merge_request_iid": {
+        "description": "The internal ID of the merge request to merge.",
+        "examples": [42],
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The numeric ID or namespace path of the project.",
+        "examples": [123, "my-group/my-project"],
+        "title": "Project Id"
+      },
+      "sha": {
+        "description": "Expected HEAD SHA of the source branch. The merge fails if the current HEAD differs.",
+        "examples": ["2d5c7e8a1b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e"],
+        "title": "Sha",
+        "type": "string"
+      },
+      "should_remove_source_branch": {
+        "description": "If true, remove the source branch after the merge.",
+        "title": "Should Remove Source Branch",
+        "type": "boolean"
+      },
+      "squash": {
+        "description": "If true, squash all commits into one commit when merging.",
+        "title": "Squash",
+        "type": "boolean"
+      },
+      "squash_commit_message": {
+        "description": "Custom message for the squash commit.",
+        "title": "Squash Commit Message",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "merge_request_iid"],
+    "title": "MergeMergeRequestRequest",
+    "type": "object"
+  },
+  "name": "merge_merge_request",
+  "outputSchema": {
+    "$defs": {
+      "MergeMergeRequestResponse": {
+        "properties": {
+          "merge_request": {
+            "$ref": "#/$defs/MergedMergeRequest",
+            "description": "The merged merge request or its updated auto-merge state.",
+            "title": "Merge Request"
+          }
+        },
+        "required": ["merge_request"],
+        "title": "MergeMergeRequestResponse",
+        "type": "object"
+      },
+      "MergeRequestUser": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "description": "GitLab user ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the user.",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the user.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "URL of the user's profile.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "MergeRequestUser",
+        "type": "object"
+      },
+      "MergedMergeRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "detailed_merge_status": {
+            "description": "Detailed mergeability status reported by GitLab.",
+            "title": "Detailed Merge Status",
+            "type": "string"
+          },
+          "id": {
+            "description": "Global ID of the merge request.",
+            "title": "Id",
+            "type": "string"
+          },
+          "iid": {
+            "description": "Project-scoped internal ID of the merge request.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "merge_commit_sha": {
+            "description": "SHA of the resulting merge commit, when available.",
+            "title": "Merge Commit Sha",
+            "type": "string"
+          },
+          "merge_user": {
+            "$ref": "#/$defs/MergeRequestUser",
+            "description": "User who merged or configured auto-merge for the request.",
+            "title": "Merge User"
+          },
+          "merged_at": {
+            "description": "Timestamp when the merge request was merged.",
+            "format": "date-time",
+            "title": "Merged At",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "ID of the target project.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sha": {
+            "description": "HEAD SHA of the merge request source branch.",
+            "title": "Sha",
+            "type": "string"
+          },
+          "should_remove_source_branch": {
+            "description": "Whether the source branch is configured for removal.",
+            "title": "Should Remove Source Branch",
+            "type": "boolean"
+          },
+          "source_branch": {
+            "description": "Name of the source branch.",
+            "title": "Source Branch",
+            "type": "string"
+          },
+          "squash": {
+            "description": "Whether commits are configured to be squashed.",
+            "title": "Squash",
+            "type": "boolean"
+          },
+          "squash_commit_sha": {
+            "description": "SHA of the resulting squash commit, when available.",
+            "title": "Squash Commit Sha",
+            "type": "string"
+          },
+          "state": {
+            "description": "Current merge request state.",
+            "title": "State",
+            "type": "string"
+          },
+          "target_branch": {
+            "description": "Name of the target branch.",
+            "title": "Target Branch",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title of the merge request.",
+            "title": "Title",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Web URL of the merge request.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "iid", "project_id", "state"],
+        "title": "MergedMergeRequest",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/MergeMergeRequestResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

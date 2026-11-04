@@ -1,0 +1,155 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List audience configurations for a Google Analytics property; audiences created before 2020 may not be supported. Returned filter clauses include their types but not the full membership criteria.",
+  "inputSchema": {
+    "description": "Request model for listing Audiences on a property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. The maximum number of resources to return. If unspecified, at most 50 resources will be returned. The maximum value is 200",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous ListAudiences call. Provide this to retrieve the subsequent page",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The property for which to list Audiences. Format: properties/{propertyId} Scoped to a single property per call; invoke separately for each property to list audiences across multiple GA4 properties.",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListAudiencesRequest",
+    "type": "object"
+  },
+  "name": "list_audiences",
+  "outputSchema": {
+    "$defs": {
+      "Audience": {
+        "description": "Schema for an Audience resource.",
+        "properties": {
+          "adsPersonalizationEnabled": {
+            "description": "Output only. Whether this Audience is eligible for ads personalization",
+            "title": "Ads Personalization Enabled",
+            "type": "boolean"
+          },
+          "createTime": {
+            "description": "Output only. Time when the Audience was created in RFC 3339 format",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "description": {
+            "description": "Required. The description of the Audience",
+            "title": "Description",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Required. The display name of the Audience",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "eventTrigger": {
+            "$ref": "#/$defs/AudienceEventTrigger",
+            "description": "Optional. Specifies an event to log when a user joins the Audience",
+            "title": "Event Trigger"
+          },
+          "exclusionDurationMode": {
+            "description": "Immutable. Specifies how long an exclusion lasts. Values: EXCLUDE_TEMPORARILY, EXCLUDE_PERMANENTLY",
+            "title": "Exclusion Duration Mode",
+            "type": "string"
+          },
+          "filterClauses": {
+            "description": "Immutable. Defines the conditions for a user to be part of the Audience",
+            "items": {
+              "$ref": "#/$defs/AudienceFilterClause"
+            },
+            "title": "Filter Clauses",
+            "type": "array"
+          },
+          "membershipDurationDays": {
+            "description": "Immutable. The duration a user should stay in an Audience. Maximum value is 540 days",
+            "title": "Membership Duration Days",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Output only. The resource name for this Audience resource. Format: properties/{propertyId}/audiences/{audienceId}",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "Audience",
+        "type": "object"
+      },
+      "AudienceEventTrigger": {
+        "description": "Schema for event trigger configuration within an audience.",
+        "properties": {
+          "eventName": {
+            "description": "The event name to be logged when the audience state changes",
+            "title": "Event Name",
+            "type": "string"
+          },
+          "logCondition": {
+            "description": "The condition when the event should be logged. Values: AUDIENCE_JOINED, AUDIENCE_MEMBERSHIP_RENEWED",
+            "title": "Log Condition",
+            "type": "string"
+          }
+        },
+        "title": "AudienceEventTrigger",
+        "type": "object"
+      },
+      "AudienceFilterClause": {
+        "description": "Schema for filter clauses defining audience membership criteria.",
+        "properties": {
+          "clauseType": {
+            "description": "The type of filter clause",
+            "title": "Clause Type",
+            "type": "string"
+          }
+        },
+        "title": "AudienceFilterClause",
+        "type": "object"
+      },
+      "ListAudiencesResponse": {
+        "description": "Response model for listing Audiences.",
+        "properties": {
+          "audiences": {
+            "description": "List of Audience resources",
+            "items": {
+              "$ref": "#/$defs/Audience"
+            },
+            "title": "Audiences",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "A token for retrieving the next page of results. Omitted if no subsequent pages exist",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "ListAudiencesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListAudiencesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

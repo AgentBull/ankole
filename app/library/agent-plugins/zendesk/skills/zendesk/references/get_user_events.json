@@ -1,0 +1,158 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve event history for a specific Zendesk user. Use when you need to track user activity such as login history, profile changes, or other interactions with the Zendesk system. Supports filtering by event source, type, and time range. This action is read-only and idempotent. Note: The 'zendesk' source value is protected; attempts to use it when creating events result in an error.",
+  "inputSchema": {
+    "description": "Request parameters for retrieving events for a specific Zendesk user.",
+    "properties": {
+      "filter_end_time": {
+        "description": "Include events equal to or before the specified created_at time. Use ISO 8601 format (e.g., '2023-12-31T23:59:59Z').",
+        "examples": ["2023-12-31T23:59:59Z"],
+        "human_parameter_description": "Only show events created at or before this UTC timestamp. Use ISO 8601 format like 2023-12-31T23:59:59Z.",
+        "human_parameter_name": "End Time Filter",
+        "title": "Filter End Time",
+        "type": "string"
+      },
+      "filter_source": {
+        "description": "Include events from the specified source application. Examples: 'web', 'mobile', 'api', etc. Check your Zendesk configuration for available sources.",
+        "examples": ["web"],
+        "human_parameter_description": "Filter events by the source application that created them. Examples include 'web', 'mobile', 'api', or custom integrations.",
+        "human_parameter_name": "Event Source Filter",
+        "title": "Filter Source",
+        "type": "string"
+      },
+      "filter_start_time": {
+        "description": "Include events equal to or later than the specified created_at time. Use ISO 8601 format (e.g., '2023-01-01T00:00:00Z').",
+        "examples": ["2023-01-01T00:00:00Z"],
+        "human_parameter_description": "Only show events created at or after this UTC timestamp. Use ISO 8601 format like 2023-01-01T00:00:00Z.",
+        "human_parameter_name": "Start Time Filter",
+        "title": "Filter Start Time",
+        "type": "string"
+      },
+      "filter_type": {
+        "description": "Include events of the specified type for the given event source. The filter_source parameter must be included when using this parameter.",
+        "examples": ["login"],
+        "human_parameter_description": "Filter events by type. Only works when a source filter is also provided. Example: 'login' events from the 'web' source.",
+        "human_parameter_name": "Event Type Filter",
+        "title": "Filter Type",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Number of events to include per page (max 100).",
+        "examples": [25],
+        "human_parameter_description": "How many event records to show per page. Maximum is 100.",
+        "human_parameter_name": "Page Size",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "user_id": {
+        "description": "The numeric ID of the Zendesk user whose events to retrieve. This is the user ID found in ticket payloads (requester_id, submitter_id, assignee_id, author_id) or from the Users API.",
+        "examples": [26923127464348],
+        "human_parameter_description": "The numeric ID of the Zendesk user. You can find this ID in ticket payloads or retrieve it from the Users API.",
+        "human_parameter_name": "User ID",
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id"],
+    "title": "GetUserEventsRequest",
+    "type": "object"
+  },
+  "name": "get_user_events",
+  "outputSchema": {
+    "$defs": {
+      "EventProperties": {
+        "description": "Custom JSON object containing event-specific details.",
+        "properties": {
+          "extra": {
+            "additionalProperties": true,
+            "description": "Additional event properties as key-value pairs. The structure varies by event type and source.",
+            "title": "Extra",
+            "type": "object"
+          }
+        },
+        "title": "EventProperties",
+        "type": "object"
+      },
+      "GetUserEventsResponse": {
+        "description": "Response containing events for a specific Zendesk user.",
+        "properties": {
+          "count": {
+            "description": "Total count of events matching the filter criteria",
+            "title": "Count",
+            "type": "integer"
+          },
+          "events": {
+            "description": "List of user events returned by the API",
+            "items": {
+              "$ref": "#/$defs/ZendeskUserEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          }
+        },
+        "required": ["events"],
+        "title": "GetUserEventsResponse",
+        "type": "object"
+      },
+      "ZendeskUserEvent": {
+        "description": "A single user event object.",
+        "properties": {
+          "created_at": {
+            "description": "ISO-8601 timestamp when the event was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Human-readable description of the event",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the event",
+            "title": "Id",
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/$defs/EventProperties",
+            "description": "Custom JSON object with event-specific details. Structure varies by event type and source.",
+            "title": "Properties"
+          },
+          "received_at": {
+            "description": "ISO-8601 timestamp when Zendesk received the event",
+            "title": "Received At",
+            "type": "string"
+          },
+          "source": {
+            "description": "Application that sent the event (e.g., 'web', 'mobile', 'api')",
+            "title": "Source",
+            "type": "string"
+          },
+          "type": {
+            "description": "Event name/type (e.g., 'login', 'logout', 'profile_update')",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "ZendeskUserEvent",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUserEventsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

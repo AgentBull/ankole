@@ -1,0 +1,376 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a Salesforce account by ID and returns the fields represented in the account response schema.",
+  "inputSchema": {
+    "properties": {
+      "account_id": {
+        "description": "The Salesforce ID of the account to retrieve.",
+        "examples": ["001Wd00000BSLklIAH", "001XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce ID of the account you want to retrieve. You can copy it from the account's URL in Salesforce (it usually starts with '001').",
+        "human_parameter_name": "Account ID",
+        "title": "Account Id",
+        "type": "string"
+      }
+    },
+    "required": ["account_id"],
+    "title": "GetAccountRequest",
+    "type": "object"
+  },
+  "name": "get_account",
+  "outputSchema": {
+    "$defs": {
+      "AccountAttributes": {
+        "description": "Metadata object containing the Salesforce object type and resource URL.",
+        "properties": {
+          "type": {
+            "description": "The Salesforce object type, always 'Account' for Account records.",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The REST API resource URL for this specific Account record.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "AccountAttributes",
+        "type": "object"
+      },
+      "AddressCompound": {
+        "description": "Compound address field structure.",
+        "properties": {
+          "city": {
+            "description": "City component.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Country component.",
+            "title": "Country",
+            "type": "string"
+          },
+          "geocodeAccuracy": {
+            "description": "Accuracy level of the geocode.",
+            "title": "Geocode Accuracy",
+            "type": "string"
+          },
+          "latitude": {
+            "description": "Latitude coordinate.",
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "description": "Longitude coordinate.",
+            "title": "Longitude",
+            "type": "number"
+          },
+          "postalCode": {
+            "description": "Postal code component.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State component.",
+            "title": "State",
+            "type": "string"
+          },
+          "street": {
+            "description": "Street address component.",
+            "title": "Street",
+            "type": "string"
+          }
+        },
+        "title": "AddressCompound",
+        "type": "object"
+      },
+      "GetAccountResponse": {
+        "description": "Salesforce Account record with all standard fields.",
+        "properties": {
+          "Website": {
+            "description": "The website of this account, for example, www.acme.com.",
+            "title": "Website",
+            "type": "string"
+          },
+          "IsDeleted": {
+            "description": "Indicates whether the Account has been moved to the Recycle Bin (true) or not (false).",
+            "title": "Is Deleted",
+            "type": "boolean"
+          },
+          "AccountNumber": {
+            "description": "Account number assigned to this account (not the unique ID).",
+            "title": "Account Number",
+            "type": "string"
+          },
+          "BillingAddress": {
+            "$ref": "#/$defs/AddressCompound",
+            "description": "Compound field containing the billing address. Read-only compound field composed of BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry, BillingLatitude, BillingLongitude, and BillingGeocodeAccuracy.",
+            "title": "Billing Address"
+          },
+          "TickerSymbol": {
+            "description": "Stock market ticker symbol for this account.",
+            "title": "Ticker Symbol",
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/$defs/AccountAttributes",
+            "title": "Attributes"
+          },
+          "Phone": {
+            "description": "Phone number for this account.",
+            "title": "Phone",
+            "type": "string"
+          },
+          "BillingLongitude": {
+            "description": "Used with BillingLatitude to specify the precise geolocation of a billing address. Acceptable values are numbers between -180 and 180 with up to 15 decimal places.",
+            "title": "Billing Longitude",
+            "type": "number"
+          },
+          "Jigsaw": {
+            "description": "References the ID of a company in Data.com.",
+            "title": "Jigsaw",
+            "type": "string"
+          },
+          "Site": {
+            "description": "Name of the account's location, for example, Headquarters or London.",
+            "title": "Site",
+            "type": "string"
+          },
+          "AccountSource": {
+            "description": "The source of the account record, for example, Advertisement, Data.com, or Trade Show. Picklist field.",
+            "title": "Account Source",
+            "type": "string"
+          },
+          "BillingStreet": {
+            "description": "Street address for the billing address of this account.",
+            "title": "Billing Street",
+            "type": "string"
+          },
+          "Description": {
+            "description": "Text description of the account.",
+            "title": "Description",
+            "type": "string"
+          },
+          "CreatedDate": {
+            "description": "Date and time when the account was created. Read-only.",
+            "format": "date-time",
+            "title": "Created Date",
+            "type": "string"
+          },
+          "ShippingCity": {
+            "description": "City for the shipping address of this account.",
+            "title": "Shipping City",
+            "type": "string"
+          },
+          "OwnerId": {
+            "description": "ID of the User who owns this account.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "LastViewedDate": {
+            "description": "Date and time when the current user last viewed this account. User-specific field.",
+            "format": "date-time",
+            "title": "Last Viewed Date",
+            "type": "string"
+          },
+          "Fax": {
+            "description": "Fax number for this account.",
+            "title": "Fax",
+            "type": "string"
+          },
+          "LastActivityDate": {
+            "description": "Date of the most recent activity associated with this account.",
+            "format": "date",
+            "title": "Last Activity Date",
+            "type": "string"
+          },
+          "ParentId": {
+            "description": "ID of the parent object, if any.",
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "ShippingPostalCode": {
+            "description": "Postal code for the shipping address of this account.",
+            "title": "Shipping Postal Code",
+            "type": "string"
+          },
+          "AnnualRevenue": {
+            "description": "Estimated annual revenue for the account.",
+            "title": "Annual Revenue",
+            "type": "number"
+          },
+          "ShippingStreet": {
+            "description": "Street address for the shipping address of this account.",
+            "title": "Shipping Street",
+            "type": "string"
+          },
+          "LastModifiedById": {
+            "description": "ID of the User who last modified this account. Read-only.",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "MasterRecordId": {
+            "description": "If this record was deleted as the result of a merge, this field contains the ID of the record that remains.",
+            "title": "Master Record Id",
+            "type": "string"
+          },
+          "SicDesc": {
+            "description": "Description of the Standard Industrial Classification code.",
+            "title": "Sic Desc",
+            "type": "string"
+          },
+          "BillingCity": {
+            "description": "City for the billing address of this account.",
+            "title": "Billing City",
+            "type": "string"
+          },
+          "ShippingLatitude": {
+            "description": "Used with ShippingLongitude to specify the precise geolocation of a shipping address. Acceptable values are numbers between -90 and 90 with up to 15 decimal places.",
+            "title": "Shipping Latitude",
+            "type": "number"
+          },
+          "ShippingGeocodeAccuracy": {
+            "description": "Accuracy level of the geocode for the shipping address. Picklist field.",
+            "title": "Shipping Geocode Accuracy",
+            "type": "string"
+          },
+          "Ownership": {
+            "description": "Ownership type for the account, for example, public, private, or subsidiary. Picklist field.",
+            "title": "Ownership",
+            "type": "string"
+          },
+          "CreatedById": {
+            "description": "ID of the User who created this account. Read-only.",
+            "title": "Created By Id",
+            "type": "string"
+          },
+          "ShippingCountry": {
+            "description": "Country for the shipping address of this account.",
+            "title": "Shipping Country",
+            "type": "string"
+          },
+          "BillingPostalCode": {
+            "description": "Postal code for the billing address of this account.",
+            "title": "Billing Postal Code",
+            "type": "string"
+          },
+          "BillingState": {
+            "description": "State for the billing address of this account.",
+            "title": "Billing State",
+            "type": "string"
+          },
+          "LastReferencedDate": {
+            "description": "Date and time when the current user last referenced this account. User-specific field.",
+            "format": "date-time",
+            "title": "Last Referenced Date",
+            "type": "string"
+          },
+          "SystemModstamp": {
+            "description": "Date and time when the account was last modified by a user or by an automated process. Read-only.",
+            "format": "date-time",
+            "title": "System Modstamp",
+            "type": "string"
+          },
+          "BillingGeocodeAccuracy": {
+            "description": "Accuracy level of the geocode for the billing address. Picklist field.",
+            "title": "Billing Geocode Accuracy",
+            "type": "string"
+          },
+          "JigsawCompanyId": {
+            "description": "References the Jigsaw Company ID for this account.",
+            "title": "Jigsaw Company Id",
+            "type": "string"
+          },
+          "NumberOfEmployees": {
+            "description": "Number of employees working at the company represented by this account.",
+            "title": "Number Of Employees",
+            "type": "integer"
+          },
+          "Rating": {
+            "description": "Rating of this account, such as Hot, Warm, or Cold. Picklist field.",
+            "title": "Rating",
+            "type": "string"
+          },
+          "Id": {
+            "description": "Unique identifier for the Account record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "PhotoUrl": {
+            "description": "URL to the profile photo for this account.",
+            "title": "Photo Url",
+            "type": "string"
+          },
+          "BillingLatitude": {
+            "description": "Used with BillingLongitude to specify the precise geolocation of a billing address. Acceptable values are numbers between -90 and 90 with up to 15 decimal places.",
+            "title": "Billing Latitude",
+            "type": "number"
+          },
+          "Type": {
+            "description": "Type of account, for example, Customer, Competitor, or Partner. Picklist field.",
+            "title": "Type",
+            "type": "string"
+          },
+          "ShippingAddress": {
+            "$ref": "#/$defs/AddressCompound",
+            "description": "Compound field containing the shipping address. Read-only compound field composed of ShippingStreet, ShippingCity, ShippingState, ShippingPostalCode, ShippingCountry, ShippingLatitude, ShippingLongitude, and ShippingGeocodeAccuracy.",
+            "title": "Shipping Address"
+          },
+          "Sic": {
+            "description": "Standard Industrial Classification code of the company's main business categorization.",
+            "title": "Sic",
+            "type": "string"
+          },
+          "Name": {
+            "description": "Name of the account.",
+            "title": "Name",
+            "type": "string"
+          },
+          "ShippingLongitude": {
+            "description": "Used with ShippingLatitude to specify the precise geolocation of a shipping address. Acceptable values are numbers between -180 and 180 with up to 15 decimal places.",
+            "title": "Shipping Longitude",
+            "type": "number"
+          },
+          "ShippingState": {
+            "description": "State for the shipping address of this account.",
+            "title": "Shipping State",
+            "type": "string"
+          },
+          "BillingCountry": {
+            "description": "Country for the billing address of this account.",
+            "title": "Billing Country",
+            "type": "string"
+          },
+          "Industry": {
+            "description": "Industry that this account belongs to. Picklist field.",
+            "title": "Industry",
+            "type": "string"
+          },
+          "LastModifiedDate": {
+            "description": "Date and time when the account was last modified. Read-only.",
+            "format": "date-time",
+            "title": "Last Modified Date",
+            "type": "string"
+          }
+        },
+        "required": ["attributes", "Id", "Name", "OwnerId"],
+        "title": "GetAccountResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetAccountResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

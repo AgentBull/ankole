@@ -1,0 +1,211 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of outgoing SMS communications for a specified organization; requires an Enterprise subscription and if filtering by creation date, both `min_created_at` and `max_created_at` must be provided to form a valid range.",
+  "inputSchema": {
+    "description": "Request schema for `ListOutgoingCommunications`",
+    "properties": {
+      "count": {
+        "default": 20,
+        "description": "The number of records to return per page. Must be between 1 and 100, inclusive.",
+        "title": "Count",
+        "type": "integer"
+      },
+      "max_created_at": {
+        "description": "Include outgoing communications that were created before this timestamp. Formatted as \"YYYY-MM-DDTHH:MM:SS.sssZ\" in UTC.",
+        "examples": ["2020-01-02T03:04:05.678Z"],
+        "title": "Max Created At",
+        "type": "string"
+      },
+      "min_created_at": {
+        "description": "Include outgoing communications that were created after this timestamp. Formatted as \"YYYY-MM-DDTHH:MM:SS.sssZ\" in UTC.",
+        "examples": ["2020-01-02T03:04:05.678Z"],
+        "title": "Min Created At",
+        "type": "string"
+      },
+      "organization": {
+        "description": "The URI of the organization whose outgoing communications are to be retrieved.",
+        "examples": ["https://api.calendly.com/organizations/AAAAAAAAAAAAAAAA"],
+        "title": "Organization",
+        "type": "string"
+      },
+      "page_token": {
+        "description": "The token to retrieve the next page of results. Provided in the `next_page_token` field of a previous response.",
+        "examples": ["NEXT_PAGE_TOKEN"],
+        "title": "Page Token",
+        "type": "string"
+      }
+    },
+    "required": ["organization"],
+    "title": "ListOutgoingCommunicationsRequest",
+    "type": "object"
+  },
+  "name": "list_outgoing_communications",
+  "outputSchema": {
+    "$defs": {
+      "ListOutgoingCommunicationsResponse": {
+        "description": "Response schema for `ListOutgoingCommunications`",
+        "properties": {
+          "collection": {
+            "description": "Array of outgoing communication objects representing messages sent from Calendly.",
+            "items": {
+              "$ref": "#/$defs/OutgoingCommunication"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection", "pagination"],
+        "title": "ListOutgoingCommunicationsResponse",
+        "type": "object"
+      },
+      "OutgoingCommunication": {
+        "description": "Outgoing communication object representing a message sent from Calendly.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the communication record was created in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event": {
+            "description": "URI reference to the scheduled event associated with this communication.",
+            "title": "Event",
+            "type": "string"
+          },
+          "invitee": {
+            "description": "URI reference to the invitee associated with this communication.",
+            "title": "Invitee",
+            "type": "string"
+          },
+          "organization": {
+            "description": "URI reference to the organization that sent the communication.",
+            "title": "Organization",
+            "type": "string"
+          },
+          "recipient": {
+            "$ref": "#/$defs/Recipient",
+            "description": "Object containing recipient information including email and name.",
+            "title": "Recipient"
+          },
+          "scheduled_at": {
+            "description": "Timestamp when the communication was scheduled to be sent in ISO 8601 format.",
+            "title": "Scheduled At",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the communication (e.g., 'sent').",
+            "title": "Status",
+            "type": "string"
+          },
+          "template": {
+            "$ref": "#/$defs/Template",
+            "description": "Object containing information about the communication template used.",
+            "title": "Template"
+          },
+          "updated_at": {
+            "description": "Timestamp when the communication record was last updated in ISO 8601 format.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the outgoing communication resource.",
+            "title": "Uri",
+            "type": "string"
+          },
+          "user": {
+            "description": "URI reference to the user who sent or is associated with this communication.",
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "status", "created_at", "updated_at", "organization", "recipient"],
+        "title": "OutgoingCommunication",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination metadata for navigating through the collection of outgoing communications.",
+        "properties": {
+          "count": {
+            "description": "Number of records returned in the current page.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL to retrieve the next page of results. Null if on the last page.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "next_page_token": {
+            "description": "Token to be used for fetching the next page of results.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL to retrieve the previous page of results. Null if on the first page.",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "previous_page_token": {
+            "description": "Token to be used for fetching the previous page of results.",
+            "title": "Previous Page Token",
+            "type": "string"
+          }
+        },
+        "required": ["count"],
+        "title": "Pagination",
+        "type": "object"
+      },
+      "Recipient": {
+        "description": "Recipient information including email and name.",
+        "properties": {
+          "email": {
+            "description": "Email address of the recipient.",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the recipient.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "Recipient",
+        "type": "object"
+      },
+      "Template": {
+        "description": "Information about the communication template used.",
+        "properties": {
+          "name": {
+            "description": "Name of the template used for the communication.",
+            "title": "Name",
+            "type": "string"
+          },
+          "uri": {
+            "description": "URI reference to the template resource.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "title": "Template",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListOutgoingCommunicationsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

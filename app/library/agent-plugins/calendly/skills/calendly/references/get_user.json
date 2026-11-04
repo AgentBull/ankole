@@ -1,0 +1,134 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves comprehensive details for an existing Calendly user.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a specific user by their UUID.",
+    "properties": {
+      "uuid": {
+        "default": "me",
+        "description": "The unique identifier (UUID) of the user. Alternatively, use the literal string \"me\" to refer to the currently authenticated user (the caller). Defaults to \"me\" (current user) if not specified.",
+        "examples": ["3fa85f64-5717-4562-b3fc-2c963f66afa6", "me"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "title": "GetUserRequest",
+    "type": "object"
+  },
+  "name": "get_user",
+  "outputSchema": {
+    "$defs": {
+      "GetUserResponse": {
+        "description": "Response schema for retrieving a specific user.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/UserResource",
+            "description": "The user resource object containing all user information.",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "GetUserResponse",
+        "type": "object"
+      },
+      "UserResource": {
+        "description": "User resource object containing all user information.",
+        "properties": {
+          "avatar_url": {
+            "description": "URL to the user's profile picture/avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the user account was created (ISO 8601 format).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_organization": {
+            "description": "URI of the organization that the user belongs to.",
+            "title": "Current Organization",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "locale": {
+            "description": "User's locale setting (e.g., 'en' for English).",
+            "title": "Locale",
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name of the user.",
+            "title": "Name",
+            "type": "string"
+          },
+          "resource_type": {
+            "description": "Type of resource, always set to 'User' for user resources.",
+            "title": "Resource Type",
+            "type": "string"
+          },
+          "scheduling_url": {
+            "description": "Public scheduling link where others can book meetings with the user.",
+            "title": "Scheduling Url",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly username identifier used in the scheduling URL.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "time_notation": {
+            "description": "User's preferred time notation format (e.g., '12h' or '24h').",
+            "title": "Time Notation",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "IANA timezone string indicating the user's timezone (e.g., America/New_York).",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the user account was last updated (ISO 8601 format).",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Unique identifier for the user in API format (canonical reference for the user).",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri",
+          "name",
+          "slug",
+          "email",
+          "scheduling_url",
+          "timezone",
+          "created_at",
+          "updated_at",
+          "current_organization",
+          "resource_type"
+        ],
+        "title": "UserResource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUserResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

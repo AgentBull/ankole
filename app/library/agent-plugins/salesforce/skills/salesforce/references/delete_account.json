@@ -1,0 +1,44 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a Salesforce account by its ID.",
+  "inputSchema": {
+    "properties": {
+      "account_id": {
+        "description": "The Salesforce ID of the account to delete.",
+        "examples": ["001Wd00000BSLklIAH", "001XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique Salesforce ID of the account you want to delete. You can find it on the account's details page or in the URL when viewing the account.",
+        "human_parameter_name": "Account ID",
+        "title": "Account Id",
+        "type": "string"
+      }
+    },
+    "required": ["account_id"],
+    "title": "DeleteAccountRequest",
+    "type": "object"
+  },
+  "name": "delete_account",
+  "outputSchema": {
+    "$defs": {
+      "DeleteAccountResponse": {
+        "description": "Response for successful account deletion.\n\nHTTP 204 No Content - Salesforce returns empty body on successful deletion.",
+        "properties": {},
+        "title": "DeleteAccountResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteAccountResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

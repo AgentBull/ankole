@@ -49,10 +49,9 @@ defmodule AnkoleWeb.AuthControllerTest do
              )
 
     {:ok, console_ticket} =
-      WebSession.seal_console_return("/site-admin-console/agents", tenant.id)
+      WebSession.seal_console_return(console_path("/agents"), tenant.id)
 
     https_conn = forwarded_https_conn(conn)
-    site_origin = AnkoleWeb.PodURL.site_origin(%{https_conn | scheme: :https, port: 443})
     pod_https = pod_conn(%{https_conn | scheme: :https, port: 443}, tenant)
 
     providers_conn =
@@ -86,7 +85,7 @@ defmodule AnkoleWeb.AuthControllerTest do
              "https://#{pod_https.host}/sessions/oidc/lark-main/callback"
 
     assert oidc_state.tenant_id == tenant.id
-    assert oidc_state.return_to == site_origin <> "/site-admin-console/agents"
+    assert oidc_state.return_to == AnkoleWeb.SiteAdminConsole.url(conn, console_path("/agents"))
   end
 
   test "OIDC callback without matching state fails closed", %{conn: conn} do

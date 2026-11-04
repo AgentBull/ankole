@@ -1,0 +1,196 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create an audience export for Google Analytics. Use when you need to export a snapshot of users in an audience at a specific point in time. This initiates a long-running asynchronous request that returns an operation resource name immediately. The export begins in CREATING state with rowCount=0; the operation must complete before export data is accessible for querying.",
+  "inputSchema": {
+    "description": "Request model for creating an audience export.",
+    "properties": {
+      "audience": {
+        "description": "Audience resource name identifying the audience to export. Format: properties/{property_id}/audiences/{audience_id}.",
+        "examples": ["properties/489591273/audiences/11228260226"],
+        "pattern": "^properties/[^/]+/audiences/[^/]+$",
+        "title": "Audience",
+        "type": "string"
+      },
+      "dimensions": {
+        "description": "Optional list of dimensions requested and displayed in the export. Each dimension is specified by dimensionName.",
+        "items": {
+          "description": "Model for an audience dimension.",
+          "properties": {
+            "dimensionName": {
+              "description": "API name of the dimension. Available values: deviceId, userId, isAdsPersonalizationAllowed, isLimitedAdTracking.",
+              "title": "Dimension Name",
+              "type": "string"
+            }
+          },
+          "required": ["dimensionName"],
+          "title": "AudienceDimension",
+          "type": "object"
+        },
+        "title": "Dimensions",
+        "type": "array"
+      },
+      "parent": {
+        "description": "Parent property resource name where the audience export will be created. Format: properties/{property_id}.",
+        "examples": ["properties/489591273"],
+        "pattern": "^properties/[^/]+$",
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent", "audience"],
+    "title": "CreateAudienceExportRequest",
+    "type": "object"
+  },
+  "name": "create_audience_export",
+  "outputSchema": {
+    "$defs": {
+      "AudienceDimension": {
+        "description": "Model for an audience dimension.",
+        "properties": {
+          "dimensionName": {
+            "description": "API name of the dimension. Available values: deviceId, userId, isAdsPersonalizationAllowed, isLimitedAdTracking.",
+            "title": "Dimension Name",
+            "type": "string"
+          }
+        },
+        "required": ["dimensionName"],
+        "title": "AudienceDimension",
+        "type": "object"
+      },
+      "AudienceExportResource": {
+        "description": "Schema for the AudienceExport resource returned in successful operation response.",
+        "properties": {
+          "audience": {
+            "description": "Audience resource name. Format: properties/{property}/audiences/{audience}.",
+            "title": "Audience",
+            "type": "string"
+          },
+          "audienceDisplayName": {
+            "description": "Descriptive display name for the audience (e.g., 'Purchasers').",
+            "title": "Audience Display Name",
+            "type": "string"
+          },
+          "beginCreatingTime": {
+            "description": "Timestamp when CreateAudienceExport was called (RFC3339 UTC).",
+            "title": "Begin Creating Time",
+            "type": "string"
+          },
+          "creationQuotaTokensCharged": {
+            "description": "Total quota tokens charged during creation.",
+            "title": "Creation Quota Tokens Charged",
+            "type": "integer"
+          },
+          "dimensions": {
+            "description": "Dimensions requested and displayed in the export.",
+            "items": {
+              "$ref": "#/$defs/AudienceDimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "errorMessage": {
+            "description": "Error message if audience export failed during creation.",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "Audience export resource name assigned at creation. Format: properties/{property}/audienceExports/{audience_export}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "percentageCompleted": {
+            "description": "Percentage completed for this audience export (0-100).",
+            "title": "Percentage Completed",
+            "type": "number"
+          },
+          "rowCount": {
+            "description": "Total number of rows in the audience export result.",
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Current state of the audience export. Possible values: CREATING, ACTIVE, FAILED.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "AudienceExportResource",
+        "type": "object"
+      },
+      "CreateAudienceExportResponse": {
+        "description": "Response model representing a long-running Operation for audience export creation.",
+        "properties": {
+          "done": {
+            "description": "Indicates operation completion status. False if in progress, true if complete.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "error": {
+            "$ref": "#/$defs/Status",
+            "description": "Error result of the operation in case of failure or cancellation. Present only when done=true and an error occurred.",
+            "title": "Error"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Service-specific metadata associated with the operation, typically containing progress information and common metadata such as create time.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "Server-assigned operation name, unique within the same service. Resource names typically end with operations/{unique_id}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "response": {
+            "$ref": "#/$defs/AudienceExportResource",
+            "description": "The successful operation result containing the AudienceExport object when done=true. Present only on successful completion.",
+            "title": "Response"
+          }
+        },
+        "title": "CreateAudienceExportResponse",
+        "type": "object"
+      },
+      "Status": {
+        "description": "Error status for long-running operation failures.",
+        "properties": {
+          "code": {
+            "description": "Status code (enum value of google.rpc.Code).",
+            "title": "Code",
+            "type": "integer"
+          },
+          "details": {
+            "description": "List of messages carrying error details.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "message": {
+            "description": "Developer-facing error message in English.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["code", "message"],
+        "title": "Status",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateAudienceExportResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

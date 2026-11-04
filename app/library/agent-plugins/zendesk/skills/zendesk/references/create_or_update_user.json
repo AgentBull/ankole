@@ -1,0 +1,622 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create or update a Zendesk user, matching existing users by email or external_id. Returns the user object.",
+  "inputSchema": {
+    "description": "Request model for creating or updating a Zendesk user.",
+    "properties": {
+      "user": {
+        "additionalProperties": false,
+        "description": "User object with attributes. `name` is mandatory. The user is matched by `email` or `external_id` to determine create vs update. `role` must be one of: 'end-user', 'agent', or 'admin'.",
+        "properties": {
+          "active": {
+            "description": "True to make the user active",
+            "examples": [true],
+            "human_parameter_description": "Whether the user should be active",
+            "human_parameter_name": "Active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "alias": {
+            "description": "Alias displayed to end users",
+            "human_parameter_description": "Optional alias shown to end users",
+            "human_parameter_name": "Alias",
+            "title": "Alias",
+            "type": "string"
+          },
+          "custom_role_id": {
+            "description": "Agent-only: ID of a custom agent role",
+            "examples": [987654],
+            "human_parameter_description": "Custom agent role ID",
+            "human_parameter_name": "Custom Role ID",
+            "title": "Custom Role Id",
+            "type": "integer"
+          },
+          "default_group_id": {
+            "description": "ID of the user's default group",
+            "examples": [200],
+            "human_parameter_description": "Default group for the user",
+            "human_parameter_name": "Default Group ID",
+            "title": "Default Group Id",
+            "type": "integer"
+          },
+          "details": {
+            "description": "Free-form details about the user",
+            "human_parameter_description": "Optional free-form user details",
+            "human_parameter_name": "Details",
+            "title": "Details",
+            "type": "string"
+          },
+          "email": {
+            "description": "Primary email address of the user",
+            "examples": ["testuser@example.com"],
+            "human_parameter_description": "Email address for the user",
+            "human_parameter_name": "Email",
+            "title": "Email",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External system ID for matching existing users",
+            "human_parameter_description": "Unique external identifier to match existing user",
+            "human_parameter_name": "External ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "group_ids": {
+            "description": "IDs of groups the user belongs to",
+            "examples": [[100, 200]],
+            "human_parameter_description": "Group memberships for the user",
+            "human_parameter_name": "Group IDs",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Group Ids",
+            "type": "array"
+          },
+          "identities": {
+            "description": "Additional user identities",
+            "human_parameter_description": "Additional user identities",
+            "human_parameter_name": "Identities",
+            "items": {
+              "description": "User identity object for authentication methods.",
+              "properties": {
+                "primary": {
+                  "description": "Set to true to make this the primary identity",
+                  "examples": [true],
+                  "title": "Primary",
+                  "type": "boolean"
+                },
+                "type": {
+                  "description": "Identity type such as 'email', 'phone', 'facebook', or 'google_oauth2'",
+                  "examples": ["email"],
+                  "title": "Type",
+                  "type": "string"
+                },
+                "value": {
+                  "description": "Identity value (e.g., email address or phone number)",
+                  "examples": ["jdoe@example.com"],
+                  "title": "Value",
+                  "type": "string"
+                }
+              },
+              "required": ["type", "value"],
+              "title": "Identity",
+              "type": "object"
+            },
+            "title": "Identities",
+            "type": "array"
+          },
+          "locale": {
+            "description": "BCP-47 locale string (e.g., 'en-US')",
+            "examples": ["en-US"],
+            "human_parameter_description": "User locale",
+            "human_parameter_name": "Locale",
+            "title": "Locale",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Language locale ID",
+            "examples": [1],
+            "human_parameter_description": "Numeric locale ID",
+            "human_parameter_name": "Locale ID",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "moderator": {
+            "description": "True to designate the user as a moderator",
+            "examples": [false],
+            "human_parameter_description": "Whether user is a moderator",
+            "human_parameter_name": "Moderator",
+            "title": "Moderator",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Full name of the user",
+            "examples": ["Test User"],
+            "human_parameter_description": "Full name of the user",
+            "human_parameter_name": "Name",
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Free-form notes about the user",
+            "human_parameter_description": "Optional free-form notes",
+            "human_parameter_name": "Notes",
+            "title": "Notes",
+            "type": "string"
+          },
+          "only_private_comments": {
+            "description": "True to restrict user to private comments only",
+            "examples": [false],
+            "human_parameter_description": "Restrict to private comments only",
+            "human_parameter_name": "Only Private Comments",
+            "title": "Only Private Comments",
+            "type": "boolean"
+          },
+          "organization_id": {
+            "description": "ID of the user's default organization",
+            "examples": [123456],
+            "human_parameter_description": "Default organization ID for the user",
+            "human_parameter_name": "Organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "organization_ids": {
+            "description": "IDs of organizations the user belongs to",
+            "examples": [[123456, 789012]],
+            "human_parameter_description": "Additional organization IDs",
+            "human_parameter_name": "Organization IDs",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Organization Ids",
+            "type": "array"
+          },
+          "password": {
+            "description": "User password (for native authentication)",
+            "human_parameter_description": "User password for native auth",
+            "human_parameter_name": "Password",
+            "title": "Password",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Direct line phone number in E.164 format",
+            "examples": ["+14155551234"],
+            "human_parameter_description": "Optional direct phone number in international format",
+            "human_parameter_name": "Phone",
+            "title": "Phone",
+            "type": "string"
+          },
+          "photo": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Photo object with optional content_url or attachment_id",
+            "human_parameter_description": "Optional user photo",
+            "human_parameter_name": "Photo",
+            "title": "Photo",
+            "type": "object"
+          },
+          "remote_photo_url": {
+            "description": "URL of the user's photo",
+            "human_parameter_description": "Optional remote URL for user photo",
+            "human_parameter_name": "Remote Photo URL",
+            "title": "Remote Photo Url",
+            "type": "string"
+          },
+          "restricted_agent": {
+            "description": "True for agents with restricted access",
+            "examples": [false],
+            "human_parameter_description": "Whether agent has restricted access",
+            "human_parameter_name": "Restricted Agent",
+            "title": "Restricted Agent",
+            "type": "boolean"
+          },
+          "role": {
+            "description": "User role; defaults to 'end-user' if omitted",
+            "enum": ["end-user", "agent", "admin"],
+            "examples": ["end-user"],
+            "human_parameter_description": "Role for the user: end-user, agent, or admin",
+            "human_parameter_name": "Role",
+            "title": "Role",
+            "type": "string"
+          },
+          "shared_phone_number": {
+            "description": "True if the phone number is shared across users",
+            "examples": [false],
+            "human_parameter_description": "Whether the phone number is shared",
+            "human_parameter_name": "Shared Phone Number",
+            "title": "Shared Phone Number",
+            "type": "boolean"
+          },
+          "signature": {
+            "description": "Agent's signature (used in email notifications)",
+            "human_parameter_description": "Agent signature text",
+            "human_parameter_name": "Signature",
+            "title": "Signature",
+            "type": "string"
+          },
+          "skip_verify_email": {
+            "description": "True to skip email verification",
+            "examples": [true],
+            "human_parameter_description": "Skip email verification",
+            "human_parameter_name": "Skip Verify Email",
+            "title": "Skip Verify Email",
+            "type": "boolean"
+          },
+          "suspended": {
+            "description": "True to suspend the user account",
+            "examples": [false],
+            "human_parameter_description": "Suspend the user account",
+            "human_parameter_name": "Suspended",
+            "title": "Suspended",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "Tags associated with the user",
+            "examples": [["support", "beta-user"]],
+            "human_parameter_description": "Tags to assign to the user",
+            "human_parameter_name": "Tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "ticket_restriction": {
+            "description": "Ticket access restriction level",
+            "enum": ["organization", "groups", "assigned", "requested"],
+            "human_parameter_description": "Ticket access restriction",
+            "human_parameter_name": "Ticket Restriction",
+            "title": "Ticket Restriction",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User's time zone name",
+            "examples": ["Pacific Time (US & Canada)"],
+            "human_parameter_description": "User time zone",
+            "human_parameter_name": "Time Zone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "user_fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value map of custom user field values",
+            "human_parameter_description": "Custom user field values",
+            "human_parameter_name": "User Fields",
+            "title": "User Fields",
+            "type": "object"
+          },
+          "verified": {
+            "description": "True if the user's email is verified",
+            "examples": [true],
+            "human_parameter_description": "Whether the email is verified",
+            "human_parameter_name": "Verified",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": ["name"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "required": ["user"],
+    "title": "CreateOrUpdateUserRequest",
+    "type": "object"
+  },
+  "name": "create_or_update_user",
+  "outputSchema": {
+    "$defs": {
+      "CreateOrUpdateUserResponse": {
+        "description": "Response containing the created or updated user.",
+        "properties": {
+          "user": {
+            "$ref": "#/$defs/ZendeskUserResponse",
+            "description": "The user object",
+            "title": "User"
+          }
+        },
+        "required": ["user"],
+        "title": "CreateOrUpdateUserResponse",
+        "type": "object"
+      },
+      "UserResponsePhoto": {
+        "description": "Photo attachment object for user response.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to download the photo",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "True if deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Photo filename",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Photo attachment ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "True if inline",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "API URL of the photo",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "UserResponsePhoto",
+        "type": "object"
+      },
+      "ZendeskUserResponse": {
+        "description": "Zendesk user response object.",
+        "properties": {
+          "locale": {
+            "description": "User locale",
+            "title": "Locale",
+            "type": "string"
+          },
+          "remote_photo_url": {
+            "description": "Remote photo URL",
+            "title": "Remote Photo Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          },
+          "notes": {
+            "description": "User notes",
+            "title": "Notes",
+            "type": "string"
+          },
+          "role_type": {
+            "description": "Role type ID",
+            "title": "Role Type",
+            "type": "integer"
+          },
+          "external_id": {
+            "description": "External system ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "iana_time_zone": {
+            "description": "IANA time zone",
+            "title": "Iana Time Zone",
+            "type": "string"
+          },
+          "two_factor_auth_enabled": {
+            "description": "True if 2FA enabled",
+            "title": "Two Factor Auth Enabled",
+            "type": "boolean"
+          },
+          "agent_brand_ids": {
+            "description": "Brand IDs for agents",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Agent Brand Ids",
+            "type": "array"
+          },
+          "details": {
+            "description": "User details",
+            "title": "Details",
+            "type": "string"
+          },
+          "only_private_comments": {
+            "description": "True if restricted to private comments",
+            "title": "Only Private Comments",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "User tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Creation timestamp",
+            "title": "Created At",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Locale ID",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User's full name",
+            "title": "Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "Primary email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "alias": {
+            "description": "User alias",
+            "title": "Alias",
+            "type": "string"
+          },
+          "shared_agent": {
+            "description": "True if shared agent",
+            "title": "Shared Agent",
+            "type": "boolean"
+          },
+          "custom_role_id": {
+            "description": "Custom role ID",
+            "title": "Custom Role Id",
+            "type": "integer"
+          },
+          "restricted_agent": {
+            "description": "True if restricted agent",
+            "title": "Restricted Agent",
+            "type": "boolean"
+          },
+          "moderator": {
+            "description": "True if moderator",
+            "title": "Moderator",
+            "type": "boolean"
+          },
+          "role": {
+            "description": "User role",
+            "title": "Role",
+            "type": "string"
+          },
+          "report_csv": {
+            "description": "True if can export CSV",
+            "title": "Report Csv",
+            "type": "boolean"
+          },
+          "last_login_at": {
+            "description": "Last login timestamp",
+            "title": "Last Login At",
+            "type": "string"
+          },
+          "signature": {
+            "description": "Agent signature",
+            "title": "Signature",
+            "type": "string"
+          },
+          "verified": {
+            "description": "True if email is verified",
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "suspended": {
+            "description": "True if suspended",
+            "title": "Suspended",
+            "type": "boolean"
+          },
+          "user_fields": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Custom user field values",
+            "title": "User Fields",
+            "type": "object"
+          },
+          "active": {
+            "description": "True if active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "photo": {
+            "$ref": "#/$defs/UserResponsePhoto",
+            "description": "User photo",
+            "title": "Photo"
+          },
+          "ticket_restriction": {
+            "description": "Ticket access restriction",
+            "title": "Ticket Restriction",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User time zone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique user ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "shared_phone_number": {
+            "description": "True if phone number is shared",
+            "title": "Shared Phone Number",
+            "type": "boolean"
+          },
+          "shared": {
+            "description": "True if shared",
+            "title": "Shared",
+            "type": "boolean"
+          },
+          "chat_only": {
+            "description": "True if chat-only user",
+            "title": "Chat Only",
+            "type": "boolean"
+          },
+          "default_group_id": {
+            "description": "Default group ID",
+            "title": "Default Group Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "Default organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "ZendeskUserResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateOrUpdateUserResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

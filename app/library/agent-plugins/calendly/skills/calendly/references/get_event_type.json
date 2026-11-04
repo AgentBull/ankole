@@ -1,0 +1,290 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves details for a specific Calendly event type, identified by its UUID, which must be valid and correspond to an existing event type.",
+  "inputSchema": {
+    "description": "Retrieves a specific event type by its UUID.",
+    "properties": {
+      "uuid": {
+        "description": "Unique identifier (UUID) for the event type. This is a required path parameter - extract the UUID from the event type URI (e.g., for 'https://api.calendly.com/event_types/abc123', use 'abc123').",
+        "examples": ["AAAAAAAAAAAAAAAA"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "title": "GetEventTypeRequest",
+    "type": "object"
+  },
+  "name": "get_event_type",
+  "outputSchema": {
+    "$defs": {
+      "CustomQuestion": {
+        "description": "Custom question asked to invitees during booking.",
+        "properties": {
+          "answerChoices": {
+            "description": "Available answer choices for multiple-choice questions.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Answer Choices",
+            "type": "array"
+          },
+          "enabled": {
+            "description": "Whether the question is enabled and shown to invitees.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "includeOther": {
+            "description": "Whether to include an 'Other' option for custom text input.",
+            "title": "Include Other",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The question text displayed to invitees.",
+            "title": "Name",
+            "type": "string"
+          },
+          "position": {
+            "description": "Display order of the question.",
+            "title": "Position",
+            "type": "integer"
+          },
+          "required": {
+            "description": "Whether the question must be answered to complete booking.",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "Answer type (e.g., 'string', 'text', 'radio_button', 'checkbox').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "CustomQuestion",
+        "type": "object"
+      },
+      "EventTypeResource": {
+        "description": "Event type resource data.",
+        "properties": {
+          "active": {
+            "description": "Indicates whether the event type is active and available for booking.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "adminManaged": {
+            "description": "Indicates whether the event type is managed by organization administrators.",
+            "title": "Admin Managed",
+            "type": "boolean"
+          },
+          "bookingMethod": {
+            "description": "The method used for booking (e.g., 'instant').",
+            "title": "Booking Method",
+            "type": "string"
+          },
+          "color": {
+            "description": "Hexadecimal color code used to represent the event type (e.g., '#8247f5').",
+            "title": "Color",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "Timestamp when the event type was created (ISO 8601 format with timezone).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "customQuestions": {
+            "description": "Custom questions asked to invitees during booking.",
+            "items": {
+              "$ref": "#/$defs/CustomQuestion"
+            },
+            "title": "Custom Questions",
+            "type": "array"
+          },
+          "deletedAt": {
+            "description": "Timestamp when the event type was deleted (ISO 8601 format). Null if not deleted.",
+            "title": "Deleted At",
+            "type": "string"
+          },
+          "descriptionHtml": {
+            "description": "HTML-formatted description of the event type.",
+            "title": "Description Html",
+            "type": "string"
+          },
+          "descriptionPlain": {
+            "description": "Plain text description of the event type.",
+            "title": "Description Plain",
+            "type": "string"
+          },
+          "duration": {
+            "description": "Length of sessions booked with this event type, in minutes (1-720).",
+            "title": "Duration",
+            "type": "integer"
+          },
+          "durationOptions": {
+            "description": "Alternative duration choices for flexible meetings (max 4 unique duration options).",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Duration Options",
+            "type": "array"
+          },
+          "internalNote": {
+            "description": "Private notes about the event type, not visible to invitees.",
+            "title": "Internal Note",
+            "type": "string"
+          },
+          "is_paid": {
+            "description": "Indicates whether the event type requires payment.",
+            "title": "Is Paid",
+            "type": "boolean"
+          },
+          "kind": {
+            "description": "Indicates the event structure type (e.g., 'solo' for one-on-one, 'group' for group meetings).",
+            "title": "Kind",
+            "type": "string"
+          },
+          "locale": {
+            "description": "Language locale for the event type (e.g., 'en', 'de', 'es', 'fr', 'it', 'nl', 'pt', 'uk').",
+            "title": "Locale",
+            "type": "string"
+          },
+          "locations": {
+            "description": "Location configurations for the event type.",
+            "items": {
+              "$ref": "#/$defs/Location"
+            },
+            "title": "Locations",
+            "type": "array"
+          },
+          "name": {
+            "description": "The event type name or title.",
+            "title": "Name",
+            "type": "string"
+          },
+          "poolingType": {
+            "description": "For team events, indicates the assignment method: 'round_robin', 'collective', or 'multi_pool'. Null for non-team events.",
+            "title": "Pooling Type",
+            "type": "string"
+          },
+          "position": {
+            "description": "Display order position of the event type in listings.",
+            "title": "Position",
+            "type": "integer"
+          },
+          "profile": {
+            "$ref": "#/$defs/Profile",
+            "description": "Profile information of the event type owner.",
+            "title": "Profile"
+          },
+          "schedulingUrl": {
+            "description": "Public scheduling page URL where invitees can book the event type.",
+            "title": "Scheduling Url",
+            "type": "string"
+          },
+          "secret": {
+            "description": "Indicates whether the event type is secret/hidden and not listed publicly.",
+            "title": "Secret",
+            "type": "boolean"
+          },
+          "slug": {
+            "description": "URL-friendly identifier for the event type.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "type": {
+            "description": "Event type schema classification (e.g., 'StandardEventType' or 'AdhocEventType').",
+            "title": "Type",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "Timestamp when the event type was last updated (ISO 8601 format with timezone).",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the event type resource.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "name"],
+        "title": "EventTypeResource",
+        "type": "object"
+      },
+      "GetEventTypeResponse": {
+        "description": "Contains the detailed information for the retrieved event type.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/EventTypeResource",
+            "description": "The event type resource data.",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "GetEventTypeResponse",
+        "type": "object"
+      },
+      "Location": {
+        "description": "Location configuration for the event type.",
+        "properties": {
+          "additionalInfo": {
+            "description": "Additional location information or instructions.",
+            "title": "Additional Info",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of location (e.g., 'physical', 'zoom', 'google_meet', 'microsoft_teams', 'phone_call').",
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "description": "Physical address or location details for in-person meetings.",
+            "title": "Location",
+            "type": "string"
+          },
+          "phoneNumber": {
+            "description": "Phone number for phone call locations.",
+            "title": "Phone Number",
+            "type": "string"
+          }
+        },
+        "title": "Location",
+        "type": "object"
+      },
+      "Profile": {
+        "description": "Profile information of the event type owner.",
+        "properties": {
+          "name": {
+            "description": "Name of the profile owner or team.",
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "description": "URI of the owning user resource.",
+            "title": "Owner",
+            "type": "string"
+          },
+          "type": {
+            "description": "Profile type: 'User' for individual users or 'Team' for team profiles.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "Profile",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetEventTypeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

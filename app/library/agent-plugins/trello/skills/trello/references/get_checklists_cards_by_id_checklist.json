@@ -1,0 +1,468 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves cards associated with a specific, valid Trello checklist ID, allowing for filtering and customization of card and related entity data fields.",
+  "inputSchema": {
+    "description": "Request schema for `GetChecklistsCardsByIdChecklist`",
+    "properties": {
+      "actions": {
+        "description": "Action types to return for each card (e.g., 'all', 'commentCard,createCard'). Comma-separated list or 'all'.",
+        "title": "Actions",
+        "type": "string"
+      },
+      "attachment_fields": {
+        "default": "all",
+        "description": "Attachment fields to return (e.g., 'name,url,bytes'). Comma-separated list or 'all'.",
+        "title": "Attachment Fields",
+        "type": "string"
+      },
+      "attachments": {
+        "description": "Whether to include attachments: 'true' for all, 'false' to omit, or 'cover' for card cover attachments.",
+        "examples": ["true", "false", "cover"],
+        "title": "Attachments",
+        "type": "string"
+      },
+      "before": {
+        "description": "Return cards updated on or before this date/time (ISO 8601 format or 'null').",
+        "title": "Before",
+        "type": "string"
+      },
+      "checkItemStates": {
+        "description": "Whether to include check item states on cards ('true' or 'false').",
+        "examples": ["true", "false"],
+        "title": "Check Item States",
+        "type": "string"
+      },
+      "checklists": {
+        "default": "none",
+        "description": "Whether to include checklist data (beyond the main one) on the cards ('all' or 'none').",
+        "examples": ["all", "none"],
+        "title": "Checklists",
+        "type": "string"
+      },
+      "fields": {
+        "default": "all",
+        "description": "Card fields to return (e.g., 'name,desc,due'). Comma-separated list or 'all'.",
+        "title": "Fields",
+        "type": "string"
+      },
+      "filter": {
+        "default": "open",
+        "description": "Filter cards by status ('all', 'closed', 'none', 'open').",
+        "examples": ["all", "closed", "none", "open"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "The ID of the checklist to retrieve cards from.",
+        "title": "Id Checklist",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of cards to return (1-1000, e.g., '50').",
+        "title": "Limit",
+        "type": "string"
+      },
+      "member_fields": {
+        "default": "avatarHash,fullName,initials,username",
+        "description": "Member fields to return (e.g., 'fullName,username,bio'). Comma-separated list or 'all'.",
+        "title": "Member Fields",
+        "type": "string"
+      },
+      "members": {
+        "description": "Whether to include member data on cards ('true' or 'false').",
+        "examples": ["true", "false"],
+        "title": "Members",
+        "type": "string"
+      },
+      "since": {
+        "description": "Return cards updated on or after this date/time (ISO 8601 format or 'null').",
+        "title": "Since",
+        "type": "string"
+      },
+      "stickers": {
+        "description": "Whether to include sticker data on cards ('true' or 'false').",
+        "examples": ["true", "false"],
+        "title": "Stickers",
+        "type": "string"
+      }
+    },
+    "required": ["idChecklist"],
+    "title": "GetChecklistsCardsByIdChecklistRequest",
+    "type": "object"
+  },
+  "name": "get_checklists_cards_by_id_checklist",
+  "outputSchema": {
+    "$defs": {
+      "CardBadges": {
+        "description": "Badge counts and statuses for a Trello card",
+        "properties": {
+          "attachments": {
+            "description": "Number of attachments on the card",
+            "title": "Attachments",
+            "type": "integer"
+          },
+          "attachmentsByType": {
+            "additionalProperties": true,
+            "description": "Attachments grouped by type",
+            "title": "Attachments By Type",
+            "type": "object"
+          },
+          "checkItems": {
+            "description": "Total number of check items on the card",
+            "title": "Check Items",
+            "type": "integer"
+          },
+          "checkItemsChecked": {
+            "description": "Number of checked check items",
+            "title": "Check Items Checked",
+            "type": "integer"
+          },
+          "comments": {
+            "description": "Number of comments on the card",
+            "title": "Comments",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Whether the card has a description",
+            "title": "Description",
+            "type": "boolean"
+          },
+          "due": {
+            "description": "Due date of the card",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueComplete": {
+            "description": "Whether the card's due date has been marked complete",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "fogbugz": {
+            "description": "FogBugz integration data",
+            "title": "Fogbugz",
+            "type": "string"
+          },
+          "location": {
+            "description": "Whether the card has a location set",
+            "title": "Location",
+            "type": "boolean"
+          },
+          "start": {
+            "description": "Start date of the card",
+            "title": "Start",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Whether the viewing member is subscribed to the card",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "viewingMemberVoted": {
+            "description": "Whether the viewing member has voted on the card",
+            "title": "Viewing Member Voted",
+            "type": "boolean"
+          },
+          "votes": {
+            "description": "Number of votes on the card",
+            "title": "Votes",
+            "type": "integer"
+          }
+        },
+        "title": "CardBadges",
+        "type": "object"
+      },
+      "CardCover": {
+        "description": "Cover image information for a Trello card",
+        "properties": {
+          "brightness": {
+            "description": "Brightness setting for the cover",
+            "title": "Brightness",
+            "type": "string"
+          },
+          "color": {
+            "description": "Cover color",
+            "title": "Color",
+            "type": "string"
+          },
+          "idUploadedBackground": {
+            "description": "ID of uploaded background image",
+            "title": "Id Uploaded Background",
+            "type": "string"
+          },
+          "isTemplate": {
+            "description": "Whether the cover is a template",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "size": {
+            "description": "Size of the cover",
+            "title": "Size",
+            "type": "string"
+          }
+        },
+        "title": "CardCover",
+        "type": "object"
+      },
+      "DescData": {
+        "description": "Structured data about the card description",
+        "properties": {
+          "emoji": {
+            "additionalProperties": true,
+            "description": "Emoji data in the description",
+            "title": "Emoji",
+            "type": "object"
+          }
+        },
+        "title": "DescData",
+        "type": "object"
+      },
+      "GetChecklistsCardsByIdChecklistResponse": {
+        "description": "Response schema for `GetChecklistsCardsByIdChecklist`",
+        "properties": {
+          "cards": {
+            "description": "Array of Card objects associated with the checklist",
+            "items": {
+              "$ref": "#/$defs/TrelloCard"
+            },
+            "title": "Cards",
+            "type": "array"
+          }
+        },
+        "required": ["cards"],
+        "title": "GetChecklistsCardsByIdChecklistResponse",
+        "type": "object"
+      },
+      "TrelloCard": {
+        "description": "A Trello card object",
+        "properties": {
+          "url": {
+            "description": "Full URL to access the card",
+            "title": "Url",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "Short link identifier for the card",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "due": {
+            "description": "Due date of the card in ISO 8601 format",
+            "title": "Due",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "ID of the board containing this card",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Due reminder setting for the card",
+            "title": "Due Reminder",
+            "type": "string"
+          },
+          "isTemplate": {
+            "description": "Whether the card is a template card",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "idChecklists": {
+            "description": "Array of checklist IDs associated with the card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Checklists",
+            "type": "array"
+          },
+          "idMembers": {
+            "description": "Array of member IDs assigned to the card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members",
+            "type": "array"
+          },
+          "manualCoverAttachment": {
+            "description": "Whether the cover attachment was manually set",
+            "title": "Manual Cover Attachment",
+            "type": "boolean"
+          },
+          "idLabels": {
+            "description": "Array of label IDs assigned to the card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Labels",
+            "type": "array"
+          },
+          "idAttachmentCover": {
+            "description": "ID of the attachment used as the card cover",
+            "title": "Id Attachment Cover",
+            "type": "string"
+          },
+          "desc": {
+            "description": "Description text of the card",
+            "title": "Desc",
+            "type": "string"
+          },
+          "idMembersVoted": {
+            "description": "Array of member IDs who have voted on the card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members Voted",
+            "type": "array"
+          },
+          "name": {
+            "description": "Name/title of the card",
+            "title": "Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address associated with the card",
+            "title": "Email",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the card in the list",
+            "title": "Pos",
+            "type": "number"
+          },
+          "creationMethod": {
+            "description": "Method used to create the card",
+            "title": "Creation Method",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "Short URL to access the card",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Whether the viewing user is subscribed to the card",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "dueComplete": {
+            "description": "Whether the due date has been marked as complete",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "descData": {
+            "$ref": "#/$defs/DescData",
+            "description": "Structured data about the description including emoji information",
+            "title": "Desc Data"
+          },
+          "checkItemStates": {
+            "description": "Array of check item state strings",
+            "items": {
+              "type": "string"
+            },
+            "title": "Check Item States",
+            "type": "array"
+          },
+          "address": {
+            "description": "Physical address associated with the card",
+            "title": "Address",
+            "type": "string"
+          },
+          "closed": {
+            "description": "Whether the card is archived/closed",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "dateLastActivity": {
+            "description": "ISO 8601 timestamp of the last activity on the card",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "cover": {
+            "$ref": "#/$defs/CardCover",
+            "description": "Cover image information for the card",
+            "title": "Cover"
+          },
+          "limits": {
+            "additionalProperties": true,
+            "description": "Limits and constraints for the card",
+            "title": "Limits",
+            "type": "object"
+          },
+          "idShort": {
+            "description": "Short numeric ID unique within the board",
+            "title": "Id Short",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Array of label objects",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "locationName": {
+            "description": "Name of the location associated with the card",
+            "title": "Location Name",
+            "type": "string"
+          },
+          "idList": {
+            "description": "ID of the list containing this card",
+            "title": "Id List",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the card",
+            "title": "Id",
+            "type": "string"
+          },
+          "customFieldItems": {
+            "description": "Array of custom field values set on the card",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Custom Field Items",
+            "type": "array"
+          },
+          "badges": {
+            "$ref": "#/$defs/CardBadges",
+            "description": "Object containing various badge counts and statuses for the card",
+            "title": "Badges"
+          },
+          "coordinates": {
+            "description": "Geographic coordinates associated with the card",
+            "title": "Coordinates",
+            "type": "string"
+          },
+          "cardRole": {
+            "description": "Role of the card (e.g., 'mirror')",
+            "title": "Card Role",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start date of the card in ISO 8601 format",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "TrelloCard",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetChecklistsCardsByIdChecklistResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

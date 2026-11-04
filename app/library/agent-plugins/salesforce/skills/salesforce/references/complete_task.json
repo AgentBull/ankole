@@ -1,0 +1,74 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates a Salesforce task with status Completed, optional completion notes, and additional field values. Additional field values can override the status or description set by the action.",
+  "inputSchema": {
+    "properties": {
+      "completion_notes": {
+        "default": "",
+        "description": "Optional notes to add about the task completion. Will be appended to existing description.",
+        "examples": [
+          "Call completed successfully. Customer agreed to proceed.",
+          "Email sent. Received positive response.",
+          "Meeting finished. Action items documented."
+        ],
+        "human_parameter_description": "Any short note you want to include when closing the task. This will be added to the task’s description for context and tracking.",
+        "human_parameter_name": "Completion Notes",
+        "title": "Completion Notes",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values. Custom field names typically end with '__c' (e.g., 'Completion_Source__c').",
+        "examples": [
+          {
+            "Completion_Source__c": "Customer Call",
+            "Resolved__c": true
+          },
+          {
+            "External_Task_ID__c": "TASK-4567"
+          }
+        ],
+        "human_parameter_description": "Provide custom Salesforce fields to update alongside completion. Use the API field name (ending in '__c') as the key.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "task_id": {
+        "description": "The Salesforce ID of the task to mark as completed.",
+        "examples": ["00TXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique Salesforce ID of the task you want to mark as completed. You can copy it from the task’s URL or use an ID from a previous step.",
+        "human_parameter_name": "Task ID",
+        "title": "Task Id",
+        "type": "string"
+      }
+    },
+    "required": ["task_id"],
+    "title": "CompleteTaskRequest",
+    "type": "object"
+  },
+  "name": "complete_task",
+  "outputSchema": {
+    "$defs": {
+      "CompleteTaskResponse": {
+        "description": "Response for successful task completion.\n\nHTTP 204 No Content - Salesforce returns empty body on successful update.\nError responses (4xx/5xx) are handled via raise_for_status().",
+        "properties": {},
+        "title": "CompleteTaskResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CompleteTaskResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

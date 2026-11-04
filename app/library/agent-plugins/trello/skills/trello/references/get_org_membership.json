@@ -1,0 +1,177 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a specific membership within a Trello organization, using their respective IDs, to ascertain the member's role, status, or permissions.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a specific membership of an organization.",
+    "properties": {
+      "idMembership": {
+        "description": "The ID of the membership to retrieve.",
+        "examples": ["5a52b3f4a3a384789a7f14c7"],
+        "title": "Id Membership",
+        "type": "string"
+      },
+      "idOrg": {
+        "description": "The ID or name of the organization (workspace). Can be a 24-character hex ID like '6155b3f4a3a384789a7f1492' or the organization's short name like 'myteam'.",
+        "examples": ["6155b3f4a3a384789a7f1492", "myteam"],
+        "title": "Id Org",
+        "type": "string"
+      },
+      "member": {
+        "description": "Determines whether to include the member object in the response. Valid values are 'true' or 'false'.",
+        "examples": ["true", "false"],
+        "title": "Member",
+        "type": "string"
+      },
+      "member_fields": {
+        "default": "fullName,username",
+        "description": "Comma-separated list of fields for the member object. Valid values: 'all', 'avatarHash', 'bio', 'bioData', 'confirmed', 'fullName', 'idPremOrgsAdmin', 'initials', 'memberType', 'products', 'status', 'url', 'username'.",
+        "examples": ["fullName,username", "all", "avatarHash,bio,initials"],
+        "title": "Member Fields",
+        "type": "string"
+      }
+    },
+    "required": ["idOrg", "idMembership"],
+    "title": "GetOrgMembershipRequest",
+    "type": "object"
+  },
+  "name": "get_org_membership",
+  "outputSchema": {
+    "$defs": {
+      "GetOrgMembershipResponse": {
+        "description": "Response schema containing the detailed information for the requested organization membership.",
+        "properties": {
+          "deactivated": {
+            "description": "Whether the member is deactivated",
+            "title": "Deactivated",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier of the membership",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "The ID of the member associated with this membership",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "member": {
+            "$ref": "#/$defs/Member",
+            "description": "Nested member object (included when member=true query parameter is used)",
+            "title": "Member"
+          },
+          "memberType": {
+            "description": "The type of membership (e.g., 'admin', 'normal')",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "unconfirmed": {
+            "description": "Whether the membership is unconfirmed (pending confirmation)",
+            "title": "Unconfirmed",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "idMember", "memberType", "unconfirmed", "deactivated"],
+        "title": "GetOrgMembershipResponse",
+        "type": "object"
+      },
+      "Member": {
+        "description": "Member object containing detailed information about the member.",
+        "properties": {
+          "avatarHash": {
+            "description": "Hash of the member's avatar image",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL of the member's avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "bio": {
+            "description": "Biography of the member",
+            "title": "Bio",
+            "type": "string"
+          },
+          "bioData": {
+            "additionalProperties": true,
+            "description": "Structured biography data of the member",
+            "title": "Bio Data",
+            "type": "object"
+          },
+          "confirmed": {
+            "description": "Whether the member account is confirmed",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "fullName": {
+            "description": "Full name of the member (returns username if privacy setting is not public)",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "idPremOrgsAdmin": {
+            "description": "Array of IDs for premium organizations this member administers",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Prem Orgs Admin",
+            "type": "array"
+          },
+          "initials": {
+            "description": "Initials of the member",
+            "title": "Initials",
+            "type": "string"
+          },
+          "memberType": {
+            "description": "Type of member (e.g., 'normal', 'ghost')",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "products": {
+            "description": "Array of Trello products the member has access to",
+            "items": {},
+            "title": "Products",
+            "type": "array"
+          },
+          "status": {
+            "description": "Current status of the member",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to the member's Trello profile",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the member",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username"],
+        "title": "Member",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrgMembershipResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

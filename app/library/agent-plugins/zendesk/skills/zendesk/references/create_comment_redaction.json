@@ -1,0 +1,74 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Redact specified text from a Zendesk ticket comment using the Agent Workspace method. Redaction is irreversible; Agent Workspace and appropriate permissions are required, and comments on closed tickets cannot be redacted.",
+  "inputSchema": {
+    "description": "Request model for redacting ticket comments in Zendesk.",
+    "properties": {
+      "text": {
+        "description": "The exact text string to redact from the comment. Required: omitting it would send an empty payload to the redact endpoint and report success without any redaction having happened. The text must match exactly as it appears in the comment.",
+        "examples": ["sensitive information"],
+        "human_parameter_description": "The exact text string you want to permanently remove from the comment. The string must match exactly as it appears.",
+        "human_parameter_name": "Text to Redact",
+        "minLength": 1,
+        "title": "Text",
+        "type": "string"
+      },
+      "ticket_comment_id": {
+        "description": "The ID of the ticket comment to redact.",
+        "examples": [26942885982620],
+        "human_parameter_description": "The ID of the specific comment within the ticket that you want to redact.",
+        "human_parameter_name": "Comment ID",
+        "title": "Ticket Comment Id",
+        "type": "integer"
+      },
+      "ticket_id": {
+        "description": "The ID of the ticket containing the comment to redact.",
+        "examples": [70],
+        "human_parameter_description": "The ID of the Zendesk ticket that contains the comment you want to redact.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id", "ticket_comment_id", "text"],
+    "title": "CreateCommentRedactionRequest",
+    "type": "object"
+  },
+  "name": "create_comment_redaction",
+  "outputSchema": {
+    "$defs": {
+      "CreateCommentRedactionResponse": {
+        "description": "Response model for the comment redaction action.",
+        "properties": {
+          "message": {
+            "description": "A message describing the result of the redaction operation.",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the redaction was successful.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "CreateCommentRedactionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateCommentRedactionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

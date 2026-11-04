@@ -1,0 +1,211 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves monitors (detectors) for a Sentry organization. This endpoint is currently in beta and may be subject to change. Use when you need to list or query monitors for an organization.",
+  "inputSchema": {
+    "description": "Request schema for fetching an organization's monitors (detectors).",
+    "properties": {
+      "id": {
+        "description": "The ID of the monitor you'd like to query. Can specify multiple monitor IDs to filter by.",
+        "examples": [["abc123"], ["abc123", "def456"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Id",
+        "type": "array"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["mia-yd", "my-organization", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project": {
+        "description": "The IDs of projects to filter by. Use `-1` to include all available projects. Can specify multiple project IDs.",
+        "examples": [[1234], [1234, 56789], [-1]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Project",
+        "type": "array"
+      },
+      "query": {
+        "description": "An optional search query for filtering monitors.",
+        "examples": ["production", "critical"],
+        "title": "Query",
+        "type": "string"
+      },
+      "sortBy": {
+        "description": "The property to sort results by. If not specified, results are sorted by id. Available fields: name, id, type, connectedWorkflows, latestGroup, openIssues. Prefix with `-` to sort in descending order.",
+        "examples": ["name", "-id", "openIssues", "-latestGroup"],
+        "title": "Sort By",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "FetchAnOrganizationsMonitorsRequest",
+    "type": "object"
+  },
+  "name": "fetch_an_organizations_monitors",
+  "outputSchema": {
+    "$defs": {
+      "FetchAnOrganizationsMonitorsResponse": {
+        "description": "Response schema for fetching an organization's monitors. The API returns an array of monitor objects directly.",
+        "items": {
+          "$ref": "#/$defs/Monitor"
+        },
+        "title": "FetchAnOrganizationsMonitorsResponse",
+        "type": "array"
+      },
+      "Monitor": {
+        "description": "Individual monitor (detector) object.",
+        "properties": {
+          "conditionGroup": {
+            "additionalProperties": true,
+            "description": "Condition group configuration",
+            "title": "Condition Group",
+            "type": "object"
+          },
+          "config": {
+            "additionalProperties": true,
+            "description": "Monitor configuration settings",
+            "title": "Config",
+            "type": "object"
+          },
+          "createdBy": {
+            "description": "User ID who created the monitor",
+            "title": "Created By",
+            "type": "string"
+          },
+          "dataSources": {
+            "description": "Data sources for the monitor",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Data Sources",
+            "type": "array"
+          },
+          "dateCreated": {
+            "description": "Monitor creation timestamp in ISO 8601 format",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateUpdated": {
+            "description": "Monitor last updated timestamp in ISO 8601 format",
+            "title": "Date Updated",
+            "type": "string"
+          },
+          "description": {
+            "description": "Monitor description",
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether the monitor is enabled",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique monitor identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "latestGroup": {
+            "additionalProperties": true,
+            "description": "Latest group information",
+            "title": "Latest Group",
+            "type": "object"
+          },
+          "name": {
+            "description": "Monitor name",
+            "title": "Name",
+            "type": "string"
+          },
+          "openIssues": {
+            "description": "Number of open issues for this monitor",
+            "title": "Open Issues",
+            "type": "integer"
+          },
+          "owner": {
+            "$ref": "#/$defs/MonitorOwner",
+            "description": "Monitor owner information",
+            "title": "Owner"
+          },
+          "projectId": {
+            "description": "Associated project ID",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "type": {
+            "description": "Monitor type",
+            "title": "Type",
+            "type": "string"
+          },
+          "workflowIds": {
+            "description": "Associated workflow IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Workflow Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "projectId",
+          "enabled",
+          "dateCreated",
+          "dateUpdated",
+          "openIssues",
+          "config"
+        ],
+        "title": "Monitor",
+        "type": "object"
+      },
+      "MonitorOwner": {
+        "description": "Monitor owner information.",
+        "properties": {
+          "email": {
+            "description": "Owner email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Owner ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Owner name",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Owner type (e.g., 'user', 'team')",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "type"],
+        "title": "MonitorOwner",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/FetchAnOrganizationsMonitorsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

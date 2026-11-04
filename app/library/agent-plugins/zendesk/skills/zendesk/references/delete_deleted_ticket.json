@@ -1,0 +1,125 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently delete a soft-deleted Zendesk ticket by ID. This irreversible operation returns a job status; check the job to confirm completion.",
+  "inputSchema": {
+    "properties": {
+      "ticket_id": {
+        "description": "The ID of the deleted ticket to permanently remove",
+        "examples": [123456],
+        "human_parameter_description": "The numeric ID of the soft-deleted Zendesk ticket you want to permanently delete. This can be found from deleted ticket records or audit logs. This action is irreversible.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "DeleteDeletedTicketRequest",
+    "type": "object"
+  },
+  "name": "delete_deleted_ticket",
+  "outputSchema": {
+    "$defs": {
+      "DeleteDeletedTicketJobResult": {
+        "properties": {
+          "action": {
+            "description": "The action performed",
+            "title": "Action",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the processed item",
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Status of the result",
+            "title": "Status",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the action succeeded",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "DeleteDeletedTicketJobResult",
+        "type": "object"
+      },
+      "DeleteDeletedTicketJobStatus": {
+        "properties": {
+          "id": {
+            "description": "Automatically assigned when the job is queued",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_type": {
+            "description": "The type of the job",
+            "title": "Job Type",
+            "type": "string"
+          },
+          "message": {
+            "description": "Message from the job worker, if any",
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "description": "Number of tasks that have already been completed",
+            "title": "Progress",
+            "type": "integer"
+          },
+          "results": {
+            "description": "Result data from processed tasks",
+            "items": {
+              "$ref": "#/$defs/DeleteDeletedTicketJobResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "status": {
+            "description": "The current status. One of: queued, working, failed, completed",
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "description": "The total number of tasks this job is batching through",
+            "title": "Total",
+            "type": "integer"
+          },
+          "url": {
+            "description": "The URL to poll for status updates",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "DeleteDeletedTicketJobStatus",
+        "type": "object"
+      },
+      "DeleteDeletedTicketResponse": {
+        "properties": {
+          "job_status": {
+            "$ref": "#/$defs/DeleteDeletedTicketJobStatus",
+            "description": "Job status object containing details about the deletion operation",
+            "title": "Job Status"
+          }
+        },
+        "required": ["job_status"],
+        "title": "DeleteDeletedTicketResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteDeletedTicketResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

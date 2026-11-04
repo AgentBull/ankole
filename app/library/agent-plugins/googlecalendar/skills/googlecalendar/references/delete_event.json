@@ -1,0 +1,88 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes an event from the specified calendar. Only Google's HTTP 204 confirms deletion; 404 or 410 can also mean the event belongs to a different calendar. Bulk deletions may trigger `rateLimitExceeded` or `userRateLimitExceeded`; cap concurrency to 5–10 requests and apply exponential backoff.",
+  "inputSchema": {
+    "properties": {
+      "calendar_id": {
+        "default": "primary",
+        "description": "Identifier of the Google Calendar (e.g., email address, specific ID, or 'primary' for the authenticated user's main calendar) from which the event will be deleted. Calendars without event-deletion permission, including subscribed calendars not owned by the authenticated user, return 403 on deletion attempts.",
+        "examples": ["primary", "user@example.com", "abcsomecalendarid@group.calendar.google.com"],
+        "human_parameter_description": "Tell us which calendar the event belongs to. Use the email address or calendar ID, or enter 'primary' to target your main calendar.",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "event_id": {
+        "description": "Unique identifier of the event to delete. For standalone events, use the base event ID (e.g., 'abc123def456'). For recurring event instances, use the instance ID format 'baseEventId_YYYYMMDDTHHMMSSZ' (e.g., 'abc123def456_20260522T093000Z') where the timestamp suffix represents the instance's original start time in UTC. Instance IDs can be obtained from the EVENTS_INSTANCES action. To delete ALL occurrences of a recurring event, use the base event ID without the timestamp suffix. Must be the internal API identifier from a prior API response — UI-visible identifiers, URL-encoded variants, or shortened IDs are invalid and cause 404/validation errors.",
+        "human_parameter_description": "The ID of the event you want to delete. For a single event, use its ID. For a recurring event instance, use the instance ID (format: baseEventId_YYYYMMDDTHHMMSSZ). To delete the entire recurring series, use the base event ID.",
+        "human_parameter_name": "Event ID",
+        "title": "Event Id",
+        "type": "string"
+      },
+      "send_notifications": {
+        "description": "Deprecated. Whether to send notifications about the deletion of the event. Note that some emails might still be sent.",
+        "title": "Send Notifications",
+        "type": "boolean"
+      },
+      "send_updates": {
+        "description": "Options for who should receive notifications about event changes.",
+        "enum": ["all", "externalOnly", "none"],
+        "title": "SendUpdates",
+        "type": "string"
+      }
+    },
+    "required": ["event_id"],
+    "title": "DeleteEventRequest",
+    "type": "object"
+  },
+  "name": "delete_event",
+  "outputSchema": {
+    "$defs": {
+      "DeleteEventResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "display_url": {
+            "description": "URL to view the resource in Google Calendar web UI. None for delete operations as the event no longer exists.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "response_data": {
+            "$ref": "#/$defs/ResponseData",
+            "description": "Optional convenience wrapper returned by some integrations to indicate the outcome of the delete operation. Not part of the official Google Calendar HTTP response.",
+            "title": "Response Data"
+          }
+        },
+        "title": "DeleteEventResponse",
+        "type": "object"
+      },
+      "ResponseData": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "const": "success",
+            "description": "Outcome of the delete operation. 'success' indicates the event was deleted successfully.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["status"],
+        "title": "ResponseData",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteEventResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

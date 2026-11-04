@@ -1,0 +1,422 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List conversation log events for a specific Zendesk ticket. Use this action when you need to retrieve the chronological history of interactions, comments, and activities on a ticket. The conversation log provides a comprehensive view of all events including comments, status changes, and other ticket activities. Supports cursor-based pagination for accessing large datasets.",
+  "inputSchema": {
+    "description": "Request parameters for listing conversation log events for a ticket.",
+    "properties": {
+      "page_after": {
+        "description": "Cursor token to fetch records after this position",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from the previous page to get the next set of results.",
+        "human_parameter_name": "After Cursor",
+        "title": "Page After",
+        "type": "string"
+      },
+      "page_before": {
+        "description": "Cursor token to fetch records before this position",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from the previous page to get the previous set of results.",
+        "human_parameter_name": "Before Cursor",
+        "title": "Page Before",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Number of records per page for cursor pagination (max 100)",
+        "examples": [25],
+        "human_parameter_description": "How many conversation log events to show on each page. You can choose up to 100.",
+        "human_parameter_name": "Page Size",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "sort": {
+        "description": "Field to sort results by. Prefix with `-` for descending order",
+        "examples": ["created_at"],
+        "human_parameter_description": "Pick the field to sort by (e.g., created_at). Use minus prefix (-) for descending order.",
+        "human_parameter_name": "Sort Field",
+        "title": "Sort",
+        "type": "string"
+      },
+      "ticket_id": {
+        "description": "The ID of the ticket to retrieve conversation log for",
+        "examples": [123456],
+        "human_parameter_description": "The number of the Zendesk ticket. You can find this ID in the ticket URL or from a ticket list.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "GetTicketsConversationLogRequest",
+    "type": "object"
+  },
+  "name": "get_tickets_conversation_log",
+  "outputSchema": {
+    "$defs": {
+      "AttachmentWithThumbnails": {
+        "description": "Attachment with associated thumbnails.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the file",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to access the attachment file",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "Whether attachment has been removed",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Name of the attached file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels; null if unknown",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Attachment identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "Whether attachment is excluded from attachment list",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "mapped_content_url": {
+            "description": "URL the attachment has been mapped to",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "Array of thumbnail attachments for images",
+            "items": {
+              "$ref": "#/$defs/Thumbnail"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          },
+          "url": {
+            "description": "URL to access the attachment details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels; null if unknown",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "AttachmentWithThumbnails",
+        "type": "object"
+      },
+      "Content": {
+        "description": "Content body of a conversation log event.",
+        "properties": {
+          "body": {
+            "description": "The body content of the event",
+            "title": "Body",
+            "type": "string"
+          },
+          "type": {
+            "description": "Content type (e.g., html)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "Content",
+        "type": "object"
+      },
+      "ConversationLogAuthor": {
+        "description": "Author information in a conversation log event.",
+        "properties": {
+          "avatar_url": {
+            "description": "URL to the author's avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "Display name of the author",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the author (e.g., agent, end-user)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "ConversationLogAuthor",
+        "type": "object"
+      },
+      "ConversationLogEvent": {
+        "description": "A single conversation log event for a ticket.",
+        "properties": {
+          "attachments": {
+            "description": "List of attachments associated with the event",
+            "items": {
+              "$ref": "#/$defs/AttachmentWithThumbnails"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "author": {
+            "$ref": "#/$defs/ConversationLogAuthor",
+            "description": "Author information",
+            "title": "Author"
+          },
+          "content": {
+            "$ref": "#/$defs/Content",
+            "description": "Content body of the event",
+            "title": "Content"
+          },
+          "created_at": {
+            "description": "Timestamp when the event was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the event",
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/$defs/EventMetadata",
+            "description": "Additional metadata for the event",
+            "title": "Metadata"
+          },
+          "reference": {
+            "description": "Reference URI for the event",
+            "title": "Reference",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the event (e.g., Comment)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "type"],
+        "title": "ConversationLogEvent",
+        "type": "object"
+      },
+      "ConversationLogLinks": {
+        "description": "Pagination links for conversation log response.",
+        "properties": {
+          "next": {
+            "description": "URL to the next page of results",
+            "title": "Next",
+            "type": "string"
+          },
+          "prev": {
+            "description": "URL to the previous page of results",
+            "title": "Prev",
+            "type": "string"
+          }
+        },
+        "title": "ConversationLogLinks",
+        "type": "object"
+      },
+      "ConversationLogMeta": {
+        "description": "Pagination metadata for conversation log response.",
+        "properties": {
+          "after_cursor": {
+            "description": "Cursor for next page",
+            "title": "After Cursor",
+            "type": "string"
+          },
+          "before_cursor": {
+            "description": "Cursor for previous page",
+            "title": "Before Cursor",
+            "type": "string"
+          },
+          "has_more": {
+            "description": "Whether more results are available",
+            "title": "Has More",
+            "type": "boolean"
+          }
+        },
+        "title": "ConversationLogMeta",
+        "type": "object"
+      },
+      "EventMetadata": {
+        "description": "Metadata for a conversation log event.",
+        "properties": {
+          "custom": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom metadata",
+            "title": "Custom",
+            "type": "object"
+          },
+          "public": {
+            "description": "Whether the event is public",
+            "title": "Public",
+            "type": "boolean"
+          },
+          "system": {
+            "$ref": "#/$defs/SystemMetadata",
+            "description": "System-generated information",
+            "title": "System"
+          },
+          "ticket_version": {
+            "description": "Version of the ticket when event was created",
+            "title": "Ticket Version",
+            "type": "integer"
+          }
+        },
+        "title": "EventMetadata",
+        "type": "object"
+      },
+      "GetTicketsConversationLogResponse": {
+        "description": "Response containing conversation log events for a ticket.",
+        "properties": {
+          "events": {
+            "description": "List of conversation log events",
+            "items": {
+              "$ref": "#/$defs/ConversationLogEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "links": {
+            "$ref": "#/$defs/ConversationLogLinks",
+            "description": "Pagination links",
+            "title": "Links"
+          },
+          "meta": {
+            "$ref": "#/$defs/ConversationLogMeta",
+            "description": "Pagination metadata",
+            "title": "Meta"
+          }
+        },
+        "required": ["events"],
+        "title": "GetTicketsConversationLogResponse",
+        "type": "object"
+      },
+      "SystemMetadata": {
+        "description": "System metadata for a conversation log event.",
+        "properties": {
+          "client": {
+            "description": "Client/browser information",
+            "title": "Client",
+            "type": "string"
+          },
+          "ip_address": {
+            "description": "IP address of the client",
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "latitude": {
+            "description": "Latitude coordinate",
+            "title": "Latitude",
+            "type": "number"
+          },
+          "location": {
+            "description": "Geographic location",
+            "title": "Location",
+            "type": "string"
+          },
+          "longitude": {
+            "description": "Longitude coordinate",
+            "title": "Longitude",
+            "type": "number"
+          }
+        },
+        "title": "SystemMetadata",
+        "type": "object"
+      },
+      "Thumbnail": {
+        "description": "Thumbnail attachment for images.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the file",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to access the thumbnail file",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "Whether thumbnail has been removed",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Name of the thumbnail file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels; null if unknown",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Thumbnail identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "Whether thumbnail is excluded from list",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "mapped_content_url": {
+            "description": "URL the thumbnail has been mapped to",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL to access the thumbnail details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels; null if unknown",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "Thumbnail",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTicketsConversationLogResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

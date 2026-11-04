@@ -1,0 +1,90 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information for an existing service hook within a Sentry project. Service hooks (webhooks) are HTTP callbacks that notify external systems when specific events occur in Sentry, such as when alerts are triggered ('event.alert') or new events are processed ('event.created'). This action requires: - Authentication with 'project:read' scope - The hook_id (GUID) of an existing service hook, typically obtained from creating a hook or listing project hooks Common use cases: - Verifying hook configuration and status - Retrieving the webhook URL and secret for external system setup - Checking which events the hook is subscribed to - Auditing hook creation timestamps Note: The 'servicehooks' feature must be enabled on your Sentry plan to create or manage hooks, though reading existing hook details may be possible depending on your API permissions.",
+  "inputSchema": {
+    "description": "Request schema for `GetProjectHook`",
+    "properties": {
+      "hook_id": {
+        "description": "The unique identifier (GUID) of the service hook to be retrieved. This ID is assigned when the hook is created.",
+        "examples": ["a1b2c3d4-e5f6-7890-1234-567890abcdef", "123e4567-e89b-12d3-a456-426614174000"],
+        "title": "Hook Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or URL-friendly slug of the Sentry organization to which the project and its service hook belong.",
+        "examples": ["sentry-organization", "my-company-slug"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The unique identifier (ID) or URL-friendly slug of the Sentry project to which the service hook is bound.",
+        "examples": ["internal-project", "frontend-app"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug", "hook_id"],
+    "title": "GetProjectHookRequest",
+    "type": "object"
+  },
+  "name": "get_project_hook",
+  "outputSchema": {
+    "$defs": {
+      "GetProjectHookResponse": {
+        "description": "Response schema for `GetProjectHook`",
+        "properties": {
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the hook was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "events": {
+            "description": "List of event types the hook subscribes to (e.g., 'event.alert', 'event.created').",
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier (GUID) for the service hook.",
+            "title": "Id",
+            "type": "string"
+          },
+          "secret": {
+            "description": "Authentication secret for webhook verification.",
+            "title": "Secret",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current state of the hook (e.g., 'active').",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "Webhook endpoint URL where events will be sent.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "url", "secret", "events", "status", "dateCreated"],
+        "title": "GetProjectHookResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetProjectHookResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

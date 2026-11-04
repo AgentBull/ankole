@@ -1,0 +1,272 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves all notes (comments and activity) for a specific project issue in GitLab. Use this action when you need to view the discussion history, comments, or activity log on an issue to understand the context or follow up on conversations. Results are paginated and can be filtered by activity type or sorted by creation/update time.",
+  "inputSchema": {
+    "properties": {
+      "activity_filter": {
+        "description": "Filter notes by activity type. Default is all_notes.",
+        "enum": ["all_notes", "only_comments", "only_activity"],
+        "examples": ["all_notes"],
+        "title": "Activity Filter",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": [123, "group/project-name"],
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "The internal ID of the project issue.",
+        "examples": [1],
+        "title": "Issue Iid",
+        "type": "integer"
+      },
+      "order_by": {
+        "description": "Return issue notes ordered by created_at or updated_at fields. Default is created_at.",
+        "enum": ["created_at", "updated_at"],
+        "examples": ["created_at"],
+        "title": "Order By",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number to retrieve. Default is 1.",
+        "examples": [1],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "default": 25,
+        "description": "Number of notes per page. Default is 25, maximum is 100.",
+        "examples": [25],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort": {
+        "description": "Return issue notes sorted in ascending or descending order. Default is descending.",
+        "enum": ["asc", "desc"],
+        "examples": ["desc"],
+        "title": "Sort",
+        "type": "string"
+      }
+    },
+    "required": ["id", "issue_iid"],
+    "title": "ListIssueNotesRequest",
+    "type": "object"
+  },
+  "name": "list_issue_notes",
+  "outputSchema": {
+    "$defs": {
+      "Author": {
+        "properties": {
+          "avatar_url": {
+            "description": "Avatar URL of the author.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Account creation timestamp (ISO 8601).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address of the author.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID of the author.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the author.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "State of the author account (e.g., 'active').",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the author.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Web URL of the author's profile.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "name", "state", "web_url"],
+        "title": "Author",
+        "type": "object"
+      },
+      "ListIssueNotesResponse": {
+        "properties": {
+          "next_page": {
+            "description": "Next page number, if available.",
+            "title": "Next Page",
+            "type": "integer"
+          },
+          "notes": {
+            "description": "List of notes (comments) on the issue.",
+            "items": {
+              "$ref": "#/$defs/Note"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "page": {
+            "description": "Current page number.",
+            "title": "Page",
+            "type": "integer"
+          },
+          "per_page": {
+            "description": "Number of items per page.",
+            "title": "Per Page",
+            "type": "integer"
+          },
+          "prev_page": {
+            "description": "Previous page number, if available.",
+            "title": "Prev Page",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total number of notes.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "description": "Total number of pages.",
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": ["notes"],
+        "title": "ListIssueNotesResponse",
+        "type": "object"
+      },
+      "Note": {
+        "properties": {
+          "author": {
+            "$ref": "#/$defs/Author",
+            "description": "Author of the note.",
+            "title": "Author"
+          },
+          "body": {
+            "description": "Content of the note.",
+            "title": "Body",
+            "type": "string"
+          },
+          "confidential": {
+            "description": "Whether this note is confidential.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Creation timestamp (ISO 8601).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "ID of the note.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "imported": {
+            "description": "Whether this note was imported.",
+            "title": "Imported",
+            "type": "boolean"
+          },
+          "imported_from": {
+            "description": "Source from which this note was imported.",
+            "title": "Imported From",
+            "type": "string"
+          },
+          "internal": {
+            "description": "Whether this note is internal.",
+            "title": "Internal",
+            "type": "boolean"
+          },
+          "noteable_id": {
+            "description": "ID of the issue this note belongs to.",
+            "title": "Noteable Id",
+            "type": "integer"
+          },
+          "noteable_iid": {
+            "description": "Internal ID of the issue.",
+            "title": "Noteable Iid",
+            "type": "integer"
+          },
+          "noteable_type": {
+            "description": "Type of the noteable entity (e.g., 'Issue').",
+            "title": "Noteable Type",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "ID of the project.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "resolvable": {
+            "description": "Whether this note is resolvable.",
+            "title": "Resolvable",
+            "type": "boolean"
+          },
+          "system": {
+            "description": "Whether it's a system-generated note.",
+            "title": "System",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "description": "Update timestamp (ISO 8601).",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "body",
+          "author",
+          "created_at",
+          "updated_at",
+          "system",
+          "noteable_id",
+          "noteable_type",
+          "project_id",
+          "noteable_iid",
+          "resolvable"
+        ],
+        "title": "Note",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListIssueNotesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

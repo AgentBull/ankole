@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Removes a currently assigned member from a Trello card, affecting only the card's member list and not the member's board membership or overall permissions.",
+  "inputSchema": {
+    "description": "Request schema for `RemoveMemberFromCard`",
+    "properties": {
+      "idCard": {
+        "description": "The ID or shortLink of the card from which the member will be removed.",
+        "examples": ["60d5f0f8b8f8e80000000001", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID of the member to be unassigned from the card.",
+        "examples": ["5f9b0a0f0a0a0a0000000000"],
+        "title": "Id Member",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "idMember"],
+    "title": "RemoveMemberFromCardRequest",
+    "type": "object"
+  },
+  "name": "remove_member_from_card",
+  "outputSchema": {
+    "$defs": {
+      "RemoveMemberFromCardResponse": {
+        "description": "Response schema for `RemoveMemberFromCard`\n\nEmpty response body. This DELETE endpoint returns HTTP 200 OK status code with an\nempty or null response body upon successful removal of a member from a card.\nThe 200 status code itself confirms successful operation.",
+        "properties": {},
+        "title": "RemoveMemberFromCardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RemoveMemberFromCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

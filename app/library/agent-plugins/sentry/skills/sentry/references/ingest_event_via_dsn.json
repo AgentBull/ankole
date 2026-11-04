@@ -1,0 +1,183 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Ingests a single custom event into a Sentry project using its DSN via the Envelope ingestion endpoint. This may create or update an issue group depending on Sentry's grouping algorithm. Note: Sentry does not provide a direct API to 'create an issue group'; issues are created from ingested events. This tool allows controlled generation of events for testing or workflows requiring synthetic events.",
+  "inputSchema": {
+    "description": "Request schema for ingesting a custom event into Sentry via DSN.",
+    "properties": {
+      "dsn": {
+        "description": "The Sentry DSN (Data Source Name) string in format: {PROTOCOL}://{PUBLIC_KEY}@{HOST}{PATH}/{PROJECT_ID}. This is used to authenticate and route the event to the correct project.",
+        "examples": ["https://examplePublicKey@o0.ingest.sentry.io/0", "https://1234567890abcdef@sentry.io/123456"],
+        "title": "Dsn",
+        "type": "string"
+      },
+      "environment": {
+        "description": "Environment name where the event occurred.",
+        "examples": ["production", "staging", "development"],
+        "title": "Environment",
+        "type": "string"
+      },
+      "event_id": {
+        "description": "Optional event ID (32-character hex UUID without dashes). If not provided, one will be auto-generated.",
+        "examples": ["a1b2c3d4e5f6789012345678901234ab"],
+        "title": "Event Id",
+        "type": "string"
+      },
+      "exception_type": {
+        "description": "The exception type/class name. Required if you want to send an exception instead of a message.",
+        "examples": ["ValueError", "TypeError", "DatabaseError"],
+        "title": "Exception Type",
+        "type": "string"
+      },
+      "exception_value": {
+        "description": "The exception message/value. Used in conjunction with exception_type.",
+        "examples": ["Invalid input: expected integer, got string"],
+        "title": "Exception Value",
+        "type": "string"
+      },
+      "extra": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Arbitrary additional metadata to attach to the event. All values will be converted to strings.",
+        "examples": [
+          {
+            "cart_value": "99.99",
+            "user_action": "checkout"
+          }
+        ],
+        "title": "Extra",
+        "type": "object"
+      },
+      "fingerprint": {
+        "description": "List of strings used to control event grouping/deduplication. By default, Sentry groups events by stack trace.",
+        "examples": [["{{ default }}", "payment-error"], ["custom-group-key"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Fingerprint",
+        "type": "array"
+      },
+      "level": {
+        "default": "error",
+        "description": "Event severity level. Defaults to 'error'.",
+        "enum": ["fatal", "error", "warning", "info", "debug"],
+        "examples": ["error", "warning", "info"],
+        "title": "Level",
+        "type": "string"
+      },
+      "logger": {
+        "description": "Logger name that created the event.",
+        "examples": ["my.app.logger", "payments.processor"],
+        "title": "Logger",
+        "type": "string"
+      },
+      "message": {
+        "description": "The error message. Either 'message' or 'exception' must be provided. Use message for simple log-like events.",
+        "examples": ["User payment failed", "Database connection timeout"],
+        "title": "Message",
+        "type": "string"
+      },
+      "platform": {
+        "default": "python",
+        "description": "Platform/SDK identifier. Defaults to 'python'.",
+        "examples": ["python", "javascript", "node", "java"],
+        "title": "Platform",
+        "type": "string"
+      },
+      "release": {
+        "description": "Release version identifier for this event.",
+        "examples": ["1.0.0", "v2.3.1-beta", "my-app@2.1.0"],
+        "title": "Release",
+        "type": "string"
+      },
+      "tags": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Key-value pairs for tagging the event. Each tag value must be a string and less than 200 characters.",
+        "examples": [
+          {
+            "region": "us-east-1",
+            "server": "web-1"
+          }
+        ],
+        "title": "Tags",
+        "type": "object"
+      },
+      "user_email": {
+        "description": "User email for user context.",
+        "examples": ["user@example.com"],
+        "title": "User Email",
+        "type": "string"
+      },
+      "user_id": {
+        "description": "User ID for user context.",
+        "examples": ["12345", "user_abc123"],
+        "title": "User Id",
+        "type": "string"
+      },
+      "user_ip_address": {
+        "description": "User IP address for user context.",
+        "examples": ["192.168.1.1", "10.0.0.5"],
+        "title": "User Ip Address",
+        "type": "string"
+      },
+      "user_username": {
+        "description": "Username for user context.",
+        "examples": ["john", "john_doe"],
+        "title": "User Username",
+        "type": "string"
+      }
+    },
+    "required": ["dsn"],
+    "title": "IngestEventViaDsnRequest",
+    "type": "object"
+  },
+  "name": "ingest_event_via_dsn",
+  "outputSchema": {
+    "$defs": {
+      "IngestEventViaDsnResponse": {
+        "description": "Response schema for event ingestion via DSN.",
+        "properties": {
+          "event_id": {
+            "description": "The event ID that was submitted to Sentry. Use this to reference the event.",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "http_status": {
+            "description": "HTTP status code returned by Sentry (200 indicates successful ingestion).",
+            "title": "Http Status",
+            "type": "integer"
+          },
+          "rate_limit_info": {
+            "description": "Rate limit information from X-Sentry-Rate-Limits header, if present. Format: 'retry_after:categories:scope:reason_code'.",
+            "title": "Rate Limit Info",
+            "type": "string"
+          },
+          "retry_after": {
+            "description": "Value from Retry-After header if rate limited (429 response).",
+            "title": "Retry After",
+            "type": "string"
+          }
+        },
+        "required": ["event_id", "http_status"],
+        "title": "IngestEventViaDsnResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/IngestEventViaDsnResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

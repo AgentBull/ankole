@@ -1,0 +1,196 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves weekly, paginated analytics data on variable insertions and detachments for a specified Figma library (identified by `file_key`), groupable by 'variable' or 'team', and filterable by an optional date range. Note: Requires Enterprise plan and library_analytics:read scope.",
+  "inputSchema": {
+    "description": "Request schema for `GetLibraryAnalyticsVariableActionData`",
+    "properties": {
+      "cursor": {
+        "description": "Opaque cursor for pagination from a previous response; omit or use null for the first page.",
+        "title": "Cursor",
+        "type": "string"
+      },
+      "end_date": {
+        "description": "End date (YYYY-MM-DD) for the analytics range. Data is aggregated weekly; this date rounds to the nearest week end. Defaults to the latest computed week if unspecified.",
+        "examples": ["2023-12-31"],
+        "title": "End Date",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "Unique identifier (key) of the Figma file (library) for which to retrieve variable analytics data.",
+        "title": "File Key",
+        "type": "string"
+      },
+      "group_by": {
+        "description": "Dimension to group analytics data, which determines the structure of `rows` in the response.",
+        "enum": ["team", "variable"],
+        "examples": ["team", "variable"],
+        "title": "Group By",
+        "type": "string"
+      },
+      "start_date": {
+        "description": "Start date (YYYY-MM-DD) for the analytics range. Data is aggregated weekly; this date rounds to the nearest week start. Defaults to one year prior if unspecified.",
+        "examples": ["2023-01-01"],
+        "title": "Start Date",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "group_by"],
+    "title": "GetLibraryAnalyticsVariableActionDataRequest",
+    "type": "object"
+  },
+  "name": "get_library_analytics_variable_action_data",
+  "outputSchema": {
+    "$defs": {
+      "GetLibraryAnalyticsVariableActionDataResponse": {
+        "description": "Response schema for `GetLibraryAnalyticsVariableActionData`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Structured response with paginated library analytics data for variable actions.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetLibraryAnalyticsVariableActionDataResponse",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "cursor": {
+            "description": "Opaque cursor for the next page; present only if `next_page` is true.",
+            "title": "Cursor",
+            "type": "string"
+          },
+          "next_page": {
+            "description": "Indicates if more data is available; if true, a `cursor` is provided for the next page.",
+            "title": "Next Page",
+            "type": "boolean"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Row"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/Row1"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "Array of analytics data, structured by the `group_by` request parameter: 'variable' for variable-specific metrics, 'team' for team-specific metrics.",
+            "title": "Rows"
+          }
+        },
+        "required": ["rows", "next_page"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Row": {
+        "properties": {
+          "collection_key": {
+            "description": "Unique and stable identifier of the variable's collection.",
+            "title": "Collection Key",
+            "type": "string"
+          },
+          "collection_name": {
+            "description": "Name of the variable's collection.",
+            "title": "Collection Name",
+            "type": "string"
+          },
+          "detachments": {
+            "description": "Total detach events for this variable this week.",
+            "title": "Detachments",
+            "type": "number"
+          },
+          "insertions": {
+            "description": "Total insertion events for this variable this week.",
+            "title": "Insertions",
+            "type": "number"
+          },
+          "variable_key": {
+            "description": "Unique and stable identifier of the variable.",
+            "title": "Variable Key",
+            "type": "string"
+          },
+          "variable_name": {
+            "description": "Name of the variable.",
+            "title": "Variable Name",
+            "type": "string"
+          },
+          "variable_type": {
+            "description": "Type of the variable.",
+            "title": "Variable Type",
+            "type": "string"
+          },
+          "week": {
+            "description": "Start date of the week for this data point (YYYY-MM-DD).",
+            "title": "Week",
+            "type": "string"
+          }
+        },
+        "required": [
+          "week",
+          "variable_key",
+          "variable_name",
+          "variable_type",
+          "collection_key",
+          "collection_name",
+          "detachments",
+          "insertions"
+        ],
+        "title": "Row",
+        "type": "object"
+      },
+      "Row1": {
+        "properties": {
+          "detachments": {
+            "description": "Total detach events by this team this week.",
+            "title": "Detachments",
+            "type": "number"
+          },
+          "insertions": {
+            "description": "Total insertion events by this team this week.",
+            "title": "Insertions",
+            "type": "number"
+          },
+          "team_name": {
+            "description": "Name of the team that used library variables.",
+            "title": "Team Name",
+            "type": "string"
+          },
+          "week": {
+            "description": "Start date of the week for this data point (YYYY-MM-DD).",
+            "title": "Week",
+            "type": "string"
+          },
+          "workspace_name": {
+            "description": "Name of the team's workspace; may be null.",
+            "title": "Workspace Name",
+            "type": "string"
+          }
+        },
+        "required": ["week", "team_name", "detachments", "insertions"],
+        "title": "Row1",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetLibraryAnalyticsVariableActionDataResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

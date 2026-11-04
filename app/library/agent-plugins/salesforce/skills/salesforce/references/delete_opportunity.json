@@ -1,0 +1,44 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes an opportunity from Salesforce. This action cannot be undone.",
+  "inputSchema": {
+    "properties": {
+      "opportunity_id": {
+        "description": "The Salesforce ID of the opportunity to delete.",
+        "examples": ["006Wd000005FG3CIAW", "006XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique Salesforce ID of the opportunity you want to delete. You can copy this from the opportunity's URL or details page.",
+        "human_parameter_name": "Opportunity ID",
+        "title": "Opportunity Id",
+        "type": "string"
+      }
+    },
+    "required": ["opportunity_id"],
+    "title": "DeleteOpportunityRequest",
+    "type": "object"
+  },
+  "name": "delete_opportunity",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOpportunityResponse": {
+        "description": "Response for DELETE Opportunity. HTTP 204 No Content - Successful deletion returns an empty response body. The 204 status code itself confirms the opportunity was successfully deleted.",
+        "properties": {},
+        "title": "DeleteOpportunityResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOpportunityResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

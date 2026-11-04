@@ -1,0 +1,141 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get Figma file metadata including name, creator, last modification details, thumbnail, and access information. Use when you need quick file overview without the full document tree.",
+  "inputSchema": {
+    "description": "Request schema for retrieving metadata of a Figma file.",
+    "properties": {
+      "file_key": {
+        "description": "File key to get metadata for. This can be a file key or branch key. Extract from file URL: https://www.figma.com/design/{file_key}/... or https://www.figma.com/file/{file_key}/... Use `GET /v1/files/:key` with the `branch_data` query param to get the branch key.",
+        "examples": ["VGULlnz44R0Ooe4FZKDxlhh4", "sFHgQh9dL6369o5wrZHmdR"],
+        "title": "File Key",
+        "type": "string"
+      }
+    },
+    "required": ["file_key"],
+    "title": "GetFileMetadataRequest",
+    "type": "object"
+  },
+  "name": "get_file_metadata",
+  "outputSchema": {
+    "$defs": {
+      "EditorType": {
+        "description": "The type of editor associated with the file.",
+        "enum": ["figma", "figjam", "slides", "buzz", "sites", "make"],
+        "title": "EditorType",
+        "type": "string"
+      },
+      "GetFileMetadataResponse": {
+        "description": "Response schema containing metadata for a Figma file.",
+        "properties": {
+          "creator": {
+            "$ref": "#/$defs/User",
+            "description": "Details of the user who created the file.",
+            "title": "Creator"
+          },
+          "editorType": {
+            "$ref": "#/$defs/EditorType",
+            "description": "The type of editor associated with this file.",
+            "title": "Editor Type"
+          },
+          "folder_name": {
+            "description": "The name of the project containing the file.",
+            "title": "Folder Name",
+            "type": "string"
+          },
+          "last_touched_at": {
+            "description": "The UTC ISO 8601 time at which the file content was last modified.",
+            "title": "Last Touched At",
+            "type": "string"
+          },
+          "last_touched_by": {
+            "$ref": "#/$defs/User",
+            "description": "Details of the user who last modified the file.",
+            "title": "Last Touched By"
+          },
+          "link_access": {
+            "$ref": "#/$defs/LinkAccess",
+            "description": "Access policy for users who have the link to the resource.",
+            "title": "Link Access"
+          },
+          "name": {
+            "description": "The name of the file.",
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/$defs/Role",
+            "description": "The role of the user making the API request in relation to the resource.",
+            "title": "Role"
+          },
+          "thumbnail_url": {
+            "description": "A URL to a thumbnail image of the file.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL of the file.",
+            "title": "Url",
+            "type": "string"
+          },
+          "version": {
+            "description": "The version number of the file. This number is incremented when a file is modified and can be used to check if the file has changed between requests.",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["name", "last_touched_at", "creator", "editorType"],
+        "title": "GetFileMetadataResponse",
+        "type": "object"
+      },
+      "LinkAccess": {
+        "description": "Access policy for users who have the link to the resource.",
+        "enum": ["view", "edit", "org_view", "org_edit", "inherit"],
+        "title": "LinkAccess",
+        "type": "string"
+      },
+      "Role": {
+        "description": "The role of the user making the API request in relation to the resource.",
+        "enum": ["owner", "editor", "viewer"],
+        "title": "Role",
+        "type": "string"
+      },
+      "User": {
+        "description": "A description of a user.",
+        "properties": {
+          "handle": {
+            "description": "Name of the user.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique stable id of the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "img_url": {
+            "description": "URL link to the user's profile image.",
+            "title": "Img Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "handle", "img_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetFileMetadataResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

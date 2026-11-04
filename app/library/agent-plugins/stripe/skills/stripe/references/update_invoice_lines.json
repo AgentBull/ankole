@@ -1,0 +1,688 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Bulk updates existing line items on a draft invoice, including descriptions, amounts, quantities and discounts. It can also update metadata on the invoice itself.",
+  "inputSchema": {
+    "description": "Request schema for bulk updating invoice line items on a draft invoice.",
+    "properties": {
+      "invoice": {
+        "description": "The ID of the invoice to update line items for. The invoice must be in 'draft' status.",
+        "examples": ["in_1ShVpDQvM72TjFrb6EioNiRq"],
+        "title": "Invoice",
+        "type": "string"
+      },
+      "invoice_metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Set of key-value pairs to attach to the invoice object itself.",
+        "examples": [
+          {
+            "customer_ref": "CUST-001",
+            "order_id": "12345"
+          }
+        ],
+        "title": "Invoice Metadata",
+        "type": "object"
+      },
+      "lines": {
+        "description": "List of line items to update. Each line item must have an 'id' field to identify which line item to update.",
+        "items": {
+          "description": "Definition of a line item to update on an invoice.",
+          "properties": {
+            "amount": {
+              "description": "The integer amount in cents of the charge to be applied to the upcoming invoice. Can be negative for credits.",
+              "examples": [1000, -500],
+              "title": "Amount",
+              "type": "integer"
+            },
+            "description": {
+              "description": "An arbitrary string which you can attach to the line item for tracking purposes.",
+              "examples": ["Updated line item 1 description"],
+              "title": "Description",
+              "type": "string"
+            },
+            "discountable": {
+              "description": "Controls whether discounts apply to this line item. Defaults to false for prorations or negative line items, and true for all other line items.",
+              "examples": [true, false],
+              "title": "Discountable",
+              "type": "boolean"
+            },
+            "discounts": {
+              "description": "The coupons, promotion codes, and/or discounts to apply to the line item. Pass an empty array to remove previously-defined discounts.",
+              "items": {
+                "description": "Discount to apply to a line item.",
+                "properties": {
+                  "coupon": {
+                    "description": "ID of the coupon to create a new discount for. Mutually exclusive with 'discount' and 'promotion_code'.",
+                    "examples": ["SUMMER25OFF"],
+                    "title": "Coupon",
+                    "type": "string"
+                  },
+                  "discount": {
+                    "description": "ID of an existing discount. Mutually exclusive with 'coupon' and 'promotion_code'.",
+                    "examples": ["di_1J2x3y4z5A6b7c8d"],
+                    "title": "Discount",
+                    "type": "string"
+                  },
+                  "promotion_code": {
+                    "description": "ID of the promotion code to create a new discount for. Mutually exclusive with 'coupon' and 'discount'.",
+                    "examples": ["promo_1J2x3y4z5A6b7c8d"],
+                    "title": "Promotion Code",
+                    "type": "string"
+                  }
+                },
+                "title": "LineItemDiscount",
+                "type": "object"
+              },
+              "title": "Discounts",
+              "type": "array"
+            },
+            "id": {
+              "description": "ID of an existing line item on the invoice to update.",
+              "examples": ["il_1ShVpQQvM72TjFrb9ap8OyZt"],
+              "title": "Id",
+              "type": "string"
+            },
+            "metadata": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Set of key-value pairs that you can attach to an object. For type='invoiceitem', incoming metadata replaces existing metadata. For type='subscription', metadata is merged.",
+              "examples": [
+                {
+                  "order_id": "12345"
+                }
+              ],
+              "title": "Metadata",
+              "type": "object"
+            },
+            "period": {
+              "additionalProperties": false,
+              "description": "Period for the line item.",
+              "properties": {
+                "end": {
+                  "description": "The end of the period (Unix timestamp). Must be on or after the period start.",
+                  "examples": [1640995200],
+                  "title": "End",
+                  "type": "integer"
+                },
+                "start": {
+                  "description": "The start of the period (Unix timestamp). Must be before or equal to the period end.",
+                  "examples": [1609459200],
+                  "title": "Start",
+                  "type": "integer"
+                }
+              },
+              "required": ["start", "end"],
+              "title": "LineItemPeriod",
+              "type": "object"
+            },
+            "price_data": {
+              "additionalProperties": false,
+              "description": "Data for creating a new price inline.",
+              "properties": {
+                "currency": {
+                  "description": "Three-letter ISO currency code, in lowercase.",
+                  "examples": ["usd", "eur"],
+                  "title": "Currency",
+                  "type": "string"
+                },
+                "product": {
+                  "description": "The ID of the product that this price will belong to. Mutually exclusive with 'product_data'.",
+                  "examples": ["prod_1J2x3y4z5A6b7c8d"],
+                  "title": "Product",
+                  "type": "string"
+                },
+                "product_data": {
+                  "additionalProperties": false,
+                  "description": "Product data for creating a new product inline.",
+                  "properties": {
+                    "description": {
+                      "description": "The product's description, meant to be displayable to the customer.",
+                      "examples": ["High-quality premium widget"],
+                      "title": "Description",
+                      "type": "string"
+                    },
+                    "images": {
+                      "description": "A list of up to 8 URLs of images for this product.",
+                      "examples": [["https://example.com/image1.png", "https://example.com/image2.png"]],
+                      "items": {
+                        "type": "string"
+                      },
+                      "title": "Images",
+                      "type": "array"
+                    },
+                    "metadata": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Set of key-value pairs that you can attach to an object.",
+                      "examples": [
+                        {
+                          "internal_id": "widget_123"
+                        }
+                      ],
+                      "title": "Metadata",
+                      "type": "object"
+                    },
+                    "name": {
+                      "description": "The product's name, meant to be displayable to the customer.",
+                      "examples": ["Premium Widget"],
+                      "title": "Name",
+                      "type": "string"
+                    },
+                    "tax_code": {
+                      "description": "A tax code ID for the product.",
+                      "examples": ["txcd_99999999"],
+                      "title": "Tax Code",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["name"],
+                  "title": "ProductData",
+                  "type": "object"
+                },
+                "tax_behavior": {
+                  "description": "Specifies whether the price is considered inclusive of taxes or exclusive of taxes. One of 'inclusive', 'exclusive', or 'unspecified'.",
+                  "examples": ["exclusive", "inclusive"],
+                  "title": "Tax Behavior",
+                  "type": "string"
+                },
+                "unit_amount": {
+                  "description": "A positive integer in cents (or 0 for a free price) representing how much to charge. One of 'unit_amount' or 'unit_amount_decimal' is required.",
+                  "examples": [1000, 2500],
+                  "title": "Unit Amount",
+                  "type": "integer"
+                },
+                "unit_amount_decimal": {
+                  "description": "Same as 'unit_amount', but accepts a decimal value with at most 12 decimal places. One of 'unit_amount' or 'unit_amount_decimal' is required.",
+                  "examples": ["10.50", "25.99"],
+                  "title": "Unit Amount Decimal",
+                  "type": "string"
+                }
+              },
+              "required": ["currency"],
+              "title": "PriceData",
+              "type": "object"
+            },
+            "pricing": {
+              "additionalProperties": false,
+              "description": "Pricing information for the line item.",
+              "properties": {
+                "price": {
+                  "description": "The ID of the price object.",
+                  "examples": ["price_1J2x3y4z5A6b7c8d"],
+                  "title": "Price",
+                  "type": "string"
+                }
+              },
+              "required": ["price"],
+              "title": "Pricing",
+              "type": "object"
+            },
+            "quantity": {
+              "description": "Non-negative integer. The quantity of units for the line item.",
+              "examples": [1, 5, 10],
+              "title": "Quantity",
+              "type": "integer"
+            },
+            "tax_amounts": {
+              "description": "A list of up to 10 tax amounts for this line item. Cannot be mixed with tax_rates.",
+              "items": {
+                "description": "Tax amount to apply to the line item.",
+                "properties": {
+                  "amount": {
+                    "description": "The amount, in cents, of the tax.",
+                    "examples": [100, 250],
+                    "title": "Amount",
+                    "type": "integer"
+                  },
+                  "tax_rate_data": {
+                    "additionalProperties": false,
+                    "description": "Data for defining the tax rate details.",
+                    "properties": {
+                      "country": {
+                        "description": "Two-letter ISO 3166-1 alpha-2 country code.",
+                        "examples": ["US", "GB"],
+                        "title": "Country",
+                        "type": "string"
+                      },
+                      "description": {
+                        "description": "An arbitrary string for your internal use only.",
+                        "examples": ["Standard sales tax"],
+                        "title": "Description",
+                        "type": "string"
+                      },
+                      "display_name": {
+                        "description": "The display name of the tax rate (max 100 characters).",
+                        "examples": ["Sales Tax", "VAT"],
+                        "title": "Display Name",
+                        "type": "string"
+                      },
+                      "inclusive": {
+                        "description": "Whether the tax rate is inclusive or exclusive.",
+                        "examples": [true, false],
+                        "title": "Inclusive",
+                        "type": "boolean"
+                      },
+                      "jurisdiction": {
+                        "description": "The jurisdiction for the tax rate (max 200 characters).",
+                        "examples": ["California", "New York"],
+                        "title": "Jurisdiction",
+                        "type": "string"
+                      },
+                      "jurisdiction_level": {
+                        "description": "The level of the jurisdiction. One of 'city', 'county', 'state', 'country', 'district', or 'multiple'.",
+                        "examples": ["state", "city"],
+                        "title": "Jurisdiction Level",
+                        "type": "string"
+                      },
+                      "percentage": {
+                        "description": "The tax rate percentage (0-100) with at most 4 decimal places.",
+                        "examples": [8.5, 20],
+                        "title": "Percentage",
+                        "type": "number"
+                      },
+                      "state": {
+                        "description": "ISO 3166-2 subdivision code (e.g., state or province).",
+                        "examples": ["CA", "NY"],
+                        "title": "State",
+                        "type": "string"
+                      },
+                      "tax_type": {
+                        "description": "The high-level tax type. One of 'vat', 'sales_tax', 'gst', 'hst', 'igst', 'jct', 'pst', 'qst', 'rst', 'service_tax', etc.",
+                        "examples": ["sales_tax", "vat"],
+                        "title": "Tax Type",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["display_name", "percentage", "inclusive"],
+                    "title": "Tax Rate Data",
+                    "type": "object"
+                  },
+                  "taxability_reason": {
+                    "description": "The reasoning behind the tax or exemption.",
+                    "examples": ["standard_rated", "customer_exempt"],
+                    "title": "Taxability Reason",
+                    "type": "string"
+                  },
+                  "taxable_amount": {
+                    "description": "The amount on which tax is calculated, in cents.",
+                    "examples": [1000, 2500],
+                    "title": "Taxable Amount",
+                    "type": "integer"
+                  }
+                },
+                "required": ["amount", "taxable_amount", "tax_rate_data"],
+                "title": "TaxAmount",
+                "type": "object"
+              },
+              "title": "Tax Amounts",
+              "type": "array"
+            },
+            "tax_rates": {
+              "description": "The tax rates that apply to this line item. Pass an empty array to remove previously-defined tax rates. Cannot be mixed with tax_amounts.",
+              "examples": [["txr_1J2x3y4z5A6b7c8d"]],
+              "items": {
+                "type": "string"
+              },
+              "title": "Tax Rates",
+              "type": "array"
+            }
+          },
+          "required": ["id"],
+          "title": "LineItemUpdate",
+          "type": "object"
+        },
+        "minItems": 1,
+        "title": "Lines",
+        "type": "array"
+      }
+    },
+    "required": ["invoice", "lines"],
+    "title": "UpdateInvoiceLinesRequest",
+    "type": "object"
+  },
+  "name": "update_invoice_lines",
+  "outputSchema": {
+    "$defs": {
+      "AddressResponse": {
+        "description": "Address information.",
+        "properties": {
+          "city": {
+            "description": "City, district, suburb, town, or village",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2)",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Street, PO Box, or company name",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Apartment, suite, unit, or building",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "ZIP or postal code",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State, county, province, or region",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "AddressResponse",
+        "type": "object"
+      },
+      "AutomaticTaxResponse": {
+        "description": "Tax calculation settings and results.",
+        "properties": {
+          "enabled": {
+            "description": "Whether Stripe automatically computes tax",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "liability": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Account liable for tax",
+            "title": "Liability",
+            "type": "object"
+          },
+          "status": {
+            "description": "Status (complete, failed, requires_location_inputs)",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticTaxResponse",
+        "type": "object"
+      },
+      "InvoiceLinesResponse": {
+        "description": "List of invoice line items.",
+        "properties": {
+          "data": {
+            "description": "Line item objects",
+            "items": {
+              "$ref": "#/$defs/LineItemResponse"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether more items exist",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "Always 'list'",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "List access URL",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "InvoiceLinesResponse",
+        "type": "object"
+      },
+      "LineItemResponse": {
+        "description": "Individual line item on invoice.",
+        "properties": {
+          "amount": {
+            "description": "Amount in cents",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Arbitrary descriptive string",
+            "title": "Description",
+            "type": "string"
+          },
+          "discountable": {
+            "description": "Whether discounts apply",
+            "title": "Discountable",
+            "type": "boolean"
+          },
+          "discounts": {
+            "description": "Applied discount IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique line item identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Live or test mode",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "Always 'line_item'",
+            "title": "Object",
+            "type": "string"
+          },
+          "period": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Time period covered",
+            "title": "Period",
+            "type": "object"
+          },
+          "quantity": {
+            "description": "Quantity for subscription/proration",
+            "title": "Quantity",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "object", "amount", "currency", "discountable", "livemode"],
+        "title": "LineItemResponse",
+        "type": "object"
+      },
+      "UpdateInvoiceLinesResponse": {
+        "description": "Response from bulk updating invoice line items. Returns the complete updated Invoice object.",
+        "properties": {
+          "amount_due": {
+            "description": "Final amount due at this time for this invoice in cents",
+            "title": "Amount Due",
+            "type": "integer"
+          },
+          "amount_paid": {
+            "description": "Amount in cents that was paid",
+            "title": "Amount Paid",
+            "type": "integer"
+          },
+          "amount_remaining": {
+            "description": "Difference between amount_due and amount_paid",
+            "title": "Amount Remaining",
+            "type": "integer"
+          },
+          "attempt_count": {
+            "description": "Number of payment attempts made",
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "attempted": {
+            "description": "Whether an attempt has been made to pay the invoice",
+            "title": "Attempted",
+            "type": "boolean"
+          },
+          "auto_advance": {
+            "description": "Controls whether Stripe automatically finalizes the invoice",
+            "title": "Auto Advance",
+            "type": "boolean"
+          },
+          "automatic_tax": {
+            "$ref": "#/$defs/AutomaticTaxResponse",
+            "description": "Tax calculation settings and results",
+            "title": "Automatic Tax"
+          },
+          "collection_method": {
+            "description": "Either charge_automatically or send_invoice",
+            "title": "Collection Method",
+            "type": "string"
+          },
+          "created": {
+            "description": "Unix timestamp of creation",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code",
+            "title": "Currency",
+            "type": "string"
+          },
+          "customer": {
+            "description": "ID of customer to be billed",
+            "title": "Customer",
+            "type": "string"
+          },
+          "customer_address": {
+            "$ref": "#/$defs/AddressResponse",
+            "description": "Customer's billing address",
+            "title": "Customer Address"
+          },
+          "customer_email": {
+            "description": "Customer email",
+            "title": "Customer Email",
+            "type": "string"
+          },
+          "customer_name": {
+            "description": "Customer name",
+            "title": "Customer Name",
+            "type": "string"
+          },
+          "customer_phone": {
+            "description": "Customer phone",
+            "title": "Customer Phone",
+            "type": "string"
+          },
+          "description": {
+            "description": "Arbitrary string attached to the object",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Payment due date",
+            "title": "Due Date",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique invoice identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "lines": {
+            "$ref": "#/$defs/InvoiceLinesResponse",
+            "description": "Individual line items making up invoice",
+            "title": "Lines"
+          },
+          "livemode": {
+            "description": "True for live mode; false for test mode",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value pairs for structured data storage",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "number": {
+            "description": "Unique identifying string for emails",
+            "title": "Number",
+            "type": "string"
+          },
+          "object": {
+            "description": "Always 'invoice'",
+            "title": "Object",
+            "type": "string"
+          },
+          "status": {
+            "description": "Invoice status (draft, open, paid, uncollectible, void)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subtotal": {
+            "description": "Total before invoice discounts/tax",
+            "title": "Subtotal",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total after discounts and taxes",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount_due",
+          "amount_paid",
+          "amount_remaining",
+          "attempt_count",
+          "attempted",
+          "automatic_tax",
+          "collection_method",
+          "created",
+          "currency",
+          "lines",
+          "livemode",
+          "subtotal",
+          "total"
+        ],
+        "title": "UpdateInvoiceLinesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateInvoiceLinesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Clears a primary calendar by deleting all events from it. The calendar itself is preserved; only its events are removed. Primary calendars cannot be deleted entirely.",
+  "inputSchema": {
+    "properties": {
+      "calendar_id": {
+        "description": "Primary calendar to clear: \"`primary`\" or the account's own email address. Google only clears primary calendars; secondary calendar IDs return 400 Invalid Value. To remove a secondary calendar's events, delete them individually or delete the calendar.",
+        "examples": ["primary"],
+        "human_parameter_description": "Use 'primary' (or your own email address) to clear your main calendar. Secondary calendars cannot be cleared.",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      }
+    },
+    "required": ["calendar_id"],
+    "title": "ClearCalendarRequest",
+    "type": "object"
+  },
+  "name": "clear_calendar",
+  "outputSchema": {
+    "$defs": {
+      "ClearCalendarResponse": {
+        "additionalProperties": false,
+        "description": "Successful response contains no content; the response body is empty. The Calendars: clear method does not return any fields. Some client implementations may include a human-readable confirmation message.",
+        "properties": {
+          "display_url": {
+            "description": "URL to view the calendar in Google Calendar web interface.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "message": {
+            "default": "Calendar cleared successfully.",
+            "description": "Human-readable confirmation that the calendar was cleared successfully. Note: Not part of the official Google Calendar API response; may be present in certain client implementations.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "title": "GOOGLECALENDAR_CLEAR_CALENDAR Response",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ClearCalendarResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

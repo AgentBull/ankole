@@ -1,0 +1,175 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to query a completed audience export. Use when you need to fetch user rows with pagination.",
+  "inputSchema": {
+    "description": "Request model for querying an existing Google Analytics audience export.",
+    "properties": {
+      "limit": {
+        "description": "Optional. Number of rows to return. Must be between 1 and 250000. Defaults to 10000.",
+        "examples": [1000],
+        "maximum": 250000,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "name": {
+        "description": "Required. Resource name of the audience export. Format: properties/{property}/audienceExports/{audienceExport}, where {property} and {audienceExport} must be integers.",
+        "examples": ["properties/1234/audienceExports/5678"],
+        "title": "Name",
+        "type": "string"
+      },
+      "offset": {
+        "description": "Optional. Zero-based start row index for pagination. Defaults to 0.",
+        "examples": [0],
+        "minimum": 0,
+        "title": "Offset",
+        "type": "integer"
+      }
+    },
+    "required": ["name"],
+    "title": "QueryAudienceExportRequest",
+    "type": "object"
+  },
+  "name": "query_audience_export",
+  "outputSchema": {
+    "$defs": {
+      "AudienceDimensionValue": {
+        "properties": {
+          "value": {
+            "description": "String value of the user dimension.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["value"],
+        "title": "AudienceDimensionValue",
+        "type": "object"
+      },
+      "AudienceExport": {
+        "properties": {
+          "audience": {
+            "description": "Resource name of the audience.",
+            "title": "Audience",
+            "type": "string"
+          },
+          "audienceDisplayName": {
+            "description": "Display name of the audience.",
+            "title": "Audience Display Name",
+            "type": "string"
+          },
+          "beginCreatingTime": {
+            "description": "Timestamp when export began creation.",
+            "title": "Begin Creating Time",
+            "type": "string"
+          },
+          "creationQuotaTokensCharged": {
+            "description": "Quota tokens charged for creating the export.",
+            "title": "Creation Quota Tokens Charged",
+            "type": "integer"
+          },
+          "dimensions": {
+            "description": "List of dimensions configured in the export.",
+            "items": {
+              "$ref": "#/$defs/AudienceExportDimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "errorMessage": {
+            "description": "Error message if export failed.",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name of the audience export.",
+            "title": "Name",
+            "type": "string"
+          },
+          "percentageCompleted": {
+            "description": "Completion percentage of the export.",
+            "title": "Percentage Completed",
+            "type": "number"
+          },
+          "rowCount": {
+            "description": "Total number of rows in the export.",
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "state": {
+            "description": "State of the export, e.g., COMPLETED, FAILED.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["name", "audience"],
+        "title": "AudienceExport",
+        "type": "object"
+      },
+      "AudienceExportDimension": {
+        "properties": {
+          "dimensionName": {
+            "description": "API name of the dimension included in the export.",
+            "title": "Dimension Name",
+            "type": "string"
+          }
+        },
+        "required": ["dimensionName"],
+        "title": "AudienceExportDimension",
+        "type": "object"
+      },
+      "AudienceRow": {
+        "properties": {
+          "dimensionValues": {
+            "description": "One value per requested dimension for the user.",
+            "items": {
+              "$ref": "#/$defs/AudienceDimensionValue"
+            },
+            "title": "Dimension Values",
+            "type": "array"
+          }
+        },
+        "required": ["dimensionValues"],
+        "title": "AudienceRow",
+        "type": "object"
+      },
+      "QueryAudienceExportResponse": {
+        "properties": {
+          "audienceExport": {
+            "$ref": "#/$defs/AudienceExport",
+            "description": "Configuration of the queried export.",
+            "title": "Audience Export"
+          },
+          "audienceRows": {
+            "description": "Rows for users in the audience export. May be empty or absent if no users match.",
+            "items": {
+              "$ref": "#/$defs/AudienceRow"
+            },
+            "title": "Audience Rows",
+            "type": "array"
+          },
+          "rowCount": {
+            "description": "Total rows in the export.",
+            "title": "Row Count",
+            "type": "integer"
+          }
+        },
+        "title": "QueryAudienceExportResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/QueryAudienceExportResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

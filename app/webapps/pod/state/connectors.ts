@@ -1,5 +1,6 @@
 import { createModel, signal } from '@preact/signals-react'
-import type { PodConnectorAuthConfigsListResponse } from '../api/generated/types.gen'
+import { isRecord, safeJsonParse } from '@agentbull/active-support'
+import type { PodConnectorAuthConfigsListResponse, PodConnectorsCatalogResponse } from '../api/generated/types.gen'
 import { podPagePath, podRouteID } from '../../common/pod-url'
 import i18n from '../../common/i18n'
 
@@ -46,22 +47,28 @@ export function connectorReturnTo({
   scopes,
   trigger,
   automation,
-  subjectKind
+  subjectKind,
+  intent
 }: {
   connection?: string
   scopes?: string[]
-  trigger?: { type: string; scope: string; id?: string }
+  trigger?: { type: string; scope: string; id?: string; config?: Record<string, unknown> }
   automation?: ConnectorAutomationContext
   subjectKind?: 'human' | 'app'
+  intent?: string | null
 }) {
   const params = new URLSearchParams()
   if (connection) params.set('connection', connection)
+  if (intent) params.set('intent', intent)
   if (subjectKind) params.set('subject_kind', subjectKind)
   if (scopes?.length) params.set('scopes', scopes.join(' '))
   if (trigger) {
     params.set('trigger_type', trigger.type)
     params.set('scope_key', trigger.scope)
     if (trigger.id) params.set('trigger_id', trigger.id)
+    if (trigger.config && Object.keys(trigger.config).length) {
+      params.set('trigger_config', JSON.stringify(trigger.config))
+    }
   }
   if (automation) {
     params.set('automation_page', automation.pageID)
@@ -70,48 +77,88 @@ export function connectorReturnTo({
   return `/connectors?${params}`
 }
 
-type Connection = PodConnectorAuthConfigsListResponse['connections'][number]
+export function connectorTriggerConfigFromURL(params: URLSearchParams): Record<string, unknown> {
+  const config = safeJsonParse(params.get('trigger_config') ?? '{}').unwrapOr(undefined)
+  return isRecord(config) ? config : {}
+}
+
+export type ConnectorConnection = PodConnectorAuthConfigsListResponse['connections'][number]
+export type ConnectorDefinition = NonNullable<PodConnectorsCatalogResponse['connectors']>[number]
+type Connection = ConnectorConnection
 export const ConnectorsModel = createModel(() => {
   const editing = signal<Connection | null | undefined>()
-  const plugin = signal('lark')
-  const scheme = signal('lark_app')
-  const slug = signal('')
-  const name = signal('')
-  const isDefault = signal(false)
-  const secret = signal<Record<string, unknown>>({})
-  const metadata = signal<Record<string, unknown>>({})
   const triggerConnection = signal<Connection>()
   const triggerType = signal('')
   const triggerScope = signal('')
+  const triggerConfig = signal<Record<string, unknown>>({})
   const triggerAccount = signal('')
+  const triggerSubject = signal<'human' | 'app'>('human')
+  const credentialConnection = signal<Connection>()
+  const credentialSubject = signal<'human' | 'app'>('human')
+  const credentialsBound = signal(false)
   return {
     editing,
-    plugin,
-    scheme,
-    slug,
-    name,
-    isDefault,
-    secret,
-    metadata,
     triggerConnection,
     triggerType,
     triggerScope,
+    triggerConfig,
     triggerAccount,
-    openTrigger({ connection, type = '', scope = '' }: { connection: Connection; type?: string; scope?: string }) {
+    triggerSubject,
+    credentialConnection,
+    credentialSubject,
+    credentialsBound,
+    bindCredentials(connection: Connection, subject: 'human' | 'app') {
+      credentialConnection.value = connection
+      credentialSubject.value = subject
+      credentialsBound.value = false
+    },
+    openTrigger({
+      connection,
+      type = '',
+      scope = '',
+      config = {},
+      subject = 'human'
+    }: {
+      connection: Connection
+      type?: string
+      scope?: string
+      config?: Record<string, unknown>
+      subject?: 'human' | 'app'
+    }) {
+      triggerSubject.value = subject
       triggerConnection.value = connection
       triggerType.value = type
       triggerScope.value = scope
+      triggerConfig.value = config
       triggerAccount.value = ''
+    },
+    triggerAttributes(defaults: Record<string, unknown>, accountID?: string, fixedScopeKey?: string) {
+      return {
+        auth_config_id: triggerConnection.value!.id ?? undefined,
+        connection: triggerConnection.value!.slug,
+        trigger_type: triggerType.value,
+        scope_key: fixedScopeKey ?? triggerScope.value,
+        connected_account_id: accountID,
+        config: { ...defaults, ...triggerConfig.value }
+      }
     },
     edit(connection: Connection | null) {
       editing.value = connection
-      plugin.value = connection?.plugin_id ?? 'lark'
-      scheme.value = connection?.auth_scheme ?? 'lark_app'
-      slug.value = connection?.slug ?? ''
-      name.value = connection?.display_name ?? ''
-      isDefault.value = connection?.is_default ?? false
-      secret.value = {}
-      metadata.value = { ...connection?.public_metadata }
     }
   }
 })
+
+export const ConnectionEditorModel = createModel((connection: Connection | null) => ({
+  editing: signal(connection),
+  plugin: signal(connection?.plugin_id ?? 'lark'),
+  scheme: signal(connection?.auth_scheme ?? 'lark_app'),
+  slug: signal(connection?.slug ?? ''),
+  name: signal(connection?.display_name ?? ''),
+  isDefault: signal(connection?.is_default ?? false),
+  secret: signal<Record<string, unknown>>({}),
+  metadata: signal<Record<string, unknown>>({ ...connection?.public_metadata })
+}))
+
+export const CredentialBindingModel = createModel(() => ({
+  credentials: signal<Record<string, unknown>>({})
+}))

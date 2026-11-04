@@ -1,0 +1,118 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list ChannelGroups on a property. Use when you need to retrieve channel groups that categorize traffic sources in Analytics reports.",
+  "inputSchema": {
+    "description": "Request model for listing ChannelGroups on a property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. The maximum number of resources to return. If unspecified, at most 50 resources will be returned. The maximum value is 200",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous ListChannelGroups call. Provide this to retrieve the subsequent page",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The property for which to list ChannelGroups. Format: properties/{property_id}",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "AnalyticsadminPropertiesChannelgroupsListRequest",
+    "type": "object"
+  },
+  "name": "list_channel_groups",
+  "outputSchema": {
+    "$defs": {
+      "AnalyticsadminPropertiesChannelgroupsListResponse": {
+        "description": "Response model for listing ChannelGroups.",
+        "properties": {
+          "channelGroups": {
+            "description": "An array of ChannelGroup objects representing the listed channel groups",
+            "items": {
+              "$ref": "#/$defs/ChannelGroup"
+            },
+            "title": "Channel Groups",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "A token for retrieving the next page of results. Empty if there are no more results",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "AnalyticsadminPropertiesChannelgroupsListResponse",
+        "type": "object"
+      },
+      "ChannelGroup": {
+        "description": "Schema for a ChannelGroup resource.",
+        "properties": {
+          "description": {
+            "description": "A text explanation of the channel group's purpose",
+            "title": "Description",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "The human-readable name displayed in the Analytics interface",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "groupingRule": {
+            "description": "The logic defining which traffic sources belong to this group",
+            "items": {
+              "$ref": "#/$defs/GroupingRule"
+            },
+            "title": "Grouping Rule",
+            "type": "array"
+          },
+          "name": {
+            "description": "The resource name identifier for the channel group",
+            "title": "Name",
+            "type": "string"
+          },
+          "systemDefined": {
+            "description": "Indicates whether this is a default Analytics channel group (true) or a custom one (false)",
+            "title": "System Defined",
+            "type": "boolean"
+          }
+        },
+        "title": "ChannelGroup",
+        "type": "object"
+      },
+      "GroupingRule": {
+        "description": "Schema for a grouping rule within a channel group.",
+        "properties": {
+          "displayName": {
+            "description": "The display name of this grouping rule",
+            "title": "Display Name",
+            "type": "string"
+          }
+        },
+        "title": "GroupingRule",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AnalyticsadminPropertiesChannelgroupsListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

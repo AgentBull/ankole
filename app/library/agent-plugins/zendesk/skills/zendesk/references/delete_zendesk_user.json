@@ -1,0 +1,259 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to permanently delete a user from Zendesk. Use when you need to remove a user account. This action cannot be undone and requires appropriate admin permissions.",
+  "inputSchema": {
+    "properties": {
+      "user_id": {
+        "description": "The ID of the user to delete",
+        "examples": [35436],
+        "human_parameter_description": "The numeric ID of the Zendesk user you want to delete. You can find this in the user's profile URL or from a user search result.",
+        "human_parameter_name": "User ID",
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id"],
+    "title": "DeleteZendeskUserRequest",
+    "type": "object"
+  },
+  "name": "delete_zendesk_user",
+  "outputSchema": {
+    "$defs": {
+      "DeleteZendeskUserResponse": {
+        "properties": {
+          "user": {
+            "$ref": "#/$defs/DeleteZendeskUserUserResponse",
+            "description": "The deleted user object",
+            "title": "User"
+          }
+        },
+        "title": "DeleteZendeskUserResponse",
+        "type": "object"
+      },
+      "DeleteZendeskUserUserResponse": {
+        "properties": {
+          "locale": {
+            "description": "User locale BCP-47 string",
+            "title": "Locale",
+            "type": "string"
+          },
+          "remote_photo_url": {
+            "description": "Remote photo URL",
+            "title": "Remote Photo Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Notes about the user",
+            "title": "Notes",
+            "type": "string"
+          },
+          "role_type": {
+            "description": "Role type indicator",
+            "title": "Role Type",
+            "type": "integer"
+          },
+          "external_id": {
+            "description": "External system ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp in ISO 8601",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "iana_time_zone": {
+            "description": "IANA time zone",
+            "title": "Iana Time Zone",
+            "type": "string"
+          },
+          "two_factor_auth_enabled": {
+            "description": "Two-factor auth enabled flag",
+            "title": "Two Factor Auth Enabled",
+            "type": "boolean"
+          },
+          "agent_brand_ids": {
+            "description": "Brand IDs assigned to the agent",
+            "items": {},
+            "title": "Agent Brand Ids",
+            "type": "array"
+          },
+          "details": {
+            "description": "Free-form details about the user",
+            "title": "Details",
+            "type": "string"
+          },
+          "only_private_comments": {
+            "description": "True if only private comments allowed",
+            "title": "Only Private Comments",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "User tags",
+            "items": {},
+            "title": "Tags",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Creation timestamp in ISO 8601",
+            "title": "Created At",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Locale identifier",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Full name of the user",
+            "title": "Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "Primary email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "alias": {
+            "description": "Alias displayed to end users",
+            "title": "Alias",
+            "type": "string"
+          },
+          "shared_agent": {
+            "description": "True if shared agent",
+            "title": "Shared Agent",
+            "type": "boolean"
+          },
+          "custom_role_id": {
+            "description": "Custom role ID",
+            "title": "Custom Role Id",
+            "type": "integer"
+          },
+          "restricted_agent": {
+            "description": "True if restricted agent",
+            "title": "Restricted Agent",
+            "type": "boolean"
+          },
+          "moderator": {
+            "description": "Moderator permission flag",
+            "title": "Moderator",
+            "type": "boolean"
+          },
+          "role": {
+            "description": "User role",
+            "title": "Role",
+            "type": "string"
+          },
+          "report_csv": {
+            "description": "Report CSV permission flag",
+            "title": "Report Csv",
+            "type": "boolean"
+          },
+          "last_login_at": {
+            "description": "Last login timestamp",
+            "title": "Last Login At",
+            "type": "string"
+          },
+          "signature": {
+            "description": "Agent/Admin signature",
+            "title": "Signature",
+            "type": "string"
+          },
+          "verified": {
+            "description": "True if verified",
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "suspended": {
+            "description": "Suspended flag",
+            "title": "Suspended",
+            "type": "boolean"
+          },
+          "user_fields": {
+            "additionalProperties": true,
+            "description": "Custom user field values",
+            "title": "User Fields",
+            "type": "object"
+          },
+          "active": {
+            "description": "True if the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "photo": {
+            "additionalProperties": true,
+            "description": "Photo object",
+            "title": "Photo",
+            "type": "object"
+          },
+          "ticket_restriction": {
+            "description": "Ticket access restriction",
+            "title": "Ticket Restriction",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User time zone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique ID for the user",
+            "title": "Id",
+            "type": "integer"
+          },
+          "shared_phone_number": {
+            "description": "True if shared phone number",
+            "title": "Shared Phone Number",
+            "type": "boolean"
+          },
+          "shared": {
+            "description": "True if shared",
+            "title": "Shared",
+            "type": "boolean"
+          },
+          "chat_only": {
+            "description": "True if chat-only user",
+            "title": "Chat Only",
+            "type": "boolean"
+          },
+          "default_group_id": {
+            "description": "Default group ID",
+            "title": "Default Group Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "Default organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          }
+        },
+        "title": "DeleteZendeskUserUserResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteZendeskUserResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,220 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Unarchive a GitLab project to restore active use. Requires administrator access or the Owner role on the project. Idempotent: unarchiving an already unarchived project does not change it.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path to unarchive.",
+        "title": "Id"
+      }
+    },
+    "required": ["id"],
+    "title": "UnarchiveProjectRequest",
+    "type": "object"
+  },
+  "name": "unarchive_project",
+  "outputSchema": {
+    "$defs": {
+      "ProjectNamespace": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Namespace avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "full_path": {
+            "description": "Full namespace path.",
+            "title": "Full Path",
+            "type": "string"
+          },
+          "id": {
+            "description": "Namespace ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "description": "Namespace kind, group or user.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "Namespace name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "description": "Parent namespace ID.",
+            "title": "Parent Id",
+            "type": "integer"
+          },
+          "path": {
+            "description": "Namespace path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Namespace web URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "ProjectNamespace",
+        "type": "object"
+      },
+      "UnarchiveProjectResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "archived": {
+            "description": "Whether the project is archived.",
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "avatar_url": {
+            "description": "Project avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default_branch": {
+            "description": "Default branch name, null for an empty repository.",
+            "title": "Default Branch",
+            "type": "string"
+          },
+          "description": {
+            "description": "Project description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "http_url_to_repo": {
+            "description": "HTTP clone URL.",
+            "title": "Http Url To Repo",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unarchived project ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "import_error": {
+            "description": "Import error, if any.",
+            "title": "Import Error",
+            "type": "string"
+          },
+          "last_activity_at": {
+            "description": "Last activity timestamp.",
+            "title": "Last Activity At",
+            "type": "string"
+          },
+          "merge_commit_template": {
+            "description": "Merge commit message template.",
+            "title": "Merge Commit Template",
+            "type": "string"
+          },
+          "mr_default_title_template": {
+            "description": "Default merge request title template, if configured.",
+            "title": "Mr Default Title Template",
+            "type": "string"
+          },
+          "name": {
+            "description": "Project name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "name_with_namespace": {
+            "description": "Project name including namespace.",
+            "title": "Name With Namespace",
+            "type": "string"
+          },
+          "namespace": {
+            "$ref": "#/$defs/ProjectNamespace",
+            "description": "Project namespace.",
+            "title": "Namespace"
+          },
+          "path": {
+            "description": "Project path.",
+            "title": "Path",
+            "type": "string"
+          },
+          "path_with_namespace": {
+            "description": "Full project path.",
+            "title": "Path With Namespace",
+            "type": "string"
+          },
+          "service_desk_enabled": {
+            "description": "Computed Service Desk availability, dependent on incoming email configuration.",
+            "title": "Service Desk Enabled",
+            "type": "boolean"
+          },
+          "shared_runners_enabled": {
+            "description": "Whether instance runners are enabled.",
+            "title": "Shared Runners Enabled",
+            "type": "boolean"
+          },
+          "ssh_url_to_repo": {
+            "description": "SSH clone URL.",
+            "title": "Ssh Url To Repo",
+            "type": "string"
+          },
+          "success": {
+            "description": "True if GitLab returns an empty successful response.",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "suggestion_commit_message": {
+            "description": "Commit message template for applying suggestions.",
+            "title": "Suggestion Commit Message",
+            "type": "string"
+          },
+          "topics": {
+            "description": "Project topics.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Topics",
+            "type": "array"
+          },
+          "visibility": {
+            "description": "Project visibility.",
+            "title": "Visibility",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Project web URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "UnarchiveProjectResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UnarchiveProjectResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

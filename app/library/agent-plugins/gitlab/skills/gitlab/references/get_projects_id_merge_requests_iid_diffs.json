@@ -1,0 +1,128 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists diff version metadata for a GitLab merge request, including commit SHAs, state and creation time.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": [123, "namespace/project-name"],
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "The internal ID of the merge request.",
+        "examples": [42],
+        "title": "Merge Request Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid"],
+    "title": "GetProjectsIdMergeRequestsIidDiffsRequest",
+    "type": "object"
+  },
+  "name": "get_projects_id_merge_requests_iid_diffs",
+  "outputSchema": {
+    "$defs": {
+      "GetProjectsIdMergeRequestsIidDiffsResponse": {
+        "properties": {
+          "diffs": {
+            "description": "A list of diff versions for the merge request.",
+            "items": {
+              "$ref": "#/$defs/MergeRequestDiff"
+            },
+            "title": "Diffs",
+            "type": "array"
+          }
+        },
+        "required": ["diffs"],
+        "title": "GetProjectsIdMergeRequestsIidDiffsResponse",
+        "type": "object"
+      },
+      "MergeRequestDiff": {
+        "properties": {
+          "base_commit_sha": {
+            "description": "SHA of the base commit.",
+            "title": "Base Commit Sha",
+            "type": "string"
+          },
+          "commits_count": {
+            "description": "Number of commits included in this diff version.",
+            "title": "Commits Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "description": "Timestamp when the diff version was created (ISO 8601 format).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "head_commit_sha": {
+            "description": "SHA of the head commit.",
+            "title": "Head Commit Sha",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the diff version.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "merge_request_id": {
+            "description": "The ID of the associated merge request.",
+            "title": "Merge Request Id",
+            "type": "integer"
+          },
+          "patch_id_sha": {
+            "description": "SHA of the patch ID.",
+            "title": "Patch Id Sha",
+            "type": "string"
+          },
+          "real_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Real size of the diff.",
+            "title": "Real Size"
+          },
+          "start_commit_sha": {
+            "description": "SHA of the start commit.",
+            "title": "Start Commit Sha",
+            "type": "string"
+          },
+          "state": {
+            "description": "State of the diff version.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["id", "created_at", "merge_request_id", "state"],
+        "title": "MergeRequestDiff",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetProjectsIdMergeRequestsIidDiffsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

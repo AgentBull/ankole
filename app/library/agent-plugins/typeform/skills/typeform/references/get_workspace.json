@@ -1,0 +1,108 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve detailed information about a specific workspace including its name, forms, and team members. Use when you need to get workspace details or check member access.",
+  "inputSchema": {
+    "properties": {
+      "workspace_id": {
+        "description": "Unique identifier for the workspace to retrieve",
+        "examples": ["dZMAWB", "ucdZbu"],
+        "title": "Workspace Id",
+        "type": "string"
+      }
+    },
+    "required": ["workspace_id"],
+    "title": "GetWorkspaceRequest",
+    "type": "object"
+  },
+  "name": "get_workspace",
+  "outputSchema": {
+    "$defs": {
+      "GetWorkspaceResponse": {
+        "properties": {
+          "forms": {
+            "$ref": "#/$defs/WorkspaceFormsInfo",
+            "description": "Information about forms in this workspace",
+            "title": "Forms"
+          },
+          "href": {
+            "description": "API URL for accessing this workspace",
+            "title": "Href",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the workspace",
+            "title": "Id",
+            "type": "string"
+          },
+          "members": {
+            "description": "List of team members with access to this workspace",
+            "items": {
+              "$ref": "#/$defs/WorkspaceMember"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "name": {
+            "description": "Name of the workspace",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "GetWorkspaceResponse",
+        "type": "object"
+      },
+      "WorkspaceFormsInfo": {
+        "properties": {
+          "count": {
+            "description": "Number of forms in this workspace",
+            "title": "Count",
+            "type": "integer"
+          },
+          "href": {
+            "description": "API URL for accessing forms in this workspace",
+            "title": "Href",
+            "type": "string"
+          }
+        },
+        "title": "WorkspaceFormsInfo",
+        "type": "object"
+      },
+      "WorkspaceMember": {
+        "properties": {
+          "email": {
+            "description": "Email address of the workspace member",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name of the workspace member",
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "description": "Role of the member in the workspace (e.g., 'admin', 'member')",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "title": "WorkspaceMember",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetWorkspaceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

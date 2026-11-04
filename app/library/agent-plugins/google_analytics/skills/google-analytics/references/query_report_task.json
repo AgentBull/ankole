@@ -1,0 +1,287 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a report task's content. Use this after creating a report task with CreateReportTask and confirming it is in ACTIVE state. This method returns an error if the report task's state is not ACTIVE.",
+  "inputSchema": {
+    "description": "Request model for querying a report task's content.",
+    "properties": {
+      "limit": {
+        "description": "Optional. Number of rows to return (max 250,000). If unspecified, 10,000 rows are returned. Must be positive. Limited by the ReportTask's own limit.",
+        "examples": [100, 1000],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "name": {
+        "description": "Required. Report task name in format 'properties/{propertyId}/reportTasks/{reportTaskId}'. The report task must be in ACTIVE state.",
+        "examples": ["properties/489591273/reportTasks/173003"],
+        "title": "Name",
+        "type": "string"
+      },
+      "offset": {
+        "description": "Optional. Row offset for pagination (0-indexed). First request omits offset or sets to 0. For subsequent pages, set to the previous limit value.",
+        "examples": [0, 100],
+        "title": "Offset",
+        "type": "integer"
+      }
+    },
+    "required": ["name"],
+    "title": "QueryReportTaskRequest",
+    "type": "object"
+  },
+  "name": "query_report_task",
+  "outputSchema": {
+    "$defs": {
+      "DimensionHeader": {
+        "description": "Header for a dimension column in the report.",
+        "properties": {
+          "name": {
+            "description": "Name of the dimension.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "DimensionHeader",
+        "type": "object"
+      },
+      "DimensionValue": {
+        "description": "Dimension value for a row in the report.",
+        "properties": {
+          "value": {
+            "description": "Dimension value as string.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "DimensionValue",
+        "type": "object"
+      },
+      "MetricHeader": {
+        "description": "Header for a metric column in the report.",
+        "properties": {
+          "name": {
+            "description": "Name of the metric.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Data type of the metric (e.g., TYPE_INTEGER, TYPE_FLOAT).",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "MetricHeader",
+        "type": "object"
+      },
+      "MetricRestriction": {
+        "description": "Metric restriction information.",
+        "properties": {
+          "metricName": {
+            "description": "Name of the restricted metric.",
+            "title": "Metric Name",
+            "type": "string"
+          },
+          "restrictedMetricTypes": {
+            "description": "List of restricted metric types.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Restricted Metric Types",
+            "type": "array"
+          }
+        },
+        "title": "MetricRestriction",
+        "type": "object"
+      },
+      "MetricValue": {
+        "description": "Metric value for a row in the report.",
+        "properties": {
+          "value": {
+            "description": "Metric value as string.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "MetricValue",
+        "type": "object"
+      },
+      "QueryReportTaskResponse": {
+        "description": "Response model containing the report task's data.",
+        "properties": {
+          "dimensionHeaders": {
+            "description": "Dimension column headers matching the order of dimension values in rows.",
+            "items": {
+              "$ref": "#/$defs/DimensionHeader"
+            },
+            "title": "Dimension Headers",
+            "type": "array"
+          },
+          "maximums": {
+            "description": "Maximum values of metrics, if requested.",
+            "items": {
+              "$ref": "#/$defs/Row"
+            },
+            "title": "Maximums",
+            "type": "array"
+          },
+          "metadata": {
+            "$ref": "#/$defs/ResponseMetadata",
+            "description": "Response metadata with additional information about the report.",
+            "title": "Metadata"
+          },
+          "metricHeaders": {
+            "description": "Metric column headers matching the order of metric values in rows.",
+            "items": {
+              "$ref": "#/$defs/MetricHeader"
+            },
+            "title": "Metric Headers",
+            "type": "array"
+          },
+          "minimums": {
+            "description": "Minimum values of metrics, if requested.",
+            "items": {
+              "$ref": "#/$defs/Row"
+            },
+            "title": "Minimums",
+            "type": "array"
+          },
+          "rowCount": {
+            "description": "Total number of rows in the query result.",
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "rows": {
+            "description": "Rows of dimension and metric values in the report.",
+            "items": {
+              "$ref": "#/$defs/Row"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "totals": {
+            "description": "Totaled values of metrics, if requested in the report definition.",
+            "items": {
+              "$ref": "#/$defs/Row"
+            },
+            "title": "Totals",
+            "type": "array"
+          }
+        },
+        "title": "QueryReportTaskResponse",
+        "type": "object"
+      },
+      "ResponseMetadata": {
+        "description": "Metadata about the report response.",
+        "properties": {
+          "currencyCode": {
+            "description": "Currency code used in the report (ISO 4217 format).",
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "dataLossFromOtherRow": {
+            "description": "Whether data loss from the 'other' row occurred.",
+            "title": "Data Loss From Other Row",
+            "type": "boolean"
+          },
+          "emptyReason": {
+            "description": "Reason why the report is empty, if applicable.",
+            "title": "Empty Reason",
+            "type": "string"
+          },
+          "samplingMetadatas": {
+            "description": "Sampling metadata if the report is sampled.",
+            "items": {
+              "$ref": "#/$defs/SamplingMetadata"
+            },
+            "title": "Sampling Metadatas",
+            "type": "array"
+          },
+          "schemaRestrictionResponse": {
+            "$ref": "#/$defs/SchemaRestrictionResponse",
+            "description": "Schema restrictions actively enforced.",
+            "title": "Schema Restriction Response"
+          },
+          "subjectToThresholding": {
+            "description": "Whether the report is subject to data thresholding.",
+            "title": "Subject To Thresholding",
+            "type": "boolean"
+          },
+          "timeZone": {
+            "description": "Timezone used in the report (IANA Time Zone database format).",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "title": "ResponseMetadata",
+        "type": "object"
+      },
+      "Row": {
+        "description": "Report data row containing dimension and metric values.",
+        "properties": {
+          "dimensionValues": {
+            "description": "Dimension values for this row.",
+            "items": {
+              "$ref": "#/$defs/DimensionValue"
+            },
+            "title": "Dimension Values",
+            "type": "array"
+          },
+          "metricValues": {
+            "description": "Metric values for this row.",
+            "items": {
+              "$ref": "#/$defs/MetricValue"
+            },
+            "title": "Metric Values",
+            "type": "array"
+          }
+        },
+        "title": "Row",
+        "type": "object"
+      },
+      "SamplingMetadata": {
+        "description": "Sampling metadata for the report.",
+        "properties": {
+          "samplesReadCount": {
+            "description": "Number of samples read.",
+            "title": "Samples Read Count",
+            "type": "string"
+          },
+          "samplingSpaceSize": {
+            "description": "Total sampling space size.",
+            "title": "Sampling Space Size",
+            "type": "string"
+          }
+        },
+        "title": "SamplingMetadata",
+        "type": "object"
+      },
+      "SchemaRestrictionResponse": {
+        "description": "Schema restrictions enforced in creating this report.",
+        "properties": {
+          "activeMetricRestrictions": {
+            "description": "Active metric restrictions.",
+            "items": {
+              "$ref": "#/$defs/MetricRestriction"
+            },
+            "title": "Active Metric Restrictions",
+            "type": "array"
+          }
+        },
+        "title": "SchemaRestrictionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/QueryReportTaskResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

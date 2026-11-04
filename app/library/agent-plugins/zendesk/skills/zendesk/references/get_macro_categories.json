@@ -1,0 +1,50 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List all macro categories available to the current Zendesk account. Use when you need to retrieve or browse available macro categories for organizing and applying macros to tickets. This action is read-only and idempotent.",
+  "inputSchema": {
+    "description": "Request parameters for listing Zendesk macro categories. This endpoint takes no parameters.",
+    "properties": {},
+    "title": "GetMacroCategoriesRequest",
+    "type": "object"
+  },
+  "name": "get_macro_categories",
+  "outputSchema": {
+    "$defs": {
+      "GetMacroCategoriesResponse": {
+        "description": "Response containing list of Zendesk macro categories.",
+        "properties": {
+          "categories": {
+            "description": "List of macro category names available in the Zendesk account",
+            "items": {
+              "type": "string"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "count": {
+            "description": "Total number of macro categories",
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": ["categories"],
+        "title": "GetMacroCategoriesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMacroCategoriesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

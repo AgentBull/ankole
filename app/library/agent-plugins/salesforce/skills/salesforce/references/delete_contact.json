@@ -1,0 +1,85 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a contact from Salesforce. This action cannot be undone. Associated records (activities, opportunities) lose the contact reference upon deletion — ensure related data is migrated or acceptable to lose before proceeding. Returns HTTP 204 with empty body on success.",
+  "inputSchema": {
+    "properties": {
+      "contact_id": {
+        "description": "The Salesforce ID of the contact to delete.",
+        "examples": ["003Wd000005NK4rIAG", "003XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique Salesforce ID of the contact you want to permanently delete. You can find this in the contact's URL or from a previous list or search.",
+        "human_parameter_name": "Contact ID",
+        "title": "Contact Id",
+        "type": "string"
+      }
+    },
+    "required": ["contact_id"],
+    "title": "DeleteContactRequest",
+    "type": "object"
+  },
+  "name": "delete_contact",
+  "outputSchema": {
+    "$defs": {
+      "DeleteContactResponse": {
+        "description": "Response for DELETE Contact operation.\n\nSalesforce DELETE /sobjects/Contact/{id} returns HTTP 204 No Content with an empty response body on success.\nError responses (400/401/403/404/500) return HTTP status codes with JSON array of error objects.",
+        "properties": {
+          "body": {
+            "description": "Response body - null/empty for successful deletion (204), array of error objects for failures",
+            "items": {
+              "$ref": "#/$defs/SalesforceError"
+            },
+            "title": "Body",
+            "type": "array"
+          },
+          "http_status": {
+            "description": "HTTP status code - 204 for successful deletion, 4xx/5xx for errors",
+            "title": "Http Status",
+            "type": "integer"
+          }
+        },
+        "required": ["http_status"],
+        "title": "DeleteContactResponse",
+        "type": "object"
+      },
+      "SalesforceError": {
+        "description": "Salesforce API error object returned when DELETE operation fails.",
+        "properties": {
+          "errorCode": {
+            "description": "Machine-readable error code identifying the type of error (e.g., NOT_FOUND, ENTITY_IS_DELETED, MALFORMED_ID)",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Array of field names related to the error, if applicable",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable error message describing what went wrong",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["message", "errorCode"],
+        "title": "SalesforceError",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteContactResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

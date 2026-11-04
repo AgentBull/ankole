@@ -1,0 +1,113 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list all SearchAds360Links on a property. Use when you need to retrieve all Search Ads 360 links for a given Google Analytics property. Supports pagination for large result sets.",
+  "inputSchema": {
+    "description": "Request model for listing SearchAds360Links for a Google Analytics property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of resources to return. Default is 50, maximum is 200. Values exceeding 200 are capped at maximum.",
+        "examples": [50, 100],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous list call. Use this to retrieve the next page. All other parameters must match the original request.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The property resource name. Format: properties/{propertyId} (e.g., properties/1234).",
+        "examples": ["properties/1234", "properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "AnalyticsAdminPropertiesSearchAds360LinksListRequest",
+    "type": "object"
+  },
+  "name": "list_search_ads360_links",
+  "outputSchema": {
+    "$defs": {
+      "AnalyticsAdminPropertiesSearchAds360LinksListResponse": {
+        "description": "Response model for listing SearchAds360Links.",
+        "properties": {
+          "nextPageToken": {
+            "description": "A token that can be sent as pageToken to retrieve the next page. Omitted if there are no subsequent pages.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "searchAds360Links": {
+            "description": "Collection of SearchAds360Link objects representing connections between a Google Analytics property and Search Ads 360 entities.",
+            "items": {
+              "$ref": "#/$defs/SearchAds360Link"
+            },
+            "title": "Search Ads360 Links",
+            "type": "array"
+          }
+        },
+        "title": "AnalyticsAdminPropertiesSearchAds360LinksListResponse",
+        "type": "object"
+      },
+      "SearchAds360Link": {
+        "description": "Schema for a SearchAds360Link resource representing a connection between a\nGoogle Analytics property and Search Ads 360 entity.",
+        "properties": {
+          "adsPersonalizationEnabled": {
+            "description": "Enables personalized advertising features. Defaults to true if unset.",
+            "title": "Ads Personalization Enabled",
+            "type": "boolean"
+          },
+          "advertiserDisplayName": {
+            "description": "Output only. Display name of the Search Ads 360 Advertiser for easy identification.",
+            "title": "Advertiser Display Name",
+            "type": "string"
+          },
+          "advertiserId": {
+            "description": "Immutable. The Advertiser ID of the Search Ads 360 Advertiser that has been linked.",
+            "title": "Advertiser Id",
+            "type": "string"
+          },
+          "campaignDataSharingEnabled": {
+            "description": "Immutable. Enables import of campaign data from Search Ads 360. Defaults to true if unset.",
+            "title": "Campaign Data Sharing Enabled",
+            "type": "boolean"
+          },
+          "costDataSharingEnabled": {
+            "description": "Immutable. Enables import of cost data from Search Ads 360. Requires campaignDataSharingEnabled to be true. Defaults to true if unset.",
+            "title": "Cost Data Sharing Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Output only. Resource name format: properties/{propertyId}/searchAds360Links/{linkId}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "siteStatsSharingEnabled": {
+            "description": "Enables export of site stats. Defaults to true if unset.",
+            "title": "Site Stats Sharing Enabled",
+            "type": "boolean"
+          }
+        },
+        "title": "SearchAds360Link",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AnalyticsAdminPropertiesSearchAds360LinksListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,225 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create many tickets in Zendesk in a single request. Accepts an array of up to 100 ticket objects. The operation is handled asynchronously — a background job is queued and you receive a job_status payload with an initial status of 'queued' or 'working'. Poll the job_status URL or use zendesk.get_job_statuses2 to check for completion and view per-ticket results. Use when creating multiple tickets at once or seeding test data. This action is irreversible — tickets created cannot be easily undone once the job completes. Ensure the tickets list is accurate before submitting.",
+  "inputSchema": {
+    "description": "Request to create multiple tickets in bulk.",
+    "properties": {
+      "tickets": {
+        "description": "Array of ticket objects to create (max 100). Each ticket requires at minimum a 'subject' field.",
+        "human_parameter_description": "List of tickets to create in bulk. Each ticket needs at least a subject.",
+        "human_parameter_name": "Tickets",
+        "items": {
+          "description": "Single ticket object to create in bulk.",
+          "properties": {
+            "assignee_id": {
+              "description": "The ID of the agent to assign to the ticket.",
+              "examples": [235323],
+              "human_parameter_description": "The Zendesk user ID of the assigned agent.",
+              "human_parameter_name": "Assignee ID",
+              "title": "Assignee Id",
+              "type": "integer"
+            },
+            "description": {
+              "description": "Long-form description or steps to reproduce. This becomes the initial comment on the ticket.",
+              "examples": ["The fire is very colorful."],
+              "human_parameter_description": "Describe the issue in detail.",
+              "human_parameter_name": "Description",
+              "title": "Description",
+              "type": "string"
+            },
+            "external_id": {
+              "description": "An external ID to link this ticket to records in another system.",
+              "examples": ["ahg35h3jh"],
+              "human_parameter_description": "A unique identifier from another system.",
+              "human_parameter_name": "External ID",
+              "title": "External Id",
+              "type": "string"
+            },
+            "group_id": {
+              "description": "The ID of the group to assign the ticket to.",
+              "examples": [98738],
+              "human_parameter_description": "The Zendesk group ID.",
+              "human_parameter_name": "Group ID",
+              "title": "Group Id",
+              "type": "integer"
+            },
+            "priority": {
+              "description": "Zendesk priority. Must be one of: 'urgent', 'high', 'normal', 'low'.",
+              "enum": ["urgent", "high", "normal", "low"],
+              "examples": ["high"],
+              "human_parameter_description": "How urgent the request is.",
+              "human_parameter_name": "Priority",
+              "title": "Priority",
+              "type": "string"
+            },
+            "requester_id": {
+              "description": "The ID of the user requesting support.",
+              "examples": [235323],
+              "human_parameter_description": "The Zendesk user ID of the requester.",
+              "human_parameter_name": "Requester ID",
+              "title": "Requester Id",
+              "type": "integer"
+            },
+            "status": {
+              "description": "The state of the ticket. Allowed values: 'new', 'open', 'pending', 'hold', 'solved', 'closed'.",
+              "enum": ["new", "open", "pending", "hold", "solved", "closed"],
+              "examples": ["open"],
+              "human_parameter_description": "The current state of the ticket.",
+              "human_parameter_name": "Status",
+              "title": "Status",
+              "type": "string"
+            },
+            "subject": {
+              "description": "Short summary of the issue. Required for each ticket.",
+              "examples": ["Printer is on fire", "Email not working"],
+              "human_parameter_description": "A short, clear title for the ticket.",
+              "human_parameter_name": "Subject",
+              "title": "Subject",
+              "type": "string"
+            },
+            "tags": {
+              "description": "Array of tags to apply to the ticket.",
+              "examples": [["enterprise", "urgent"]],
+              "human_parameter_description": "Labels to categorize the ticket.",
+              "human_parameter_name": "Tags",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tags",
+              "type": "array"
+            },
+            "ticket_type": {
+              "description": "The type of this ticket. Allowed values: 'problem', 'incident', 'question', 'task'.",
+              "enum": ["problem", "incident", "question", "task"],
+              "examples": ["incident"],
+              "human_parameter_description": "Categorize the ticket type.",
+              "human_parameter_name": "Type",
+              "title": "Ticket Type",
+              "type": "string"
+            }
+          },
+          "required": ["subject"],
+          "title": "TicketInput",
+          "type": "object"
+        },
+        "title": "Tickets",
+        "type": "array"
+      }
+    },
+    "required": ["tickets"],
+    "title": "CreateManyTicketsRequest",
+    "type": "object"
+  },
+  "name": "create_many_tickets",
+  "outputSchema": {
+    "$defs": {
+      "CreateManyTicketsResponse": {
+        "description": "Response containing the background job status for bulk ticket creation.",
+        "properties": {
+          "job_status": {
+            "$ref": "#/$defs/JobStatus",
+            "description": "Background job status object",
+            "title": "Job Status"
+          }
+        },
+        "required": ["job_status"],
+        "title": "CreateManyTicketsResponse",
+        "type": "object"
+      },
+      "JobResultItem": {
+        "description": "Result entry from the job worker for a single ticket.",
+        "properties": {
+          "action": {
+            "description": "Action performed (e.g., 'create')",
+            "title": "Action",
+            "type": "string"
+          },
+          "id": {
+            "description": "ID of the created/updated ticket",
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Status of the operation",
+            "title": "Status",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the operation succeeded",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "JobResultItem",
+        "type": "object"
+      },
+      "JobStatus": {
+        "description": "Background job status returned after bulk ticket creation.",
+        "properties": {
+          "id": {
+            "description": "Automatically assigned when the job is queued",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_type": {
+            "description": "The type of the job",
+            "title": "Job Type",
+            "type": "string"
+          },
+          "message": {
+            "description": "Message from the job worker, if any",
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "description": "Number of tasks completed so far (null when queued)",
+            "title": "Progress",
+            "type": "integer"
+          },
+          "results": {
+            "description": "Result entries from processing each ticket. Null when job is still queued.",
+            "items": {
+              "$ref": "#/$defs/JobResultItem"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "status": {
+            "description": "Current status of the job",
+            "enum": ["queued", "working", "failed", "completed"],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "description": "Total number of tickets to process",
+            "title": "Total",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL to poll for updated job status",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "status", "url"],
+        "title": "JobStatus",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateManyTicketsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,268 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to update a record's data in Salesforce via UI API. Use when you need to modify field values on an existing record. Salesforce validation rules are enforced. Pass If-Unmodified-Since header to prevent conflicts.",
+  "inputSchema": {
+    "properties": {
+      "allow_save_on_duplicate": {
+        "description": "If true, allows the record to be saved even if duplicate detection rules are triggered. Default is false.",
+        "examples": [false, true],
+        "title": "Allow Save On Duplicate",
+        "type": "boolean"
+      },
+      "api_name": {
+        "description": "The API name of the record's object type (e.g., 'Contact', 'Account', 'Lead'). Can be null or omitted for updates.",
+        "examples": ["Contact", "Account", "Lead"],
+        "title": "Api Name",
+        "type": "string"
+      },
+      "fields": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": "Map of field API names to their new values. Only include fields you want to update. Field names should use API names (e.g., 'FirstName', 'Email', 'CustomField__c'). Unspecified fields remain unchanged.",
+        "examples": [
+          {
+            "Name": "Updated via UI API Test"
+          },
+          {
+            "Email": "john.smith@example.com",
+            "FirstName": "John",
+            "LastName": "Smith"
+          }
+        ],
+        "title": "Fields",
+        "type": "object"
+      },
+      "if_unmodified_since": {
+        "description": "RFC 7231 date/time format. Makes the request conditional - server will only update if the record hasn't been modified since this timestamp. Returns 412 Precondition Failed if the record was modified after this date.",
+        "examples": ["Wed, 21 Oct 2025 07:28:00 GMT"],
+        "title": "If Unmodified Since",
+        "type": "string"
+      },
+      "record_id": {
+        "description": "The unique 15 or 18-character Salesforce ID of the record to update.",
+        "examples": ["001dN00000lvXx4QAE", "003XXXXXXXXXXXXXXX"],
+        "title": "Record Id",
+        "type": "string"
+      },
+      "trigger_other_email": {
+        "description": "Case object only. If true, sends email notifications outside the organization. Default is false.",
+        "examples": [false, true],
+        "title": "Trigger Other Email",
+        "type": "boolean"
+      },
+      "trigger_user_email": {
+        "description": "Case and Lead objects only. If true, sends email notifications to users in the organization. Default is false.",
+        "examples": [false, true],
+        "title": "Trigger User Email",
+        "type": "boolean"
+      },
+      "use_default_rule": {
+        "description": "Case, Lead, and Account objects only. If true, applies assignment and auto-response rules. Default is false.",
+        "examples": [false, true],
+        "title": "Use Default Rule",
+        "type": "boolean"
+      }
+    },
+    "required": ["record_id", "fields"],
+    "title": "UpdateRecordRequest",
+    "type": "object"
+  },
+  "name": "update_record",
+  "outputSchema": {
+    "$defs": {
+      "FieldValue": {
+        "description": "Represents a field value with its display and actual value.",
+        "properties": {
+          "displayValue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "description": "The formatted/display value for the field.",
+            "title": "Display Value"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "description": "The raw field value.",
+            "title": "Value"
+          }
+        },
+        "title": "FieldValue",
+        "type": "object"
+      },
+      "RecordTypeInfo": {
+        "description": "Information about the record type.",
+        "properties": {
+          "available": {
+            "description": "Whether this record type is available to the current user.",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The name of the record type.",
+            "title": "Name",
+            "type": "string"
+          },
+          "recordTypeId": {
+            "description": "The ID of the record type.",
+            "title": "Record Type Id",
+            "type": "string"
+          }
+        },
+        "title": "RecordTypeInfo",
+        "type": "object"
+      },
+      "UpdateRecordResponse": {
+        "description": "Response from updating a Salesforce record via UI API.\n\nReturns a RecordRepresentation object containing the updated record data.",
+        "properties": {
+          "apiName": {
+            "description": "The API name of the record's object type.",
+            "title": "Api Name",
+            "type": "string"
+          },
+          "childRelationships": {
+            "additionalProperties": {
+              "items": {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "description": "Map of child relationship names to arrays of related records.",
+            "title": "Child Relationships",
+            "type": "object"
+          },
+          "eTag": {
+            "description": "Entity tag for optimistic concurrency control.",
+            "title": "E Tag",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {
+              "$ref": "#/$defs/FieldValue"
+            },
+            "description": "Map of field API names to FieldValue objects containing value and displayValue.",
+            "title": "Fields",
+            "type": "object"
+          },
+          "id": {
+            "description": "The unique Salesforce ID of the record (15 or 18 characters).",
+            "title": "Id",
+            "type": "string"
+          },
+          "lastModifiedById": {
+            "description": "ID of the user who last modified the record.",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "lastModifiedDate": {
+            "description": "Timestamp of when the record was last modified.",
+            "title": "Last Modified Date",
+            "type": "string"
+          },
+          "recordTypeInfo": {
+            "$ref": "#/$defs/RecordTypeInfo",
+            "description": "Information about the record type.",
+            "title": "Record Type Info"
+          },
+          "systemModstamp": {
+            "description": "Timestamp of when the record was last modified by any user.",
+            "title": "System Modstamp",
+            "type": "string"
+          }
+        },
+        "required": ["apiName", "id", "fields"],
+        "title": "UpdateRecordResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateRecordResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

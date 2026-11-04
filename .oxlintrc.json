@@ -34,7 +34,7 @@
   },
   "overrides": [
     {
-      "files": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts"],
+      "files": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.bench.ts", "**/*.bench.tsx"],
       "rules": {
         "no-console": "off"
       }

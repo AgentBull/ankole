@@ -1,0 +1,235 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves cron monitors for a Sentry organization, including details of nested monitor environments.",
+  "inputSchema": {
+    "description": "Request schema for the `RetrieveOrganizationMonitors` action, detailing parameters to filter and identify the organization.",
+    "properties": {
+      "environment": {
+        "description": "List of environment names (e.g., 'production', 'staging') to filter by.",
+        "examples": ["production", "staging", "development"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the Sentry organization.",
+        "examples": ["sentry", "my-organization-slug", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "owner": {
+        "description": "Filter by owner, using `user:<user_id>` or `team:<team_id>` format.",
+        "examples": ["user:12345", "team:backend-team", "team:67890"],
+        "title": "Owner",
+        "type": "string"
+      },
+      "project": {
+        "description": "List of project IDs to filter by; use `[-1]` for all accessible projects.",
+        "examples": [1234, 56789, -1],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Project",
+        "type": "array"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "RetrieveOrganizationMonitorsRequest",
+    "type": "object"
+  },
+  "name": "retrieve_organization_monitors",
+  "outputSchema": {
+    "$defs": {
+      "Monitor": {
+        "description": "Individual monitor object.",
+        "properties": {
+          "config": {
+            "$ref": "#/$defs/MonitorConfig",
+            "description": "Monitor configuration",
+            "title": "Config"
+          },
+          "dateCreated": {
+            "description": "Monitor creation timestamp",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "environments": {
+            "description": "List of monitor environments",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Environments",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique monitor ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "isMuted": {
+            "description": "Whether the monitor is muted",
+            "title": "Is Muted",
+            "type": "boolean"
+          },
+          "isUpserting": {
+            "description": "Whether the monitor is being upserted",
+            "title": "Is Upserting",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Monitor name",
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "additionalProperties": true,
+            "description": "Monitor owner (user or team)",
+            "title": "Owner",
+            "type": "object"
+          },
+          "project": {
+            "$ref": "#/$defs/MonitorProject",
+            "description": "Associated project",
+            "title": "Project"
+          },
+          "slug": {
+            "description": "Monitor slug",
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "description": "Monitor status (e.g., 'active', 'disabled')",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "status",
+          "isMuted",
+          "isUpserting",
+          "config",
+          "dateCreated",
+          "project",
+          "environments"
+        ],
+        "title": "Monitor",
+        "type": "object"
+      },
+      "MonitorConfig": {
+        "description": "Monitor configuration schema.",
+        "properties": {
+          "checkin_margin": {
+            "description": "Grace period in minutes before a check-in is considered missed",
+            "title": "Checkin Margin",
+            "type": "integer"
+          },
+          "failure_issue_threshold": {
+            "description": "Number of consecutive failures before creating an issue",
+            "title": "Failure Issue Threshold",
+            "type": "integer"
+          },
+          "max_runtime": {
+            "description": "Maximum runtime in minutes before a job is considered failed",
+            "title": "Max Runtime",
+            "type": "integer"
+          },
+          "recovery_threshold": {
+            "description": "Number of consecutive successes before resolving an issue",
+            "title": "Recovery Threshold",
+            "type": "integer"
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "description": "Crontab schedule string or interval array [value, unit]",
+            "title": "Schedule"
+          },
+          "schedule_type": {
+            "description": "Schedule type: 'crontab' or 'interval'",
+            "title": "Schedule Type",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "Timezone for the schedule",
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": ["schedule", "schedule_type"],
+        "title": "MonitorConfig",
+        "type": "object"
+      },
+      "MonitorProject": {
+        "description": "Monitor project information.",
+        "properties": {
+          "id": {
+            "description": "Project ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Project name",
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Platform type",
+            "title": "Platform",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Project slug",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "slug", "name"],
+        "title": "MonitorProject",
+        "type": "object"
+      },
+      "RetrieveOrganizationMonitorsResponse": {
+        "description": "Response schema for `RetrieveOrganizationMonitors`; returns a list of monitors with detailed information.",
+        "properties": {
+          "data": {
+            "description": "List of monitor objects for the organization",
+            "items": {
+              "$ref": "#/$defs/Monitor"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "RetrieveOrganizationMonitorsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveOrganizationMonitorsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,149 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Adds a checklist to a Trello card: use `value` to add a specific existing checklist, `idChecklistSource` to create a new checklist by copying an existing one (optionally using `name` for the new checklist's name), or `name` to create a new empty checklist from scratch.",
+  "inputSchema": {
+    "description": "Request schema for `AddCardsChecklistsByIdCard`",
+    "properties": {
+      "idCard": {
+        "description": "The ID or shortLink of the card to which the checklist will be added.",
+        "examples": ["60d21b4f9a071c0029f373a4", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idChecklistSource": {
+        "description": "The ID of an existing checklist to copy. If provided (and `value` is not an ID of an existing checklist to add), a new checklist is created on the card by duplicating this source checklist. The `name` parameter can be used to specify a name for the newly created checklist.",
+        "examples": ["5f09b9b3d9a071c0029f373a5"],
+        "title": "Id Checklist Source",
+        "type": "string"
+      },
+      "name": {
+        "description": "The name for the new checklist. Used when creating a new checklist from scratch or when copying from `idChecklistSource`. If `value` specifies an existing checklist ID to add, this `name` is ignored. String with a length from 0 to 16384 characters.",
+        "examples": ["Onboarding Tasks", "Q4 Goals"],
+        "title": "Name",
+        "type": "string"
+      },
+      "value": {
+        "description": "The ID of a pre-existing checklist to add directly to the card. If an ID is provided here, that specific checklist is added. If `null` or omitted, a new checklist will be created on the card (either empty using `name`, or by copying from `idChecklistSource`).",
+        "examples": ["5f09b9b3d9a071c0029f373a6"],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idCard"],
+    "title": "AddCardsChecklistsByIdCardRequest",
+    "type": "object"
+  },
+  "name": "add_cards_checklists_by_id_card",
+  "outputSchema": {
+    "$defs": {
+      "AddCardsChecklistsByIdCardResponse": {
+        "description": "Response schema for `AddCardsChecklistsByIdCard`, containing the details of the added or created checklist.",
+        "properties": {
+          "checkItems": {
+            "description": "Array of check items within this checklist",
+            "items": {
+              "$ref": "#/$defs/CheckItem"
+            },
+            "title": "Check Items",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier of the checklist",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "ID of the board containing this checklist",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "idCard": {
+            "description": "ID of the card this checklist belongs to",
+            "title": "Id Card",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the checklist",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the checklist relative to other checklists on the card",
+            "title": "Pos",
+            "type": "number"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "AddCardsChecklistsByIdCardResponse",
+        "type": "object"
+      },
+      "CheckItem": {
+        "description": "A check item within a checklist.",
+        "properties": {
+          "due": {
+            "description": "Due date for the check item in ISO 8601 format, null if no due date is set",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Due date reminder setting for the check item, null if no reminder is set",
+            "title": "Due Reminder",
+            "type": "number"
+          },
+          "id": {
+            "description": "Unique identifier of the check item",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "ID of the parent checklist containing this item",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member assigned to this check item, null if unassigned",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name/text of the check item",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "description": "Additional name data for the check item, can be null",
+            "title": "Name Data",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the check item within the checklist",
+            "title": "Pos",
+            "type": "number"
+          },
+          "state": {
+            "description": "State of the check item, either 'complete' or 'incomplete'",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "state"],
+        "title": "CheckItem",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddCardsChecklistsByIdCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

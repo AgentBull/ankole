@@ -1,0 +1,172 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to get commits of a merge request. Use when you need to retrieve all commits associated with a specific merge request.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["5", "namespace/project-name"],
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Internal ID of the merge request.",
+        "examples": [1],
+        "title": "Merge Request Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid"],
+    "title": "GetProjectMergeRequestCommitsRequest",
+    "type": "object"
+  },
+  "name": "get_project_merge_request_commits",
+  "outputSchema": {
+    "$defs": {
+      "Commit": {
+        "properties": {
+          "author_email": {
+            "description": "Commit author’s email address.",
+            "title": "Author Email",
+            "type": "string"
+          },
+          "author_name": {
+            "description": "Commit author’s name.",
+            "title": "Author Name",
+            "type": "string"
+          },
+          "authored_date": {
+            "description": "Commit authored date (ISO 8601 format).",
+            "title": "Authored Date",
+            "type": "string"
+          },
+          "committed_date": {
+            "description": "Commit date (ISO 8601 format).",
+            "title": "Committed Date",
+            "type": "string"
+          },
+          "committer_email": {
+            "description": "Email address of the committer.",
+            "title": "Committer Email",
+            "type": "string"
+          },
+          "committer_name": {
+            "description": "Name of the committer.",
+            "title": "Committer Name",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the commit was created (ISO 8601 format).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "extended_trailers": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Extended Git trailers parsed for the commit.",
+            "title": "Extended Trailers",
+            "type": "object"
+          },
+          "id": {
+            "description": "ID of the commit.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Full commit message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "parent_ids": {
+            "description": "A list of parent commit SHAs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parent Ids",
+            "type": "array"
+          },
+          "short_id": {
+            "description": "Short ID of the commit.",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Commit title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "trailers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Git trailers parsed for the commit. Duplicate keys include the last value only.",
+            "title": "Trailers",
+            "type": "object"
+          },
+          "web_url": {
+            "description": "Web URL of the commit in GitLab UI.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "short_id",
+          "created_at",
+          "parent_ids",
+          "title",
+          "message",
+          "author_name",
+          "author_email",
+          "authored_date",
+          "committer_name",
+          "committer_email",
+          "committed_date",
+          "web_url"
+        ],
+        "title": "Commit",
+        "type": "object"
+      },
+      "GetProjectMergeRequestCommitsResponse": {
+        "properties": {
+          "commits": {
+            "description": "List of commits in the merge request.",
+            "items": {
+              "$ref": "#/$defs/Commit"
+            },
+            "title": "Commits",
+            "type": "array"
+          }
+        },
+        "required": ["commits"],
+        "title": "GetProjectMergeRequestCommitsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetProjectMergeRequestCommitsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

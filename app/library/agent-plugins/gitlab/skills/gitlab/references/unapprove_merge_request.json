@@ -1,0 +1,310 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Removes the approval from the currently authenticated user for a specified merge request. Use this action when you need to revoke your previously given approval on a merge request. The action requires the merge request to have been previously approved by the authenticated user.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["123", "group_name/project_name"],
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Internal ID of the merge request.",
+        "examples": [42],
+        "title": "Merge Request Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid"],
+    "title": "UnapproveMergeRequestRequest",
+    "type": "object"
+  },
+  "name": "unapprove_merge_request",
+  "outputSchema": {
+    "$defs": {
+      "ApprovalRule": {
+        "properties": {
+          "approvals_required": {
+            "title": "Approvals Required",
+            "type": "integer"
+          },
+          "approved": {
+            "title": "Approved",
+            "type": "boolean"
+          },
+          "approved_by": {
+            "items": {
+              "$ref": "#/$defs/ApprovedBy"
+            },
+            "title": "Approved By",
+            "type": "array"
+          },
+          "contains_hidden_groups": {
+            "title": "Contains Hidden Groups",
+            "type": "boolean"
+          },
+          "eligible_approvers": {
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Eligible Approvers",
+            "type": "array"
+          },
+          "groups": {
+            "items": {},
+            "title": "Groups",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rule_type": {
+            "title": "Rule Type",
+            "type": "string"
+          },
+          "users": {
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Users",
+            "type": "array"
+          }
+        },
+        "title": "ApprovalRule",
+        "type": "object"
+      },
+      "ApprovedBy": {
+        "properties": {
+          "approved_at": {
+            "format": "date-time",
+            "title": "Approved At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "title": "User"
+          }
+        },
+        "required": ["user"],
+        "title": "ApprovedBy",
+        "type": "object"
+      },
+      "MergeRequestApprovalInfo": {
+        "properties": {
+          "approval_rules_left": {
+            "items": {
+              "$ref": "#/$defs/ApprovalRule"
+            },
+            "title": "Approval Rules Left",
+            "type": "array"
+          },
+          "approvals_left": {
+            "description": "Number of approvals still needed",
+            "title": "Approvals Left",
+            "type": "integer"
+          },
+          "approvals_required": {
+            "description": "Number of approvals required",
+            "title": "Approvals Required",
+            "type": "integer"
+          },
+          "approved": {
+            "description": "Whether the merge request is approved",
+            "title": "Approved",
+            "type": "boolean"
+          },
+          "approved_by": {
+            "description": "List of users who approved this MR",
+            "items": {
+              "$ref": "#/$defs/ApprovedBy"
+            },
+            "title": "Approved By",
+            "type": "array"
+          },
+          "approver_groups": {
+            "items": {},
+            "title": "Approver Groups",
+            "type": "array"
+          },
+          "approvers": {
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Approvers",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "has_approval_rules": {
+            "title": "Has Approval Rules",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "title": "Iid",
+            "type": "integer"
+          },
+          "invalid_approvers_rules": {
+            "items": {},
+            "title": "Invalid Approvers Rules",
+            "type": "array"
+          },
+          "merge_request_approvers_available": {
+            "title": "Merge Request Approvers Available",
+            "type": "boolean"
+          },
+          "merge_status": {
+            "title": "Merge Status",
+            "type": "string"
+          },
+          "multiple_approval_rules_available": {
+            "title": "Multiple Approval Rules Available",
+            "type": "boolean"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "require_password_to_approve": {
+            "title": "Require Password To Approve",
+            "type": "boolean"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "suggested_approvers": {
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Suggested Approvers",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_can_approve": {
+            "description": "Whether the current user can approve this MR",
+            "title": "User Can Approve",
+            "type": "boolean"
+          },
+          "user_has_approved": {
+            "description": "Whether the current user has approved this MR",
+            "title": "User Has Approved",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "iid",
+          "project_id",
+          "title",
+          "state",
+          "created_at",
+          "updated_at",
+          "approved",
+          "approvals_required",
+          "approvals_left",
+          "user_has_approved",
+          "user_can_approve"
+        ],
+        "title": "MergeRequestApprovalInfo",
+        "type": "object"
+      },
+      "UnapproveMergeRequestResponse": {
+        "properties": {
+          "merge_request": {
+            "$ref": "#/$defs/MergeRequestApprovalInfo",
+            "description": "Approval details of the merge request after unapproving.",
+            "title": "Merge Request"
+          }
+        },
+        "required": ["merge_request"],
+        "title": "UnapproveMergeRequestResponse",
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "avatar_url": {
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "locked": {
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "public_email": {
+            "title": "Public Email",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "name", "state", "web_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UnapproveMergeRequestResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

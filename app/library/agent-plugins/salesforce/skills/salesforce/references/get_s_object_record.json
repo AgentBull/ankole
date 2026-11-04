@@ -1,0 +1,84 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a single Salesforce record by ID from any sObject type. Use when you need to get detailed information about a specific record.",
+  "inputSchema": {
+    "properties": {
+      "fields": {
+        "description": "Comma-separated list of field names to retrieve from the record. If omitted, all fields are returned. Example: Name,Id,CreatedDate,Industry",
+        "examples": ["Name,Id,CreatedDate", "FirstName,LastName,Email,Phone"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "record_id": {
+        "description": "The unique Salesforce record ID (15 or 18 characters). The 3-character prefix indicates the object type (e.g., '001' for Account, '003' for Contact, '00Q' for Lead). Ensure the sobject_api_name matches the record ID prefix.",
+        "examples": ["001dN00000lvXx4QAE", "003XXXXXXXXXXXXXXX"],
+        "title": "Record Id",
+        "type": "string"
+      },
+      "sobject_api_name": {
+        "description": "The API name of the Salesforce sObject type (e.g., Account, Contact, Opportunity, Custom__c). Object names are not case-sensitive. Ensure the sObject type matches the record ID prefix (e.g., Account IDs start with '001', Contact with '003', Lead with '00Q').",
+        "examples": ["Account", "Contact", "Opportunity", "Lead", "Custom__c"],
+        "title": "Sobject Api Name",
+        "type": "string"
+      }
+    },
+    "required": ["sobject_api_name", "record_id"],
+    "title": "GetSObjectRecordRequest",
+    "type": "object"
+  },
+  "name": "get_s_object_record",
+  "outputSchema": {
+    "$defs": {
+      "GetSObjectRecordResponse": {
+        "additionalProperties": true,
+        "description": "Response containing the requested sObject record with all field values.",
+        "properties": {
+          "Id": {
+            "description": "The unique Salesforce record ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "attributes": {
+            "$ref": "#/$defs/SObjectAttributes",
+            "title": "Attributes"
+          }
+        },
+        "required": ["attributes", "Id"],
+        "title": "GetSObjectRecordResponse",
+        "type": "object"
+      },
+      "SObjectAttributes": {
+        "description": "Metadata object containing the sObject type and resource URL.",
+        "properties": {
+          "type": {
+            "description": "The API name of the sObject type.",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The REST API resource URL for this specific record.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "SObjectAttributes",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetSObjectRecordResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

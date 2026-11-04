@@ -1,0 +1,111 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a single milestone by its ID for a specific project. Returns detailed information including title, description, dates, and state. Use when you need to fetch complete details about a specific milestone.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": [123, "group/project-name"],
+        "title": "Id"
+      },
+      "milestone_id": {
+        "description": "The ID of the milestone within the project.",
+        "examples": [3],
+        "title": "Milestone Id",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "milestone_id"],
+    "title": "GetMilestoneRequest",
+    "type": "object"
+  },
+  "name": "get_milestone",
+  "outputSchema": {
+    "$defs": {
+      "GetMilestoneResponse": {
+        "properties": {
+          "created_at": {
+            "description": "Creation timestamp in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the milestone.",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Due date in YYYY-MM-DD format.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "expired": {
+            "description": "Whether the milestone has passed its due date.",
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier of the milestone.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Internal ID of the milestone within the project.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "project_id": {
+            "description": "ID of the project this milestone belongs to.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "start_date": {
+            "description": "Start date in YYYY-MM-DD format.",
+            "title": "Start Date",
+            "type": "string"
+          },
+          "state": {
+            "description": "State of the milestone (active or closed).",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title of the milestone.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp in ISO 8601 format.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id", "iid", "project_id", "title", "state", "updated_at", "created_at", "expired"],
+        "title": "GetMilestoneResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMilestoneResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

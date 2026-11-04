@@ -1,0 +1,257 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists Stripe Climate carbon removal products with supplier information and USD pricing per metric ton. Results are paginated.",
+  "inputSchema": {
+    "description": "Request model for listing climate products.",
+    "properties": {
+      "ending_before": {
+        "description": "A cursor for use in pagination. This is an object ID that defines your place in the list. For instance, if you make a list request and receive 100 objects starting with clprd_abc, your subsequent call can include ending_before=clprd_abc in order to fetch the previous page of the list.",
+        "examples": ["clprd_abc123", "clprd_xyz789"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "limit": {
+        "description": "A limit on the number of objects to be returned. Limit can range between 1 and 100, and the default is 10.",
+        "examples": [10, 25, 50],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "starting_after": {
+        "description": "A cursor for use in pagination. This is an object ID that defines your place in the list. For instance, if you make a list request and receive 100 objects ending with clprd_xyz, your subsequent call can include starting_after=clprd_xyz in order to fetch the next page of the list.",
+        "examples": ["clprd_abc123", "clprd_xyz789"],
+        "title": "Starting After",
+        "type": "string"
+      }
+    },
+    "title": "ListClimateProductsRequest",
+    "type": "object"
+  },
+  "name": "list_climate_products",
+  "outputSchema": {
+    "$defs": {
+      "ClimateProduct": {
+        "description": "A Stripe Climate product object representing carbon removal offerings.",
+        "properties": {
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "current_prices_per_metric_ton": {
+            "$ref": "#/$defs/CurrentPricesPerMetricTon",
+            "description": "Current pricing information per metric ton in USD.",
+            "title": "Current Prices Per Metric Ton"
+          },
+          "delivery_year": {
+            "description": "The expected year when carbon removal will be delivered.",
+            "title": "Delivery Year",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the climate product.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metric_tons_available": {
+            "description": "The quantity of carbon removal available in metric tons.",
+            "title": "Metric Tons Available",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the climate product.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'climate.product'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "suppliers": {
+            "description": "Information about the suppliers providing this carbon removal product.",
+            "items": {
+              "$ref": "#/$defs/Supplier"
+            },
+            "title": "Suppliers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "name",
+          "metric_tons_available",
+          "livemode",
+          "current_prices_per_metric_ton",
+          "suppliers"
+        ],
+        "title": "ClimateProduct",
+        "type": "object"
+      },
+      "CurrentPricesPerMetricTon": {
+        "description": "Pricing information per metric ton of carbon removal, keyed by currency.",
+        "properties": {
+          "usd": {
+            "$ref": "#/$defs/PriceInfo",
+            "description": "Pricing information in USD.",
+            "title": "Usd"
+          }
+        },
+        "title": "CurrentPricesPerMetricTon",
+        "type": "object"
+      },
+      "ListClimateProductsResponse": {
+        "description": "Response from listing Stripe Climate products with pagination.",
+        "properties": {
+          "data": {
+            "description": "An array containing the actual climate product objects, paginated by any request parameters.",
+            "items": {
+              "$ref": "#/$defs/ClimateProduct"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether or not there are more elements available after this set. If false, this set comprises the end of the list.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL for accessing this list.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "ListClimateProductsResponse",
+        "type": "object"
+      },
+      "Location": {
+        "description": "Location information for a supplier.",
+        "properties": {
+          "city": {
+            "description": "The city name.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "The country code or name.",
+            "title": "Country",
+            "type": "string"
+          },
+          "latitude": {
+            "description": "The latitude coordinate.",
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "description": "The longitude coordinate.",
+            "title": "Longitude",
+            "type": "number"
+          },
+          "region": {
+            "description": "The region or state.",
+            "title": "Region",
+            "type": "string"
+          }
+        },
+        "title": "Location",
+        "type": "object"
+      },
+      "PriceInfo": {
+        "description": "Pricing information for a specific currency.",
+        "properties": {
+          "amount_fees": {
+            "description": "The fees amount in the smallest currency unit (e.g., cents for USD).",
+            "title": "Amount Fees",
+            "type": "integer"
+          },
+          "amount_subtotal": {
+            "description": "The subtotal amount in the smallest currency unit (e.g., cents for USD).",
+            "title": "Amount Subtotal",
+            "type": "integer"
+          },
+          "amount_total": {
+            "description": "The total amount in the smallest currency unit (e.g., cents for USD).",
+            "title": "Amount Total",
+            "type": "integer"
+          }
+        },
+        "required": ["amount_subtotal", "amount_fees", "amount_total"],
+        "title": "PriceInfo",
+        "type": "object"
+      },
+      "Supplier": {
+        "description": "Supplier information for carbon removal.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier for the supplier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "info_url": {
+            "description": "URL with more information about the supplier.",
+            "title": "Info Url",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "locations": {
+            "description": "The locations where the supplier operates.",
+            "items": {
+              "$ref": "#/$defs/Location"
+            },
+            "title": "Locations",
+            "type": "array"
+          },
+          "name": {
+            "description": "The name of the supplier.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type.",
+            "title": "Object",
+            "type": "string"
+          },
+          "removal_pathway": {
+            "description": "The carbon removal pathway used by the supplier.",
+            "title": "Removal Pathway",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "title": "Supplier",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListClimateProductsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

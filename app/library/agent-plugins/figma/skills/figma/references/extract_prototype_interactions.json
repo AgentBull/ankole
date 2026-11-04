@@ -1,0 +1,271 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Extract prototype interactions and animations from Figma files. Required parameter: - file_key: The Figma file key extracted from a URL like 'https://www.figma.com/file/ABC123xyz/MyFile' (the 'ABC123xyz' part) Analyzes the prototype data to extract: - User interactions (clicks, hovers, etc.) - Transition animations - Component variant states - User flows and navigation",
+  "inputSchema": {
+    "description": "Request to extract prototype interactions.\n\nNote: file_key is required and must be extracted from the Figma file URL.",
+    "properties": {
+      "analyze_components": {
+        "default": true,
+        "description": "Extract component variant states",
+        "title": "Analyze Components",
+        "type": "boolean"
+      },
+      "file_key": {
+        "description": "Required. The unique file key from a Figma URL. To find it: from a URL like 'https://www.figma.com/file/ABC123xyz/MyFileName' or 'https://www.figma.com/design/ABC123xyz/MyFileName', extract the alphanumeric string after '/file/' or '/design/' (e.g., 'ABC123xyz'). This is typically 22 alphanumeric characters.",
+        "title": "File Key",
+        "type": "string"
+      },
+      "include_animations": {
+        "default": true,
+        "description": "Include detailed animation data",
+        "title": "Include Animations",
+        "type": "boolean"
+      }
+    },
+    "required": ["file_key"],
+    "title": "ExtractPrototypeInteractionsRequest",
+    "type": "object"
+  },
+  "name": "extract_prototype_interactions",
+  "outputSchema": {
+    "$defs": {
+      "AnimationTransition": {
+        "description": "Animation transition details.",
+        "properties": {
+          "direction": {
+            "description": "Direction for directional transitions",
+            "title": "Direction",
+            "type": "string"
+          },
+          "duration": {
+            "description": "Duration in milliseconds",
+            "title": "Duration",
+            "type": "number"
+          },
+          "easing": {
+            "description": "Easing function (ease-in, ease-out, etc.)",
+            "title": "Easing",
+            "type": "string"
+          },
+          "type": {
+            "description": "Transition type (SMART_ANIMATE, DISSOLVE, etc.)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "duration", "easing"],
+        "title": "AnimationTransition",
+        "type": "object"
+      },
+      "ComponentState": {
+        "description": "Component variant state.",
+        "properties": {
+          "component_id": {
+            "description": "Component ID",
+            "title": "Component Id",
+            "type": "string"
+          },
+          "default_variant": {
+            "description": "Default variant",
+            "title": "Default Variant",
+            "type": "string"
+          },
+          "name": {
+            "description": "Component name",
+            "title": "Name",
+            "type": "string"
+          },
+          "variants": {
+            "description": "Available variant names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Variants",
+            "type": "array"
+          }
+        },
+        "required": ["component_id", "name", "variants"],
+        "title": "ComponentState",
+        "type": "object"
+      },
+      "ExtractPrototypeInteractionsResponse": {
+        "description": "Response with prototype interaction data.",
+        "properties": {
+          "animation_types_used": {
+            "description": "List of animation types used in the prototype",
+            "items": {
+              "type": "string"
+            },
+            "title": "Animation Types Used",
+            "type": "array"
+          },
+          "component_states": {
+            "description": "Component variant states",
+            "items": {
+              "$ref": "#/$defs/ComponentState"
+            },
+            "title": "Component States",
+            "type": "array"
+          },
+          "interactions": {
+            "description": "All interactions found in the prototype",
+            "items": {
+              "$ref": "#/$defs/NodeInteraction"
+            },
+            "title": "Interactions",
+            "type": "array"
+          },
+          "prototype_flows": {
+            "description": "Prototype flows and starting points",
+            "items": {
+              "$ref": "#/$defs/PrototypeFlow"
+            },
+            "title": "Prototype Flows",
+            "type": "array"
+          },
+          "total_interactions": {
+            "description": "Total number of interactions found",
+            "title": "Total Interactions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "interactions",
+          "component_states",
+          "prototype_flows",
+          "total_interactions",
+          "animation_types_used"
+        ],
+        "title": "ExtractPrototypeInteractionsResponse",
+        "type": "object"
+      },
+      "InteractionAction": {
+        "description": "Interaction action definition.",
+        "properties": {
+          "destination_id": {
+            "description": "Target node ID",
+            "title": "Destination Id",
+            "type": "string"
+          },
+          "navigation": {
+            "description": "Navigation type (NAVIGATE, OVERLAY, etc.)",
+            "title": "Navigation",
+            "type": "string"
+          },
+          "transition": {
+            "$ref": "#/$defs/AnimationTransition",
+            "description": "Transition animation",
+            "title": "Transition"
+          },
+          "type": {
+            "description": "Action type (NODE, URL, BACK, etc.)",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL for URL actions",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "InteractionAction",
+        "type": "object"
+      },
+      "InteractionTrigger": {
+        "description": "Interaction trigger definition.",
+        "properties": {
+          "delay": {
+            "description": "Delay in milliseconds",
+            "title": "Delay",
+            "type": "number"
+          },
+          "timeout": {
+            "description": "Timeout in milliseconds",
+            "title": "Timeout",
+            "type": "number"
+          },
+          "type": {
+            "description": "Trigger type (ON_CLICK, ON_HOVER, etc.)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "InteractionTrigger",
+        "type": "object"
+      },
+      "NodeInteraction": {
+        "description": "Complete interaction for a node.",
+        "properties": {
+          "actions": {
+            "description": "Actions to perform",
+            "items": {
+              "$ref": "#/$defs/InteractionAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "node_id": {
+            "description": "Source node ID",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "node_name": {
+            "description": "Source node name",
+            "title": "Node Name",
+            "type": "string"
+          },
+          "trigger": {
+            "$ref": "#/$defs/InteractionTrigger",
+            "description": "Interaction trigger",
+            "title": "Trigger"
+          }
+        },
+        "required": ["node_id", "node_name", "trigger", "actions"],
+        "title": "NodeInteraction",
+        "type": "object"
+      },
+      "PrototypeFlow": {
+        "description": "Prototype flow definition.",
+        "properties": {
+          "name": {
+            "description": "Flow name",
+            "title": "Name",
+            "type": "string"
+          },
+          "nodes_in_flow": {
+            "description": "All node IDs in this flow",
+            "items": {
+              "type": "string"
+            },
+            "title": "Nodes In Flow",
+            "type": "array"
+          },
+          "starting_node_id": {
+            "description": "Starting frame ID",
+            "title": "Starting Node Id",
+            "type": "string"
+          }
+        },
+        "required": ["name", "starting_node_id", "nodes_in_flow"],
+        "title": "PrototypeFlow",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ExtractPrototypeInteractionsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

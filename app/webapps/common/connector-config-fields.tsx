@@ -22,7 +22,11 @@ export function ConnectorConfigFields({
   const declaration = catalog?.find(item => item.plugin_id === platform)
   const selected = typeof props.config.authConfigId === 'string' ? props.config.authConfigId : null
   const saved = connections.filter(
-    item => item.plugin_id === platform && (item.status === 'active' || item.id === selected)
+    item =>
+      item.id != null &&
+      item.mode !== 'cloud' &&
+      item.plugin_id === platform &&
+      (item.status === 'active' || item.id === selected)
   )
   const connectionKeys = new Set(
     [...(declaration?.credential_fields ?? []), ...(declaration?.public_fields ?? [])].map(field => field.key)

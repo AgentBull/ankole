@@ -1,0 +1,944 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information, including optional health data and statistics, for a specific release version within a Sentry organization.",
+  "inputSchema": {
+    "description": "Request schema for `GetOrganizationReleaseVersion`",
+    "properties": {
+      "adoptionStages": {
+        "description": "Include information about the release's adoption stages.",
+        "examples": ["true", "false"],
+        "title": "Adoption Stages",
+        "type": "boolean"
+      },
+      "health": {
+        "description": "Include health data (e.g., crash rates, session statistics) with release details.",
+        "examples": ["true", "false"],
+        "title": "Health",
+        "type": "boolean"
+      },
+      "healthStatsPeriod": {
+        "description": "Enumeration of time periods for release health statistics.",
+        "enum": ["14d", "1d", "1h", "24h", "2d", "30d", "48h", "7d", "90d"],
+        "examples": ["1h", "1d", "24h", "2d", "7d", "14d", "30d", "48h", "90d"],
+        "title": "HealthstatsperiodEnm",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization.",
+        "examples": ["my-org-slug", "sentry"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id": {
+        "description": "ID of a specific project to scope release details; if omitted, details may cover multiple projects.",
+        "examples": ["54321"],
+        "title": "Project Id",
+        "type": "string"
+      },
+      "query": {
+        "description": "Filter data for this release using Sentry's search syntax (e.g., to find specific events). See Sentry documentation for syntax. Example from Sentry: `'''(transaction:foo AND release:abc) OR (transaction:[bar,baz] AND release:def)'''`",
+        "examples": ["environment:production", "error.type:TypeError", "transaction:my.transaction.name"],
+        "title": "Query",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Enumeration of fields for sorting release-related data.",
+        "enum": ["crash_free_sessions", "crash_free_users", "date", "sessions", "users"],
+        "examples": ["date", "sessions", "users", "crash_free_sessions", "crash_free_users"],
+        "title": "SortEnm",
+        "type": "string"
+      },
+      "status": {
+        "description": "Enumeration of release statuses.",
+        "enum": ["archived", "open"],
+        "examples": ["open", "archived"],
+        "title": "StatusEnm",
+        "type": "string"
+      },
+      "summaryStatsPeriod": {
+        "description": "Enumeration of time periods for release summary statistics.",
+        "enum": ["14d", "1d", "1h", "24h", "2d", "30d", "48h", "7d", "90d"],
+        "examples": ["1h", "1d", "24h", "2d", "7d", "14d", "30d", "48h", "90d"],
+        "title": "SummarystatsperiodEnm",
+        "type": "string"
+      },
+      "version": {
+        "description": "The unique version identifier of the release. This can be a semantic version (e.g., '1.2.3'), a commit hash, or any string used to identify the release (e.g., 'backend@1.0.0-alpha').",
+        "examples": ["1.2.3", "backend@1.0.0-alpha", "abc123def456", "sentry-app@21.5.0"],
+        "title": "Version",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "version"],
+    "title": "GetOrganizationReleaseVersionRequest",
+    "type": "object"
+  },
+  "name": "get_organization_release_version",
+  "outputSchema": {
+    "$defs": {
+      "AdoptionStageInfo": {
+        "description": "Adoption stage information.",
+        "properties": {
+          "adopted": {
+            "description": "ISO 8601 timestamp when the release was adopted. Can be null.",
+            "title": "Adopted",
+            "type": "string"
+          },
+          "stage": {
+            "description": "Current adoption stage (e.g., 'low_adoption', 'adopted', 'replaced').",
+            "title": "Stage",
+            "type": "string"
+          },
+          "unadopted": {
+            "description": "ISO 8601 timestamp when the release was unadopted. Can be null.",
+            "title": "Unadopted",
+            "type": "string"
+          }
+        },
+        "title": "AdoptionStageInfo",
+        "type": "object"
+      },
+      "AvatarDetails": {
+        "description": "Avatar details.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar', 'upload').",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the uploaded avatar. Can be null.",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "title": "AvatarDetails",
+        "type": "object"
+      },
+      "CommitAuthor": {
+        "description": "Commit author in authors list.",
+        "properties": {
+          "avatar": {
+            "$ref": "#/$defs/AvatarDetails",
+            "description": "Avatar information for the author.",
+            "title": "Avatar"
+          },
+          "avatarUrl": {
+            "description": "URL to the author's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "dateJoined": {
+            "description": "ISO 8601 timestamp when the author joined Sentry.",
+            "title": "Date Joined",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address of the author.",
+            "title": "Email",
+            "type": "string"
+          },
+          "emails": {
+            "description": "List of email addresses associated with the author.",
+            "items": {
+              "$ref": "#/$defs/EmailInfo"
+            },
+            "title": "Emails",
+            "type": "array"
+          },
+          "experiments": {
+            "additionalProperties": true,
+            "description": "Feature experiments enabled for the author.",
+            "title": "Experiments",
+            "type": "object"
+          },
+          "has2fa": {
+            "description": "Whether the author has two-factor authentication enabled.",
+            "title": "Has2Fa",
+            "type": "boolean"
+          },
+          "hasPasswordAuth": {
+            "description": "Whether the author has password authentication enabled.",
+            "title": "Has Password Auth",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "User ID of the author.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "isActive": {
+            "description": "Whether the author's account is active.",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "isManaged": {
+            "description": "Whether the author's account is managed by an external system.",
+            "title": "Is Managed",
+            "type": "boolean"
+          },
+          "isStaff": {
+            "description": "Whether the author is a staff member.",
+            "title": "Is Staff",
+            "type": "boolean"
+          },
+          "isSuperuser": {
+            "description": "Whether the author has superuser privileges.",
+            "title": "Is Superuser",
+            "type": "boolean"
+          },
+          "lastActive": {
+            "description": "ISO 8601 timestamp of the author's last activity.",
+            "title": "Last Active",
+            "type": "string"
+          },
+          "lastLogin": {
+            "description": "ISO 8601 timestamp of the author's last login.",
+            "title": "Last Login",
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name of the author.",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the author.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "CommitAuthor",
+        "type": "object"
+      },
+      "EmailInfo": {
+        "description": "Email information.",
+        "properties": {
+          "email": {
+            "description": "Email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Email record identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_verified": {
+            "description": "Whether the email is verified.",
+            "title": "Is Verified",
+            "type": "boolean"
+          }
+        },
+        "title": "EmailInfo",
+        "type": "object"
+      },
+      "GetOrganizationReleaseVersionResponse": {
+        "description": "Response schema for `GetOrganizationReleaseVersion`",
+        "properties": {
+          "adoptionStages": {
+            "additionalProperties": {
+              "$ref": "#/$defs/AdoptionStageInfo"
+            },
+            "description": "Adoption stage information for different projects or environments. Can be null.",
+            "title": "Adoption Stages",
+            "type": "object"
+          },
+          "authors": {
+            "description": "List of authors who contributed commits to this release.",
+            "items": {
+              "$ref": "#/$defs/CommitAuthor"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "commitCount": {
+            "description": "Total number of commits associated with this release.",
+            "title": "Commit Count",
+            "type": "integer"
+          },
+          "currentProjectMeta": {
+            "additionalProperties": true,
+            "description": "Metadata specific to the current project context.",
+            "title": "Current Project Meta",
+            "type": "object"
+          },
+          "data": {
+            "additionalProperties": true,
+            "description": "Additional arbitrary data associated with the release.",
+            "title": "Data",
+            "type": "object"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the release was created in Sentry.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateReleased": {
+            "description": "ISO 8601 timestamp when the release was officially released. Can be null if not yet released.",
+            "title": "Date Released",
+            "type": "string"
+          },
+          "deployCount": {
+            "description": "Total number of deployments of this release.",
+            "title": "Deploy Count",
+            "type": "integer"
+          },
+          "firstEvent": {
+            "description": "ISO 8601 timestamp of the first event associated with this release. Can be null.",
+            "title": "First Event",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the release.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "lastCommit": {
+            "$ref": "#/$defs/LastCommit",
+            "description": "Information about the most recent commit in the release. Can be null.",
+            "title": "Last Commit"
+          },
+          "lastDeploy": {
+            "$ref": "#/$defs/LastDeploy",
+            "description": "Information about the most recent deployment. Can be null.",
+            "title": "Last Deploy"
+          },
+          "lastEvent": {
+            "description": "ISO 8601 timestamp of the last event associated with this release. Can be null.",
+            "title": "Last Event",
+            "type": "string"
+          },
+          "newGroups": {
+            "description": "Number of new issue groups introduced in this release.",
+            "title": "New Groups",
+            "type": "integer"
+          },
+          "owner": {
+            "$ref": "#/$defs/Owner",
+            "description": "Owner of the release. Can be null.",
+            "title": "Owner"
+          },
+          "projects": {
+            "description": "List of projects associated with this release.",
+            "items": {
+              "$ref": "#/$defs/ProjectInfo"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "ref": {
+            "description": "Git reference (branch or tag) associated with the release. Can be null.",
+            "title": "Ref",
+            "type": "string"
+          },
+          "shortVersion": {
+            "description": "Shortened version string for display purposes.",
+            "title": "Short Version",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current status of the release (e.g., 'open', 'archived').",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL associated with the release. Can be null.",
+            "title": "Url",
+            "type": "string"
+          },
+          "userAgent": {
+            "description": "User agent string from the client that created the release. Can be null.",
+            "title": "User Agent",
+            "type": "string"
+          },
+          "version": {
+            "description": "The full version string of the release.",
+            "title": "Version",
+            "type": "string"
+          },
+          "versionInfo": {
+            "$ref": "#/$defs/VersionInfo",
+            "description": "Structured information about the version components.",
+            "title": "Version Info"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "status",
+          "shortVersion",
+          "versionInfo",
+          "dateCreated",
+          "data",
+          "newGroups",
+          "commitCount",
+          "deployCount",
+          "authors",
+          "projects"
+        ],
+        "title": "GetOrganizationReleaseVersionResponse",
+        "type": "object"
+      },
+      "HealthData": {
+        "description": "Health metrics and statistics for the project in this release.",
+        "properties": {
+          "adoption": {
+            "description": "Adoption rate of this release as a percentage.",
+            "title": "Adoption",
+            "type": "number"
+          },
+          "crashFreeSessions": {
+            "description": "Percentage of sessions that did not crash.",
+            "title": "Crash Free Sessions",
+            "type": "number"
+          },
+          "crashFreeUsers": {
+            "description": "Percentage of users who did not experience a crash.",
+            "title": "Crash Free Users",
+            "type": "number"
+          },
+          "durationP50": {
+            "description": "Median session duration in seconds (50th percentile).",
+            "title": "Duration P50",
+            "type": "number"
+          },
+          "durationP90": {
+            "description": "90th percentile session duration in seconds.",
+            "title": "Duration P90",
+            "type": "number"
+          },
+          "hasHealthData": {
+            "description": "Whether health data is available.",
+            "title": "Has Health Data",
+            "type": "boolean"
+          },
+          "sessionsAdoption": {
+            "description": "Sessions adoption rate. Can be null.",
+            "title": "Sessions Adoption",
+            "type": "number"
+          },
+          "sessionsCrashed": {
+            "description": "Number of sessions that crashed.",
+            "title": "Sessions Crashed",
+            "type": "integer"
+          },
+          "sessionsErrored": {
+            "description": "Number of sessions with errors.",
+            "title": "Sessions Errored",
+            "type": "integer"
+          },
+          "stats": {
+            "$ref": "#/$defs/TimeSeriesStats",
+            "description": "Time series statistics.",
+            "title": "Stats"
+          },
+          "totalProjectSessions24h": {
+            "description": "Total project sessions in the last 24 hours. Can be null.",
+            "title": "Total Project Sessions24H",
+            "type": "integer"
+          },
+          "totalProjectUsers24h": {
+            "description": "Total project users in the last 24 hours. Can be null.",
+            "title": "Total Project Users24H",
+            "type": "integer"
+          },
+          "totalSessions": {
+            "description": "Total number of sessions.",
+            "title": "Total Sessions",
+            "type": "integer"
+          },
+          "totalSessions24h": {
+            "description": "Total sessions in the last 24 hours. Can be null.",
+            "title": "Total Sessions24H",
+            "type": "integer"
+          },
+          "totalUsers": {
+            "description": "Total number of unique users.",
+            "title": "Total Users",
+            "type": "integer"
+          },
+          "totalUsers24h": {
+            "description": "Total users in the last 24 hours. Can be null.",
+            "title": "Total Users24H",
+            "type": "integer"
+          }
+        },
+        "title": "HealthData",
+        "type": "object"
+      },
+      "LastCommit": {
+        "description": "Information about the most recent commit.",
+        "properties": {
+          "author": {
+            "$ref": "#/$defs/UserAuthor",
+            "description": "Commit author information.",
+            "title": "Author"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the commit was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "id": {
+            "description": "Commit SHA or identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Commit message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "pullRequest": {
+            "$ref": "#/$defs/PullRequest",
+            "description": "Associated pull request details.",
+            "title": "Pull Request"
+          },
+          "releases": {
+            "description": "List of releases associated with this commit.",
+            "items": {
+              "$ref": "#/$defs/ReleaseInfo"
+            },
+            "title": "Releases",
+            "type": "array"
+          },
+          "repository": {
+            "$ref": "#/$defs/Repository",
+            "description": "Repository information for the commit.",
+            "title": "Repository"
+          },
+          "suspectCommitType": {
+            "description": "Type of suspect commit classification.",
+            "title": "Suspect Commit Type",
+            "type": "string"
+          }
+        },
+        "title": "LastCommit",
+        "type": "object"
+      },
+      "LastDeploy": {
+        "description": "Information about the most recent deployment.",
+        "properties": {
+          "dateFinished": {
+            "description": "ISO 8601 timestamp when the deployment finished.",
+            "title": "Date Finished",
+            "type": "string"
+          },
+          "dateStarted": {
+            "description": "ISO 8601 timestamp when the deployment started. Can be null.",
+            "title": "Date Started",
+            "type": "string"
+          },
+          "environment": {
+            "description": "Environment where the release was deployed (e.g., 'production', 'staging').",
+            "title": "Environment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the deployment.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name or description of the deployment.",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL associated with the deployment. Can be null.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "LastDeploy",
+        "type": "object"
+      },
+      "Owner": {
+        "description": "Owner of the release.",
+        "properties": {
+          "email": {
+            "description": "Email address of the release owner.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID of the release owner.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the release owner.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "Owner",
+        "type": "object"
+      },
+      "ProjectInfo": {
+        "description": "Project information.",
+        "properties": {
+          "hasHealthData": {
+            "description": "Whether health data is available for this project.",
+            "title": "Has Health Data",
+            "type": "boolean"
+          },
+          "healthData": {
+            "$ref": "#/$defs/HealthData",
+            "description": "Health metrics and statistics for the project in this release.",
+            "title": "Health Data"
+          },
+          "id": {
+            "description": "Project ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Project name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "newGroups": {
+            "description": "Number of new issue groups for this project in this release.",
+            "title": "New Groups",
+            "type": "integer"
+          },
+          "platform": {
+            "description": "Primary platform for the project.",
+            "title": "Platform",
+            "type": "string"
+          },
+          "platforms": {
+            "description": "List of all platforms used in the project.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Platforms",
+            "type": "array"
+          },
+          "slug": {
+            "description": "Project slug identifier.",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "title": "ProjectInfo",
+        "type": "object"
+      },
+      "Provider": {
+        "description": "Provider information for repository.",
+        "properties": {
+          "id": {
+            "description": "Provider ID (e.g., 'integrations:github').",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Provider name (e.g., 'GitHub').",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "Provider",
+        "type": "object"
+      },
+      "PullRequest": {
+        "description": "Pull request information.",
+        "properties": {
+          "author": {
+            "$ref": "#/$defs/UserAuthor",
+            "description": "Author information.",
+            "title": "Author"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the pull request was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "externalUrl": {
+            "description": "External URL to the pull request.",
+            "title": "External Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Pull request ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Pull request message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "repository": {
+            "$ref": "#/$defs/Repository",
+            "description": "Repository information.",
+            "title": "Repository"
+          },
+          "title": {
+            "description": "Pull request title.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "PullRequest",
+        "type": "object"
+      },
+      "ReleaseInfo": {
+        "description": "Release information within commit.",
+        "properties": {
+          "dateCreated": {
+            "description": "Creation date. Can be null.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateReleased": {
+            "description": "Release date. Can be null.",
+            "title": "Date Released",
+            "type": "string"
+          },
+          "ref": {
+            "description": "Git reference. Can be null.",
+            "title": "Ref",
+            "type": "string"
+          },
+          "shortVersion": {
+            "description": "Short release version.",
+            "title": "Short Version",
+            "type": "string"
+          },
+          "url": {
+            "description": "Release URL. Can be null.",
+            "title": "Url",
+            "type": "string"
+          },
+          "version": {
+            "description": "Release version.",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseInfo",
+        "type": "object"
+      },
+      "Repository": {
+        "description": "Repository information.",
+        "properties": {
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the repository was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "externalId": {
+            "description": "External ID for the repository.",
+            "title": "External Id",
+            "type": "string"
+          },
+          "externalSlug": {
+            "description": "External slug for the repository.",
+            "title": "External Slug",
+            "type": "string"
+          },
+          "id": {
+            "description": "Repository ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "integrationId": {
+            "description": "Integration ID.",
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Repository name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/$defs/Provider",
+            "description": "Provider information.",
+            "title": "Provider"
+          },
+          "status": {
+            "description": "Repository status (e.g., 'active').",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "Repository URL.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "Repository",
+        "type": "object"
+      },
+      "TimeSeriesStats": {
+        "description": "Time series statistics.",
+        "properties": {
+          "24h": {
+            "description": "24-hour statistics with timestamp-value pairs.",
+            "items": {
+              "items": {},
+              "type": "array"
+            },
+            "title": "24H",
+            "type": "array"
+          }
+        },
+        "title": "TimeSeriesStats",
+        "type": "object"
+      },
+      "UserAuthor": {
+        "description": "User author information.",
+        "properties": {
+          "avatar": {
+            "$ref": "#/$defs/AvatarDetails",
+            "description": "User avatar information.",
+            "title": "Avatar"
+          },
+          "avatarUrl": {
+            "description": "URL to user's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "dateJoined": {
+            "description": "ISO 8601 timestamp when the user joined.",
+            "title": "Date Joined",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "emails": {
+            "description": "List of user email addresses.",
+            "items": {
+              "$ref": "#/$defs/EmailInfo"
+            },
+            "title": "Emails",
+            "type": "array"
+          },
+          "experiments": {
+            "additionalProperties": true,
+            "description": "User experiment settings.",
+            "title": "Experiments",
+            "type": "object"
+          },
+          "has2fa": {
+            "description": "Whether the user has two-factor authentication enabled.",
+            "title": "Has2Fa",
+            "type": "boolean"
+          },
+          "hasPasswordAuth": {
+            "description": "Whether the user has password authentication enabled.",
+            "title": "Has Password Auth",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "User identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isActive": {
+            "description": "Whether the user account is active.",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "isManaged": {
+            "description": "Whether the user is managed.",
+            "title": "Is Managed",
+            "type": "boolean"
+          },
+          "isStaff": {
+            "description": "Whether the user is staff.",
+            "title": "Is Staff",
+            "type": "boolean"
+          },
+          "isSuperuser": {
+            "description": "Whether the user is a superuser.",
+            "title": "Is Superuser",
+            "type": "boolean"
+          },
+          "lastActive": {
+            "description": "ISO 8601 timestamp of the user's last activity. Can be null.",
+            "title": "Last Active",
+            "type": "string"
+          },
+          "lastLogin": {
+            "description": "ISO 8601 timestamp of the user's last login. Can be null.",
+            "title": "Last Login",
+            "type": "string"
+          },
+          "name": {
+            "description": "User's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "UserAuthor",
+        "type": "object"
+      },
+      "VersionDetails": {
+        "description": "Version details within version info.",
+        "properties": {
+          "raw": {
+            "description": "Raw version string.",
+            "title": "Raw",
+            "type": "string"
+          }
+        },
+        "title": "VersionDetails",
+        "type": "object"
+      },
+      "VersionInfo": {
+        "description": "Parsed version information.",
+        "properties": {
+          "buildHash": {
+            "description": "Build hash or commit identifier.",
+            "title": "Build Hash",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the version.",
+            "title": "Description",
+            "type": "string"
+          },
+          "package": {
+            "description": "Package name or identifier.",
+            "title": "Package",
+            "type": "string"
+          },
+          "version": {
+            "$ref": "#/$defs/VersionDetails",
+            "description": "Version object containing raw version information.",
+            "title": "Version"
+          }
+        },
+        "title": "VersionInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationReleaseVersionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

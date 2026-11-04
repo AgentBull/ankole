@@ -1,0 +1,209 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to get a specific commit identified by the commit hash or name of a branch or tag. Use this when you need to retrieve detailed information about a single commit in a GitLab project repository.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": [5, "your_group/your_project"],
+        "title": "Id"
+      },
+      "sha": {
+        "description": "The commit hash or name of a repository branch or tag.",
+        "examples": ["main", "v1.0.0", "6104942438c14ec7bd21c6cd5bd995272b3faff6"],
+        "title": "Sha",
+        "type": "string"
+      },
+      "stats": {
+        "default": true,
+        "description": "Include commit stats. Default is true.",
+        "title": "Stats",
+        "type": "boolean"
+      }
+    },
+    "required": ["id", "sha"],
+    "title": "GetSingleCommitRequest",
+    "type": "object"
+  },
+  "name": "get_single_commit",
+  "outputSchema": {
+    "$defs": {
+      "GetSingleCommitResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "author_email": {
+            "description": "The email of the commit author.",
+            "title": "Author Email",
+            "type": "string"
+          },
+          "author_name": {
+            "description": "The name of the commit author.",
+            "title": "Author Name",
+            "type": "string"
+          },
+          "authored_date": {
+            "description": "The timestamp when the commit was authored.",
+            "title": "Authored Date",
+            "type": "string"
+          },
+          "committed_date": {
+            "description": "The timestamp when the commit was committed.",
+            "title": "Committed Date",
+            "type": "string"
+          },
+          "committer_email": {
+            "description": "The email of the committer.",
+            "title": "Committer Email",
+            "type": "string"
+          },
+          "committer_name": {
+            "description": "The name of the committer.",
+            "title": "Committer Name",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "The timestamp when the commit object was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The full commit hash.",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_pipeline": {
+            "$ref": "#/$defs/LastPipeline",
+            "description": "Information about the last pipeline associated with this commit.",
+            "title": "Last Pipeline"
+          },
+          "message": {
+            "description": "The full commit message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "parent_ids": {
+            "description": "A list of parent commit SHAs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parent Ids",
+            "type": "array"
+          },
+          "short_id": {
+            "description": "The short commit hash.",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/$defs/Stats",
+            "description": "Commit statistics.",
+            "title": "Stats"
+          },
+          "status": {
+            "description": "The status of the commit, often related to CI/CD pipeline status.",
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "description": "The commit title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "The URL to view the commit in the GitLab web interface.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "short_id",
+          "title",
+          "author_name",
+          "author_email",
+          "committer_name",
+          "committer_email",
+          "created_at",
+          "message",
+          "committed_date",
+          "authored_date",
+          "parent_ids",
+          "web_url"
+        ],
+        "title": "GetSingleCommitResponse",
+        "type": "object"
+      },
+      "LastPipeline": {
+        "properties": {
+          "id": {
+            "description": "Pipeline ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "ref": {
+            "description": "Branch or tag name.",
+            "title": "Ref",
+            "type": "string"
+          },
+          "sha": {
+            "description": "Commit SHA.",
+            "title": "Sha",
+            "type": "string"
+          },
+          "status": {
+            "description": "Pipeline status.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["id", "ref", "sha", "status"],
+        "title": "LastPipeline",
+        "type": "object"
+      },
+      "Stats": {
+        "properties": {
+          "additions": {
+            "description": "Number of lines added.",
+            "title": "Additions",
+            "type": "integer"
+          },
+          "deletions": {
+            "description": "Number of lines deleted.",
+            "title": "Deletions",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total number of lines changed.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": ["additions", "deletions", "total"],
+        "title": "Stats",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetSingleCommitResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

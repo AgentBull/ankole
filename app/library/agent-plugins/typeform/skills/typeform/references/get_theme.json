@@ -1,0 +1,142 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a specific theme's configuration including colors, fonts, and layout settings. Use when you need to get the design settings of a Typeform theme.",
+  "inputSchema": {
+    "properties": {
+      "theme_id": {
+        "description": "Unique ID for the theme",
+        "examples": ["qHWOQ7"],
+        "title": "Theme Id",
+        "type": "string"
+      }
+    },
+    "required": ["theme_id"],
+    "title": "GetThemeRequest",
+    "type": "object"
+  },
+  "name": "get_theme",
+  "outputSchema": {
+    "$defs": {
+      "GetThemeResponse": {
+        "properties": {
+          "background": {
+            "$ref": "#/$defs/ThemeBackground",
+            "description": "Background configuration",
+            "title": "Background"
+          },
+          "colors": {
+            "$ref": "#/$defs/ThemeColors",
+            "description": "Color scheme configuration",
+            "title": "Colors"
+          },
+          "fields": {
+            "additionalProperties": true,
+            "description": "Field-specific styling configuration",
+            "title": "Fields",
+            "type": "object"
+          },
+          "font": {
+            "description": "Font family used in the theme",
+            "title": "Font",
+            "type": "string"
+          },
+          "has_transparent_button": {
+            "description": "Whether the button is transparent",
+            "title": "Has Transparent Button",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique ID of the theme",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the theme",
+            "title": "Name",
+            "type": "string"
+          },
+          "rounded_corners": {
+            "description": "Rounded corners setting",
+            "title": "Rounded Corners",
+            "type": "string"
+          },
+          "screens": {
+            "additionalProperties": true,
+            "description": "Screen-specific styling configuration",
+            "title": "Screens",
+            "type": "object"
+          },
+          "visibility": {
+            "description": "Visibility setting of the theme",
+            "enum": ["public", "private"],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "title": "GetThemeResponse",
+        "type": "object"
+      },
+      "ThemeBackground": {
+        "properties": {
+          "brightness": {
+            "description": "Brightness level of the background",
+            "title": "Brightness",
+            "type": "number"
+          },
+          "href": {
+            "description": "URL of the background image",
+            "title": "Href",
+            "type": "string"
+          },
+          "layout": {
+            "description": "Layout style of the background",
+            "title": "Layout",
+            "type": "string"
+          }
+        },
+        "title": "ThemeBackground",
+        "type": "object"
+      },
+      "ThemeColors": {
+        "properties": {
+          "answer": {
+            "description": "Color for answers",
+            "title": "Answer",
+            "type": "string"
+          },
+          "background": {
+            "description": "Background color",
+            "title": "Background",
+            "type": "string"
+          },
+          "button": {
+            "description": "Button color",
+            "title": "Button",
+            "type": "string"
+          },
+          "question": {
+            "description": "Color for questions",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "title": "ThemeColors",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetThemeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

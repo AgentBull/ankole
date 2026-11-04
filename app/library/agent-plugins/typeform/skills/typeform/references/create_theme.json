@@ -1,0 +1,276 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a new custom theme in Typeform with colors, fonts, background, and layout settings. Use when you need to create a theme for branding and styling Typeform forms.",
+  "inputSchema": {
+    "properties": {
+      "background": {
+        "additionalProperties": false,
+        "description": "Background configuration for the theme.",
+        "properties": {
+          "brightness": {
+            "description": "Background brightness level, must be between -1 and 1",
+            "examples": [0.5],
+            "maximum": 1,
+            "minimum": -1,
+            "title": "Brightness",
+            "type": "number"
+          },
+          "href": {
+            "description": "URL of the background image",
+            "examples": ["https://example.com/image.jpg"],
+            "title": "Href",
+            "type": "string"
+          },
+          "layout": {
+            "description": "Background image layout. Must be 'fullscreen', 'repeat', or 'no-repeat'",
+            "enum": ["fullscreen", "repeat", "no-repeat"],
+            "examples": ["fullscreen"],
+            "title": "Layout",
+            "type": "string"
+          }
+        },
+        "required": ["href"],
+        "title": "BackgroundModel",
+        "type": "object"
+      },
+      "colors": {
+        "additionalProperties": false,
+        "description": "Color configuration with answer, background, button, and question hex values. All color fields are required.",
+        "properties": {
+          "answer": {
+            "description": "Hex color code for answer text (e.g., '#4FB0AE')",
+            "examples": ["#4FB0AE"],
+            "title": "Answer",
+            "type": "string"
+          },
+          "background": {
+            "description": "Hex color code for background (e.g., '#FFFFFF')",
+            "examples": ["#FFFFFF"],
+            "title": "Background",
+            "type": "string"
+          },
+          "button": {
+            "description": "Hex color code for button (e.g., '#4FB0AE')",
+            "examples": ["#4FB0AE"],
+            "title": "Button",
+            "type": "string"
+          },
+          "question": {
+            "description": "Hex color code for question text (e.g., '#3D3D3D')",
+            "examples": ["#3D3D3D"],
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": ["answer", "background", "button", "question"],
+        "title": "Colors",
+        "type": "object"
+      },
+      "fields": {
+        "additionalProperties": false,
+        "description": "Field alignment (left/center) and font_size (small/medium/large). Both fields are required.",
+        "properties": {
+          "alignment": {
+            "description": "Text alignment for form fields. Must be 'left' or 'center'",
+            "enum": ["left", "center"],
+            "examples": ["left"],
+            "title": "Alignment",
+            "type": "string"
+          },
+          "font_size": {
+            "description": "Font size for form fields. Must be 'small', 'medium', or 'large'",
+            "enum": ["small", "medium", "large"],
+            "examples": ["medium"],
+            "title": "Font Size",
+            "type": "string"
+          }
+        },
+        "required": ["alignment", "font_size"],
+        "title": "Fields",
+        "type": "object"
+      },
+      "font": {
+        "description": "Font choice from predefined Typeform options (e.g., 'Karla', 'Arial', 'Georgia'). This field is required by the API.",
+        "examples": ["Karla"],
+        "title": "Font",
+        "type": "string"
+      },
+      "has_transparent_button": {
+        "description": "Whether the button should be transparent",
+        "examples": [false],
+        "title": "Has Transparent Button",
+        "type": "boolean"
+      },
+      "name": {
+        "description": "Name of the theme",
+        "examples": ["Test Theme Created by API"],
+        "title": "Name",
+        "type": "string"
+      },
+      "rounded_corners": {
+        "description": "Border radius setting. Must be 'none', 'small', or 'large'",
+        "enum": ["none", "small", "large"],
+        "examples": ["small"],
+        "title": "Rounded Corners",
+        "type": "string"
+      }
+    },
+    "required": ["colors", "fields", "font"],
+    "title": "CreateThemeRequest",
+    "type": "object"
+  },
+  "name": "create_theme",
+  "outputSchema": {
+    "$defs": {
+      "BackgroundModel": {
+        "description": "Background configuration for the theme.",
+        "properties": {
+          "brightness": {
+            "description": "Background brightness level, must be between -1 and 1",
+            "examples": [0.5],
+            "maximum": 1,
+            "minimum": -1,
+            "title": "Brightness",
+            "type": "number"
+          },
+          "href": {
+            "description": "URL of the background image",
+            "examples": ["https://example.com/image.jpg"],
+            "title": "Href",
+            "type": "string"
+          },
+          "layout": {
+            "description": "Background image layout. Must be 'fullscreen', 'repeat', or 'no-repeat'",
+            "enum": ["fullscreen", "repeat", "no-repeat"],
+            "examples": ["fullscreen"],
+            "title": "Layout",
+            "type": "string"
+          }
+        },
+        "required": ["href"],
+        "title": "BackgroundModel",
+        "type": "object"
+      },
+      "ColorsModel": {
+        "description": "Color configuration for the theme.",
+        "properties": {
+          "answer": {
+            "description": "Hex color code for answer text (e.g., '#4FB0AE')",
+            "examples": ["#4FB0AE"],
+            "title": "Answer",
+            "type": "string"
+          },
+          "background": {
+            "description": "Hex color code for background (e.g., '#FFFFFF')",
+            "examples": ["#FFFFFF"],
+            "title": "Background",
+            "type": "string"
+          },
+          "button": {
+            "description": "Hex color code for button (e.g., '#4FB0AE')",
+            "examples": ["#4FB0AE"],
+            "title": "Button",
+            "type": "string"
+          },
+          "question": {
+            "description": "Hex color code for question text (e.g., '#3D3D3D')",
+            "examples": ["#3D3D3D"],
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": ["answer", "background", "button", "question"],
+        "title": "ColorsModel",
+        "type": "object"
+      },
+      "CreateThemeResponse": {
+        "properties": {
+          "background": {
+            "$ref": "#/$defs/BackgroundModel",
+            "description": "Background configuration of the created theme",
+            "title": "Background"
+          },
+          "colors": {
+            "$ref": "#/$defs/ColorsModel",
+            "description": "Color configuration of the created theme",
+            "title": "Colors"
+          },
+          "fields": {
+            "$ref": "#/$defs/FieldsModel",
+            "description": "Field configuration of the created theme",
+            "title": "Fields"
+          },
+          "font": {
+            "description": "Font of the created theme",
+            "title": "Font",
+            "type": "string"
+          },
+          "has_transparent_button": {
+            "description": "Button transparency setting of the created theme",
+            "title": "Has Transparent Button",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier of the created theme",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the created theme",
+            "title": "Name",
+            "type": "string"
+          },
+          "rounded_corners": {
+            "description": "Border radius setting of the created theme",
+            "title": "Rounded Corners",
+            "type": "string"
+          },
+          "visibility": {
+            "description": "Visibility setting of the theme",
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "CreateThemeResponse",
+        "type": "object"
+      },
+      "FieldsModel": {
+        "description": "Field layout configuration for the theme.",
+        "properties": {
+          "alignment": {
+            "description": "Text alignment for form fields. Must be 'left' or 'center'",
+            "enum": ["left", "center"],
+            "examples": ["left"],
+            "title": "Alignment",
+            "type": "string"
+          },
+          "font_size": {
+            "description": "Font size for form fields. Must be 'small', 'medium', or 'large'",
+            "enum": ["small", "medium", "large"],
+            "examples": ["medium"],
+            "title": "Font Size",
+            "type": "string"
+          }
+        },
+        "required": ["alignment", "font_size"],
+        "title": "FieldsModel",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateThemeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

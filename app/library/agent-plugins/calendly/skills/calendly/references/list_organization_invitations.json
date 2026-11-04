@@ -1,0 +1,156 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of invitations for a specific organization, identified by its UUID.",
+  "inputSchema": {
+    "description": "Parameters for listing organization invitations.",
+    "properties": {
+      "count": {
+        "default": 20,
+        "description": "Number of results to return per page.",
+        "examples": [10, 50],
+        "title": "Count",
+        "type": "integer"
+      },
+      "email": {
+        "description": "Filter by the recipient's email address.",
+        "examples": ["test@example.com"],
+        "title": "Email",
+        "type": "string"
+      },
+      "page_token": {
+        "description": "Pagination token to access a specific page of results.",
+        "examples": [" nextPageTokenXYZ=="],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "sort": {
+        "default": "created_at:asc",
+        "description": "Order of results by field(s) and direction (asc/desc); e.g., 'created_at:asc' or 'email:desc,status:asc'.",
+        "examples": ["created_at:desc", "email:asc", "status:asc,created_at:desc"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "status": {
+        "description": "Filter by invitation status.",
+        "enum": ["pending", "accepted", "declined"],
+        "examples": ["pending", "accepted"],
+        "title": "StatusEnm",
+        "type": "string"
+      },
+      "uuid": {
+        "description": "Unique identifier (UUID) of the organization.",
+        "examples": ["org_00123456789abcdef"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "ListOrganizationInvitationsRequest",
+    "type": "object"
+  },
+  "name": "list_organization_invitations",
+  "outputSchema": {
+    "$defs": {
+      "ListOrganizationInvitationsResponse": {
+        "description": "Contains the collection of organization invitations and pagination details.",
+        "properties": {
+          "collection": {
+            "description": "List of organization invitations.",
+            "items": {
+              "$ref": "#/$defs/OrganizationInvitation"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection", "pagination"],
+        "title": "ListOrganizationInvitationsResponse",
+        "type": "object"
+      },
+      "OrganizationInvitation": {
+        "description": "Represents a single organization invitation.",
+        "properties": {
+          "createdAt": {
+            "description": "Timestamp when the invitation was created (ISO 8601 format).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address of the person who was invited.",
+            "title": "Email",
+            "type": "string"
+          },
+          "lastSentAt": {
+            "description": "Timestamp when the invitation was last sent to the invitee (ISO 8601 format).",
+            "title": "Last Sent At",
+            "type": "string"
+          },
+          "organization": {
+            "description": "URI of the organization to which the user was invited.",
+            "title": "Organization",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the invitation. Possible values: 'accepted', 'declined', or 'pending'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "updatedAt": {
+            "description": "Timestamp when the invitation was last updated (ISO 8601 format).",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the organization invitation.",
+            "title": "Uri",
+            "type": "string"
+          },
+          "user": {
+            "description": "URI of the user resource, available once the invitation is accepted.",
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "organization", "email", "status", "createdAt", "updatedAt", "lastSentAt"],
+        "title": "OrganizationInvitation",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination information for navigating through multiple pages of results.",
+        "properties": {
+          "count": {
+            "description": "Number of items returned in the current page.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "nextPage": {
+            "description": "Full URL to retrieve the next page of results. Null if there are no more pages.",
+            "title": "Next Page",
+            "type": "string"
+          }
+        },
+        "required": ["count"],
+        "title": "Pagination",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListOrganizationInvitationsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

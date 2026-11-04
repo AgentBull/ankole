@@ -1,0 +1,137 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves all comments associated with a specific commit in a GitLab project. Use this action when you need to view discussions or feedback left on a particular commit, including both general comments and inline code review comments.",
+  "inputSchema": {
+    "properties": {
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["5", "namespace/project-name"],
+        "title": "Project Id"
+      },
+      "sha": {
+        "description": "The commit hash or name of a repository branch or tag.",
+        "examples": ["main", "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"],
+        "title": "Sha",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "sha"],
+    "title": "ListCommitCommentsRequest",
+    "type": "object"
+  },
+  "name": "list_commit_comments",
+  "outputSchema": {
+    "$defs": {
+      "CommentAuthor": {
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the author's account was created in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "The author's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "The author's user ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "The author's full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "The author's account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "The author's username.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "name", "state"],
+        "title": "CommentAuthor",
+        "type": "object"
+      },
+      "CommitComment": {
+        "properties": {
+          "author": {
+            "$ref": "#/$defs/CommentAuthor",
+            "description": "Information about the comment author.",
+            "title": "Author"
+          },
+          "created_at": {
+            "description": "Timestamp when the comment was created in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "line": {
+            "description": "Line number where the comment is placed (for inline comments).",
+            "title": "Line",
+            "type": "integer"
+          },
+          "line_type": {
+            "description": "Type of line the comment is on (for inline comments).",
+            "title": "Line Type",
+            "type": "string"
+          },
+          "note": {
+            "description": "The comment text.",
+            "title": "Note",
+            "type": "string"
+          },
+          "path": {
+            "description": "File path relative to the repository (for inline comments).",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": ["note", "author"],
+        "title": "CommitComment",
+        "type": "object"
+      },
+      "ListCommitCommentsResponse": {
+        "properties": {
+          "comments": {
+            "description": "A list of comments on the commit.",
+            "items": {
+              "$ref": "#/$defs/CommitComment"
+            },
+            "title": "Comments",
+            "type": "array"
+          }
+        },
+        "title": "ListCommitCommentsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListCommitCommentsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

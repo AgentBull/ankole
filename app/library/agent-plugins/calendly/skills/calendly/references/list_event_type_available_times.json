@@ -1,0 +1,98 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetches available time slots for a Calendly event type within a future time range of at most seven days; results are not paginated.",
+  "inputSchema": {
+    "description": "Request model for fetching available times for a Calendly event type.",
+    "properties": {
+      "end_time": {
+        "description": "End datetime (exclusive) of the requested availability range, in UTC ISO 8601 format (e.g., 'YYYY-MM-DDTHH:MM:SSZ'). The duration between start_time and end_time cannot exceed 7 days.",
+        "examples": ["2023-10-27T17:00:00Z"],
+        "title": "End Time",
+        "type": "string"
+      },
+      "event_type": {
+        "description": "The URI of the event type for which to find available times. This can be obtained by listing event types or from an event type object.",
+        "examples": ["https://api.calendly.com/event_types/GBGBDCAADAEDCRZ2"],
+        "title": "Event Type",
+        "type": "string"
+      },
+      "start_time": {
+        "description": "Start datetime (inclusive) of the requested availability range, in UTC ISO 8601 format (e.g., 'YYYY-MM-DDTHH:MM:SSZ'). Must be in the future.",
+        "examples": ["2023-10-26T09:00:00Z"],
+        "title": "Start Time",
+        "type": "string"
+      }
+    },
+    "required": ["event_type", "start_time", "end_time"],
+    "title": "ListEventTypeAvailableTimesRequest",
+    "type": "object"
+  },
+  "name": "list_event_type_available_times",
+  "outputSchema": {
+    "$defs": {
+      "AvailableTimeSlot": {
+        "description": "Model representing an available time slot for booking.",
+        "properties": {
+          "end_time": {
+            "description": "End time of the available slot in ISO 8601 format (e.g., 2024-01-20T09:30:00Z).",
+            "title": "End Time",
+            "type": "string"
+          },
+          "invitees_remaining": {
+            "description": "Number of invitees that can still be booked for this time slot (relevant for group events).",
+            "title": "Invitees Remaining",
+            "type": "integer"
+          },
+          "scheduling_url": {
+            "description": "URL that can be used to schedule this specific time slot, embedding the final page of the booking flow where invitees enter their information.",
+            "title": "Scheduling Url",
+            "type": "string"
+          },
+          "start_time": {
+            "description": "Start time of the available slot in ISO 8601 format (e.g., 2024-01-20T09:00:00Z).",
+            "title": "Start Time",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the time slot availability.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["start_time", "scheduling_url"],
+        "title": "AvailableTimeSlot",
+        "type": "object"
+      },
+      "ListEventTypeAvailableTimesResponse": {
+        "description": "Response model containing the list of available times for the event type.",
+        "properties": {
+          "collection": {
+            "description": "Array of available time slots for the specified event type.",
+            "items": {
+              "$ref": "#/$defs/AvailableTimeSlot"
+            },
+            "title": "Collection",
+            "type": "array"
+          }
+        },
+        "required": ["collection"],
+        "title": "ListEventTypeAvailableTimesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListEventTypeAvailableTimesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

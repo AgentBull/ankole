@@ -1,0 +1,50 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a group membership in Zendesk, immediately removing a user from a group. This action is irreversible — the group membership cannot be recovered once deleted. Use when cleaning up obsolete group memberships or removing users from groups. **Note**: Deleting a group membership does not delete the user or the group itself, only the association between them.",
+  "inputSchema": {
+    "properties": {
+      "group_membership_id": {
+        "description": "The ID of the group membership to delete",
+        "examples": [26942956518812],
+        "human_parameter_description": "The numeric ID of the Zendesk group membership you want to delete. You can find this from a group membership list or user's group memberships.",
+        "human_parameter_name": "Group Membership ID",
+        "title": "Group Membership Id",
+        "type": "integer"
+      }
+    },
+    "required": ["group_membership_id"],
+    "title": "DeleteGroupMembershipRequest",
+    "type": "object"
+  },
+  "name": "delete_group_membership",
+  "outputSchema": {
+    "$defs": {
+      "DeleteGroupMembershipResponse": {
+        "properties": {
+          "success": {
+            "description": "Indicates whether the group membership deletion was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "DeleteGroupMembershipResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteGroupMembershipResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

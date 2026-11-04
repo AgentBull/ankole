@@ -1,0 +1,111 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List Google Analytics accounts accessible to the caller using the v1beta API. Results are paginated and may include accounts without GA properties; soft-deleted accounts are excluded by default.",
+  "inputSchema": {
+    "description": "Request model for listing Google Analytics accounts (v1beta API).",
+    "properties": {
+      "pageSize": {
+        "description": "The maximum number of resources to return. The service may return fewer than this value, even if there are additional pages. If unspecified, at most 50 resources will be returned. The maximum value is 200; higher values will be coerced to the maximum.",
+        "examples": [50, 100],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "A page token, received from a previous `ListAccounts` call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided to `ListAccounts` must match the call that provided the page token.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "showDeleted": {
+        "description": "Whether to include soft-deleted (ie: 'trashed') Accounts in the results. Accounts can be inspected to determine whether they are deleted or not. Defaults to false (soft-deleted accounts are excluded).",
+        "title": "Show Deleted",
+        "type": "boolean"
+      }
+    },
+    "title": "ListAccountsV1BetaRequest",
+    "type": "object"
+  },
+  "name": "list_accounts_v1_beta",
+  "outputSchema": {
+    "$defs": {
+      "AccountV1Beta": {
+        "description": "Schema for a Google Analytics Account resource (v1beta API).",
+        "properties": {
+          "createTime": {
+            "description": "Time when this account was originally created (ISO 8601 format).",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "Whether this Account is soft-deleted (trashed). Deleted accounts are excluded from list results unless showDeleted is set to true.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "displayName": {
+            "description": "Human-readable display name for this account.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "gmpOrganization": {
+            "description": "The Google Marketing Platform organization this account is linked to.",
+            "title": "Gmp Organization",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name of this account. Format: accounts/{account_id}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "regionCode": {
+            "description": "Country of business. Must be a Unicode CLDR region code (e.g., 'US', 'GB').",
+            "title": "Region Code",
+            "type": "string"
+          },
+          "updateTime": {
+            "description": "Time when this account was last updated (ISO 8601 format).",
+            "title": "Update Time",
+            "type": "string"
+          }
+        },
+        "title": "AccountV1Beta",
+        "type": "object"
+      },
+      "ListAccountsV1BetaResponse": {
+        "description": "Response model for listing Google Analytics accounts (v1beta API).",
+        "properties": {
+          "accounts": {
+            "description": "List of Account resources accessible to the caller. Note that these accounts might not currently have GA properties. Returns an empty list if no relevant accounts are found.",
+            "items": {
+              "$ref": "#/$defs/AccountV1Beta"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "A token, which can be sent as `page_token` to retrieve the next page. If this field is omitted, there are no subsequent pages.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "ListAccountsV1BetaResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListAccountsV1BetaResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

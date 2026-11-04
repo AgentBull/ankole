@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a specific checklist from a Trello card.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteCardChecklist`",
+    "properties": {
+      "idCard": {
+        "description": "The ID or shortLink of the card from which the checklist will be deleted. The card must exist.",
+        "examples": ["60d5ec9af7b8f500a5a9b7a1", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "The ID of the checklist to delete. The checklist must exist on the specified card.",
+        "examples": ["5f9b8f7f9e7c1c008d7b0a3e"],
+        "title": "Id Checklist",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "idChecklist"],
+    "title": "DeleteCardChecklistRequest",
+    "type": "object"
+  },
+  "name": "delete_card_checklist",
+  "outputSchema": {
+    "$defs": {
+      "DeleteCardChecklistResponse": {
+        "description": "Response schema for `DeleteCardChecklist`\n\nEmpty response body. The DELETE operation returns HTTP 200 OK status with an empty\nor null response body upon successful deletion of the checklist from the card.",
+        "properties": {},
+        "title": "DeleteCardChecklistResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteCardChecklistResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

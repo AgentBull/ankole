@@ -1,0 +1,106 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Set a group membership as the default for a specific user in Zendesk. Use when you need to mark a user's group membership as the default, meaning tickets assigned directly to the agent will assume this membership's group. Requires both the user ID and the group membership ID. This action is useful for managing default routing preferences for agents in your Zendesk instance. Note that only one group membership can be the default at a time - setting a new default will automatically unset the previous default.",
+  "inputSchema": {
+    "description": "Request parameters for setting a group membership as default for a user.",
+    "properties": {
+      "group_membership_id": {
+        "description": "The numeric ID of the group membership to set as default. This is the group membership ID, not a group ID.",
+        "examples": [4, 26943621262620],
+        "human_parameter_description": "The unique ID of the group membership you want to set as default for the specified user.",
+        "human_parameter_name": "Group Membership ID",
+        "title": "Group Membership Id",
+        "type": "integer"
+      },
+      "user_id": {
+        "description": "The numeric ID of the user. This is the user ID, not a membership ID.",
+        "examples": [35436, 26923127464348],
+        "human_parameter_description": "The unique ID of the Zendesk user whose group membership you want to set as default.",
+        "human_parameter_name": "User ID",
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id", "group_membership_id"],
+    "title": "SetGroupMembershipAsDefaultRequest",
+    "type": "object"
+  },
+  "name": "set_group_membership_as_default",
+  "outputSchema": {
+    "$defs": {
+      "GroupMembership": {
+        "description": "Zendesk group membership object.",
+        "properties": {
+          "created_at": {
+            "description": "The time the group membership was created in ISO 8601 format",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "If true, tickets assigned directly to the agent will assume this membership's group",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "group_id": {
+            "description": "The id of a group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Automatically assigned upon creation",
+            "title": "Id",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "The time of the last update of the group membership in ISO 8601 format",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "The API url of this record",
+            "title": "Url",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "The id of an agent",
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": ["group_id", "user_id"],
+        "title": "GroupMembership",
+        "type": "object"
+      },
+      "SetGroupMembershipAsDefaultResponse": {
+        "description": "Response containing the updated Zendesk user group membership.",
+        "properties": {
+          "group_memberships": {
+            "description": "The list of group membership objects (the updated membership is included)",
+            "items": {
+              "$ref": "#/$defs/GroupMembership"
+            },
+            "title": "Group Memberships",
+            "type": "array"
+          }
+        },
+        "required": ["group_memberships"],
+        "title": "SetGroupMembershipAsDefaultResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SetGroupMembershipAsDefaultResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

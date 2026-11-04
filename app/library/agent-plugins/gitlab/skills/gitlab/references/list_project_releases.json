@@ -1,0 +1,509 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List one page of project releases, sorted by released_at descending by default. Optionally sort by creation time or include rendered descriptions. Follow next_page to retrieve additional releases.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "include_html_description": {
+        "description": "Include the release description rendered as HTML.",
+        "title": "Include Html Description",
+        "type": "boolean"
+      },
+      "order_by": {
+        "description": "Field to order releases by; defaults to released_at.",
+        "enum": ["released_at", "created_at"],
+        "title": "Order By",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort": {
+        "description": "Sort direction; defaults to desc.",
+        "enum": ["asc", "desc"],
+        "title": "Sort",
+        "type": "string"
+      }
+    },
+    "required": ["id"],
+    "title": "ListProjectReleasesRequest",
+    "type": "object"
+  },
+  "name": "list_project_releases",
+  "outputSchema": {
+    "$defs": {
+      "ListProjectReleasesResponse": {
+        "properties": {
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          },
+          "releases": {
+            "description": "One page of project releases.",
+            "items": {
+              "$ref": "#/$defs/ProjectRelease"
+            },
+            "title": "Releases",
+            "type": "array"
+          }
+        },
+        "required": ["releases"],
+        "title": "ListProjectReleasesResponse",
+        "type": "object"
+      },
+      "ProjectRelease": {
+        "additionalProperties": true,
+        "properties": {
+          "_links": {
+            "$ref": "#/$defs/ReleaseLinks",
+            "description": "Release URLs.",
+            "title": " Links"
+          },
+          "assets": {
+            "$ref": "#/$defs/ReleaseAssets",
+            "description": "Release assets.",
+            "title": "Assets"
+          },
+          "author": {
+            "$ref": "#/$defs/ReleaseAuthor",
+            "description": "Release author.",
+            "title": "Author"
+          },
+          "commit": {
+            "$ref": "#/$defs/ReleaseCommit",
+            "description": "Release commit.",
+            "title": "Commit"
+          },
+          "commit_path": {
+            "description": "Relative commit path.",
+            "title": "Commit Path",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Release creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Release Markdown description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_html": {
+            "description": "Rendered description when include_html_description is true.",
+            "title": "Description Html",
+            "type": "string"
+          },
+          "evidences": {
+            "description": "Release evidence.",
+            "items": {
+              "$ref": "#/$defs/ReleaseEvidence"
+            },
+            "title": "Evidences",
+            "type": "array"
+          },
+          "milestones": {
+            "description": "Associated milestones.",
+            "items": {
+              "$ref": "#/$defs/ReleaseMilestone"
+            },
+            "title": "Milestones",
+            "type": "array"
+          },
+          "name": {
+            "description": "Release name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "released_at": {
+            "description": "Release timestamp.",
+            "title": "Released At",
+            "type": "string"
+          },
+          "tag_name": {
+            "description": "Git tag associated with the release.",
+            "title": "Tag Name",
+            "type": "string"
+          },
+          "tag_path": {
+            "description": "Relative tag path.",
+            "title": "Tag Path",
+            "type": "string"
+          }
+        },
+        "required": ["tag_name"],
+        "title": "ProjectRelease",
+        "type": "object"
+      },
+      "ReleaseAssetLink": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "description": "Asset link ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "link_type": {
+            "description": "Asset link type.",
+            "title": "Link Type",
+            "type": "string"
+          },
+          "name": {
+            "description": "Asset link name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "Asset URL.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseAssetLink",
+        "type": "object"
+      },
+      "ReleaseAssets": {
+        "additionalProperties": true,
+        "properties": {
+          "count": {
+            "description": "Number of release assets.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "evidence_file_path": {
+            "description": "Release evidence URL.",
+            "title": "Evidence File Path",
+            "type": "string"
+          },
+          "links": {
+            "description": "Release asset links.",
+            "items": {
+              "$ref": "#/$defs/ReleaseAssetLink"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "sources": {
+            "description": "Source archives.",
+            "items": {
+              "$ref": "#/$defs/ReleaseSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "title": "ReleaseAssets",
+        "type": "object"
+      },
+      "ReleaseAuthor": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Author avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Author user ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Author display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "Author account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Author username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Author profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseAuthor",
+        "type": "object"
+      },
+      "ReleaseCommit": {
+        "additionalProperties": true,
+        "properties": {
+          "author_email": {
+            "description": "Commit author email.",
+            "title": "Author Email",
+            "type": "string"
+          },
+          "author_name": {
+            "description": "Commit author name.",
+            "title": "Author Name",
+            "type": "string"
+          },
+          "authored_date": {
+            "description": "Commit authorship timestamp.",
+            "title": "Authored Date",
+            "type": "string"
+          },
+          "committed_date": {
+            "description": "Commit timestamp.",
+            "title": "Committed Date",
+            "type": "string"
+          },
+          "committer_email": {
+            "description": "Committer email.",
+            "title": "Committer Email",
+            "type": "string"
+          },
+          "committer_name": {
+            "description": "Committer name.",
+            "title": "Committer Name",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Commit creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Full commit SHA.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Full commit message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "parent_ids": {
+            "description": "Parent commit SHAs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parent Ids",
+            "type": "array"
+          },
+          "short_id": {
+            "description": "Short commit SHA.",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Commit title.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseCommit",
+        "type": "object"
+      },
+      "ReleaseEvidence": {
+        "additionalProperties": true,
+        "properties": {
+          "collected_at": {
+            "description": "Evidence collection timestamp.",
+            "title": "Collected At",
+            "type": "string"
+          },
+          "filepath": {
+            "description": "Evidence file URL.",
+            "title": "Filepath",
+            "type": "string"
+          },
+          "sha": {
+            "description": "Evidence SHA.",
+            "title": "Sha",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseEvidence",
+        "type": "object"
+      },
+      "ReleaseIssueStats": {
+        "additionalProperties": true,
+        "properties": {
+          "closed": {
+            "description": "Closed milestone issues.",
+            "title": "Closed",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total milestone issues.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "title": "ReleaseIssueStats",
+        "type": "object"
+      },
+      "ReleaseLinks": {
+        "additionalProperties": true,
+        "properties": {
+          "closed_issues_url": {
+            "description": "Closed issues URL.",
+            "title": "Closed Issues Url",
+            "type": "string"
+          },
+          "closed_merge_requests_url": {
+            "description": "Closed merge requests URL.",
+            "title": "Closed Merge Requests Url",
+            "type": "string"
+          },
+          "edit_url": {
+            "description": "Release edit page URL.",
+            "title": "Edit Url",
+            "type": "string"
+          },
+          "merged_merge_requests_url": {
+            "description": "Merged merge requests URL.",
+            "title": "Merged Merge Requests Url",
+            "type": "string"
+          },
+          "opened_issues_url": {
+            "description": "Open issues URL.",
+            "title": "Opened Issues Url",
+            "type": "string"
+          },
+          "opened_merge_requests_url": {
+            "description": "Open merge requests URL.",
+            "title": "Opened Merge Requests Url",
+            "type": "string"
+          },
+          "self": {
+            "description": "Release URL.",
+            "title": "Self",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseLinks",
+        "type": "object"
+      },
+      "ReleaseMilestone": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "description": "Milestone creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Milestone description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Milestone due date, or null.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "id": {
+            "description": "Milestone ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Project-local milestone IID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "issue_stats": {
+            "$ref": "#/$defs/ReleaseIssueStats",
+            "description": "Issue counts.",
+            "title": "Issue Stats"
+          },
+          "project_id": {
+            "description": "Milestone project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "start_date": {
+            "description": "Milestone start date, or null.",
+            "title": "Start Date",
+            "type": "string"
+          },
+          "state": {
+            "description": "Milestone state.",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Milestone title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Milestone update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Milestone URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseMilestone",
+        "type": "object"
+      },
+      "ReleaseSource": {
+        "additionalProperties": true,
+        "properties": {
+          "format": {
+            "description": "Source archive format.",
+            "title": "Format",
+            "type": "string"
+          },
+          "url": {
+            "description": "Source archive URL.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseSource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListProjectReleasesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

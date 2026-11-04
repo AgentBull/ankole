@@ -1,0 +1,111 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List email CCs for a specified Zendesk ticket, returning available user details and pagination information.",
+  "inputSchema": {
+    "description": "Request parameters for listing email CCs on a ticket.",
+    "properties": {
+      "ticket_id": {
+        "description": "The ID of the ticket to list email CCs for.",
+        "examples": [123456],
+        "human_parameter_description": "The numeric ID of the Zendesk ticket whose email CCs you want to retrieve. You can find this ID in the ticket URL or from a ticket list.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "GetTicketEmailCCsRequest",
+    "type": "object"
+  },
+  "name": "get_ticket_email_c_cs",
+  "outputSchema": {
+    "$defs": {
+      "EmailCC": {
+        "description": "Email CC object representing a user CC'd on a ticket.",
+        "properties": {
+          "created_at": {
+            "description": "When the CC was added (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the email CC",
+            "title": "Id",
+            "type": "integer"
+          },
+          "ticket_id": {
+            "description": "ID of the ticket the user is CC'd on",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "When the CC was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_email": {
+            "description": "Email address of the CC'd user",
+            "title": "User Email",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "ID of the user who is CC'd",
+            "title": "User Id",
+            "type": "integer"
+          },
+          "user_name": {
+            "description": "Name of the CC'd user",
+            "title": "User Name",
+            "type": "string"
+          }
+        },
+        "title": "EmailCC",
+        "type": "object"
+      },
+      "GetTicketEmailCCsResponse": {
+        "description": "Response containing list of email CCs on a ticket.",
+        "properties": {
+          "count": {
+            "description": "Total number of email CCs on the ticket",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL to next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL to previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "users": {
+            "description": "List of email CCs on the ticket",
+            "items": {
+              "$ref": "#/$defs/EmailCC"
+            },
+            "title": "Users",
+            "type": "array"
+          }
+        },
+        "title": "GetTicketEmailCCsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTicketEmailCCsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

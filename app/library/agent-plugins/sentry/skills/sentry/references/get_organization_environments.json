@@ -1,0 +1,71 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists deployment environments for a Sentry organization, optionally filtered by visibility status. Environments represent deployment contexts like 'production', 'staging', or 'development' where events are tracked. By default, only visible environments are returned. Use the visibility parameter to include hidden environments or view only hidden ones.",
+  "inputSchema": {
+    "description": "Retrieves environments for a Sentry organization.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["my-org-slug", "4508539392294912"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "visibility": {
+        "description": "Filter by visibility status. Options: 'visible' (default, shows only visible environments), 'hidden' (shows only hidden environments), 'all' (shows all environments including hidden).",
+        "enum": ["all", "hidden", "visible"],
+        "examples": ["visible", "all", "hidden"],
+        "title": "VisibilityEnm",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "GetOrganizationEnvironmentsRequest",
+    "type": "object"
+  },
+  "name": "get_organization_environments",
+  "outputSchema": {
+    "$defs": {
+      "Environment": {
+        "additionalProperties": true,
+        "description": "Represents a Sentry deployment environment.",
+        "properties": {
+          "id": {
+            "description": "The unique identifier for the environment.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The display name of the environment.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "Environment",
+        "type": "object"
+      },
+      "GetOrganizationEnvironmentsResponse": {
+        "description": "Contains the list of environments for the specified Sentry organization.",
+        "items": {
+          "$ref": "#/$defs/Environment"
+        },
+        "title": "GetOrganizationEnvironmentsResponse",
+        "type": "array"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationEnvironmentsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

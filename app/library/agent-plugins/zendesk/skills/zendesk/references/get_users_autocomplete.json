@@ -1,0 +1,412 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Autocomplete users by name or phone number. Use when you need to find users based on a partial name or phone number for ticket creation or user lookup scenarios. At least one of 'name' or 'phone' must be provided.",
+  "inputSchema": {
+    "description": "Request parameters for autocompleting Zendesk users.",
+    "properties": {
+      "field_id": {
+        "description": "The ID of a lookup relationship field. The type of field is determined by the 'source' parameter.",
+        "examples": ["12345"],
+        "title": "Field Id",
+        "type": "string"
+      },
+      "filter": {
+        "description": "Filter values for autocomplete results.",
+        "enum": ["assignable", "requester"],
+        "examples": ["assignable"],
+        "title": "GetUsersAutocompleteFilter",
+        "type": "string"
+      },
+      "include": {
+        "description": "Sideloads to include in the response. Accepts a comma-separated list of values. See Sideloading for available options.",
+        "examples": ["roles,organizations"],
+        "title": "Include",
+        "type": "string"
+      },
+      "name": {
+        "description": "The name to search for the user. You must specify either 'name' or 'phone'.",
+        "examples": ["gil"],
+        "title": "Name",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Number of results to return (max 100).",
+        "examples": [25],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "phone": {
+        "description": "The phone number to search for the user. You must specify either 'name' or 'phone'.",
+        "examples": ["+1234567890"],
+        "title": "Phone",
+        "type": "string"
+      },
+      "source": {
+        "description": "If a 'field_id' is provided, this specifies the type of the field. For example, if the field is on a 'zen:user', it references a field on a user.",
+        "examples": ["zen:user"],
+        "title": "Source",
+        "type": "string"
+      }
+    },
+    "title": "GetUsersAutocompleteRequest",
+    "type": "object"
+  },
+  "name": "get_users_autocomplete",
+  "outputSchema": {
+    "$defs": {
+      "GetUsersAutocompleteResponse": {
+        "description": "Response containing autocomplete user suggestions.",
+        "properties": {
+          "users": {
+            "description": "An array of users whose name starts with the provided search term. Returns users matching either 'name' or 'phone' parameter.",
+            "items": {
+              "$ref": "#/$defs/ZendeskAutocompleteUser"
+            },
+            "title": "Users",
+            "type": "array"
+          }
+        },
+        "required": ["users"],
+        "title": "GetUsersAutocompleteResponse",
+        "type": "object"
+      },
+      "UserPhotoAttachment": {
+        "description": "User photo object.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type (e.g., image/png)",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL where the photo can be downloaded",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "True if attachment is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Photo filename",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Photo attachment ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "True if inline attachment",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malware_access_override": {
+            "description": "True if malware-flagged file can be downloaded",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malware_scan_result": {
+            "description": "Malware scan result status",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mapped_content_url": {
+            "description": "Mapped URL for the photo",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "List of thumbnail versions",
+            "items": {
+              "$ref": "#/$defs/UserPhotoAttachment"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          },
+          "url": {
+            "description": "API URL to access attachment details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "UserPhotoAttachment",
+        "type": "object"
+      },
+      "ZendeskAutocompleteUser": {
+        "description": "Zendesk user object from autocomplete response.",
+        "properties": {
+          "locale": {
+            "description": "User locale",
+            "title": "Locale",
+            "type": "string"
+          },
+          "remote_photo_url": {
+            "description": "Remote photo URL",
+            "title": "Remote Photo Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Notes on the user profile",
+            "title": "Notes",
+            "type": "string"
+          },
+          "role_type": {
+            "description": "Role type ID",
+            "title": "Role Type",
+            "type": "integer"
+          },
+          "external_id": {
+            "description": "External system ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the user was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "iana_time_zone": {
+            "description": "IANA timezone",
+            "title": "Iana Time Zone",
+            "type": "string"
+          },
+          "two_factor_auth_enabled": {
+            "description": "True if 2FA is enabled",
+            "title": "Two Factor Auth Enabled",
+            "type": "boolean"
+          },
+          "agent_brand_ids": {
+            "description": "List of agent brand IDs",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Agent Brand Ids",
+            "type": "array"
+          },
+          "details": {
+            "description": "User details",
+            "title": "Details",
+            "type": "string"
+          },
+          "only_private_comments": {
+            "description": "True if user can only make private comments",
+            "title": "Only Private Comments",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "List of user tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Timestamp when the user was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "phone": {
+            "description": "User phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Locale ID",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User's full name",
+            "title": "Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's primary email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "alias": {
+            "description": "User alias",
+            "title": "Alias",
+            "type": "string"
+          },
+          "shared_agent": {
+            "description": "True if agent is shared",
+            "title": "Shared Agent",
+            "type": "boolean"
+          },
+          "custom_role_id": {
+            "description": "Custom role ID",
+            "title": "Custom Role Id",
+            "type": "integer"
+          },
+          "restricted_agent": {
+            "description": "True if agent is restricted",
+            "title": "Restricted Agent",
+            "type": "boolean"
+          },
+          "moderator": {
+            "description": "True if user is a moderator",
+            "title": "Moderator",
+            "type": "boolean"
+          },
+          "role": {
+            "description": "User role (end-user, agent, admin)",
+            "title": "Role",
+            "type": "string"
+          },
+          "report_csv": {
+            "description": "True if user can access CSV reports",
+            "title": "Report Csv",
+            "type": "boolean"
+          },
+          "last_login_at": {
+            "description": "Timestamp of last login",
+            "title": "Last Login At",
+            "type": "string"
+          },
+          "signature": {
+            "description": "User signature",
+            "title": "Signature",
+            "type": "string"
+          },
+          "verified": {
+            "description": "True if user is verified",
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "suspended": {
+            "description": "True if user is suspended",
+            "title": "Suspended",
+            "type": "boolean"
+          },
+          "user_fields": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Custom user fields with admin-defined keys and dynamic values",
+            "title": "User Fields",
+            "type": "object"
+          },
+          "active": {
+            "description": "True if the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "photo": {
+            "$ref": "#/$defs/UserPhotoAttachment",
+            "description": "User photo object",
+            "title": "Photo"
+          },
+          "ticket_restriction": {
+            "description": "Ticket restriction level",
+            "title": "Ticket Restriction",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User timezone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "shared_phone_number": {
+            "description": "True if phone number is shared",
+            "title": "Shared Phone Number",
+            "type": "boolean"
+          },
+          "shared": {
+            "description": "True if user is shared",
+            "title": "Shared",
+            "type": "boolean"
+          },
+          "chat_only": {
+            "description": "True if user is chat-only (Zendesk Chat)",
+            "title": "Chat Only",
+            "type": "boolean"
+          },
+          "default_group_id": {
+            "description": "Default group ID",
+            "title": "Default Group Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "Organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          }
+        },
+        "required": ["name"],
+        "title": "ZendeskAutocompleteUser",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUsersAutocompleteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

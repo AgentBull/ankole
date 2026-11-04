@@ -1,0 +1,116 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates the name and/or URL of one or more existing Figma Dev Resources, each identified by its unique `id`.",
+  "inputSchema": {
+    "description": "Request to update multiple Figma Dev Resources.",
+    "properties": {
+      "dev_resources": {
+        "description": "List of dev resources to update. Each must include its `id` and can optionally provide a new `name` and/or `url`.",
+        "items": {
+          "description": "A development resource to be updated, identified by `id` with optional new `name` or `url`.",
+          "properties": {
+            "id": {
+              "description": "Unique identifier of the existing dev resource to update.",
+              "examples": ["dev_resource_123", "another_id_456"],
+              "title": "Id",
+              "type": "string"
+            },
+            "name": {
+              "description": "New name for the dev resource. If not provided, the current name is retained.",
+              "examples": ["Updated Jira Ticket Title", "New Storybook Link"],
+              "title": "Name",
+              "type": "string"
+            },
+            "url": {
+              "description": "New URL for the dev resource. If not provided, the current URL is retained.",
+              "examples": ["https://jira.example.com/browse/PROJ-789", "https://storybook.example.com/?"],
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          "required": ["id"],
+          "title": "UpdateDevResourcesdevResourcesRequest",
+          "type": "object"
+        },
+        "title": "Dev Resources",
+        "type": "array"
+      }
+    },
+    "required": ["dev_resources"],
+    "title": "UpdateDevResourcesRequest",
+    "type": "object"
+  },
+  "name": "update_dev_resources",
+  "outputSchema": {
+    "$defs": {
+      "Error": {
+        "description": "Details of an error encountered while updating a dev resource.",
+        "properties": {
+          "error": {
+            "description": "Message describing the error.",
+            "title": "Error",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the dev resource that failed to update; may be absent if the error is not specific to one resource.",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": ["error"],
+        "title": "Error",
+        "type": "object"
+      },
+      "Model": {
+        "description": "Results of the bulk update operation, including successes and errors.",
+        "properties": {
+          "errors": {
+            "description": "List of errors from the update process. Each error typically includes the failed resource's `id` (if applicable) and a message.",
+            "items": {
+              "$ref": "#/$defs/Error"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "links_updated": {
+            "description": "List of IDs of successfully updated dev resources.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Links Updated",
+            "type": "array"
+          }
+        },
+        "title": "Model",
+        "type": "object"
+      },
+      "UpdateDevResourcesResponse": {
+        "description": "Response for the `UpdateDevResources` action.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Detailed results of the bulk update, including successfully updated resources and any errors.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "UpdateDevResourcesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateDevResourcesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

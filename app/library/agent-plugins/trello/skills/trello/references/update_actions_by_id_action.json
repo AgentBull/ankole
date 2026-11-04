@@ -1,0 +1,399 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates the `text` field of a specific Trello comment action, identified by `idAction`.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateActionsByIdAction`",
+    "properties": {
+      "idAction": {
+        "description": "The unique identifier of the action (comment) to be updated.",
+        "examples": ["5f7f9a7b9c3d4a008b9c3d4a"],
+        "title": "Id Action",
+        "type": "string"
+      },
+      "text": {
+        "description": "The new text content for the action (comment). Must be a string with a length from 1 to 16384 characters.",
+        "examples": ["This is the updated comment text regarding the project status."],
+        "title": "Text",
+        "type": "string"
+      }
+    },
+    "required": ["idAction"],
+    "title": "UpdateActionsByIdActionRequest",
+    "type": "object"
+  },
+  "name": "update_actions_by_id_action",
+  "outputSchema": {
+    "$defs": {
+      "ActionData": {
+        "description": "Event-specific details that vary by action type.",
+        "properties": {
+          "board": {
+            "$ref": "#/$defs/BoardData",
+            "description": "Information about the board associated with the action.",
+            "title": "Board"
+          },
+          "card": {
+            "$ref": "#/$defs/CardData",
+            "description": "Information about the card associated with the action.",
+            "title": "Card"
+          },
+          "dateLastEdited": {
+            "description": "ISO 8601 timestamp when the action was last edited.",
+            "title": "Date Last Edited",
+            "type": "string"
+          },
+          "idAuthor": {
+            "description": "ID of the author who created the action.",
+            "title": "Id Author",
+            "type": "string"
+          },
+          "idCard": {
+            "description": "ID of the card associated with the action.",
+            "title": "Id Card",
+            "type": "string"
+          },
+          "list": {
+            "$ref": "#/$defs/ListData",
+            "description": "Information about the list associated with the action.",
+            "title": "List"
+          },
+          "old": {
+            "$ref": "#/$defs/OldData",
+            "description": "Previous values before the action was performed (for update actions).",
+            "title": "Old"
+          },
+          "text": {
+            "description": "Text content of the action (e.g., comment text).",
+            "title": "Text",
+            "type": "string"
+          },
+          "textData": {
+            "$ref": "#/$defs/TextData",
+            "description": "Text formatting data for the comment.",
+            "title": "Text Data"
+          }
+        },
+        "title": "ActionData",
+        "type": "object"
+      },
+      "AppCreator": {
+        "description": "Information about the app that created the action.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the app that created the action.",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "title": "AppCreator",
+        "type": "object"
+      },
+      "BoardData": {
+        "description": "Information about the board associated with the action.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the board.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the board.",
+            "title": "Name",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "Short link to the board.",
+            "title": "Short Link",
+            "type": "string"
+          }
+        },
+        "title": "BoardData",
+        "type": "object"
+      },
+      "CardData": {
+        "description": "Information about the card associated with the action.",
+        "properties": {
+          "due": {
+            "description": "Due date of the card in ISO 8601 format.",
+            "title": "Due",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the card.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idShort": {
+            "description": "Short ID of the card.",
+            "title": "Id Short",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the card.",
+            "title": "Name",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "Short link to the card.",
+            "title": "Short Link",
+            "type": "string"
+          }
+        },
+        "title": "CardData",
+        "type": "object"
+      },
+      "Display": {
+        "description": "Display information including translation keys and entities for UI presentation.",
+        "properties": {
+          "entities": {
+            "$ref": "#/$defs/DisplayEntities",
+            "description": "Entities related to the action for display purposes.",
+            "title": "Entities"
+          },
+          "translationKey": {
+            "description": "Translation key for displaying the action in different languages.",
+            "title": "Translation Key",
+            "type": "string"
+          }
+        },
+        "title": "Display",
+        "type": "object"
+      },
+      "DisplayEntities": {
+        "description": "Entities related to the action for display purposes.",
+        "properties": {
+          "card": {
+            "description": "Card entity for display.",
+            "title": "Card"
+          },
+          "contextOn": {
+            "description": "Context entity for display.",
+            "title": "Context On"
+          },
+          "date": {
+            "description": "Date entity for display.",
+            "title": "Date"
+          },
+          "memberCreator": {
+            "description": "Member creator entity for display.",
+            "title": "Member Creator"
+          }
+        },
+        "title": "DisplayEntities",
+        "type": "object"
+      },
+      "Limits": {
+        "description": "Limit information for features associated with the action (e.g., reactions).",
+        "properties": {
+          "reactions": {
+            "$ref": "#/$defs/Reactions",
+            "description": "Reaction limits for the action.",
+            "title": "Reactions"
+          }
+        },
+        "title": "Limits",
+        "type": "object"
+      },
+      "ListData": {
+        "description": "Information about the list associated with the action.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the list.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the list.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "ListData",
+        "type": "object"
+      },
+      "MemberCreator": {
+        "description": "Full information about the member who created the action.",
+        "properties": {
+          "avatarHash": {
+            "description": "Hash identifier for the member's avatar.",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Full name of the member.",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the member.",
+            "title": "Id",
+            "type": "string"
+          },
+          "initials": {
+            "description": "Initials of the member.",
+            "title": "Initials",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the member.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "MemberCreator",
+        "type": "object"
+      },
+      "OldData": {
+        "description": "Previous values before the action was performed (for update actions).",
+        "properties": {
+          "due": {
+            "description": "Previous due date in ISO 8601 format.",
+            "title": "Due",
+            "type": "string"
+          }
+        },
+        "title": "OldData",
+        "type": "object"
+      },
+      "ReactionPerAction": {
+        "description": "Per-action reaction limits.",
+        "properties": {
+          "disableAt": {
+            "description": "Number at which reactions are disabled.",
+            "title": "Disable At",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Status of the limit (e.g., 'ok').",
+            "title": "Status",
+            "type": "string"
+          },
+          "warnAt": {
+            "description": "Number at which a warning is shown.",
+            "title": "Warn At",
+            "type": "integer"
+          }
+        },
+        "title": "ReactionPerAction",
+        "type": "object"
+      },
+      "ReactionUniquePerAction": {
+        "description": "Unique per-action reaction limits.",
+        "properties": {
+          "disableAt": {
+            "description": "Number at which unique reactions are disabled.",
+            "title": "Disable At",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Status of the limit (e.g., 'ok').",
+            "title": "Status",
+            "type": "string"
+          },
+          "warnAt": {
+            "description": "Number at which a warning is shown for unique reactions.",
+            "title": "Warn At",
+            "type": "integer"
+          }
+        },
+        "title": "ReactionUniquePerAction",
+        "type": "object"
+      },
+      "Reactions": {
+        "description": "Reaction limits for the action.",
+        "properties": {
+          "perAction": {
+            "$ref": "#/$defs/ReactionPerAction",
+            "description": "Per-action reaction limits.",
+            "title": "Per Action"
+          },
+          "uniquePerAction": {
+            "$ref": "#/$defs/ReactionUniquePerAction",
+            "description": "Unique per-action reaction limits.",
+            "title": "Unique Per Action"
+          }
+        },
+        "title": "Reactions",
+        "type": "object"
+      },
+      "TextData": {
+        "description": "Text formatting data for the comment.",
+        "properties": {
+          "emoji": {
+            "additionalProperties": true,
+            "description": "Emoji data in the text.",
+            "title": "Emoji",
+            "type": "object"
+          }
+        },
+        "title": "TextData",
+        "type": "object"
+      },
+      "UpdateActionsByIdActionResponse": {
+        "description": "Response schema for `UpdateActionsByIdAction`",
+        "properties": {
+          "appCreator": {
+            "$ref": "#/$defs/AppCreator",
+            "description": "Information about the app that created the action.",
+            "title": "App Creator"
+          },
+          "data": {
+            "$ref": "#/$defs/ActionData",
+            "title": "Data"
+          },
+          "date": {
+            "description": "ISO 8601 timestamp when the action occurred.",
+            "title": "Date",
+            "type": "string"
+          },
+          "display": {
+            "$ref": "#/$defs/Display",
+            "description": "Display information including translation keys and entities for UI presentation.",
+            "title": "Display"
+          },
+          "id": {
+            "description": "Unique identifier for the action.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "ID of the member who created the action.",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/$defs/Limits",
+            "description": "Limit information for features associated with the action (e.g., reactions).",
+            "title": "Limits"
+          },
+          "memberCreator": {
+            "$ref": "#/$defs/MemberCreator",
+            "title": "Member Creator"
+          },
+          "type": {
+            "description": "The type of action (e.g., 'updateCard', 'commentCard', 'createCard').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idMemberCreator", "data", "type", "date", "memberCreator"],
+        "title": "UpdateActionsByIdActionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateActionsByIdActionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

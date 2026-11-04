@@ -1,0 +1,108 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update checklist item position",
+  "inputSchema": {
+    "description": "Request to update a checklist item's position on a Trello card.",
+    "properties": {
+      "idCard": {
+        "description": "ID or short link of the card containing the checklist.",
+        "examples": ["m3g4bYt3", "60d9c2f5a7b3e8001b8f0123"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idCheckItem": {
+        "description": "ID of the check item to move.",
+        "examples": ["5f9b3f5a3c1d6e001f2a4b6d"],
+        "title": "Id Check Item",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "ID of the checklist containing the item to be moved.",
+        "examples": ["5f9b3f5a3c1d6e001f2a4b6c"],
+        "title": "Id Checklist",
+        "type": "string"
+      },
+      "value": {
+        "description": "Required. New position for the check item: 'top', 'bottom', or a positive integer. 'top' moves to the beginning of the checklist, 'bottom' to the end, and a numeric value sets the exact position.",
+        "examples": ["top", "bottom", "1", "5"],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "idChecklist", "idCheckItem", "value"],
+    "title": "UpdateCardsChecklistItemsPositionByIdCardByIdChecklistByIdCheckItemRequest",
+    "type": "object"
+  },
+  "name": "update_cards_checklist_items_position_by_id_card_by_i",
+  "outputSchema": {
+    "$defs": {
+      "UpdateCardsChecklistItemsPositionByIdCardByIdChecklistByIdCheckItemResponse": {
+        "description": "Response confirming the checklist item's position update.",
+        "properties": {
+          "due": {
+            "description": "Due date for the check item in ISO 8601 format (e.g., '2020-12-01T12:00:00.000Z'). Requires Business Class or higher subscription.",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "The number of minutes before the due date when a reminder should be sent for the check item.",
+            "title": "Due Reminder",
+            "type": "number"
+          },
+          "id": {
+            "description": "The unique identifier for the check item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "The ID of the checklist this item belongs to.",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "The ID of the member assigned to the check item. Requires Business Class or higher subscription.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name/text content of the check item.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "description": "Additional name formatting data, typically null.",
+            "title": "Name Data",
+            "type": "string"
+          },
+          "pos": {
+            "description": "The position of the check item within the checklist, used for ordering. Can be a float64 value.",
+            "title": "Pos",
+            "type": "number"
+          },
+          "state": {
+            "description": "The completion state of the check item. Possible values: 'complete' or 'incomplete'.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idChecklist", "name", "state", "pos"],
+        "title": "UpdateCardsChecklistItemsPositionByIdCardByIdChecklistByIdCheckItemResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateCardsChecklistItemsPositionByIdCardByIdChecklistByIdCheckItemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

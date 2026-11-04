@@ -1,0 +1,68 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Associates a Salesforce contact with an account by updating its AccountId, replacing any existing association. It can also update additional contact fields supplied in custom_fields.",
+  "inputSchema": {
+    "properties": {
+      "account_id": {
+        "description": "The Salesforce ID of the account to associate the contact with.",
+        "examples": ["001XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce ID of the account you want this contact to belong to. Pick the target account’s ID (it usually starts with 001) from the account record URL.",
+        "human_parameter_name": "Account ID",
+        "title": "Account Id",
+        "type": "string"
+      },
+      "contact_id": {
+        "description": "The Salesforce ID of the contact to associate with an account.",
+        "examples": ["003XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique Salesforce ID of the contact you want to link to an account. You can copy it from the contact’s record URL (it usually starts with 003).",
+        "human_parameter_name": "Contact ID",
+        "title": "Contact Id",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values to update on the contact. Custom field names typically end with '__c'.",
+        "examples": [
+          {
+            "Account_Association_Source__c": "Manual Update"
+          },
+          {
+            "Priority_Contact__c": true
+          }
+        ],
+        "human_parameter_description": "Provide any custom contact fields to update along with AccountId. Use the API field name (ending in '__c') as the key.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      }
+    },
+    "required": ["contact_id", "account_id"],
+    "title": "AssociateContactToAccountRequest",
+    "type": "object"
+  },
+  "name": "associate_contact_to_account",
+  "outputSchema": {
+    "$defs": {
+      "AssociateContactToAccountResponse": {
+        "description": "Response for successful contact-to-account association.\n\nHTTP 204 No Content - Salesforce returns empty body on successful PATCH.\nError responses (4xx/5xx) are handled via raise_for_status().",
+        "properties": {},
+        "title": "AssociateContactToAccountResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AssociateContactToAccountResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

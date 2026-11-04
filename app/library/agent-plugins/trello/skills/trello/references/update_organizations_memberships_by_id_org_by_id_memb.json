@@ -1,0 +1,86 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update org membership",
+  "inputSchema": {
+    "description": "Request payload for updating an organization member's type and specifying which member fields to return.",
+    "properties": {
+      "idMembership": {
+        "description": "The ID of the specific membership to be updated.",
+        "title": "Id Membership",
+        "type": "string"
+      },
+      "idOrg": {
+        "description": "The ID or name of the Trello organization.",
+        "title": "Id Org",
+        "type": "string"
+      },
+      "member_fields": {
+        "description": "Member fields to return in the response. Use 'all' or a comma-separated list: avatarHash, bio, bioData, confirmed, fullName, idPremOrgsAdmin, initials, memberType, products, status, url, username.",
+        "examples": ["all", "fullName,username", "bio,initials,status"],
+        "title": "Member Fields",
+        "type": "string"
+      },
+      "type": {
+        "description": "The new type for the membership. Valid values are 'admin', 'normal', or 'observer'.",
+        "examples": ["admin", "normal", "observer"],
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["idOrg", "idMembership"],
+    "title": "UpdateOrganizationsMembershipsByIdOrgByIdMembershipRequest",
+    "type": "object"
+  },
+  "name": "update_organizations_memberships_by_id_org_by_id_memb",
+  "outputSchema": {
+    "$defs": {
+      "UpdateOrganizationsMembershipsByIdOrgByIdMembershipResponse": {
+        "description": "Response payload containing the updated Trello organization membership details.",
+        "properties": {
+          "deactivated": {
+            "description": "Whether the membership has been deactivated",
+            "title": "Deactivated",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier of the membership",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "The ID of the member in this organization",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "memberType": {
+            "description": "The type of membership (e.g., 'admin', 'normal')",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "unconfirmed": {
+            "description": "Whether the membership is unconfirmed",
+            "title": "Unconfirmed",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "idMember", "memberType", "unconfirmed", "deactivated"],
+        "title": "UpdateOrganizationsMembershipsByIdOrgByIdMembershipResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateOrganizationsMembershipsByIdOrgByIdMembershipResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

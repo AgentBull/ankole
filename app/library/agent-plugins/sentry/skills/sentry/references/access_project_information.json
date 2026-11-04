@@ -1,0 +1,946 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information for a Sentry project, given its existing organization and project ID or slug.",
+  "inputSchema": {
+    "description": "Request to retrieve detailed information for a Sentry project.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "ID or slug of the Sentry organization to which the project belongs.",
+        "examples": ["sentry-sdks", "my-organization", "99-apples"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "ID or slug of the Sentry project.",
+        "examples": ["sentry-python", "my-web-app"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "AccessProjectInformationRequest",
+    "type": "object"
+  },
+  "name": "access_project_information",
+  "outputSchema": {
+    "$defs": {
+      "AccessProjectInformationResponse": {
+        "description": "Response containing detailed information for the specified Sentry project.",
+        "properties": {
+          "dataScrubberDefaults": {
+            "description": "Whether to use default scrubbing rules",
+            "title": "Data Scrubber Defaults",
+            "type": "boolean"
+          },
+          "dataScrubber": {
+            "description": "Whether data scrubbing is enabled",
+            "title": "Data Scrubber",
+            "type": "boolean"
+          },
+          "autofixAutomationTuning": {
+            "description": "Autofix tuning level",
+            "title": "Autofix Automation Tuning",
+            "type": "string"
+          },
+          "dynamicSamplingBiases": {
+            "description": "Dynamic sampling bias configurations (nullable)",
+            "items": {
+              "$ref": "#/$defs/DynamicSamplingBias"
+            },
+            "title": "Dynamic Sampling Biases",
+            "type": "array"
+          },
+          "storeCrashReports": {
+            "description": "Crash report retention period in days (nullable)",
+            "title": "Store Crash Reports",
+            "type": "integer"
+          },
+          "sensitiveFields": {
+            "description": "Fields to scrub for PII",
+            "items": {
+              "type": "string"
+            },
+            "title": "Sensitive Fields",
+            "type": "array"
+          },
+          "hasSessions": {
+            "description": "Whether session tracking is enabled",
+            "title": "Has Sessions",
+            "type": "boolean"
+          },
+          "access": {
+            "description": "List of user permission scopes for this project",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "groupingConfig": {
+            "description": "Event grouping configuration",
+            "title": "Grouping Config",
+            "type": "string"
+          },
+          "firstTransactionEvent": {
+            "description": "Whether the project has received transaction events",
+            "title": "First Transaction Event",
+            "type": "boolean"
+          },
+          "hasTraceMetrics": {
+            "description": "Whether trace metrics are available",
+            "title": "Has Trace Metrics",
+            "type": "boolean"
+          },
+          "isBookmarked": {
+            "description": "Whether user has bookmarked this project",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "hasInsightsVitals": {
+            "description": "Whether web vitals insights are available",
+            "title": "Has Insights Vitals",
+            "type": "boolean"
+          },
+          "dateCreated": {
+            "description": "Project creation timestamp in ISO 8601 date-time format",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly project name",
+            "title": "Slug",
+            "type": "string"
+          },
+          "safeFields": {
+            "description": "Fields exempt from data scrubbing",
+            "items": {
+              "type": "string"
+            },
+            "title": "Safe Fields",
+            "type": "array"
+          },
+          "highlightTags": {
+            "description": "List of important tags to highlight",
+            "items": {
+              "type": "string"
+            },
+            "title": "Highlight Tags",
+            "type": "array"
+          },
+          "hasInsightsScreenLoad": {
+            "description": "Whether screen load insights are available",
+            "title": "Has Insights Screen Load",
+            "type": "boolean"
+          },
+          "plugins": {
+            "description": "List of installed integrations and plugins",
+            "items": {
+              "$ref": "#/$defs/Plugin"
+            },
+            "title": "Plugins",
+            "type": "array"
+          },
+          "scrubIPAddresses": {
+            "description": "Whether to scrub IP addresses from events",
+            "title": "Scrub Ip Addresses",
+            "type": "boolean"
+          },
+          "relayPiiConfig": {
+            "description": "PII scrubbing configuration (nullable)",
+            "title": "Relay Pii Config",
+            "type": "string"
+          },
+          "avatar": {
+            "$ref": "#/$defs/Avatar",
+            "description": "Project avatar configuration",
+            "title": "Avatar"
+          },
+          "status": {
+            "description": "Project status (e.g., 'active')",
+            "title": "Status",
+            "type": "string"
+          },
+          "processingIssues": {
+            "description": "Count of processing errors",
+            "title": "Processing Issues",
+            "type": "integer"
+          },
+          "defaultEnvironment": {
+            "description": "Default environment name (nullable)",
+            "title": "Default Environment",
+            "type": "string"
+          },
+          "groupingEnhancements": {
+            "description": "Custom grouping rules",
+            "title": "Grouping Enhancements",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable project name",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization": {
+            "$ref": "#/$defs/Organization",
+            "description": "Parent organization details",
+            "title": "Organization"
+          },
+          "scrapeJavaScript": {
+            "description": "Whether to fetch JavaScript source maps",
+            "title": "Scrape Java Script",
+            "type": "boolean"
+          },
+          "hasLogs": {
+            "description": "Whether log ingestion is enabled",
+            "title": "Has Logs",
+            "type": "boolean"
+          },
+          "isInternal": {
+            "description": "Whether this is an internal Sentry project",
+            "title": "Is Internal",
+            "type": "boolean"
+          },
+          "verifySSL": {
+            "description": "Whether SSL verification is enabled",
+            "title": "Verify Ssl",
+            "type": "boolean"
+          },
+          "color": {
+            "description": "Hex color code for UI display",
+            "title": "Color",
+            "type": "string"
+          },
+          "hasInsightsMCP": {
+            "description": "Whether model context protocol insights are available",
+            "title": "Has Insights Mcp",
+            "type": "boolean"
+          },
+          "highlightPreset": {
+            "$ref": "#/$defs/HighlightPreset",
+            "description": "Highlight preset configuration",
+            "title": "Highlight Preset"
+          },
+          "hasFeedbacks": {
+            "description": "Whether project has user feedback data",
+            "title": "Has Feedbacks",
+            "type": "boolean"
+          },
+          "platforms": {
+            "description": "List of detected SDK platforms in project",
+            "items": {
+              "type": "string"
+            },
+            "title": "Platforms",
+            "type": "array"
+          },
+          "hasInsightsDb": {
+            "description": "Whether database performance insights are available",
+            "title": "Has Insights Db",
+            "type": "boolean"
+          },
+          "allowedDomains": {
+            "description": "Domains allowed for error reporting",
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Domains",
+            "type": "array"
+          },
+          "isMember": {
+            "description": "Whether user is a member of this project",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "isPublic": {
+            "description": "Whether project is publicly accessible",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "hasProfiles": {
+            "description": "Whether profiling data exists for this project",
+            "title": "Has Profiles",
+            "type": "boolean"
+          },
+          "hasMonitors": {
+            "description": "Whether cron monitoring is enabled",
+            "title": "Has Monitors",
+            "type": "boolean"
+          },
+          "firstEvent": {
+            "description": "Timestamp of the first error event received (nullable, ISO 8601 date-time format)",
+            "title": "First Event",
+            "type": "string"
+          },
+          "securityTokenHeader": {
+            "description": "Header name for security token (nullable)",
+            "title": "Security Token Header",
+            "type": "string"
+          },
+          "highlightContext": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Additional context highlighting rules mapping context keys to lists of values",
+            "title": "Highlight Context",
+            "type": "object"
+          },
+          "digestsMinDelay": {
+            "description": "Minimum digest delay in seconds",
+            "title": "Digests Min Delay",
+            "type": "integer"
+          },
+          "platform": {
+            "description": "Primary programming platform (nullable)",
+            "title": "Platform",
+            "type": "string"
+          },
+          "hasInsightsAppStart": {
+            "description": "Whether app startup insights are available",
+            "title": "Has Insights App Start",
+            "type": "boolean"
+          },
+          "isDynamicallySampled": {
+            "description": "Whether dynamic sampling is enabled",
+            "title": "Is Dynamically Sampled",
+            "type": "boolean"
+          },
+          "hasInsightsAgentMonitoring": {
+            "description": "Whether agent monitoring is available",
+            "title": "Has Insights Agent Monitoring",
+            "type": "boolean"
+          },
+          "fingerprintingRules": {
+            "description": "Custom fingerprinting rules",
+            "title": "Fingerprinting Rules",
+            "type": "string"
+          },
+          "tempestFetchScreenshots": {
+            "description": "Whether screenshot capture is enabled",
+            "title": "Tempest Fetch Screenshots",
+            "type": "boolean"
+          },
+          "hasFlags": {
+            "description": "Whether feature flags are enabled",
+            "title": "Has Flags",
+            "type": "boolean"
+          },
+          "debugFilesRole": {
+            "description": "Debug file access role (nullable)",
+            "title": "Debug Files Role",
+            "type": "string"
+          },
+          "derivedGroupingEnhancements": {
+            "description": "Derived grouping rules",
+            "title": "Derived Grouping Enhancements",
+            "type": "string"
+          },
+          "builtinSymbolSources": {
+            "description": "List of built-in debug symbol sources",
+            "items": {
+              "type": "string"
+            },
+            "title": "Builtin Symbol Sources",
+            "type": "array"
+          },
+          "subjectTemplate": {
+            "description": "Email subject template",
+            "title": "Subject Template",
+            "type": "string"
+          },
+          "latestRelease": {
+            "$ref": "#/$defs/LatestRelease",
+            "description": "Most recent release information (nullable)",
+            "title": "Latest Release"
+          },
+          "digestsMaxDelay": {
+            "description": "Maximum digest delay in seconds",
+            "title": "Digests Max Delay",
+            "type": "integer"
+          },
+          "resolveAge": {
+            "description": "Auto-resolve age threshold in hours",
+            "title": "Resolve Age",
+            "type": "integer"
+          },
+          "teams": {
+            "description": "List of all teams associated with this project",
+            "items": {
+              "$ref": "#/$defs/Team"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
+          "securityToken": {
+            "description": "Project security token",
+            "title": "Security Token",
+            "type": "string"
+          },
+          "subjectPrefix": {
+            "description": "Email subject prefix",
+            "title": "Subject Prefix",
+            "type": "string"
+          },
+          "hasAccess": {
+            "description": "Whether user has any access to this project",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "seerScannerAutomation": {
+            "description": "Whether Seer automation is enabled",
+            "title": "Seer Scanner Automation",
+            "type": "boolean"
+          },
+          "hasInsightsAssets": {
+            "description": "Whether asset performance insights are available",
+            "title": "Has Insights Assets",
+            "type": "boolean"
+          },
+          "options": {
+            "description": "Project-specific configuration settings with dynamic key-value pairs",
+            "title": "Options"
+          },
+          "symbolSources": {
+            "description": "JSON string of symbol sources configuration",
+            "title": "Symbol Sources",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique project identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "secondaryGroupingConfig": {
+            "description": "Fallback grouping configuration (nullable)",
+            "title": "Secondary Grouping Config",
+            "type": "string"
+          },
+          "hasNewFeedbacks": {
+            "description": "Whether project has new user feedback",
+            "title": "Has New Feedbacks",
+            "type": "boolean"
+          },
+          "hasInsightsQueues": {
+            "description": "Whether message queue insights are available",
+            "title": "Has Insights Queues",
+            "type": "boolean"
+          },
+          "hasReplays": {
+            "description": "Whether session replay data exists",
+            "title": "Has Replays",
+            "type": "boolean"
+          },
+          "secondaryGroupingExpiry": {
+            "description": "Secondary config expiry Unix timestamp",
+            "title": "Secondary Grouping Expiry",
+            "type": "integer"
+          },
+          "hasInsightsCaches": {
+            "description": "Whether cache performance insights are available",
+            "title": "Has Insights Caches",
+            "type": "boolean"
+          },
+          "team": {
+            "$ref": "#/$defs/Team",
+            "description": "Primary team assigned to this project",
+            "title": "Team"
+          },
+          "features": {
+            "description": "List of enabled project features",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "hasInsightsHttp": {
+            "description": "Whether HTTP performance insights are available",
+            "title": "Has Insights Http",
+            "type": "boolean"
+          },
+          "hasMinifiedStackTrace": {
+            "description": "Whether project contains minified stack traces",
+            "title": "Has Minified Stack Trace",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "dateCreated",
+          "isBookmarked",
+          "isMember",
+          "features",
+          "firstTransactionEvent",
+          "access",
+          "hasAccess",
+          "hasMinifiedStackTrace",
+          "hasFeedbacks",
+          "hasMonitors",
+          "hasNewFeedbacks",
+          "hasProfiles",
+          "hasReplays",
+          "hasFlags",
+          "hasSessions",
+          "hasInsightsHttp",
+          "hasInsightsDb",
+          "hasInsightsAssets",
+          "hasInsightsAppStart",
+          "hasInsightsScreenLoad",
+          "hasInsightsVitals",
+          "hasInsightsCaches",
+          "hasInsightsQueues",
+          "hasInsightsAgentMonitoring",
+          "hasInsightsMCP",
+          "hasLogs",
+          "hasTraceMetrics",
+          "isInternal",
+          "isPublic",
+          "color",
+          "status",
+          "processingIssues",
+          "isDynamicallySampled",
+          "highlightTags",
+          "highlightContext",
+          "builtinSymbolSources",
+          "digestsMinDelay",
+          "digestsMaxDelay",
+          "subjectPrefix",
+          "resolveAge",
+          "dataScrubber",
+          "dataScrubberDefaults",
+          "safeFields",
+          "sensitiveFields",
+          "subjectTemplate",
+          "securityToken",
+          "verifySSL",
+          "scrubIPAddresses",
+          "scrapeJavaScript",
+          "groupingConfig",
+          "groupingEnhancements",
+          "derivedGroupingEnhancements",
+          "fingerprintingRules",
+          "platforms",
+          "allowedDomains",
+          "avatar",
+          "team",
+          "teams",
+          "organization",
+          "options",
+          "plugins"
+        ],
+        "title": "AccessProjectInformationResponse",
+        "type": "object"
+      },
+      "Avatar": {
+        "description": "Project or organization avatar configuration.",
+        "properties": {
+          "avatarType": {
+            "description": "Avatar type (e.g., 'letter_avatar', 'upload')",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to avatar image (nullable)",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID for uploaded avatar image (nullable)",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "Avatar",
+        "type": "object"
+      },
+      "DynamicSamplingBias": {
+        "description": "Dynamic sampling bias configuration.",
+        "properties": {
+          "active": {
+            "description": "Whether bias is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Bias identifier",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": ["id", "active"],
+        "title": "DynamicSamplingBias",
+        "type": "object"
+      },
+      "HighlightPreset": {
+        "description": "Highlight preset configuration.",
+        "properties": {
+          "context": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Context highlighting configuration mapping context keys to lists of values",
+            "title": "Context",
+            "type": "object"
+          },
+          "tags": {
+            "description": "Tags to highlight",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags", "context"],
+        "title": "HighlightPreset",
+        "type": "object"
+      },
+      "LatestRelease": {
+        "description": "Most recent release information.",
+        "properties": {
+          "version": {
+            "description": "Release version identifier",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["version"],
+        "title": "LatestRelease",
+        "type": "object"
+      },
+      "Organization": {
+        "description": "Parent organization details.",
+        "properties": {
+          "allowMemberInvite": {
+            "description": "Whether members can invite others",
+            "title": "Allow Member Invite",
+            "type": "boolean"
+          },
+          "allowMemberProjectCreation": {
+            "description": "Whether members can create projects",
+            "title": "Allow Member Project Creation",
+            "type": "boolean"
+          },
+          "allowSuperuserAccess": {
+            "description": "Whether superuser access is permitted",
+            "title": "Allow Superuser Access",
+            "type": "boolean"
+          },
+          "avatar": {
+            "$ref": "#/$defs/OrganizationAvatar",
+            "description": "Organization avatar",
+            "title": "Avatar"
+          },
+          "dateCreated": {
+            "description": "Organization creation date in ISO 8601 format",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "features": {
+            "description": "Organization-level features",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "hasAuthProvider": {
+            "description": "Whether auth provider is configured",
+            "title": "Has Auth Provider",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Organization identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "isEarlyAdopter": {
+            "description": "Whether organization is in early adopter program",
+            "title": "Is Early Adopter",
+            "type": "boolean"
+          },
+          "links": {
+            "$ref": "#/$defs/OrganizationLinks",
+            "description": "Organization-related URLs",
+            "title": "Links"
+          },
+          "name": {
+            "description": "Organization name",
+            "title": "Name",
+            "type": "string"
+          },
+          "require2FA": {
+            "description": "Whether two-factor authentication is required",
+            "title": "Require2 Fa",
+            "type": "boolean"
+          },
+          "slug": {
+            "description": "Organization URL slug",
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/OrganizationStatus",
+            "description": "Organization status",
+            "title": "Status"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "dateCreated",
+          "isEarlyAdopter",
+          "allowMemberInvite",
+          "allowMemberProjectCreation",
+          "allowSuperuserAccess",
+          "require2FA",
+          "hasAuthProvider",
+          "features",
+          "avatar",
+          "status",
+          "links"
+        ],
+        "title": "Organization",
+        "type": "object"
+      },
+      "OrganizationAvatar": {
+        "description": "Organization avatar configuration.",
+        "properties": {
+          "avatarType": {
+            "description": "Avatar type",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "Avatar UUID (nullable)",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["avatarType"],
+        "title": "OrganizationAvatar",
+        "type": "object"
+      },
+      "OrganizationLinks": {
+        "description": "Organization-related URLs.",
+        "properties": {
+          "organizationUrl": {
+            "description": "Organization dashboard URL",
+            "title": "Organization Url",
+            "type": "string"
+          },
+          "regionUrl": {
+            "description": "Region-specific URL",
+            "title": "Region Url",
+            "type": "string"
+          }
+        },
+        "required": ["organizationUrl", "regionUrl"],
+        "title": "OrganizationLinks",
+        "type": "object"
+      },
+      "OrganizationStatus": {
+        "description": "Organization status information.",
+        "properties": {
+          "id": {
+            "description": "Status identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Status name (e.g., 'active')",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "OrganizationStatus",
+        "type": "object"
+      },
+      "Plugin": {
+        "description": "Plugin information.",
+        "properties": {
+          "canDisable": {
+            "description": "Whether plugin can be disabled",
+            "title": "Can Disable",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Plugin description",
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether plugin is currently enabled",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "featureDescriptions": {
+            "description": "Descriptions of plugin features",
+            "items": {
+              "$ref": "#/$defs/PluginFeatureDescription"
+            },
+            "title": "Feature Descriptions",
+            "type": "array"
+          },
+          "features": {
+            "description": "Plugin features",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "hasConfiguration": {
+            "description": "Whether plugin has configuration options",
+            "title": "Has Configuration",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Plugin identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "isTestable": {
+            "description": "Whether plugin can be tested",
+            "title": "Is Testable",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Plugin name",
+            "title": "Name",
+            "type": "string"
+          },
+          "resourceLinks": {
+            "description": "Resource links for plugin",
+            "items": {
+              "$ref": "#/$defs/PluginResourceLink"
+            },
+            "title": "Resource Links",
+            "type": "array"
+          },
+          "shortName": {
+            "description": "Short name for plugin",
+            "title": "Short Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Plugin slug",
+            "title": "Slug",
+            "type": "string"
+          },
+          "type": {
+            "description": "Plugin type (e.g., 'issue-tracking')",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "description": "Plugin version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "shortName",
+          "type",
+          "canDisable",
+          "isTestable",
+          "hasConfiguration",
+          "enabled",
+          "version",
+          "description",
+          "features",
+          "featureDescriptions",
+          "resourceLinks"
+        ],
+        "title": "Plugin",
+        "type": "object"
+      },
+      "PluginFeatureDescription": {
+        "description": "Plugin feature description.",
+        "properties": {
+          "description": {
+            "description": "Human-readable description of the feature",
+            "title": "Description",
+            "type": "string"
+          },
+          "featureGate": {
+            "description": "Feature gate identifier",
+            "title": "Feature Gate",
+            "type": "string"
+          }
+        },
+        "required": ["description", "featureGate"],
+        "title": "PluginFeatureDescription",
+        "type": "object"
+      },
+      "PluginResourceLink": {
+        "description": "Plugin resource link.",
+        "properties": {
+          "title": {
+            "description": "Link title",
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "description": "Link URL",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["title", "url"],
+        "title": "PluginResourceLink",
+        "type": "object"
+      },
+      "Team": {
+        "description": "Team information.",
+        "properties": {
+          "id": {
+            "description": "Team identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Team display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly team identifier",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "slug"],
+        "title": "Team",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AccessProjectInformationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

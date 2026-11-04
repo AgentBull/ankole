@@ -1,0 +1,905 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Returns instances of the specified recurring event. Use timeMin/timeMax to constrain the window; omitting bounds can return large result sets and is quota-heavy. On high-volume calls, 403 rateLimitExceeded or 429 too_many_requests may occur; apply exponential backoff (1s, 2s, 4s) before retrying.",
+  "inputSchema": {
+    "properties": {
+      "calendarId": {
+        "description": "Calendar identifier. To retrieve calendar IDs call the `calendarList.list` method. If you want to access the primary calendar of the currently logged in user, use the \"primary\" keyword.",
+        "examples": ["primary", "example.calendar.id@group.calendar.google.com"],
+        "human_parameter_description": "The calendar you want to read from. Use 'primary' for your own calendar or paste a specific calendar ID.",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "eventId": {
+        "description": "REQUIRED. The ID of the recurring event whose instances you want to retrieve. You must first use googlecalendar.find_event or googlecalendar.events_list to find recurring events and get their IDs. This action only works with recurring events that have a recurrence rule.",
+        "examples": ["a1b2c3d4e5f6g7h8i9j0k1l2m3"],
+        "human_parameter_description": "REQUIRED. The ID of the recurring event whose instances you want to retrieve. First use GOOGLECALENDAR_FIND_EVENT or GOOGLECALENDAR_EVENTS_LIST to search for recurring events and get their IDs. This action only works with recurring events.",
+        "human_parameter_name": "Event ID",
+        "title": "Event Id",
+        "type": "string"
+      },
+      "maxAttendees": {
+        "description": "The maximum number of attendees to include in the response. If there are more than the specified number of attendees, only the participant is returned. Optional.",
+        "examples": [5, 10],
+        "human_parameter_description": "Limits how many attendees are returned for each instance, helping keep the results short and easier to scan.",
+        "human_parameter_name": "Max Attendees",
+        "title": "Max Attendees",
+        "type": "integer"
+      },
+      "maxResults": {
+        "description": "Maximum number of events returned on one result page. By default the value is 250 events. The page size can never be larger than 2500 events. Optional.",
+        "examples": [100, 250],
+        "human_parameter_description": "How many event instances to return per page. Use a smaller number to load results faster.",
+        "human_parameter_name": "Max Results",
+        "maximum": 2500,
+        "minimum": 1,
+        "title": "Max Results",
+        "type": "integer"
+      },
+      "originalStart": {
+        "description": "The original start time of the instance in the result. Optional.",
+        "examples": ["2024-07-15T10:00:00Z"],
+        "human_parameter_description": "If you’re targeting a single instance, enter that instance’s original start time to pinpoint it.",
+        "human_parameter_name": "Original Start",
+        "title": "Original Start",
+        "type": "string"
+      },
+      "pageToken": {
+        "description": "Token specifying which result page to return. Optional.",
+        "human_parameter_description": "If you got a next page token from a previous call, paste it here to continue where you left off.",
+        "human_parameter_name": "Page Token",
+        "title": "Page Token",
+        "type": "string"
+      },
+      "showDeleted": {
+        "description": "Whether to include deleted events (with status equals \"cancelled\") in the result. Cancelled instances of recurring events will still be included if `singleEvents` is False. Optional. The default is False.",
+        "examples": [true, false],
+        "human_parameter_description": "Include canceled or deleted instances in the results. Turn this on only if you need to see removed occurrences.",
+        "human_parameter_name": "Show Deleted",
+        "title": "Show Deleted",
+        "type": "boolean"
+      },
+      "timeMax": {
+        "description": "Upper bound (exclusive) for an event's start time to filter by. Optional. The default is not to filter by start time. Must be an RFC3339 timestamp with mandatory time zone offset.",
+        "examples": ["2024-07-31T23:59:59Z"],
+        "human_parameter_description": "Only include instances that start before this date and time. Use a full timestamp with time zone.",
+        "human_parameter_name": "Time Max",
+        "title": "Time Max",
+        "type": "string"
+      },
+      "timeMin": {
+        "description": "Lower bound (inclusive) for an event's end time to filter by. Optional. The default is not to filter by end time. Must be an RFC3339 timestamp with mandatory time zone offset.",
+        "examples": ["2024-07-01T00:00:00Z"],
+        "human_parameter_description": "Start of the time window to filter instances. Use a full timestamp with time zone.",
+        "human_parameter_name": "Time Min",
+        "title": "Time Min",
+        "type": "string"
+      },
+      "timeZone": {
+        "description": "Time zone used in the response. Optional. The default is the time zone of the calendar.",
+        "examples": ["America/Los_Angeles", "Europe/London"],
+        "human_parameter_description": "Choose the time zone for times in the response so they match your preference.",
+        "human_parameter_name": "Time Zone",
+        "title": "Time Zone",
+        "type": "string"
+      }
+    },
+    "required": ["calendarId", "eventId"],
+    "title": "EventsInstancesRequest",
+    "type": "object"
+  },
+  "name": "events_instances",
+  "outputSchema": {
+    "$defs": {
+      "Attachment": {
+        "properties": {
+          "fileId": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "fileUrl": {
+            "title": "File Url",
+            "type": "string"
+          },
+          "iconLink": {
+            "title": "Icon Link",
+            "type": "string"
+          },
+          "mimeType": {
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "Attachment",
+        "type": "object"
+      },
+      "Attendee": {
+        "properties": {
+          "additionalGuests": {
+            "title": "Additional Guests",
+            "type": "integer"
+          },
+          "comment": {
+            "title": "Comment",
+            "type": "string"
+          },
+          "displayName": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "The attendee's email address. Must be present when adding an attendee.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "The attendee's Profile ID, if available.",
+            "title": "Id",
+            "type": "string"
+          },
+          "optional": {
+            "description": "Whether this is an optional attendee.",
+            "title": "Optional",
+            "type": "boolean"
+          },
+          "organizer": {
+            "description": "Whether the attendee is the organizer of the event. Read-only.",
+            "title": "Organizer",
+            "type": "boolean"
+          },
+          "resource": {
+            "description": "Whether the attendee is a resource (e.g., a room).",
+            "title": "Resource",
+            "type": "boolean"
+          },
+          "responseStatus": {
+            "title": "Response Status",
+            "type": "string"
+          },
+          "self": {
+            "description": "Whether this entry represents the calendar on which this copy of the event appears. Read-only.",
+            "title": "Self",
+            "type": "boolean"
+          }
+        },
+        "title": "Attendee",
+        "type": "object"
+      },
+      "BirthdayProperties": {
+        "properties": {
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "BirthdayProperties",
+        "type": "object"
+      },
+      "ConferenceCreateRequestStatus": {
+        "properties": {
+          "statusCode": {
+            "description": "Status code: pending, success, failure.",
+            "title": "Status Code",
+            "type": "string"
+          }
+        },
+        "title": "ConferenceCreateRequestStatus",
+        "type": "object"
+      },
+      "ConferenceData": {
+        "properties": {
+          "conferenceId": {
+            "title": "Conference Id",
+            "type": "string"
+          },
+          "conferenceSolution": {
+            "$ref": "#/$defs/ConferenceSolution",
+            "title": "Conference Solution"
+          },
+          "createRequest": {
+            "$ref": "#/$defs/CreateRequest",
+            "title": "Create Request"
+          },
+          "entryPoints": {
+            "items": {
+              "$ref": "#/$defs/EntryPoint"
+            },
+            "title": "Entry Points",
+            "type": "array"
+          },
+          "notes": {
+            "description": "Additional notes or instructions.",
+            "title": "Notes",
+            "type": "string"
+          }
+        },
+        "title": "ConferenceData",
+        "type": "object"
+      },
+      "ConferenceSolution": {
+        "properties": {
+          "iconUri": {
+            "title": "Icon Uri",
+            "type": "string"
+          },
+          "key": {
+            "$ref": "#/$defs/_Key",
+            "title": "Key"
+          },
+          "name": {
+            "description": "Name of the solution (e.g., Google Meet).",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "ConferenceSolution",
+        "type": "object"
+      },
+      "ConferenceSolutionKey": {
+        "properties": {
+          "type": {
+            "description": "Type of the conference solution, e.g., 'hangoutsMeet'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "ConferenceSolutionKey",
+        "type": "object"
+      },
+      "CreateRequest": {
+        "properties": {
+          "conferenceSolutionKey": {
+            "$ref": "#/$defs/ConferenceSolutionKey",
+            "human_parameter_description": "Specify the type of conferencing to attach to the event (for example, a video meeting). Leave this empty if you don’t need a meeting link.",
+            "title": "Conference Solution Key"
+          },
+          "requestId": {
+            "human_parameter_description": "A unique ID you choose for this conference creation request. It helps prevent duplicate conferences if you retry the same request.",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/ConferenceCreateRequestStatus",
+            "description": "Status of the create request.",
+            "title": "Status"
+          }
+        },
+        "title": "CreateRequest",
+        "type": "object"
+      },
+      "DefaultReminder": {
+        "properties": {
+          "method": {
+            "description": "The method used by this reminder. Possible values are: 'email', 'popup'.",
+            "title": "Method",
+            "type": "string"
+          },
+          "minutes": {
+            "description": "Number of minutes before the start of the event when the reminder should trigger.",
+            "title": "Minutes",
+            "type": "integer"
+          }
+        },
+        "title": "DefaultReminder",
+        "type": "object"
+      },
+      "EntryPoint": {
+        "properties": {
+          "accessCode": {
+            "title": "Access Code",
+            "type": "string"
+          },
+          "entryPointType": {
+            "title": "Entry Point Type",
+            "type": "string"
+          },
+          "label": {
+            "description": "User-visible label for the entry point.",
+            "title": "Label",
+            "type": "string"
+          },
+          "meetingCode": {
+            "title": "Meeting Code",
+            "type": "string"
+          },
+          "passcode": {
+            "title": "Passcode",
+            "type": "string"
+          },
+          "password": {
+            "title": "Password",
+            "type": "string"
+          },
+          "pin": {
+            "title": "Pin",
+            "type": "string"
+          },
+          "regionCode": {
+            "title": "Region Code",
+            "type": "string"
+          },
+          "uri": {
+            "description": "URI to access the entry point.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "title": "EntryPoint",
+        "type": "object"
+      },
+      "Event": {
+        "properties": {
+          "source": {
+            "$ref": "#/$defs/Source",
+            "description": "Information about the source from which the event was created.",
+            "title": "Source"
+          },
+          "workingLocationProperties": {
+            "$ref": "#/$defs/WorkingLocationProperties",
+            "title": "Working Location Properties"
+          },
+          "sequence": {
+            "description": "Sequence number as per iCalendar.",
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "location": {
+            "description": "Geographic location of the event as free-form text.",
+            "title": "Location",
+            "type": "string"
+          },
+          "updated": {
+            "description": "Last modification time of the event (RFC3339 timestamp).",
+            "title": "Updated",
+            "type": "string"
+          },
+          "end": {
+            "$ref": "#/$defs/EventDateTime",
+            "description": "The end time.",
+            "title": "End"
+          },
+          "etag": {
+            "description": "ETag of the event resource.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "recurringEventId": {
+            "description": "ID of the recurring series.",
+            "title": "Recurring Event Id",
+            "type": "string"
+          },
+          "gadget": {
+            "$ref": "#/$defs/Gadget",
+            "title": "Gadget"
+          },
+          "outOfOfficeProperties": {
+            "$ref": "#/$defs/OutOfOfficeProperties",
+            "title": "Out Of Office Properties"
+          },
+          "hangoutLink": {
+            "title": "Hangout Link",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the event.",
+            "title": "Description",
+            "type": "string"
+          },
+          "attendeesOmitted": {
+            "description": "Whether the attendee list is truncated.",
+            "title": "Attendees Omitted",
+            "type": "boolean"
+          },
+          "created": {
+            "description": "Creation time of the event (RFC3339 timestamp).",
+            "title": "Created",
+            "type": "string"
+          },
+          "birthdayProperties": {
+            "$ref": "#/$defs/BirthdayProperties",
+            "title": "Birthday Properties"
+          },
+          "recurrence": {
+            "description": "List of RRULE, EXRULE, RDATE, and EXDATE lines.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Recurrence",
+            "type": "array"
+          },
+          "status": {
+            "description": "Status of the event. Possible values: 'confirmed', 'tentative', 'cancelled'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "creator": {
+            "$ref": "#/$defs/EventPerson",
+            "description": "The creator of the event.",
+            "title": "Creator"
+          },
+          "display_url": {
+            "description": "URL to view this event instance in Google Calendar web UI. Populated from htmlLink.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "eventType": {
+            "description": "Type of the event: default, outOfOffice, focusTime, workingLocation, fromGmail, etc.",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "conferenceData": {
+            "$ref": "#/$defs/ConferenceData",
+            "title": "Conference Data"
+          },
+          "organizer": {
+            "$ref": "#/$defs/EventPerson",
+            "description": "The organizer of the event.",
+            "title": "Organizer"
+          },
+          "attendees": {
+            "description": "The attendees of the event.",
+            "items": {
+              "$ref": "#/$defs/Attendee"
+            },
+            "title": "Attendees",
+            "type": "array"
+          },
+          "anyoneCanAddSelf": {
+            "description": "Whether anyone can add themselves to the event.",
+            "title": "Anyone Can Add Self",
+            "type": "boolean"
+          },
+          "endTimeUnspecified": {
+            "description": "Whether the end time is unspecified.",
+            "title": "End Time Unspecified",
+            "type": "boolean"
+          },
+          "iCalUID": {
+            "description": "Event unique identifier as defined in RFC5545.",
+            "title": "I Cal Uid",
+            "type": "string"
+          },
+          "transparency": {
+            "description": "Whether the event blocks time on the calendar: 'opaque' or 'transparent'.",
+            "title": "Transparency",
+            "type": "string"
+          },
+          "originalStartTime": {
+            "$ref": "#/$defs/EventDateTime",
+            "description": "The start time at which this instance would appear according to the recurrence.",
+            "title": "Original Start Time"
+          },
+          "attachments": {
+            "description": "File attachments associated with the event.",
+            "items": {
+              "$ref": "#/$defs/Attachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "guestsCanInviteOthers": {
+            "title": "Guests Can Invite Others",
+            "type": "boolean"
+          },
+          "colorId": {
+            "description": "Color of the event.",
+            "title": "Color Id",
+            "type": "string"
+          },
+          "htmlLink": {
+            "description": "An absolute link to the event in the Google Calendar Web UI.",
+            "title": "Html Link",
+            "type": "string"
+          },
+          "focusTimeProperties": {
+            "$ref": "#/$defs/FocusTimeProperties",
+            "title": "Focus Time Properties"
+          },
+          "kind": {
+            "description": "Type of the resource. Always 'calendar#event'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "privateCopy": {
+            "title": "Private Copy",
+            "type": "boolean"
+          },
+          "guestsCanSeeOtherGuests": {
+            "title": "Guests Can See Other Guests",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Identifier of the event. For instances, may include start time suffix.",
+            "title": "Id",
+            "type": "string"
+          },
+          "summary": {
+            "description": "Title of the event.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "guestsCanModify": {
+            "title": "Guests Can Modify",
+            "type": "boolean"
+          },
+          "extendedProperties": {
+            "$ref": "#/$defs/ExtendedProperties",
+            "title": "Extended Properties"
+          },
+          "reminders": {
+            "$ref": "#/$defs/EventReminders",
+            "description": "Information about the event's reminders.",
+            "title": "Reminders"
+          },
+          "locked": {
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "visibility": {
+            "description": "Visibility of the event: default, public, private, confidential.",
+            "title": "Visibility",
+            "type": "string"
+          },
+          "start": {
+            "$ref": "#/$defs/EventDateTime",
+            "description": "The start time.",
+            "title": "Start"
+          }
+        },
+        "title": "Event",
+        "type": "object"
+      },
+      "EventDateTime": {
+        "properties": {
+          "date": {
+            "description": "The date in 'yyyy-mm-dd' format if this is an all-day event.",
+            "title": "Date",
+            "type": "string"
+          },
+          "dateTime": {
+            "description": "RFC3339 combined date-time value.",
+            "title": "Date Time",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "IANA time zone name in which the time is specified.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "title": "EventDateTime",
+        "type": "object"
+      },
+      "EventPerson": {
+        "properties": {
+          "displayName": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "The user's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "The Profile ID of the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "self": {
+            "description": "Whether this entry corresponds to the calendar on which this copy of the event appears.",
+            "title": "Self",
+            "type": "boolean"
+          }
+        },
+        "title": "EventPerson",
+        "type": "object"
+      },
+      "EventReminderOverride": {
+        "properties": {
+          "method": {
+            "description": "Reminder delivery method. Possible values: 'email' or 'popup'.",
+            "title": "Method",
+            "type": "string"
+          },
+          "minutes": {
+            "description": "Number of minutes before the start of the event when the reminder should trigger (0 to 40320).",
+            "title": "Minutes",
+            "type": "integer"
+          }
+        },
+        "title": "EventReminderOverride",
+        "type": "object"
+      },
+      "EventReminders": {
+        "properties": {
+          "overrides": {
+            "description": "If the event doesn't use the default reminders, this lists the reminders specific to the event, or, if also omitted, indicates that no reminders are set for this event.",
+            "items": {
+              "$ref": "#/$defs/EventReminderOverride"
+            },
+            "title": "Overrides",
+            "type": "array"
+          },
+          "useDefault": {
+            "description": "Whether the default reminders of the calendar apply to the event.",
+            "title": "Use Default",
+            "type": "boolean"
+          }
+        },
+        "title": "EventReminders",
+        "type": "object"
+      },
+      "EventsInstancesResponse": {
+        "properties": {
+          "accessRole": {
+            "description": "The user's access role for this calendar. Read-only.",
+            "title": "Access Role",
+            "type": "string"
+          },
+          "defaultReminders": {
+            "description": "The default reminders on the calendar for the authenticated user.",
+            "items": {
+              "$ref": "#/$defs/DefaultReminder"
+            },
+            "title": "Default Reminders",
+            "type": "array"
+          },
+          "description": {
+            "description": "Description of the calendar. Read-only.",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_url": {
+            "description": "Display URL for the collection. Always None for instance collections.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the collection.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "items": {
+            "description": "List of event instances.",
+            "items": {
+              "$ref": "#/$defs/Event"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "kind": {
+            "description": "Type of the collection (\"calendar#events\").",
+            "title": "Kind",
+            "type": "string"
+          },
+          "nextPageToken": {
+            "description": "Token used to access the next page of this result.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "nextSyncToken": {
+            "description": "Token used at a later point in time to retrieve only the entries that have changed since this result was returned.",
+            "title": "Next Sync Token",
+            "type": "string"
+          },
+          "summary": {
+            "description": "Title of the calendar. Read-only.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "The time zone of the calendar. Read-only.",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updated": {
+            "description": "Last modification time of the calendar (as a RFC3339 timestamp). Read-only.",
+            "title": "Updated",
+            "type": "string"
+          }
+        },
+        "title": "EventsInstancesResponse",
+        "type": "object"
+      },
+      "ExtendedProperties": {
+        "properties": {
+          "private": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Properties private to the copy of the event on a specific calendar.",
+            "title": "Private",
+            "type": "object"
+          },
+          "shared": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Properties shared between copies of the event on other attendees' calendars.",
+            "title": "Shared",
+            "type": "object"
+          }
+        },
+        "title": "ExtendedProperties",
+        "type": "object"
+      },
+      "FocusTimeProperties": {
+        "properties": {
+          "autoDeclineMode": {
+            "description": "How conflicting invitations are handled during focus time: declineNone, declineAllConflictingInvitations, declineOnlyNewConflictingInvitations.",
+            "title": "Auto Decline Mode",
+            "type": "string"
+          },
+          "chatStatus": {
+            "title": "Chat Status",
+            "type": "string"
+          },
+          "declineMessage": {
+            "title": "Decline Message",
+            "type": "string"
+          }
+        },
+        "title": "FocusTimeProperties",
+        "type": "object"
+      },
+      "Gadget": {
+        "properties": {
+          "display": {
+            "title": "Display",
+            "type": "string"
+          },
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "iconLink": {
+            "title": "Icon Link",
+            "type": "string"
+          },
+          "link": {
+            "title": "Link",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "Gadget",
+        "type": "object"
+      },
+      "OutOfOfficeProperties": {
+        "properties": {
+          "declineMessage": {
+            "title": "Decline Message",
+            "type": "string"
+          },
+          "declineMode": {
+            "description": "How invitations are declined: declineNone, declineAllConflictingInvitations, declineOnlyNewConflictingInvitations.",
+            "title": "Decline Mode",
+            "type": "string"
+          }
+        },
+        "title": "OutOfOfficeProperties",
+        "type": "object"
+      },
+      "Source": {
+        "properties": {
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "Source",
+        "type": "object"
+      },
+      "WorkingLocationCustom": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "title": "WorkingLocationCustom",
+        "type": "object"
+      },
+      "WorkingLocationHomeOffice": {
+        "properties": {},
+        "title": "WorkingLocationHomeOffice",
+        "type": "object"
+      },
+      "WorkingLocationOffice": {
+        "properties": {
+          "buildingId": {
+            "title": "Building Id",
+            "type": "string"
+          },
+          "deskId": {
+            "title": "Desk Id",
+            "type": "string"
+          },
+          "floorId": {
+            "title": "Floor Id",
+            "type": "string"
+          },
+          "floorSectionId": {
+            "title": "Floor Section Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "title": "WorkingLocationOffice",
+        "type": "object"
+      },
+      "WorkingLocationProperties": {
+        "properties": {
+          "customLocation": {
+            "$ref": "#/$defs/WorkingLocationCustom",
+            "title": "Custom Location"
+          },
+          "homeOffice": {
+            "$ref": "#/$defs/WorkingLocationHomeOffice",
+            "title": "Home Office"
+          },
+          "officeLocation": {
+            "$ref": "#/$defs/WorkingLocationOffice",
+            "title": "Office Location"
+          },
+          "type": {
+            "description": "Type of working location: homeOffice, officeLocation, customLocation.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "WorkingLocationProperties",
+        "type": "object"
+      },
+      "_Key": {
+        "properties": {
+          "type": {
+            "description": "Type of the conference solution, e.g., 'hangoutsMeet'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "_Key",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/EventsInstancesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

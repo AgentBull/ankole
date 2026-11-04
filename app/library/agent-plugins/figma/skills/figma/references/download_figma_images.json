@@ -1,0 +1,171 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Download images from Figma file nodes. Renders specified nodes as images and downloads them. Supports PNG, SVG, JPG, and PDF formats. REQUIRED PARAMETERS: - file_key (string): The Figma file key from the URL - images (array): List of objects, each containing: - node_id (string, required): The node ID to export (e.g., \"1:2\") - file_name (string, required): Output filename with extension (e.g., \"logo.png\") - format (string, optional): One of 'png', 'svg', 'jpg', 'pdf'. Defaults to 'png' Example usage: { \"file_key\": \"abc123XYZ\", \"images\": [ {\"node_id\": \"1:2\", \"file_name\": \"logo.png\", \"format\": \"png\"} ] } To find node IDs, use figma.get_file_json or look in Figma URLs after 'node-id='. NOTE: Returned image URLs expire shortly after generation — download them immediately.",
+  "inputSchema": {
+    "description": "Request to download images from a Figma file.\n\nREQUIRED PARAMETERS:\n- file_key: The Figma file key (string)\n- images: List of image download requests (array of objects)\n\nExample request:\n    {\n        \"file_key\": \"abc123XYZ\",\n        \"images\": [\n            {\"node_id\": \"1:2\", \"file_name\": \"logo.png\", \"format\": \"png\"},\n            {\"node_id\": \"3:4\", \"file_name\": \"icon.svg\", \"format\": \"svg\"}\n        ]\n    }",
+    "properties": {
+      "file_key": {
+        "description": "REQUIRED. The Figma file key extracted from a Figma URL. For URL 'https://www.figma.com/file/abc123XYZ/MyDesign', the file_key is 'abc123XYZ'. This identifies which Figma file to download images from.",
+        "title": "File Key",
+        "type": "string"
+      },
+      "images": {
+        "description": "REQUIRED. A list of image download requests. Each item must be an object with 'node_id' (string, required), 'file_name' (string, required), and optionally 'format' (string, defaults to 'png'). Example: [{\"node_id\": \"1:2\", \"file_name\": \"logo.png\"}]",
+        "items": {
+          "description": "Individual image download request specifying which node to render and how to save it.\n\nExample:\n    {\"node_id\": \"1:2\", \"file_name\": \"logo.png\", \"format\": \"png\"}",
+          "properties": {
+            "file_name": {
+              "description": "REQUIRED. The output filename with extension for the downloaded image (e.g., 'logo.png', 'header-image.svg', 'icon.jpg').",
+              "title": "File Name",
+              "type": "string"
+            },
+            "format": {
+              "default": "png",
+              "description": "Image format to export. Supported values: 'png', 'svg', 'jpg', 'pdf'. Defaults to 'png'.",
+              "title": "Format",
+              "type": "string"
+            },
+            "node_id": {
+              "description": "REQUIRED. The Figma node ID to render as an image. Node IDs are found in Figma URLs after 'node-id=' (e.g., '1:2', '123:456'). You can also get node IDs by using the figma.get_file_json action.",
+              "title": "Node Id",
+              "type": "string"
+            }
+          },
+          "required": ["node_id", "file_name"],
+          "title": "ImageDownloadRequest",
+          "type": "object"
+        },
+        "title": "Images",
+        "type": "array"
+      },
+      "scale": {
+        "default": 2,
+        "description": "Image scaling factor for PNG/JPG exports (0.01 to 4). Default is 2 for retina quality. Ignored for SVG/PDF. Exports are capped at ~32 megapixels; reduce scale or split large nodes to avoid hitting this limit.",
+        "title": "Scale",
+        "type": "number"
+      },
+      "svg_include_id": {
+        "default": false,
+        "description": "For SVG exports only: include element IDs in the SVG output. Defaults to false.",
+        "title": "Svg Include Id",
+        "type": "boolean"
+      },
+      "svg_outline_text": {
+        "default": true,
+        "description": "For SVG exports only: convert text to paths for accurate rendering. Defaults to true.",
+        "title": "Svg Outline Text",
+        "type": "boolean"
+      },
+      "svg_simplify_stroke": {
+        "default": true,
+        "description": "For SVG exports only: simplify strokes for cleaner SVG output. Defaults to true.",
+        "title": "Svg Simplify Stroke",
+        "type": "boolean"
+      }
+    },
+    "required": ["file_key", "images"],
+    "title": "DownloadFigmaImagesRequest",
+    "type": "object"
+  },
+  "name": "download_figma_images",
+  "outputSchema": {
+    "$defs": {
+      "DownloadFigmaImagesResponse": {
+        "description": "Response with downloaded images.",
+        "properties": {
+          "downloaded_images": {
+            "description": "List of download results",
+            "items": {
+              "$ref": "#/$defs/DownloadedImage"
+            },
+            "title": "Downloaded Images",
+            "type": "array"
+          },
+          "failed_count": {
+            "description": "Number of failed downloads",
+            "title": "Failed Count",
+            "type": "integer"
+          },
+          "successful_count": {
+            "description": "Number of successfully downloaded images",
+            "title": "Successful Count",
+            "type": "integer"
+          }
+        },
+        "required": ["downloaded_images", "successful_count", "failed_count"],
+        "title": "DownloadFigmaImagesResponse",
+        "type": "object"
+      },
+      "DownloadedImage": {
+        "description": "Downloaded image result.",
+        "properties": {
+          "content": {
+            "$ref": "#/$defs/FileDownloadable",
+            "description": "Downloaded file",
+            "title": "Content"
+          },
+          "error": {
+            "description": "Error message if failed",
+            "title": "Error",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "Output filename",
+            "title": "File Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Node ID that was downloaded",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether download succeeded",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["node_id", "file_name", "success"],
+        "title": "DownloadedImage",
+        "type": "object"
+      },
+      "FileDownloadable": {
+        "file_downloadable": true,
+        "properties": {
+          "mimetype": {
+            "description": "Mime type of the file.",
+            "title": "Mimetype",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the file",
+            "title": "Name",
+            "type": "string"
+          },
+          "s3url": {
+            "description": "S3 URL of the downloaded file.",
+            "title": "S3Url",
+            "type": "string"
+          }
+        },
+        "required": ["name", "mimetype", "s3url"],
+        "title": "FileDownloadable",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DownloadFigmaImagesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,144 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve a page of file diffs for a commit, branch, or tag in a project. Configured diff limits can stop pagination before all changed files are returned.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespaced project path.",
+        "title": "Id"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sha": {
+        "description": "Commit hash or repository branch or tag name.",
+        "title": "Sha",
+        "type": "string"
+      },
+      "unidiff": {
+        "description": "Present diffs in unified diff format. GitLab defaults to false.",
+        "title": "Unidiff",
+        "type": "boolean"
+      }
+    },
+    "required": ["id", "sha"],
+    "title": "GetCommitDiffRequest",
+    "type": "object"
+  },
+  "name": "get_commit_diff",
+  "outputSchema": {
+    "$defs": {
+      "CommitDiff": {
+        "additionalProperties": true,
+        "properties": {
+          "a_mode": {
+            "description": "Old file mode of the file.",
+            "title": "A Mode",
+            "type": "string"
+          },
+          "b_mode": {
+            "description": "New file mode of the file.",
+            "title": "B Mode",
+            "type": "string"
+          },
+          "collapsed": {
+            "description": "File diff is excluded but can be fetched on request.",
+            "title": "Collapsed",
+            "type": "boolean"
+          },
+          "deleted_file": {
+            "description": "Whether the file has been removed.",
+            "title": "Deleted File",
+            "type": "boolean"
+          },
+          "diff": {
+            "description": "File changes, or null when unavailable.",
+            "title": "Diff",
+            "type": "string"
+          },
+          "new_file": {
+            "description": "Whether the file has been added.",
+            "title": "New File",
+            "type": "boolean"
+          },
+          "new_path": {
+            "description": "New path of the file.",
+            "title": "New Path",
+            "type": "string"
+          },
+          "old_path": {
+            "description": "Old path of the file.",
+            "title": "Old Path",
+            "type": "string"
+          },
+          "renamed_file": {
+            "description": "Whether the file has been renamed.",
+            "title": "Renamed File",
+            "type": "boolean"
+          },
+          "too_large": {
+            "description": "File diff is excluded and cannot be retrieved.",
+            "title": "Too Large",
+            "type": "boolean"
+          }
+        },
+        "required": ["deleted_file", "new_file", "new_path", "old_path", "renamed_file"],
+        "title": "CommitDiff",
+        "type": "object"
+      },
+      "GetCommitDiffResponse": {
+        "properties": {
+          "diffs": {
+            "description": "File diffs for this response page.",
+            "items": {
+              "$ref": "#/$defs/CommitDiff"
+            },
+            "title": "Diffs",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          }
+        },
+        "required": ["diffs"],
+        "title": "GetCommitDiffResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCommitDiffResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

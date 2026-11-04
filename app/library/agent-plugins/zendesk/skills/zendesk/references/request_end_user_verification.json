@@ -1,0 +1,61 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Send a verification email to an end user to verify ownership of their email address identity. The end user receives an email with a link to confirm their identity. Use when you need to verify an end user's email address identity in Zendesk, such as when creating new end users or resolving identity verification issues. Note: This action can only be performed by verified end users.",
+  "inputSchema": {
+    "description": "Request parameters for requesting end user identity verification.",
+    "properties": {
+      "user_id": {
+        "description": "The numeric ID of the end user",
+        "examples": [26923127464348],
+        "title": "User Id",
+        "type": "integer"
+      },
+      "user_identity_id": {
+        "description": "The numeric ID of the user identity to verify",
+        "examples": [26923118043804],
+        "title": "User Identity Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id", "user_identity_id"],
+    "title": "RequestEndUserVerificationRequest",
+    "type": "object"
+  },
+  "name": "request_end_user_verification",
+  "outputSchema": {
+    "$defs": {
+      "RequestEndUserVerificationResponse": {
+        "description": "Response from requesting end user identity verification.",
+        "properties": {
+          "sent_at": {
+            "description": "Timestamp when the verification email was sent",
+            "examples": ["2025-04-21T10:30:00Z"],
+            "title": "Sent At",
+            "type": "string"
+          },
+          "verified": {
+            "description": "Whether the identity has been verified. Returns true if verification email was sent successfully.",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "title": "RequestEndUserVerificationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RequestEndUserVerificationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

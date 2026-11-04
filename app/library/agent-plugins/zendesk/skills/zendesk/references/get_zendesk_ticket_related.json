@@ -1,0 +1,77 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get related information for a specific Zendesk ticket. This endpoint returns data about tickets that are related to the specified ticket, including follow-up sources, associated Jira issues, and incident counts. Use this action when you need to understand the relationships and connections between tickets in Zendesk.",
+  "inputSchema": {
+    "description": "Request parameters for getting ticket related information.",
+    "properties": {
+      "ticket_id": {
+        "description": "The ID of the ticket to get related information for.",
+        "examples": [123456],
+        "human_parameter_description": "The number of the Zendesk ticket you want to view related information for. You can find this ID in the ticket URL or from a ticket list.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "GetZendeskTicketRelatedRequest",
+    "type": "object"
+  },
+  "name": "get_zendesk_ticket_related",
+  "outputSchema": {
+    "$defs": {
+      "GetZendeskTicketRelatedResponse": {
+        "description": "Response containing ticket related information.",
+        "properties": {
+          "followup_source_ids": {
+            "description": "List of source IDs for follow-up tickets related to this ticket.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Followup Source Ids",
+            "type": "array"
+          },
+          "from_archive": {
+            "description": "Indicates whether the current ticket is archived.",
+            "title": "From Archive",
+            "type": "boolean"
+          },
+          "incidents": {
+            "description": "Count of related incident occurrences for this ticket.",
+            "title": "Incidents",
+            "type": "integer"
+          },
+          "jira_issue_ids": {
+            "description": "List of Jira issue IDs associated with this ticket.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Jira Issue Ids",
+            "type": "array"
+          },
+          "topic_id": {
+            "description": "Related topic ID in the Web portal. This is a deprecated feature.",
+            "title": "Topic Id",
+            "type": "string"
+          }
+        },
+        "title": "GetZendeskTicketRelatedResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetZendeskTicketRelatedResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

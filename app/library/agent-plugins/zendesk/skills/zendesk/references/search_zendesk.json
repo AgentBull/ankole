@@ -1,0 +1,230 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to search for tickets, users, organizations, and groups in Zendesk using query syntax. Use when you need to find resources across Zendesk using flexible search criteria.",
+  "inputSchema": {
+    "description": "Request parameters for searching Zendesk resources.",
+    "properties": {
+      "include": {
+        "description": "Sideloads to include in the response, returned as top-level arrays alongside `results`. Zendesk's search endpoint requires nested syntax: `<result_type>(<resource1>,<resource2>)`. Combine multiple result types with commas. Common sideloads: `users`, `groups`, `organizations`. A flat comma list (e.g. 'users,groups') is silently ignored by Zendesk.",
+        "examples": [
+          "tickets(users,groups,organizations)",
+          "tickets(users),users(organizations)",
+          "users(organizations)"
+        ],
+        "title": "Include",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number for offset pagination.",
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of results per page. Default: 10, max: 100.",
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "query": {
+        "description": "The search query string. Supports Zendesk query syntax for filtering by type, status, priority, etc. Example: 'type:ticket status:open priority:urgent' or 'assignee:me status:pending'.",
+        "examples": ["type:ticket status:open", "type:user email:john@example.com", "type:organization name:Acme"],
+        "title": "Query",
+        "type": "string"
+      },
+      "sort_by": {
+        "description": "Field to sort results by. Options: 'updated_at', 'created_at', 'priority', 'status', 'ticket_type'. Defaults to sorting by relevance if not specified.",
+        "examples": ["updated_at", "created_at", "priority"],
+        "title": "Sort By",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort order direction. Options: 'asc' (ascending) or 'desc' (descending). Defaults to 'desc' if not specified.",
+        "examples": ["desc", "asc"],
+        "title": "Sort Order",
+        "type": "string"
+      }
+    },
+    "required": ["query"],
+    "title": "SearchZendeskRequest",
+    "type": "object"
+  },
+  "name": "search_zendesk",
+  "outputSchema": {
+    "$defs": {
+      "SearchResult": {
+        "description": "A search result object from Zendesk.",
+        "properties": {
+          "active": {
+            "description": "Whether the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "assignee_id": {
+            "description": "Assignee ID (for ticket results)",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "created_at": {
+            "description": "Creation timestamp in ISO 8601 format",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether this is a default object (for group results)",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "deleted": {
+            "description": "Whether this object is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Description of the result object",
+            "title": "Description",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address (for user results)",
+            "title": "Email",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External ID linking to records in another system",
+            "title": "External Id",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "Group ID (for ticket results)",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The ID of the result object",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Name of the result object",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "Organization ID associated with the result",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Priority (for ticket results)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "Requester ID (for ticket results)",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "result_type": {
+            "description": "The type of result: 'ticket', 'user', 'organization', or 'group'",
+            "title": "Result Type",
+            "type": "string"
+          },
+          "role": {
+            "description": "Role (for user results)",
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status (for ticket results)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Subject (for ticket results)",
+            "title": "Subject",
+            "type": "string"
+          },
+          "tags": {
+            "description": "Tags associated with the object",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "description": "Type (for ticket results)",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp in ISO 8601 format",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL for the result object",
+            "title": "Url",
+            "type": "string"
+          },
+          "verified": {
+            "description": "Whether the user is verified",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "title": "SearchResult",
+        "type": "object"
+      },
+      "SearchZendeskResponse": {
+        "description": "Response from Zendesk search API with results and pagination.",
+        "properties": {
+          "count": {
+            "description": "The number of resources returned in this page of results",
+            "title": "Count",
+            "type": "integer"
+          },
+          "facets": {
+            "description": "Facets corresponding to the search query",
+            "title": "Facets",
+            "type": "string"
+          },
+          "next_page": {
+            "description": "URL for the next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for the previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "results": {
+            "description": "Array of search results (tickets, users, organizations, groups)",
+            "items": {
+              "$ref": "#/$defs/SearchResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": ["results", "count"],
+        "title": "SearchZendeskResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SearchZendeskResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

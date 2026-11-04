@@ -1,0 +1,117 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Links a Sentry user to an external identity provider's user within a Sentry organization; the Sentry user must be an organization member, an active integration for the provider must be configured, and `external_id` is typically required for the external user.",
+  "inputSchema": {
+    "description": "Request schema for linking an external provider's user to a Sentry user within an organization.",
+    "properties": {
+      "external_id": {
+        "description": "The user's unique identifier on the external provider's platform (e.g., GitHub user ID, Slack member ID). This ID is specific to the selected `provider`.",
+        "examples": ["U123ABC456", "gh-user-789", "gitlab-user-id-123"],
+        "title": "External Id",
+        "type": "string"
+      },
+      "external_name": {
+        "description": "The display name of the user as known on the external provider's platform (e.g., GitHub username, Slack display name).",
+        "examples": ["octocat", "jane.doe.slack"],
+        "title": "External Name",
+        "type": "string"
+      },
+      "id": {
+        "description": "The unique numeric identifier for the external actor linkage being created. Its specific use may depend on the integration or Sentry's internal handling.",
+        "examples": [734, 982],
+        "title": "Id",
+        "type": "integer"
+      },
+      "integration_id": {
+        "description": "The numeric ID of the Sentry integration that corresponds to the specified provider and is configured for the organization.",
+        "examples": [1, 42],
+        "title": "Integration Id",
+        "type": "integer"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID or slug) of the Sentry organization where the external user linkage will be created.",
+        "examples": ["my-sentry-org", "acme-corp"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "provider": {
+        "description": "The external identity provider. Allowed values: `github`, `github_enterprise`, `slack`, `gitlab`, `msteams`, `custom_scm`.",
+        "enum": ["github", "github_enterprise", "slack", "gitlab", "msteams", "custom_scm"],
+        "examples": ["github", "slack"],
+        "title": "Provider",
+        "type": "string"
+      },
+      "user_id": {
+        "description": "The numeric ID of the Sentry user to be linked with the external identity.",
+        "examples": [101, 202],
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id_or_slug", "user_id", "external_name", "provider", "integration_id", "id"],
+    "title": "CreateExternalUserForOrganizationRequest",
+    "type": "object"
+  },
+  "name": "create_external_user_for_organization",
+  "outputSchema": {
+    "$defs": {
+      "CreateExternalUserForOrganizationResponse": {
+        "description": "Response schema for `CreateExternalUserForOrganization`, containing details of the created external user linkage.",
+        "properties": {
+          "externalId": {
+            "description": "The associated user ID for provider.",
+            "title": "External Id",
+            "type": "string"
+          },
+          "externalName": {
+            "description": "The associated name for the provider (e.g., '@Billybob' for GitHub username).",
+            "title": "External Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The external actor ID (unique identifier for the external user record).",
+            "title": "Id",
+            "type": "string"
+          },
+          "integrationId": {
+            "description": "The Integration ID.",
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "provider": {
+            "description": "The provider of the external actor (e.g., 'github').",
+            "title": "Provider",
+            "type": "string"
+          },
+          "teamId": {
+            "description": "The team ID.",
+            "title": "Team Id",
+            "type": "string"
+          },
+          "userId": {
+            "description": "The user ID in Sentry.",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": ["id", "externalName", "provider", "userId", "integrationId"],
+        "title": "CreateExternalUserForOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateExternalUserForOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,397 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Manages variables, collections, modes, and their values in a Figma file via batch create/update/delete operations; use temporary IDs to link new related items in one request and ensure `variableModeValues` match the target variable's `resolvedType`.",
+  "inputSchema": {
+    "description": "Request schema for creating, modifying, or deleting variables, variable collections, and modes.",
+    "properties": {
+      "file_key": {
+        "description": "The key of the Figma file or branch to modify variables in. Use `GET /v1/files/:key` with the `branch_data=true` query parameter to obtain a branch key.",
+        "examples": ["your_figma_file_key", "your_figma_branch_key"],
+        "title": "File Key",
+        "type": "string"
+      },
+      "variableCollections": {
+        "default": [],
+        "description": "List of operations for variable collections. Each item specifies an action (CREATE, UPDATE, DELETE) and the relevant fields for that action.",
+        "items": {
+          "description": "Mutation operation for a variable collection (CREATE, UPDATE, or DELETE).",
+          "properties": {
+            "action": {
+              "description": "The mutation action: 'CREATE', 'UPDATE', or 'DELETE'.",
+              "enum": ["CREATE", "UPDATE", "DELETE"],
+              "title": "Action",
+              "type": "string"
+            },
+            "hiddenFromPublishing": {
+              "description": "Controls visibility in published libraries. Optional for CREATE and UPDATE.",
+              "title": "Hidden From Publishing",
+              "type": "boolean"
+            },
+            "id": {
+              "description": "The ID of the collection. Required for UPDATE and DELETE. For CREATE, can be a temporary ID to reference in other mutations within the same request.",
+              "title": "Id",
+              "type": "string"
+            },
+            "initialModeId": {
+              "description": "For CREATE only: A temporary ID for the default mode created with the collection. Incompatible with 'parentVariableCollectionId'.",
+              "title": "Initial Mode Id",
+              "type": "string"
+            },
+            "initialModeIdToParentModeIdMapping": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "For CREATE with extended collections only: Maps parent mode IDs to temporary IDs for the new collection's modes. Only valid when 'parentVariableCollectionId' is set.",
+              "title": "Initial Mode Id To Parent Mode Id Mapping",
+              "type": "object"
+            },
+            "name": {
+              "description": "The display name of the collection. Required for CREATE, optional for UPDATE.",
+              "title": "Name",
+              "type": "string"
+            },
+            "parentVariableCollectionId": {
+              "description": "For CREATE only: ID of the parent collection to extend. Creates an extended collection inheriting from parent. Incompatible with 'initialModeId'.",
+              "title": "Parent Variable Collection Id",
+              "type": "string"
+            }
+          },
+          "required": ["action"],
+          "title": "VariableCollectionChange",
+          "type": "object"
+        },
+        "title": "Variable Collections",
+        "type": "array"
+      },
+      "variableModeValues": {
+        "default": [],
+        "description": "List of value assignments for variables in specific modes. Each item sets the value of a variable in a particular mode. Values must match the variable's resolvedType.",
+        "items": {
+          "description": "Sets a specific value for a variable in a given mode.",
+          "properties": {
+            "modeId": {
+              "description": "The ID of the mode in which to set the variable's value. This mode must belong to the variable collection containing the target variable. For extended collections, use the extended mode ID format to create value overrides.",
+              "title": "Mode Id",
+              "type": "string"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "description": "RGBA color value with channels normalized between 0.0 and 1.0.",
+                  "properties": {
+                    "a": {
+                      "description": "Alpha (opacity) channel value.",
+                      "maximum": 1,
+                      "minimum": 0,
+                      "title": "A",
+                      "type": "number"
+                    },
+                    "b": {
+                      "description": "Blue color channel value.",
+                      "maximum": 1,
+                      "minimum": 0,
+                      "title": "B",
+                      "type": "number"
+                    },
+                    "g": {
+                      "description": "Green color channel value.",
+                      "maximum": 1,
+                      "minimum": 0,
+                      "title": "G",
+                      "type": "number"
+                    },
+                    "r": {
+                      "description": "Red color channel value.",
+                      "maximum": 1,
+                      "minimum": 0,
+                      "title": "R",
+                      "type": "number"
+                    }
+                  },
+                  "required": ["r", "g", "b", "a"],
+                  "title": "ColorValue",
+                  "type": "object"
+                },
+                {
+                  "description": "Reference to another variable (alias).",
+                  "properties": {
+                    "id": {
+                      "description": "The ID of the variable to alias. Can be a temporary ID if the aliased variable is being created in the same request.",
+                      "title": "Id",
+                      "type": "string"
+                    },
+                    "type": {
+                      "default": "VARIABLE_ALIAS",
+                      "description": "Type indicator, always 'VARIABLE_ALIAS'.",
+                      "enum": ["VARIABLE_ALIAS"],
+                      "title": "VariableAliasType",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id"],
+                  "title": "VariableAlias",
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The value to set for the variable. Must match the variable's resolvedType: boolean for BOOLEAN, number for FLOAT, string for STRING, ColorValue object (with r,g,b,a from 0-1) for COLOR, or a VariableAlias object to reference another variable. Use null only to remove overrides in extended collections.",
+              "title": "Value"
+            },
+            "variableId": {
+              "description": "The ID of the target variable. Can be a temporary ID if the variable is being created in the same request.",
+              "title": "Variable Id",
+              "type": "string"
+            }
+          },
+          "required": ["variableId", "modeId", "value"],
+          "title": "VariableModeValueChange",
+          "type": "object"
+        },
+        "title": "Variable Mode Values",
+        "type": "array"
+      },
+      "variableModes": {
+        "default": [],
+        "description": "List of operations for modes. Each item specifies an action (CREATE, UPDATE, DELETE) and the relevant fields. Maximum 40 modes per collection. Modes cannot be created/updated in extended collections (only deleted if parent mode was deleted).",
+        "items": {
+          "description": "Mutation operation for a variable mode (CREATE, UPDATE, or DELETE).",
+          "properties": {
+            "action": {
+              "description": "The mutation action: 'CREATE', 'UPDATE', or 'DELETE'.",
+              "enum": ["CREATE", "UPDATE", "DELETE"],
+              "title": "Action",
+              "type": "string"
+            },
+            "id": {
+              "description": "The ID of the mode. Required for UPDATE and DELETE. For CREATE, can be a temporary ID to reference in other mutations within the same request.",
+              "title": "Id",
+              "type": "string"
+            },
+            "name": {
+              "description": "The display name of the mode. Required for CREATE, optional for UPDATE (max 40 characters).",
+              "maxLength": 40,
+              "title": "Name",
+              "type": "string"
+            },
+            "variableCollectionId": {
+              "description": "The ID of the variable collection this mode belongs to. Required for CREATE. Can reference a temporary collection ID from the same request.",
+              "title": "Variable Collection Id",
+              "type": "string"
+            }
+          },
+          "required": ["action"],
+          "title": "VariableModeChange",
+          "type": "object"
+        },
+        "title": "Variable Modes",
+        "type": "array"
+      },
+      "variables": {
+        "default": [],
+        "description": "List of operations for variables. Each item specifies an action (CREATE, UPDATE, DELETE) and the relevant fields. Maximum 5000 variables per collection. Variables cannot be created in extended collections.",
+        "items": {
+          "description": "Mutation operation for a variable (CREATE, UPDATE, or DELETE).",
+          "properties": {
+            "action": {
+              "description": "The mutation action: 'CREATE', 'UPDATE', or 'DELETE'.",
+              "enum": ["CREATE", "UPDATE", "DELETE"],
+              "title": "Action",
+              "type": "string"
+            },
+            "codeSyntax": {
+              "additionalProperties": false,
+              "description": "Platform-specific code representations for a variable.",
+              "properties": {
+                "ANDROID": {
+                  "description": "Code syntax representation for Android platform.",
+                  "title": "Android",
+                  "type": "string"
+                },
+                "WEB": {
+                  "description": "Code syntax representation for web platform.",
+                  "title": "Web",
+                  "type": "string"
+                },
+                "iOS": {
+                  "description": "Code syntax representation for iOS platform.",
+                  "title": "I Os",
+                  "type": "string"
+                }
+              },
+              "title": "VariableCodeSyntax",
+              "type": "object"
+            },
+            "description": {
+              "description": "A description of the variable for documentation purposes. Optional for CREATE and UPDATE.",
+              "title": "Description",
+              "type": "string"
+            },
+            "hiddenFromPublishing": {
+              "description": "Controls visibility in published libraries. Optional for CREATE and UPDATE.",
+              "title": "Hidden From Publishing",
+              "type": "boolean"
+            },
+            "id": {
+              "description": "The ID of the variable. Required for UPDATE and DELETE. For CREATE, can be a temporary ID to reference in other mutations within the same request.",
+              "title": "Id",
+              "type": "string"
+            },
+            "name": {
+              "description": "The display name of the variable. Required for CREATE, optional for UPDATE. Must be unique within the collection. Cannot contain '.', '{', or '}'.",
+              "title": "Name",
+              "type": "string"
+            },
+            "resolvedType": {
+              "description": "The resolved data type of a variable.",
+              "enum": ["BOOLEAN", "FLOAT", "STRING", "COLOR"],
+              "title": "ResolvedType",
+              "type": "string"
+            },
+            "scopes": {
+              "description": "List of scopes that control where this variable is shown in the Figma UI variable picker. Optional for CREATE and UPDATE.",
+              "items": {
+                "description": "Scopes that control where a variable is shown in the Figma UI variable picker.",
+                "enum": [
+                  "ALL_SCOPES",
+                  "TEXT_CONTENT",
+                  "CORNER_RADIUS",
+                  "WIDTH_HEIGHT",
+                  "GAP",
+                  "ALL_FILLS",
+                  "FRAME_FILL",
+                  "SHAPE_FILL",
+                  "TEXT_FILL",
+                  "STROKE_COLOR",
+                  "STROKE_FLOAT",
+                  "EFFECT_FLOAT",
+                  "EFFECT_COLOR",
+                  "OPACITY",
+                  "FONT_FAMILY",
+                  "FONT_STYLE",
+                  "FONT_WEIGHT",
+                  "FONT_SIZE",
+                  "LINE_HEIGHT",
+                  "LETTER_SPACING",
+                  "PARAGRAPH_SPACING",
+                  "PARAGRAPH_INDENT"
+                ],
+                "title": "VariableScope",
+                "type": "string"
+              },
+              "title": "Scopes",
+              "type": "array"
+            },
+            "variableCollectionId": {
+              "description": "The ID of the variable collection this variable belongs to. Required for CREATE. Can reference a temporary collection ID from the same request.",
+              "title": "Variable Collection Id",
+              "type": "string"
+            }
+          },
+          "required": ["action"],
+          "title": "VariableChange",
+          "type": "object"
+        },
+        "title": "Variables",
+        "type": "array"
+      }
+    },
+    "required": ["file_key"],
+    "title": "CreateModifyDeleteVariablesRequest",
+    "type": "object"
+  },
+  "name": "create_modify_delete_variables",
+  "outputSchema": {
+    "$defs": {
+      "CreateModifyDeleteVariablesResponse": {
+        "description": "Response schema for the create, modify, or delete variables operation.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/ResponseModel",
+            "description": "The main part of the response, containing status, error indication, and metadata from the operation.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "CreateModifyDeleteVariablesResponse",
+        "type": "object"
+      },
+      "ResponseError": {
+        "enum": [false],
+        "title": "ResponseError",
+        "type": "boolean"
+      },
+      "ResponseMeta": {
+        "description": "Metadata about the performed operations.",
+        "properties": {
+          "tempIdToRealId": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "description": "A mapping from temporary IDs provided in the request (for newly created items) to their permanent, real IDs assigned by Figma after creation. Keys are the temporary IDs you provided, values are the permanent IDs assigned by Figma.",
+            "title": "Temp Id To Real Id",
+            "type": "object"
+          }
+        },
+        "title": "ResponseMeta",
+        "type": "object"
+      },
+      "ResponseModel": {
+        "description": "The main response data structure.",
+        "properties": {
+          "error": {
+            "$ref": "#/$defs/ResponseError",
+            "description": "A boolean flag indicating if an error occurred. For successful requests, this value is always `false`.",
+            "title": "Error"
+          },
+          "meta": {
+            "$ref": "#/$defs/ResponseMeta",
+            "description": "Contains metadata about the performed operations, including the mapping of temporary IDs to real IDs for newly created entities.",
+            "title": "Meta"
+          },
+          "status": {
+            "$ref": "#/$defs/ResponseStatus",
+            "description": "The HTTP status code of the response. Typically 200 for success.",
+            "title": "Status"
+          }
+        },
+        "required": ["status", "error", "meta"],
+        "title": "ResponseModel",
+        "type": "object"
+      },
+      "ResponseStatus": {
+        "enum": [200],
+        "title": "ResponseStatus",
+        "type": "integer"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateModifyDeleteVariablesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

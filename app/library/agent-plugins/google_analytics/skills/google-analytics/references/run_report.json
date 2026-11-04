@@ -1,0 +1,493 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Run a customized GA4 event-data report for a property using dimensions, metrics, filters and date ranges or a cohort specification. Requests can include up to 9 dimensions and 10 metrics, with offset and limit for pagination. Dimensions, metrics and filters must be compatible; use google_analytics.check_compatibility to check combinations. The invalid `dateRange` dimension is removed from requests; use a date dimension for date-based grouping.",
+  "inputSchema": {
+    "description": "Request model for running a customized Google Analytics 4 report.",
+    "properties": {
+      "cohortSpec": {
+        "additionalProperties": true,
+        "description": "Optional. Cohort specification. Requires requesting the cohort dimension.",
+        "title": "Cohort Spec",
+        "type": "object"
+      },
+      "comparisons": {
+        "description": "Optional. The comparison configuration. Adds a comparison column to the response.",
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Comparisons",
+        "type": "array"
+      },
+      "currencyCode": {
+        "description": "Optional. The currency code to apply, in ISO 4217 format. Defaults to property currency.",
+        "examples": ["USD"],
+        "title": "Currency Code",
+        "type": "string"
+      },
+      "dateRanges": {
+        "description": "The date ranges to read. Required for standard reports. Each range MUST be an object with required 'startDate' and 'endDate' fields (both must be non-empty). Dates can be in YYYY-MM-DD format or special values like 'today', 'yesterday', '7daysAgo', '30daysAgo'. IMPORTANT: For cohort requests (when cohortSpec is provided), dateRanges must be omitted.",
+        "examples": [
+          {
+            "endDate": "2023-01-31",
+            "startDate": "2023-01-01"
+          }
+        ],
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "minItems": 1,
+        "title": "Date Ranges",
+        "type": "array"
+      },
+      "dimensionFilter": {
+        "additionalProperties": true,
+        "description": "Optional. Filter expression to restrict rows by dimension values. IMPORTANT: Only use dimension field names here (e.g., 'country', 'city', 'date', 'deviceCategory', 'pagePath'). Do NOT use metric names in dimensionFilter - if you need to filter by a metric (e.g., 'activeUsers', 'sessions', 'ecommercePurchases'), use metricFilter instead. Structure: {'filter': {'fieldName': '<dimension_name>', 'stringFilter': {...}}} or use 'andGroup'/'orGroup' for multiple conditions. COMPATIBILITY WARNING: Dimension filters must be compatible with the dimensions in your request. For example, filtering on 'sessionCampaignName' while using demographic dimensions (userAgeBracket, userGender) will fail. The filter field creates an implicit dimension that must be compatible with all other dimensions and metrics. Use google_analytics.check_compatibility to verify your filter dimensions work with your requested dimensions/metrics.",
+        "title": "Dimension Filter",
+        "type": "object"
+      },
+      "dimensions": {
+        "description": "Optional. The dimensions to request and display. Maximum 9 dimensions per request. Each dimension MUST be an object with a required non-empty 'name' field. Common valid dimension names: date, dateHour, dateHourMinute, year, month, week, day, dayOfWeek, hour, city, cityId, country, countryId, continent, continentId, region, subContinent, deviceCategory, browser, operatingSystem, platform, platformDeviceCategory, screenResolution, sessionSource, sessionMedium, sessionSourceMedium, sessionCampaignName, sessionDefaultChannelGroup, firstUserSource, firstUserMedium, firstUserCampaignName, firstUserDefaultChannelGroup, pagePath, pagePathPlusQueryString, pageTitle, landingPage, hostname, eventName, streamName, userAgeBracket, userGender, language, newVsReturning. Custom dimensions: 'customEvent:parameter_name' or 'customUser:parameter_name'. 'dateRange' is NOT a valid dimension — use date dimensions (date, dateHour, year, month, etc.) instead. 'exits' is NOT a valid dimension in GA4. COMPATIBILITY: Not all dimensions can be combined with each other or with certain metrics/filters. If you receive a compatibility error, use google_analytics.check_compatibility to validate combinations, or see https://developers.google.com/analytics/devguides/reporting/data/v1/compatibility",
+        "examples": [
+          {
+            "name": "city"
+          },
+          {
+            "name": "date"
+          },
+          {
+            "name": "deviceCategory"
+          }
+        ],
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Dimensions",
+        "type": "array"
+      },
+      "keepEmptyRows": {
+        "description": "Optional. If true, rows with all zero metrics will be returned; otherwise omitted.",
+        "title": "Keep Empty Rows",
+        "type": "boolean"
+      },
+      "limit": {
+        "description": "Optional. Number of rows to return. Must be between 1 and 250000.",
+        "examples": [1000],
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "metricAggregations": {
+        "description": "Optional. Aggregation types to include over metrics, e.g., 'TOTAL', 'MINIMUM', 'MAXIMUM'.",
+        "examples": ["TOTAL"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Metric Aggregations",
+        "type": "array"
+      },
+      "metricFilter": {
+        "additionalProperties": true,
+        "description": "Optional. Filter expression to restrict rows by metric values. Applied after aggregation. IMPORTANT: Only use metric field names here (e.g., 'activeUsers', 'sessions', 'ecommercePurchases', 'purchaseRevenue'). Do NOT use dimension names in metricFilter - if you need to filter by a dimension (e.g., 'country', 'city', 'pagePath'), use dimensionFilter instead. The action validates that only metric names are used in metricFilter and will reject dimension names with a clear error. Structure: {'filter': {'fieldName': '<metric_name>', 'numericFilter': {'operation': 'GREATER_THAN', 'value': {'int64Value': '0'}}}} or use 'andGroup'/'orGroup' for multiple conditions.",
+        "title": "Metric Filter",
+        "type": "object"
+      },
+      "metrics": {
+        "description": "Optional. The metrics to request and display. Maximum 10 metrics per request. Each metric MUST be an object with a required non-empty 'name' field. Common valid metric names: activeUsers, totalUsers, newUsers, sessions, engagedSessions, screenPageViews, eventCount, conversions, userEngagementDuration, engagementRate, bounceRate, averageSessionDuration, sessionsPerUser, screenPageViewsPerSession, purchaseRevenue, totalRevenue, transactions, ecommercePurchases, publisherAdClicks, publisherAdImpressions, totalAdRevenue. Custom metrics use format 'customEvent:parameter_name'. CRITICAL: 'averageEngagementTime' is NOT a valid metric - use 'userEngagementDuration' or 'averageSessionDuration' instead. 'exits' is NOT a valid metric in GA4.",
+        "examples": [
+          {
+            "name": "activeUsers"
+          },
+          {
+            "name": "sessions"
+          },
+          {
+            "name": "screenPageViews"
+          }
+        ],
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Metrics",
+        "type": "array"
+      },
+      "offset": {
+        "description": "Optional. 0-based start row for pagination. Must be >= 0.",
+        "examples": [0],
+        "minimum": 0,
+        "title": "Offset",
+        "type": "integer"
+      },
+      "orderBys": {
+        "description": "Optional. Specify how rows are ordered. Each OrderBy object must have 'desc' (boolean) at the top level and exactly one of: 'metric' (with 'metricName' string), 'dimension' (with 'dimensionName' or 'name' string and optional 'orderType': 'ALPHANUMERIC', 'CASE_INSENSITIVE_ALPHANUMERIC', or 'NUMERIC'), or 'pivot'. Note: For dimension ordering, you can use either 'dimensionName' or 'name' field - both are accepted and normalized. Example for metric ordering: {'desc': true, 'metric': {'metricName': 'activeUsers'}}. Example for dimension ordering: {'desc': false, 'dimension': {'dimensionName': 'country', 'orderType': 'ALPHANUMERIC'}}.",
+        "examples": [
+          {
+            "desc": true,
+            "metric": {
+              "metricName": "activeUsers"
+            }
+          },
+          {
+            "desc": false,
+            "dimension": {
+              "dimensionName": "country",
+              "orderType": "ALPHANUMERIC"
+            }
+          }
+        ],
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Order Bys",
+        "type": "array"
+      },
+      "property": {
+        "description": "Required. The property resource on which to run the report. Format: properties/{property_id} where property_id must be a numeric ID (e.g., 'properties/123456789').",
+        "examples": ["properties/123456789"],
+        "title": "Property",
+        "type": "string"
+      },
+      "removedDimensionsInternal": {
+        "description": "Internal field to store filtered dimension names for execution message. Not sent to API.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Removed Dimensions Internal",
+        "type": "array"
+      },
+      "returnPropertyQuota": {
+        "description": "Optional. If true, include the property's current quota state in the response.",
+        "title": "Return Property Quota",
+        "type": "boolean"
+      }
+    },
+    "required": ["property"],
+    "title": "RunReportRequest",
+    "type": "object"
+  },
+  "name": "run_report",
+  "outputSchema": {
+    "$defs": {
+      "ActiveMetricRestriction": {
+        "description": "Restricted metric information.",
+        "properties": {
+          "metricName": {
+            "description": "The metric name.",
+            "title": "Metric Name",
+            "type": "string"
+          },
+          "restrictedMetricTypes": {
+            "description": "Restricted metric types (e.g., COST_DATA, REVENUE_DATA).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Restricted Metric Types",
+            "type": "array"
+          }
+        },
+        "title": "ActiveMetricRestriction",
+        "type": "object"
+      },
+      "DimensionHeader": {
+        "description": "Describes dimension columns in the report.",
+        "properties": {
+          "name": {
+            "description": "The dimension's name.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "DimensionHeader",
+        "type": "object"
+      },
+      "DimensionValue": {
+        "description": "Value for a dimension in a GA4 report row.",
+        "properties": {
+          "value": {
+            "description": "Value as a string if the dimension type is a string.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "DimensionValue",
+        "type": "object"
+      },
+      "MetricHeader": {
+        "description": "Describes metric columns in the report.",
+        "properties": {
+          "name": {
+            "description": "The metric's name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "The metric's data type (e.g., TYPE_INTEGER, TYPE_FLOAT, TYPE_CURRENCY, etc.).",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "MetricHeader",
+        "type": "object"
+      },
+      "MetricValue": {
+        "description": "Value for a metric in a GA4 report row.",
+        "properties": {
+          "value": {
+            "description": "Measurement value as a string. See MetricHeader for type.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "MetricValue",
+        "type": "object"
+      },
+      "PropertyQuota": {
+        "description": "Current quota state for the Analytics property.",
+        "properties": {
+          "concurrentRequests": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Standard properties: 10 concurrent requests; Analytics 360: 50 concurrent requests.",
+            "title": "Concurrent Requests"
+          },
+          "potentiallyThresholdedRequestsPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Requests with potentially thresholded dimensions allowed per hour (120 for all properties).",
+            "title": "Potentially Thresholded Requests Per Hour"
+          },
+          "serverErrorsPerProjectPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Server errors allowed per project hourly. Standard: 10; Analytics 360: 50.",
+            "title": "Server Errors Per Project Per Hour"
+          },
+          "tokensPerDay": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Standard properties: 200,000 tokens/day; Analytics 360: 2,000,000 tokens/day.",
+            "title": "Tokens Per Day"
+          },
+          "tokensPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Standard properties: 40,000 tokens/hour; Analytics 360: 400,000 tokens/hour.",
+            "title": "Tokens Per Hour"
+          },
+          "tokensPerProjectPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Properties can use up to 35% of their tokens per project per hour.",
+            "title": "Tokens Per Project Per Hour"
+          }
+        },
+        "title": "PropertyQuota",
+        "type": "object"
+      },
+      "QuotaStatus": {
+        "description": "Current quota status for a property.",
+        "properties": {
+          "consumed": {
+            "description": "Quota consumed by this request.",
+            "title": "Consumed",
+            "type": "integer"
+          },
+          "remaining": {
+            "description": "Quota remaining after this request.",
+            "title": "Remaining",
+            "type": "integer"
+          }
+        },
+        "title": "QuotaStatus",
+        "type": "object"
+      },
+      "ResponseMetaData": {
+        "description": "Metadata about the report execution and context.",
+        "properties": {
+          "currencyCode": {
+            "description": "Currency code in ISO 4217 format (e.g., USD).",
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "dataLossFromOtherRow": {
+            "description": "If true, dimension combinations are rolled into '(other)' row.",
+            "title": "Data Loss From Other Row",
+            "type": "boolean"
+          },
+          "emptyReason": {
+            "description": "Reason if report is empty.",
+            "title": "Empty Reason",
+            "type": "string"
+          },
+          "samplingMetadatas": {
+            "description": "Sampling information for each date range.",
+            "items": {
+              "$ref": "#/$defs/SamplingMetadata"
+            },
+            "title": "Sampling Metadatas",
+            "type": "array"
+          },
+          "schemaRestrictionResponse": {
+            "$ref": "#/$defs/SchemaRestrictionResponse",
+            "description": "Active schema restrictions applied.",
+            "title": "Schema Restriction Response"
+          },
+          "subjectToThresholding": {
+            "description": "Whether data meets minimum aggregation thresholds.",
+            "title": "Subject To Thresholding",
+            "type": "boolean"
+          },
+          "timeZone": {
+            "description": "Property's timezone from IANA Time Zone Database.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "title": "ResponseMetaData",
+        "type": "object"
+      },
+      "Row": {
+        "description": "Report data row with dimension and metric values.",
+        "properties": {
+          "dimensionValues": {
+            "description": "List of requested dimension values.",
+            "items": {
+              "$ref": "#/$defs/DimensionValue"
+            },
+            "title": "Dimension Values",
+            "type": "array"
+          },
+          "metricValues": {
+            "description": "List of requested metric values.",
+            "items": {
+              "$ref": "#/$defs/MetricValue"
+            },
+            "title": "Metric Values",
+            "type": "array"
+          }
+        },
+        "title": "Row",
+        "type": "object"
+      },
+      "RunReportResponse": {
+        "description": "Response model for runReport action.",
+        "properties": {
+          "dimensionHeaders": {
+            "description": "Describes the dimension columns in the report. Only present when dimensions are requested.",
+            "items": {
+              "$ref": "#/$defs/DimensionHeader"
+            },
+            "title": "Dimension Headers",
+            "type": "array"
+          },
+          "kind": {
+            "description": "Fixed string 'analyticsData#runReport' to identify the response type.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "maximums": {
+            "description": "Maximum values for the requested metrics.",
+            "items": {
+              "$ref": "#/$defs/Row"
+            },
+            "title": "Maximums",
+            "type": "array"
+          },
+          "metadata": {
+            "$ref": "#/$defs/ResponseMetaData",
+            "description": "Metadata about the report execution and context.",
+            "title": "Metadata"
+          },
+          "metricHeaders": {
+            "description": "Describes the metric columns in the report. Only present when metrics are requested.",
+            "items": {
+              "$ref": "#/$defs/MetricHeader"
+            },
+            "title": "Metric Headers",
+            "type": "array"
+          },
+          "minimums": {
+            "description": "Minimum values for the requested metrics.",
+            "items": {
+              "$ref": "#/$defs/Row"
+            },
+            "title": "Minimums",
+            "type": "array"
+          },
+          "propertyQuota": {
+            "$ref": "#/$defs/PropertyQuota",
+            "description": "Property quota state including this request.",
+            "title": "Property Quota"
+          },
+          "rowCount": {
+            "description": "Total number of rows matching the query, independent of pagination. May be absent if no data matches.",
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "rows": {
+            "description": "Rows of dimension values and metric values. May be empty or absent if no data matches the query.",
+            "items": {
+              "$ref": "#/$defs/Row"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "totals": {
+            "description": "Aggregated totals for the requested metrics.",
+            "items": {
+              "$ref": "#/$defs/Row"
+            },
+            "title": "Totals",
+            "type": "array"
+          }
+        },
+        "title": "RunReportResponse",
+        "type": "object"
+      },
+      "SamplingMetadata": {
+        "description": "Sampling information for a date range.",
+        "properties": {
+          "samplesReadCount": {
+            "description": "Number of events analyzed (int64 as string).",
+            "title": "Samples Read Count",
+            "type": "string"
+          },
+          "samplingSpaceSize": {
+            "description": "Total available events (int64 as string).",
+            "title": "Sampling Space Size",
+            "type": "string"
+          }
+        },
+        "title": "SamplingMetadata",
+        "type": "object"
+      },
+      "SchemaRestrictionResponse": {
+        "description": "Active schema restrictions applied to the report.",
+        "properties": {
+          "activeMetricRestrictions": {
+            "description": "Active metric restrictions.",
+            "items": {
+              "$ref": "#/$defs/ActiveMetricRestriction"
+            },
+            "title": "Active Metric Restrictions",
+            "type": "array"
+          }
+        },
+        "title": "SchemaRestrictionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RunReportResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

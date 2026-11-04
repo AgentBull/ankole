@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a secondary calendar that you own or have delete permissions on. Deletion is permanent and irreversible — verify the correct calendar_id before calling. You cannot delete your primary calendar or calendars you only have read/write access to. Use calendarList.list to find calendars with owner accessRole. For primary calendars, use calendars.clear instead. Parallel calls may trigger userRateLimitExceeded; sequence bulk deletions.",
+  "inputSchema": {
+    "properties": {
+      "calendar_id": {
+        "description": "Calendar identifier for a secondary calendar you own or have delete permissions on. Use calendarList.list to find deletable calendar IDs (look for accessRole \"owner\"). Primary calendars cannot be deleted; use the Clear Calendar action instead.",
+        "examples": ["example_calendar_id@group.calendar.google.com"],
+        "human_parameter_description": "Enter the ID of the secondary calendar you want to delete. You must be the owner or have delete permissions. Use 'List Calendars' to find calendars where you have owner access. Primary calendars cannot be deleted; use the Clear Calendar action to remove events instead.",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      }
+    },
+    "required": ["calendar_id"],
+    "title": "CalendarsDeleteRequest",
+    "type": "object"
+  },
+  "name": "calendars_delete",
+  "outputSchema": {
+    "$defs": {
+      "CalendarsDeleteResponse": {
+        "properties": {
+          "message": {
+            "description": "Optional confirmation message indicating the calendar deletion status (e.g., 'Calendar deleted successfully.'). Not part of the official API response; may be added by client/tooling.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "title": "CalendarsDeleteResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CalendarsDeleteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

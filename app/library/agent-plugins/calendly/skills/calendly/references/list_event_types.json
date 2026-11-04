@@ -1,0 +1,374 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists event types associated with a specified user or organization, with filtering and pagination. Use scheduling_url from results directly rather than constructing event type URLs.",
+  "inputSchema": {
+    "description": "Request model for listing event types for a user or organization.",
+    "properties": {
+      "active": {
+        "description": "Filter by active status. Return only active event types if true, only inactive if false, or all event types if omitted.",
+        "title": "Active",
+        "type": "boolean"
+      },
+      "admin_managed": {
+        "description": "Filter by admin management status. True for admin-managed only, false to exclude admin-managed, or omitted to include all.",
+        "title": "Admin Managed",
+        "type": "boolean"
+      },
+      "count": {
+        "description": "Number of results per page.",
+        "examples": [20, 50, 100],
+        "title": "Count",
+        "type": "integer"
+      },
+      "organization": {
+        "description": "URI of the organization whose event types to list. Exactly one of 'organization' or 'user' must be provided (mutually exclusive).",
+        "examples": ["https://api.calendly.com/organizations/AAAAAAAAAAAAAAAA"],
+        "title": "Organization",
+        "type": "string"
+      },
+      "page_token": {
+        "description": "Pagination token for retrieving subsequent pages. Check pagination.next_page_token in the response; if non-null, pass it as page_token in the next call. Repeat until next_page_token is null.",
+        "title": "Page Token",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Order results by field(s) and direction. Accepts comma-separated list of field:direction values (e.g., 'name:asc,created_at:desc'). Default: name:asc",
+        "examples": ["name:asc", "created_at:desc"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "user": {
+        "description": "URI of the user whose event types to list. Exactly one of 'user' or 'organization' must be provided (mutually exclusive).",
+        "examples": ["https://api.calendly.com/users/BBBBBBBBBBBBBBBB"],
+        "title": "User",
+        "type": "string"
+      },
+      "user_availability_schedule": {
+        "description": "URI of the user's availability schedule. Used with 'user' parameter to filter event types by primary availability schedule.",
+        "examples": ["https://api.calendly.com/user_availability_schedules/CCCCCCCCCCCCCCCC"],
+        "title": "User Availability Schedule",
+        "type": "string"
+      }
+    },
+    "title": "ListEventTypesRequest",
+    "type": "object"
+  },
+  "name": "list_event_types",
+  "outputSchema": {
+    "$defs": {
+      "CustomQuestion": {
+        "description": "Custom question to ask the invitee during booking.",
+        "properties": {
+          "answer_choices": {
+            "description": "Array of predefined answer choices for select-type questions",
+            "items": {
+              "type": "string"
+            },
+            "title": "Answer Choices",
+            "type": "array"
+          },
+          "enabled": {
+            "description": "Indicates whether the question is currently enabled",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "include_other": {
+            "description": "Whether invitees can provide a custom answer beyond predefined choices",
+            "title": "Include Other",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The question text displayed to invitees",
+            "title": "Name",
+            "type": "string"
+          },
+          "position": {
+            "description": "The order position of the question",
+            "title": "Position",
+            "type": "integer"
+          },
+          "required": {
+            "description": "Indicates whether the question must be answered",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "The question type (e.g., 'string', 'text', 'select')",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["name", "type", "position", "enabled", "required"],
+        "title": "CustomQuestion",
+        "type": "object"
+      },
+      "EventType": {
+        "description": "Event type object containing all event type details.",
+        "properties": {
+          "active": {
+            "description": "Indicates if the event type is active and available for scheduling",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "admin_managed": {
+            "description": "Indicates whether the event type is managed by an organization admin",
+            "title": "Admin Managed",
+            "type": "boolean"
+          },
+          "booking_method": {
+            "description": "Booking method type (e.g., 'instant')",
+            "title": "Booking Method",
+            "type": "string"
+          },
+          "color": {
+            "description": "Hex color code for the event type (e.g., '#fff200')",
+            "title": "Color",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Moment when the event type was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_questions": {
+            "description": "List of custom questions to ask the invitee during booking",
+            "items": {
+              "$ref": "#/$defs/CustomQuestion"
+            },
+            "title": "Custom Questions",
+            "type": "array"
+          },
+          "deleted_at": {
+            "description": "Moment when the event type was deleted (ISO 8601 format), or null if not deleted",
+            "title": "Deleted At",
+            "type": "string"
+          },
+          "description_html": {
+            "description": "The event type description in HTML format",
+            "title": "Description Html",
+            "type": "string"
+          },
+          "description_plain": {
+            "description": "The event type description in plain text format",
+            "title": "Description Plain",
+            "type": "string"
+          },
+          "duration": {
+            "description": "Length of the event type in minutes",
+            "title": "Duration",
+            "type": "integer"
+          },
+          "duration_options": {
+            "description": "Array of duration options in minutes if the event type allows multiple durations",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Duration Options",
+            "type": "array"
+          },
+          "internal_note": {
+            "description": "Internal notes or description visible only to the event type owner",
+            "title": "Internal Note",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Indicates if the event type is 'solo' (one-on-one) or 'group' (group event)",
+            "title": "Kind",
+            "type": "string"
+          },
+          "locale": {
+            "description": "Locale setting for the event type",
+            "title": "Locale",
+            "type": "string"
+          },
+          "locations": {
+            "description": "Location configurations for the event",
+            "items": {
+              "$ref": "#/$defs/Location"
+            },
+            "title": "Locations",
+            "type": "array"
+          },
+          "name": {
+            "description": "The event type name (e.g., '15 Minute Meeting')",
+            "title": "Name",
+            "type": "string"
+          },
+          "pooling_type": {
+            "description": "Indicates how multiple hosts are assigned: 'round_robin' or 'collective'",
+            "title": "Pooling Type",
+            "type": "string"
+          },
+          "position": {
+            "description": "Numeric value indicating the display order position of the event type",
+            "title": "Position",
+            "type": "integer"
+          },
+          "profile": {
+            "$ref": "#/$defs/Profile",
+            "description": "Owner of the event type (user or team). Null for round-robin event types.",
+            "title": "Profile"
+          },
+          "scheduling_url": {
+            "description": "The public URL invitees use to schedule this event type",
+            "title": "Scheduling Url",
+            "type": "string"
+          },
+          "secret": {
+            "description": "Indicates if the event type is secret and hidden from the main scheduling page",
+            "title": "Secret",
+            "type": "boolean"
+          },
+          "slug": {
+            "description": "The URL slug for the event type",
+            "title": "Slug",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of event: 'StandardEventType' or 'AdhocEventType'",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Moment when the event type was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the event type",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri",
+          "name",
+          "active",
+          "scheduling_url",
+          "duration",
+          "kind",
+          "type",
+          "color",
+          "created_at",
+          "updated_at",
+          "secret"
+        ],
+        "title": "EventType",
+        "type": "object"
+      },
+      "ListEventTypesResponse": {
+        "description": "Response model containing a collection of event types and pagination information.",
+        "properties": {
+          "collection": {
+            "description": "Array of event type objects",
+            "items": {
+              "$ref": "#/$defs/EventType"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "description": "Pagination information for navigating through large result sets",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection", "pagination"],
+        "title": "ListEventTypesResponse",
+        "type": "object"
+      },
+      "Location": {
+        "description": "Location configuration for the event.",
+        "properties": {
+          "additional_info": {
+            "description": "Additional location information",
+            "title": "Additional Info",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of location (e.g., 'physical', 'zoom', 'google_meet')",
+            "title": "Kind",
+            "type": "string"
+          },
+          "phone_number": {
+            "description": "Phone number for phone call locations",
+            "title": "Phone Number",
+            "type": "string"
+          }
+        },
+        "title": "Location",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination information for navigating through large result sets.",
+        "properties": {
+          "count": {
+            "description": "Number of results in the current page",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "Full URL to retrieve the next page of results (null if no more pages)",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "next_page_token": {
+            "description": "Token for retrieving the next page (null if no more pages)",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "Full URL to retrieve the previous page of results (null if first page)",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "previous_page_token": {
+            "description": "Token for retrieving the previous page (null if first page)",
+            "title": "Previous Page Token",
+            "type": "string"
+          }
+        },
+        "required": ["count"],
+        "title": "Pagination",
+        "type": "object"
+      },
+      "Profile": {
+        "description": "Owner of the event type (user or team).",
+        "properties": {
+          "name": {
+            "description": "Human-readable name for the owner of the event type",
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "description": "Canonical reference (unique identifier) for the owner resource",
+            "title": "Owner",
+            "type": "string"
+          },
+          "type": {
+            "description": "The profile type: 'User' or 'Team'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "name", "owner"],
+        "title": "Profile",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListEventTypesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

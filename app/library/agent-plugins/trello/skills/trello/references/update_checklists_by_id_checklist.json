@@ -1,0 +1,166 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing Trello checklist, allowing modification of its name, position, associated card/board, or copying items from a source checklist.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateChecklistsByIdChecklist`",
+    "properties": {
+      "idBoard": {
+        "description": "The ID of the Trello board to which the checklist should be moved or associated.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "60d5ec9b8f9d6b00c2e4a3f8"],
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "The ID of the Trello card to which the checklist should be moved or associated.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "60d5ec9b8f9d6b00c2e4a3f8"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "The unique identifier of the Trello checklist to be updated.",
+        "examples": ["5f9f7b9f7f8f7f0007f7f7f7", "60d5ec9b8f9d6b00c2e4a3f8"],
+        "title": "Id Checklist",
+        "type": "string"
+      },
+      "idChecklistSource": {
+        "description": "The ID of a source Trello checklist whose items should be copied into the checklist being updated.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "60d5ec9b8f9d6b00c2e4a3f8"],
+        "title": "Id Checklist Source",
+        "type": "string"
+      },
+      "name": {
+        "description": "The new name for the checklist. Must be a string with a length between 0 and 16384 characters, inclusive.",
+        "examples": ["My Updated Checklist", "Project Tasks Q3"],
+        "title": "Name",
+        "type": "string"
+      },
+      "pos": {
+        "description": "The new position for the checklist on the card. Accepts 'top', 'bottom', or a string representing a positive number (e.g., '1', '1024', '1.5').",
+        "examples": ["top", "bottom", "1", "1024.512"],
+        "title": "Pos",
+        "type": "string"
+      }
+    },
+    "required": ["idChecklist"],
+    "title": "UpdateChecklistsByIdChecklistRequest",
+    "type": "object"
+  },
+  "name": "update_checklists_by_id_checklist",
+  "outputSchema": {
+    "$defs": {
+      "CheckItem": {
+        "description": "Represents a check item within a checklist.",
+        "properties": {
+          "due": {
+            "description": "Due date for the check item in ISO 8601 format (YYYY-MM-DDThh:mm:ss.sssZ).",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Number of minutes before the due date when a reminder should be sent.",
+            "title": "Due Reminder",
+            "type": "number"
+          },
+          "id": {
+            "description": "Unique identifier of the check item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "ID of the parent checklist.",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member assigned to the check item.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name or description of the check item.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "description": "Additional name data for the check item.",
+            "title": "Name Data",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the check item within the checklist.",
+            "title": "Pos",
+            "type": "number"
+          },
+          "state": {
+            "description": "Completion state of the check item (e.g., 'complete' or 'incomplete').",
+            "title": "State",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the check item.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "state", "idChecklist", "pos"],
+        "title": "CheckItem",
+        "type": "object"
+      },
+      "UpdateChecklistsByIdChecklistResponse": {
+        "description": "Response schema for `UpdateChecklistsByIdChecklist`",
+        "properties": {
+          "checkItems": {
+            "description": "Array of check items within the checklist.",
+            "items": {
+              "$ref": "#/$defs/CheckItem"
+            },
+            "title": "Check Items",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier of the checklist.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "ID of the board the checklist belongs to.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "idCard": {
+            "description": "ID of the card the checklist is attached to.",
+            "title": "Id Card",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the checklist.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the checklist on the card.",
+            "title": "Pos",
+            "type": "number"
+          }
+        },
+        "required": ["id", "name", "idBoard", "idCard", "pos", "checkItems"],
+        "title": "UpdateChecklistsByIdChecklistResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateChecklistsByIdChecklistResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

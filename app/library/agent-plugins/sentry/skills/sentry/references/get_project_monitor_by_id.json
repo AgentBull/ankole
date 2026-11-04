@@ -1,0 +1,184 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information for a specific Sentry cron monitor, provided the organization, project, and monitor exist.",
+  "inputSchema": {
+    "description": "Request to retrieve a specific Sentry cron monitor.",
+    "properties": {
+      "monitor_id_or_slug": {
+        "description": "ID or slug of the Sentry cron monitor.",
+        "examples": ["my-monitor-slug", "fedcba987654"],
+        "title": "Monitor Id Or Slug",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "ID or slug of the Sentry organization.",
+        "examples": ["my-organization-slug", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "ID or slug of the Sentry project.",
+        "examples": ["my-project-slug", "8901234"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug", "monitor_id_or_slug"],
+    "title": "GetProjectMonitorByIdRequest",
+    "type": "object"
+  },
+  "name": "get_project_monitor_by_id",
+  "outputSchema": {
+    "$defs": {
+      "GetProjectMonitorByIdResponse": {
+        "description": "Contains complete information about the specified Sentry cron monitor including its configuration, status, and associated project details.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/MonitorData",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetProjectMonitorByIdResponse",
+        "type": "object"
+      },
+      "MonitorConfig": {
+        "additionalProperties": true,
+        "description": "Configuration for a Sentry cron monitor.",
+        "properties": {
+          "checkin_margin": {
+            "title": "Checkin Margin",
+            "type": "integer"
+          },
+          "failure_issue_threshold": {
+            "title": "Failure Issue Threshold",
+            "type": "integer"
+          },
+          "max_runtime": {
+            "title": "Max Runtime",
+            "type": "integer"
+          },
+          "recovery_threshold": {
+            "title": "Recovery Threshold",
+            "type": "integer"
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "title": "Schedule"
+          },
+          "schedule_type": {
+            "title": "Schedule Type",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": ["schedule", "schedule_type"],
+        "title": "MonitorConfig",
+        "type": "object"
+      },
+      "MonitorData": {
+        "additionalProperties": true,
+        "description": "Complete monitor data structure.",
+        "properties": {
+          "config": {
+            "$ref": "#/$defs/MonitorConfig",
+            "title": "Config"
+          },
+          "dateCreated": {
+            "title": "Date Created",
+            "type": "string"
+          },
+          "environments": {
+            "items": {},
+            "title": "Environments",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "isMuted": {
+            "title": "Is Muted",
+            "type": "boolean"
+          },
+          "isUpserting": {
+            "title": "Is Upserting",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "title": "Owner"
+          },
+          "project": {
+            "$ref": "#/$defs/MonitorProject",
+            "title": "Project"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "slug", "status", "config", "dateCreated", "project"],
+        "title": "MonitorData",
+        "type": "object"
+      },
+      "MonitorProject": {
+        "additionalProperties": true,
+        "description": "Project information associated with a monitor.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "slug", "name"],
+        "title": "MonitorProject",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetProjectMonitorByIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,7 +1,7 @@
 defmodule Ankole.Connectors.OAuth do
   @moduledoc "Cookie-independent OAuth callback with authenticated, one-use connection claiming."
   require Ash.Query
-  alias Ankole.Connectors.{Accounts, Credentials, OAuthSession, Registry, Store}
+  alias Ankole.Connectors.{Accounts, CloudProvider, Credentials, OAuthSession, Registry, Store}
   alias Ankole.Authn.SecretDigest
   alias Ankole.Repo
 
@@ -13,10 +13,26 @@ defmodule Ankole.Connectors.OAuth do
 
   def consent_required(connection, scopes, intent \\ %{}) do
     params =
-      Map.merge(intent, %{
+      intent
+      |> Map.merge(%{
         "connection" => connection,
         "scopes" => Enum.join(scopes, " ")
       })
+      |> Map.put_new("subject_kind", "human")
+
+    params =
+      case Store.get_auth_config(connection) do
+        {:ok, %{auth_scheme: scheme}} when scheme in ["personal_token", "api_token"] ->
+          mode =
+            if params["subject_kind"] == "app",
+              do: "team_credentials",
+              else: "personal_credentials"
+
+          Map.put(params, "auth_mode", mode)
+
+        _ ->
+          params
+      end
 
     {:error,
      %{
@@ -36,6 +52,7 @@ defmodule Ankole.Connectors.OAuth do
     with :ok <- Store.member(actor),
          :ok <- authorize_kind(actor, kind),
          {:ok, config} <- Store.get_auth_config(attrs["connection"], attrs["plugin_id"]),
+         {:ok, config} <- Store.materialize(config, actor.uid),
          {:ok, adapter} <- Registry.adapter(config.plugin_id),
          {:ok, secret} <- Credentials.secret(config) do
       id = Ankole.Kernel.gen_uuid_v7()
@@ -53,7 +70,7 @@ defmodule Ankole.Connectors.OAuth do
         "scope" => Enum.join(scopes, " ")
       }
 
-      with {:ok, url} <- adapter.oauth_authorize_url(config, secret, params),
+      with {:ok, url} <- authorization_url(config, adapter, secret, params),
            {:ok, sealed} <- Credentials.seal(verifier, "connector_oauth_pkce", id),
            {:ok, _session} <-
              Ankole.Ash.create(OAuthSession, :create, %{
@@ -72,6 +89,20 @@ defmodule Ankole.Connectors.OAuth do
     end
   end
 
+  defp authorization_url(%{mode: "cloud"} = config, _adapter, _secret, params) do
+    with {:ok, response} <-
+           CloudProvider.begin_oauth(%{
+             "plugin_id" => config.plugin_id,
+             "pod_state" => params["state"],
+             "scopes" => String.split(params["scope"], " ", trim: true),
+             "subject_kind" => params[:subject_kind]
+           }),
+         do: {:ok, response["authorization_url"]}
+  end
+
+  defp authorization_url(config, adapter, secret, params),
+    do: adapter.oauth_authorize_url(config, secret, params)
+
   defp requested_scopes(config, actor, "human", requested) do
     case Accounts.get_account(config.id, "human", actor.uid) do
       {:ok, %{granted_scopes: granted}} -> Enum.uniq(granted ++ requested)
@@ -79,7 +110,19 @@ defmodule Ankole.Connectors.OAuth do
     end
   end
 
+  defp requested_scopes(config, _actor, "app", requested) do
+    case Accounts.application_account(config) do
+      {:ok, %{granted_scopes: granted}} -> Enum.uniq(granted ++ requested)
+      _ -> requested
+    end
+  end
+
   defp requested_scopes(_config, _actor, _kind, requested), do: requested
+
+  def callback(%{"state" => state, "cloud_ticket" => ticket} = params)
+      when is_binary(state) and is_binary(ticket) do
+    with_state_tenant(state, fn _tenant -> complete_callback(state, ticket, params) end)
+  end
 
   def callback(%{"state" => state, "code" => code} = params)
       when is_binary(state) and is_binary(code) do
@@ -138,17 +181,7 @@ defmodule Ankole.Connectors.OAuth do
   defp complete_callback(state, code, params) do
     with {:ok, session} <- take_callback(state),
          {:ok, config} <- Store.get_auth_config(session.auth_config_id),
-         {:ok, adapter} <- Registry.adapter(config.plugin_id),
-         {:ok, secret} <- Credentials.secret(config),
-         :ok <- issuer(config, params["iss"]),
-         {:ok, verifier} <-
-           Credentials.unseal(session.sealed_pkce_verifier, "connector_oauth_pkce", session.id),
-         {:ok, tokens} <-
-           adapter.oauth_exchange(config, secret, %{
-             "code" => code,
-             "code_verifier" => verifier,
-             "redirect_uri" => callback_url()
-           }),
+         {:ok, tokens} <- exchange(config, session, state, code, params),
          true <- is_binary(tokens["external_subject_id"]) and tokens["external_subject_id"] != "",
          completion = Repo.tenant_id!() <> "." <> SecretDigest.token(),
          {:ok, sealed} <- Credentials.seal(tokens, "connector_oauth_pending", session.id),
@@ -166,6 +199,28 @@ defmodule Ankole.Connectors.OAuth do
       false -> {:error, :external_subject_required}
       error -> error
     end
+  end
+
+  defp exchange(%{mode: "cloud"}, _session, state, ticket, %{"cloud_ticket" => ticket}) do
+    CloudProvider.exchange_ticket(%{"ticket" => ticket, "pod_state" => state})
+  end
+
+  defp exchange(%{mode: "cloud"}, _session, _state, _code, _params),
+    do: {:error, :invalid_oauth_state}
+
+  defp exchange(config, session, _state, code, params) do
+    with {:ok, adapter} <- Registry.adapter(config.plugin_id),
+         {:ok, secret} <- Credentials.secret(config),
+         :ok <- issuer(config, params["iss"]),
+         {:ok, verifier} <-
+           Credentials.unseal(session.sealed_pkce_verifier, "connector_oauth_pkce", session.id),
+         do:
+           adapter.oauth_exchange(config, secret, %{
+             "code" => code,
+             "code_verifier" => verifier,
+             "scope" => Enum.join(session.requested_scopes, " "),
+             "redirect_uri" => callback_url()
+           })
   end
 
   def claim(actor, code) when is_binary(code) do

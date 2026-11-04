@@ -1,0 +1,296 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a Stripe Customer Session for client-side access to configured components, such as the Payment Element or customer sheet.",
+  "inputSchema": {
+    "properties": {
+      "components": {
+        "additionalProperties": false,
+        "description": "Configuration for each component. At least 1 component must be enabled.",
+        "properties": {
+          "buy_button": {
+            "additionalProperties": false,
+            "description": "Configuration for the buy button component.",
+            "properties": {
+              "enabled": {
+                "description": "Whether the buy button component is enabled.",
+                "title": "Enabled",
+                "type": "boolean"
+              }
+            },
+            "required": ["enabled"],
+            "title": "BuyButtonComponent",
+            "type": "object"
+          },
+          "customer_sheet": {
+            "additionalProperties": false,
+            "description": "Configuration for the customer sheet component.",
+            "properties": {
+              "enabled": {
+                "description": "Whether the customer sheet component is enabled.",
+                "title": "Enabled",
+                "type": "boolean"
+              },
+              "features": {
+                "additionalProperties": false,
+                "description": "Configuration for customer sheet features.",
+                "properties": {
+                  "payment_method_allow_redisplay_filters": {
+                    "description": "Filter payment methods by allow_redisplay values. Options: 'always', 'limited', 'unspecified'. Default: ['always'].",
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Payment Method Allow Redisplay Filters",
+                    "type": "array"
+                  },
+                  "payment_method_remove": {
+                    "description": "Enable/disable payment method removal. Options: 'disabled', 'enabled'.",
+                    "title": "Payment Method Remove",
+                    "type": "string"
+                  }
+                },
+                "title": "CustomerSheetFeatures",
+                "type": "object"
+              }
+            },
+            "required": ["enabled"],
+            "title": "CustomerSheetComponent",
+            "type": "object"
+          },
+          "mobile_payment_element": {
+            "additionalProperties": false,
+            "description": "Configuration for the mobile payment element component.",
+            "properties": {
+              "enabled": {
+                "description": "Whether the mobile payment element is enabled.",
+                "title": "Enabled",
+                "type": "boolean"
+              },
+              "features": {
+                "additionalProperties": false,
+                "description": "Configuration for mobile payment element features.",
+                "properties": {
+                  "payment_method_allow_redisplay_filters": {
+                    "description": "Filter payment methods by allow_redisplay values.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Payment Method Allow Redisplay Filters",
+                    "type": "array"
+                  },
+                  "payment_method_redisplay": {
+                    "description": "Control payment method redisplay behavior.",
+                    "title": "Payment Method Redisplay",
+                    "type": "string"
+                  },
+                  "payment_method_remove": {
+                    "description": "Enable/disable payment method removal.",
+                    "title": "Payment Method Remove",
+                    "type": "string"
+                  },
+                  "payment_method_save": {
+                    "description": "Enable/disable saving payment methods.",
+                    "title": "Payment Method Save",
+                    "type": "string"
+                  },
+                  "payment_method_save_allow_redisplay_override": {
+                    "description": "Override allow_redisplay settings.",
+                    "title": "Payment Method Save Allow Redisplay Override",
+                    "type": "string"
+                  }
+                },
+                "title": "MobilePaymentElementFeatures",
+                "type": "object"
+              }
+            },
+            "required": ["enabled"],
+            "title": "MobilePaymentElementComponent",
+            "type": "object"
+          },
+          "payment_element": {
+            "additionalProperties": false,
+            "description": "Configuration for the payment element component.",
+            "properties": {
+              "enabled": {
+                "description": "Whether the payment element is enabled.",
+                "title": "Enabled",
+                "type": "boolean"
+              },
+              "features": {
+                "additionalProperties": false,
+                "description": "Configuration for payment element features.",
+                "properties": {
+                  "payment_method_allow_redisplay_filters": {
+                    "description": "Filter payment methods by allow_redisplay values.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Payment Method Allow Redisplay Filters",
+                    "type": "array"
+                  },
+                  "payment_method_redisplay": {
+                    "description": "Control payment method redisplay behavior.",
+                    "title": "Payment Method Redisplay",
+                    "type": "string"
+                  },
+                  "payment_method_redisplay_limit": {
+                    "description": "Maximum number of payment methods to display. Default: 3, Max: 10.",
+                    "title": "Payment Method Redisplay Limit",
+                    "type": "integer"
+                  },
+                  "payment_method_remove": {
+                    "description": "Enable/disable payment method removal.",
+                    "title": "Payment Method Remove",
+                    "type": "string"
+                  },
+                  "payment_method_save": {
+                    "description": "Enable/disable saving payment methods.",
+                    "title": "Payment Method Save",
+                    "type": "string"
+                  },
+                  "payment_method_save_usage": {
+                    "description": "Usage type for saved payment methods. Options: 'off_session', 'on_session'. Required if payment_method_save=enabled.",
+                    "title": "Payment Method Save Usage",
+                    "type": "string"
+                  }
+                },
+                "title": "PaymentElementFeatures",
+                "type": "object"
+              }
+            },
+            "required": ["enabled"],
+            "title": "PaymentElementComponent",
+            "type": "object"
+          },
+          "pricing_table": {
+            "additionalProperties": false,
+            "description": "Configuration for the pricing table component.",
+            "properties": {
+              "enabled": {
+                "description": "Whether the pricing table component is enabled.",
+                "title": "Enabled",
+                "type": "boolean"
+              }
+            },
+            "required": ["enabled"],
+            "title": "PricingTableComponent",
+            "type": "object"
+          }
+        },
+        "title": "Components",
+        "type": "object"
+      },
+      "customer": {
+        "description": "ID of an existing customer for which to create the session. Required unless customer_account is provided.",
+        "examples": ["cus_Tepdx9jpGgBV9l"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "customer_account": {
+        "description": "ID of an existing Account for which to create the session. Required unless customer is provided.",
+        "title": "Customer Account",
+        "type": "string"
+      }
+    },
+    "required": ["components"],
+    "title": "CreateCustomerSessionRequest",
+    "type": "object"
+  },
+  "name": "create_customer_session",
+  "outputSchema": {
+    "$defs": {
+      "CreateCustomerSessionResponse": {
+        "properties": {
+          "client_secret": {
+            "description": "A single-use secret credential string used for client-side API access. This provides temporary access to the customer session.",
+            "title": "Client Secret",
+            "type": "string"
+          },
+          "components": {
+            "additionalProperties": {
+              "$ref": "#/$defs/ResponseComponentConfig"
+            },
+            "description": "Echo of the enabled components configuration from the request.",
+            "title": "Components",
+            "type": "object"
+          },
+          "customer": {
+            "description": "The ID of the customer associated with this session.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "Unix timestamp indicating when the customer session expires.",
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "livemode": {
+            "description": "Whether this customer session is in live mode (true) or test mode (false).",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'customer_session'.",
+            "title": "Object",
+            "type": "string"
+          }
+        },
+        "required": ["object", "client_secret", "components", "customer", "expires_at", "livemode"],
+        "title": "CreateCustomerSessionResponse",
+        "type": "object"
+      },
+      "ResponseComponentConfig": {
+        "properties": {
+          "enabled": {
+            "description": "Whether the component is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "features": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Component-specific feature configuration.",
+            "title": "Features",
+            "type": "object"
+          }
+        },
+        "required": ["enabled"],
+        "title": "ResponseComponentConfig",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateCustomerSessionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

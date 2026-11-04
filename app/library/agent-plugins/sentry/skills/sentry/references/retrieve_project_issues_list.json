@@ -1,0 +1,317 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of issues for a Sentry project, defaulting to unresolved issues unless an empty `query` string is provided or specific `hashes` are used.",
+  "inputSchema": {
+    "description": "Request schema for `RetrieveProjectIssuesList`",
+    "properties": {
+      "cursor": {
+        "description": "Pagination cursor from a previous response's `Link` header to fetch the next/previous set of issues.",
+        "title": "Cursor",
+        "type": "string"
+      },
+      "hashes": {
+        "description": "Comma-separated group hashes to retrieve specific issues; incompatible with `query`. Max 100 hashes processed.",
+        "title": "Hashes",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "Unique identifier (ID) or human-readable slug of the Sentry organization.",
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "Unique identifier (ID) or human-readable slug of the Sentry project.",
+        "title": "Project Id Or Slug",
+        "type": "string"
+      },
+      "query": {
+        "description": "Sentry structured search query to filter issues (e.g., \"is:resolved\", \"error.type:TypeError\"). Defaults to \"is:unresolved\"; `\"\"` retrieves all issues regardless of status. IMPORTANT: Boolean operators \"OR\" and \"AND\" are NOT supported in Issue search - they will cause an error. To search multiple values for the same key, use list syntax: `key:[value1, value2]` instead of `key:value1 OR key:value2`. Use negation with `!` prefix (e.g., `!is:resolved`) to exclude results.",
+        "examples": [
+          "is:unresolved",
+          "is:resolved",
+          "error.type:ZeroDivisionError",
+          "tag:value",
+          "issue.category:feedback",
+          "browser:[Chrome, Firefox]"
+        ],
+        "title": "Query",
+        "type": "string"
+      },
+      "shortIdLookup": {
+        "description": "If `True`, enables issue lookup by short IDs; may return issues from a different project. API default is typically `False`.",
+        "title": "Short Id Lookup",
+        "type": "boolean"
+      },
+      "statsPeriod": {
+        "description": "Time window for calculating issue statistics (affects the timeline stats in the response, not which issues are returned). Valid values: \"\" (empty string to disable stats), \"24h\" (last 24 hours), \"14d\" (last 14 days). Defaults to \"24h\" if not provided. Other values (e.g., \"7d\", \"1h\", \"30d\") are not supported.",
+        "examples": ["24h", "14d", ""],
+        "title": "Stats Period",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "RetrieveProjectIssuesListRequest",
+    "type": "object"
+  },
+  "name": "retrieve_project_issues_list",
+  "outputSchema": {
+    "$defs": {
+      "Issue": {
+        "description": "Sentry issue object with detailed information",
+        "properties": {
+          "annotations": {
+            "description": "Collection of annotation items providing additional metadata tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Annotations",
+            "type": "array"
+          },
+          "assignedTo": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Team member assignment information for the issue",
+            "title": "Assigned To"
+          },
+          "count": {
+            "description": "Total event occurrences for this issue",
+            "title": "Count",
+            "type": "string"
+          },
+          "culprit": {
+            "description": "Code location where the issue originated",
+            "title": "Culprit",
+            "type": "string"
+          },
+          "firstSeen": {
+            "description": "ISO 8601 timestamp of when the issue was first detected",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "hasSeen": {
+            "description": "Whether the authenticated user has viewed this issue",
+            "title": "Has Seen",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the issue",
+            "title": "Id",
+            "type": "string"
+          },
+          "isBookmarked": {
+            "description": "Whether the current user has bookmarked this issue",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "isPublic": {
+            "description": "Public visibility setting for the issue",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "isSubscribed": {
+            "description": "Whether the current user is subscribed to notifications for this issue",
+            "title": "Is Subscribed",
+            "type": "boolean"
+          },
+          "lastSeen": {
+            "description": "ISO 8601 timestamp of the most recent occurrence of this issue",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "level": {
+            "description": "Severity level of the issue (e.g., 'error', 'warning', 'info')",
+            "title": "Level",
+            "type": "string"
+          },
+          "logger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Logger name or source identifier if applicable",
+            "title": "Logger"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Type-specific metadata containing either exception details (filename, type, value) or a simple title",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "numComments": {
+            "description": "Number of comments on this issue",
+            "title": "Num Comments",
+            "type": "integer"
+          },
+          "permalink": {
+            "description": "Full URL to view the issue in Sentry UI",
+            "title": "Permalink",
+            "type": "string"
+          },
+          "project": {
+            "$ref": "#/$defs/IssueProject",
+            "title": "Project"
+          },
+          "shareId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Public share identifier for the issue if shared",
+            "title": "Share Id"
+          },
+          "shortId": {
+            "description": "Human-readable abbreviated identifier for the issue",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/$defs/IssueStats",
+            "title": "Stats"
+          },
+          "status": {
+            "description": "Current status of the issue",
+            "enum": ["resolved", "unresolved", "ignored"],
+            "title": "Status",
+            "type": "string"
+          },
+          "statusDetails": {
+            "additionalProperties": true,
+            "description": "Additional metadata related to the issue status",
+            "title": "Status Details",
+            "type": "object"
+          },
+          "subscriptionDetails": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Notification subscription configuration for the issue",
+            "title": "Subscription Details"
+          },
+          "title": {
+            "description": "Issue summary or headline",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Issue category or classification type (e.g., 'default', 'error')",
+            "title": "Type",
+            "type": "string"
+          },
+          "userCount": {
+            "description": "Number of unique users affected by this issue",
+            "title": "User Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "annotations",
+          "assignedTo",
+          "count",
+          "culprit",
+          "firstSeen",
+          "hasSeen",
+          "id",
+          "isBookmarked",
+          "isPublic",
+          "isSubscribed",
+          "lastSeen",
+          "level",
+          "logger",
+          "metadata",
+          "numComments",
+          "permalink",
+          "project",
+          "shareId",
+          "shortId",
+          "stats",
+          "status",
+          "statusDetails",
+          "subscriptionDetails",
+          "title",
+          "type",
+          "userCount"
+        ],
+        "title": "Issue",
+        "type": "object"
+      },
+      "IssueProject": {
+        "description": "Associated project details",
+        "properties": {
+          "id": {
+            "description": "Project identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Project name",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Project slug",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "slug"],
+        "title": "IssueProject",
+        "type": "object"
+      },
+      "IssueStats": {
+        "description": "Time-series statistical data for issue occurrences",
+        "properties": {
+          "24h": {
+            "description": "Array of [timestamp, count] pairs for 24-hour activity",
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "title": "24H",
+            "type": "array"
+          }
+        },
+        "title": "IssueStats",
+        "type": "object"
+      },
+      "RetrieveProjectIssuesListResponse": {
+        "description": "Response schema for `RetrieveProjectIssuesList`\n\nReturns an array of issue objects bound to a project with detailed information\nincluding status, metadata, and optional statistics based on the statsPeriod parameter.",
+        "items": {
+          "$ref": "#/$defs/Issue"
+        },
+        "title": "RetrieveProjectIssuesListResponse",
+        "type": "array"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveProjectIssuesListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

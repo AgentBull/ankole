@@ -1,0 +1,72 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information for a specific environment within a Sentry project.",
+  "inputSchema": {
+    "description": "Request schema for `FetchProjectEnvironmentDetails`",
+    "properties": {
+      "environment": {
+        "description": "The name of the environment (e.g., production, staging, development).",
+        "examples": ["production", "staging", "development"],
+        "title": "Environment",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the Sentry organization.",
+        "examples": ["my-organization", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The ID or slug of the Sentry project.",
+        "examples": ["my-project", "67890"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug", "environment"],
+    "title": "FetchProjectEnvironmentDetailsRequest",
+    "type": "object"
+  },
+  "name": "fetch_project_environment_details",
+  "outputSchema": {
+    "$defs": {
+      "FetchProjectEnvironmentDetailsResponse": {
+        "description": "Response schema for `FetchProjectEnvironmentDetails`",
+        "properties": {
+          "id": {
+            "description": "The unique identifier for the environment.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isHidden": {
+            "description": "Indicates whether the environment is hidden from visibility.",
+            "title": "Is Hidden",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The name of the environment (e.g., 'Production', 'Staging').",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "isHidden"],
+        "title": "FetchProjectEnvironmentDetailsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/FetchProjectEnvironmentDetailsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

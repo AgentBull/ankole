@@ -1,0 +1,123 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List all organization merge operations for a specific organization in Zendesk. This action retrieves the merge history showing which organizations were merged into or out of the specified organization. Use this action when you need to audit organization merge history or track the consolidation of organizations. Supports pagination to handle large result sets efficiently. This is a read-only, idempotent operation.",
+  "inputSchema": {
+    "description": "Request parameters for listing organization merges.",
+    "properties": {
+      "organization_id": {
+        "description": "The ID of the organization for which to retrieve merge history. Must be a positive integer.",
+        "examples": [16],
+        "human_parameter_description": "The unique identifier of the organization. You can find this ID from the organization's URL or by listing organizations.",
+        "human_parameter_name": "Organization ID",
+        "title": "Organization Id",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Pagination parameter. Supports both traditional offset and cursor-based pagination. Traditional: `?page=2` (integer page number). Cursor: `?page[size]=50&page[after]=cursor`. These are mutually exclusive.",
+        "examples": ["2"],
+        "title": "Page",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Number of records to return per page. Default and maximum values vary by endpoint.",
+        "examples": [25],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id"],
+    "title": "GetOrganizationsMergesRequest",
+    "type": "object"
+  },
+  "name": "get_organizations_merges",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationsMergesResponse": {
+        "description": "Response model for listing organization merges.",
+        "properties": {
+          "count": {
+            "description": "Total count of organization merges",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for next page of results (offset pagination)",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "organization_merges": {
+            "description": "List of organization merge operations involving the specified organization",
+            "items": {
+              "$ref": "#/$defs/OrganizationMergeData"
+            },
+            "title": "Organization Merges",
+            "type": "array"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results (offset pagination)",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["organization_merges"],
+        "title": "GetOrganizationsMergesResponse",
+        "type": "object"
+      },
+      "OrganizationMergeData": {
+        "description": "Details of an organization merge operation.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier for the organization merge",
+            "title": "Id",
+            "type": "string"
+          },
+          "loser_id": {
+            "description": "The ID of the organization that was merged (absorbed into the winner)",
+            "title": "Loser Id",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/$defs/OrganizationMergeStatus",
+            "description": "Current status of the merge operation",
+            "title": "Status"
+          },
+          "url": {
+            "description": "API URL of the organization merge resource",
+            "title": "Url",
+            "type": "string"
+          },
+          "winner_id": {
+            "description": "The ID of the organization that absorbed the loser organization",
+            "title": "Winner Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "loser_id", "status", "url", "winner_id"],
+        "title": "OrganizationMergeData",
+        "type": "object"
+      },
+      "OrganizationMergeStatus": {
+        "description": "Status of an organization merge operation.",
+        "enum": ["new", "in_progress", "error", "complete"],
+        "title": "OrganizationMergeStatus",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationsMergesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Archives all cards in a Trello list; while cards can be restored via the Trello interface, this action does not provide an unarchive function.",
+  "inputSchema": {
+    "description": "Request schema for `ArchiveAllListCards`",
+    "properties": {
+      "idList": {
+        "description": "The unique identifier of the Trello list from which all cards will be archived.",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id List",
+        "type": "string"
+      }
+    },
+    "required": ["idList"],
+    "title": "ArchiveAllListCardsRequest",
+    "type": "object"
+  },
+  "name": "archive_all_list_cards",
+  "outputSchema": {
+    "$defs": {
+      "ArchiveAllListCardsResponse": {
+        "description": "Response schema for `ArchiveAllListCards`.\n\nThe Trello API endpoint POST /1/lists/{id}/archiveAllCards returns a 200 OK status code\nupon success with an empty response body. The official Atlassian Trello API documentation\ndoes not specify a response body schema for this endpoint.",
+        "properties": {},
+        "title": "ArchiveAllListCardsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ArchiveAllListCardsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,423 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of custom dashboards for a Sentry organization, with pagination support.",
+  "inputSchema": {
+    "description": "Request schema for listing custom dashboards within a Sentry organization.",
+    "properties": {
+      "cursor": {
+        "description": "Opaque cursor for pagination, used to retrieve the next or previous page of dashboards. Obtain from the 'Link' header or pagination metadata of a previous API response.",
+        "examples": ["some_opaque_cursor_string_from_previous_response"],
+        "title": "Cursor",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization whose dashboards are to be listed.",
+        "examples": ["my-org-slug", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Maximum number of dashboard records per page. Defaults to Sentry's setting (often 50) if unspecified. Max: 100.",
+        "examples": [25, 100],
+        "title": "Per Page",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "ListOrganizationDashboardsRequest",
+    "type": "object"
+  },
+  "name": "list_organization_dashboards",
+  "outputSchema": {
+    "$defs": {
+      "Avatar": {
+        "description": "User's avatar configuration.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar', 'upload', 'gravatar')",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar image, or null if not available",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the uploaded avatar, or null if not applicable",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "title": "Avatar",
+        "type": "object"
+      },
+      "CreatedByUser": {
+        "description": "User who created the dashboard.",
+        "properties": {
+          "avatar": {
+            "$ref": "#/$defs/Avatar",
+            "description": "User's avatar configuration",
+            "title": "Avatar"
+          },
+          "avatarUrl": {
+            "description": "URL to user's avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "dateJoined": {
+            "description": "Timestamp when the user joined in ISO 8601 format",
+            "title": "Date Joined",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "emails": {
+            "description": "List of user's email addresses",
+            "items": {
+              "$ref": "#/$defs/EmailRecord"
+            },
+            "title": "Emails",
+            "type": "array"
+          },
+          "experiments": {
+            "additionalProperties": true,
+            "description": "User's experiment flags and settings",
+            "title": "Experiments",
+            "type": "object"
+          },
+          "has2fa": {
+            "description": "Whether the user has two-factor authentication enabled",
+            "title": "Has2Fa",
+            "type": "boolean"
+          },
+          "hasPasswordAuth": {
+            "description": "Whether the user has password authentication enabled",
+            "title": "Has Password Auth",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "User identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "isActive": {
+            "description": "Whether the user account is active",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "isManaged": {
+            "description": "Whether the user is managed by an external system",
+            "title": "Is Managed",
+            "type": "boolean"
+          },
+          "isStaff": {
+            "description": "Whether the user is a staff member",
+            "title": "Is Staff",
+            "type": "boolean"
+          },
+          "isSuperuser": {
+            "description": "Whether the user has superuser privileges",
+            "title": "Is Superuser",
+            "type": "boolean"
+          },
+          "lastActive": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp of user's last activity in ISO 8601 format, or null if never active",
+            "title": "Last Active"
+          },
+          "lastLogin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Timestamp of user's last login in ISO 8601 format, or null if never logged in",
+            "title": "Last Login"
+          },
+          "name": {
+            "description": "User's full name",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "User's username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "username",
+          "email",
+          "avatarUrl",
+          "isActive",
+          "hasPasswordAuth",
+          "isManaged",
+          "dateJoined",
+          "lastLogin",
+          "has2fa",
+          "lastActive",
+          "isSuperuser",
+          "isStaff",
+          "experiments",
+          "emails"
+        ],
+        "title": "CreatedByUser",
+        "type": "object"
+      },
+      "Dashboard": {
+        "description": "Dashboard object associated with an organization.",
+        "properties": {
+          "createdBy": {
+            "$ref": "#/$defs/CreatedByUser",
+            "description": "User who created the dashboard",
+            "title": "Created By"
+          },
+          "dateCreated": {
+            "description": "Dashboard creation timestamp in ISO 8601 format",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "environment": {
+            "description": "Array of environment names included in dashboard filters",
+            "items": {
+              "type": "string"
+            },
+            "title": "Environment",
+            "type": "array"
+          },
+          "filters": {
+            "$ref": "#/$defs/DashboardFilters",
+            "description": "Custom filter configurations applied to the dashboard",
+            "title": "Filters"
+          },
+          "id": {
+            "description": "Dashboard identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "isFavorited": {
+            "description": "Whether the current user has marked this dashboard as a favorite",
+            "title": "Is Favorited",
+            "type": "boolean"
+          },
+          "lastVisited": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Most recent access timestamp in ISO 8601 format, or null if never visited",
+            "title": "Last Visited"
+          },
+          "permissions": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/DashboardPermissions"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Access control settings for the dashboard (can be null)",
+            "title": "Permissions"
+          },
+          "prebuiltId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Identifier if dashboard is based on a prebuilt template, or null for custom dashboards",
+            "title": "Prebuilt Id"
+          },
+          "projects": {
+            "description": "Array of project IDs associated with this dashboard",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "title": {
+            "description": "Dashboard name/heading",
+            "title": "Title",
+            "type": "string"
+          },
+          "widgetDisplay": {
+            "description": "Array of display types for widgets on the dashboard",
+            "items": {
+              "type": "string"
+            },
+            "title": "Widget Display",
+            "type": "array"
+          },
+          "widgetPreview": {
+            "description": "Preview data for each widget including display type and layout",
+            "items": {
+              "$ref": "#/$defs/WidgetPreview"
+            },
+            "title": "Widget Preview",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "dateCreated",
+          "createdBy",
+          "widgetDisplay",
+          "widgetPreview",
+          "permissions",
+          "isFavorited",
+          "projects",
+          "environment",
+          "filters",
+          "lastVisited",
+          "prebuiltId"
+        ],
+        "title": "Dashboard",
+        "type": "object"
+      },
+      "DashboardFilters": {
+        "description": "Custom filter configurations applied to the dashboard.",
+        "properties": {
+          "globalFilter": {
+            "description": "Additional global filters applied to the dashboard",
+            "items": {},
+            "title": "Global Filter",
+            "type": "array"
+          },
+          "release": {
+            "description": "Array of release identifiers to filter by",
+            "items": {
+              "type": "string"
+            },
+            "title": "Release",
+            "type": "array"
+          },
+          "releaseId": {
+            "description": "Array of release IDs to filter by",
+            "items": {
+              "type": "string"
+            },
+            "title": "Release Id",
+            "type": "array"
+          }
+        },
+        "title": "DashboardFilters",
+        "type": "object"
+      },
+      "DashboardPermissions": {
+        "description": "Access control settings for the dashboard.",
+        "properties": {
+          "isEditableByEveryone": {
+            "description": "Whether all organization members can edit this dashboard",
+            "title": "Is Editable By Everyone",
+            "type": "boolean"
+          },
+          "teamsWithEditAccess": {
+            "description": "Array of team IDs that have edit access to this dashboard",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Teams With Edit Access",
+            "type": "array"
+          }
+        },
+        "required": ["isEditableByEveryone", "teamsWithEditAccess"],
+        "title": "DashboardPermissions",
+        "type": "object"
+      },
+      "EmailRecord": {
+        "description": "Email record within a user's email list.",
+        "properties": {
+          "email": {
+            "description": "Email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Email record identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_verified": {
+            "description": "Whether the email address has been verified",
+            "title": "Is Verified",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "email", "is_verified"],
+        "title": "EmailRecord",
+        "type": "object"
+      },
+      "ListOrganizationDashboardsResponse": {
+        "description": "Response schema for `ListOrganizationDashboards` - returns an array of dashboard objects.",
+        "items": {
+          "$ref": "#/$defs/Dashboard"
+        },
+        "title": "ListOrganizationDashboardsResponse",
+        "type": "array"
+      },
+      "WidgetPreview": {
+        "description": "Preview data for a widget including display type and layout.",
+        "properties": {
+          "displayType": {
+            "description": "Widget display format (e.g., 'table', 'line', 'bar', 'area', 'big_number', 'top_n', 'world_map')",
+            "title": "Display Type",
+            "type": "string"
+          },
+          "layout": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Widget layout configuration (currently always null in list endpoint)",
+            "title": "Layout"
+          }
+        },
+        "required": ["displayType", "layout"],
+        "title": "WidgetPreview",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListOrganizationDashboardsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

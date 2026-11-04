@@ -1,0 +1,144 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Detect background layers for selected nodes in a Figma file. This action analyzes the Figma document structure and identifies potential background elements for the given target nodes. It uses: - Geometric analysis (bounding box overlap/containment) - Z-index ordering (nodes earlier in the layer stack are behind later ones) - Visual properties (fills, node types) - Naming conventions (nodes named 'background', 'bg', etc.) Returns background candidates with confidence scores (0-1) and explanations.",
+  "inputSchema": {
+    "description": "Request to detect background layers in a Figma file.",
+    "properties": {
+      "file_key": {
+        "description": "File key extracted from a Figma Design file URL. Example: 'abc123XYZ' from URL figma.com/design/abc123XYZ/My-Design. NOT supported: FigJam boards or Slides.",
+        "title": "File Key",
+        "type": "string"
+      },
+      "search_depth": {
+        "default": 3,
+        "description": "How many levels up in the node hierarchy to search for backgrounds. Higher values find more distant ancestors but take longer. Default: 3.",
+        "maximum": 10,
+        "minimum": 1,
+        "title": "Search Depth",
+        "type": "integer"
+      },
+      "target_node_ids": {
+        "description": "List of node IDs to find background layers for. Node IDs can be found in Figma URLs after 'node-id=' parameter, e.g., '1:2' or '123:456'. The action will search for potential background elements that are behind these target nodes.",
+        "items": {
+          "type": "string"
+        },
+        "title": "Target Node Ids",
+        "type": "array"
+      }
+    },
+    "required": ["file_key", "target_node_ids"],
+    "title": "DetectBackgroundRequest",
+    "type": "object"
+  },
+  "name": "detect_background",
+  "outputSchema": {
+    "$defs": {
+      "BackgroundCandidate": {
+        "description": "A potential background layer.",
+        "properties": {
+          "bounds": {
+            "$ref": "#/$defs/NodeBounds",
+            "description": "Bounding box of the node",
+            "title": "Bounds"
+          },
+          "confidence": {
+            "description": "Confidence score 0-1",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "fill_type": {
+            "description": "Type of fill if present (e.g., SOLID, GRADIENT_LINEAR, IMAGE)",
+            "title": "Fill Type",
+            "type": "string"
+          },
+          "name": {
+            "description": "The display name of the node",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "The unique identifier of the node",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Explanation for why this node is considered a background",
+            "title": "Reason",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of the Figma node (e.g., FRAME, RECTANGLE)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["node_id", "name", "type", "confidence", "reason", "bounds"],
+        "title": "BackgroundCandidate",
+        "type": "object"
+      },
+      "DetectBackgroundResponse": {
+        "description": "Response containing detected backgrounds.",
+        "properties": {
+          "backgrounds": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/$defs/BackgroundCandidate"
+              },
+              "type": "array"
+            },
+            "description": "Map of target node IDs to their detected background candidates, sorted by confidence score descending",
+            "title": "Backgrounds",
+            "type": "object"
+          }
+        },
+        "required": ["backgrounds"],
+        "title": "DetectBackgroundResponse",
+        "type": "object"
+      },
+      "NodeBounds": {
+        "description": "Bounding box coordinates of a Figma node.",
+        "properties": {
+          "height": {
+            "description": "Height of the bounding box",
+            "title": "Height",
+            "type": "number"
+          },
+          "width": {
+            "description": "Width of the bounding box",
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "description": "X coordinate of the top-left corner",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Y coordinate of the top-left corner",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": ["x", "y", "width", "height"],
+        "title": "NodeBounds",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DetectBackgroundResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

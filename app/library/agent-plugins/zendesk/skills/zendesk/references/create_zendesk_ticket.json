@@ -1,0 +1,545 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a Zendesk ticket with a subject and initial comment, plus optional ticket properties such as priority, status, assignment, tags, collaborators, followers and custom fields. Returns the ticket ID, agent URL and selected ticket properties.",
+  "inputSchema": {
+    "properties": {
+      "additional_collaborators": {
+        "description": "Array of collaborators to add as CCs without removing existing collaborators. Each element can be: a user ID (integer), an email address (string), or an object with 'email' and optional 'name'.",
+        "examples": [
+          [
+            562,
+            "email@example.com",
+            {
+              "email": "another@example.com"
+            }
+          ]
+        ],
+        "human_parameter_description": "Additional users to CC without affecting existing CCs. Can be user IDs (numbers), email addresses (strings), or objects with email and name.",
+        "human_parameter_name": "Additional Collaborators",
+        "items": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "description": "Collaborator user object for CC'ing users on ticket creation.",
+              "properties": {
+                "email": {
+                  "description": "Email of the collaborator",
+                  "title": "Email",
+                  "type": "string"
+                },
+                "name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": "null",
+                  "description": "Name of the collaborator",
+                  "title": "Name"
+                }
+              },
+              "required": ["email"],
+              "title": "CollaboratorInput",
+              "type": "object"
+            }
+          ]
+        },
+        "title": "Additional Collaborators",
+        "type": "array"
+      },
+      "assignee_id": {
+        "description": "The ID of the agent to assign to the ticket.",
+        "examples": [12345678],
+        "human_parameter_description": "The Zendesk user ID of the agent who should be assigned to work on this ticket.",
+        "human_parameter_name": "Assignee ID",
+        "title": "Assignee Id",
+        "type": "integer"
+      },
+      "collaborator_ids": {
+        "description": "Array of user IDs to add as collaborators (CCs) on the ticket.",
+        "examples": [[12345, 67890]],
+        "human_parameter_description": "IDs of users who should be CC'd on this ticket and receive email notifications.",
+        "human_parameter_name": "Collaborator IDs",
+        "items": {
+          "type": "integer"
+        },
+        "title": "Collaborator Ids",
+        "type": "array"
+      },
+      "collaborators": {
+        "description": "Array of collaborators to CC on the ticket. Each element can be: a user ID (integer), an email address (string), or an object with 'email' and optional 'name'.",
+        "examples": [
+          [
+            562,
+            "email@example.com",
+            {
+              "email": "user@example.com",
+              "name": "John Doe"
+            }
+          ]
+        ],
+        "human_parameter_description": "Users to CC on this ticket. Can be user IDs (numbers), email addresses (strings), or objects with email and name.",
+        "human_parameter_name": "Collaborators",
+        "items": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "description": "Collaborator user object for CC'ing users on ticket creation.",
+              "properties": {
+                "email": {
+                  "description": "Email of the collaborator",
+                  "title": "Email",
+                  "type": "string"
+                },
+                "name": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": "null",
+                  "description": "Name of the collaborator",
+                  "title": "Name"
+                }
+              },
+              "required": ["email"],
+              "title": "CollaboratorInput",
+              "type": "object"
+            }
+          ]
+        },
+        "title": "Collaborators",
+        "type": "array"
+      },
+      "custom_fields": {
+        "description": "Array of custom field objects with 'id' and 'value' properties.",
+        "examples": [
+          [
+            {
+              "id": 123,
+              "value": "custom value"
+            }
+          ]
+        ],
+        "human_parameter_description": "Custom field values specific to your Zendesk instance. Each object needs 'id' (the custom field ID) and 'value'.",
+        "human_parameter_name": "Custom Fields",
+        "items": {
+          "description": "Custom field ID and value pair.",
+          "properties": {
+            "id": {
+              "description": "The ID of the custom field",
+              "title": "Id",
+              "type": "integer"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ],
+              "description": "The value to set for the custom field. Type depends on field configuration.",
+              "title": "Value"
+            }
+          },
+          "required": ["id"],
+          "title": "CustomFieldInput",
+          "type": "object"
+        },
+        "title": "Custom Fields",
+        "type": "array"
+      },
+      "description": {
+        "description": "Long-form description / steps to reproduce. This becomes the initial comment on the ticket.",
+        "examples": ["User reports…"],
+        "human_parameter_description": "Describe what's happening and include any steps to reproduce the problem. Add useful details like error messages, where it occurs, and when it started.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "due_at": {
+        "description": "Due date for the ticket in ISO 8601 format. Only applicable for task tickets.",
+        "examples": ["2024-12-31T23:59:59Z"],
+        "human_parameter_description": "When the ticket is due, in ISO 8601 format (e.g., '2024-12-31T23:59:59Z'). Only applies to task-type tickets.",
+        "human_parameter_name": "Due Date",
+        "title": "Due At",
+        "type": "string"
+      },
+      "email_ccs": {
+        "description": "Array of email CC objects. Write-only field for adding/removing email CCs.",
+        "examples": [
+          [
+            {
+              "action": "put",
+              "user_email": "cc@example.com"
+            }
+          ]
+        ],
+        "human_parameter_description": "Email CC entries to add or remove. Use 'put' action to add, 'delete' to remove.",
+        "human_parameter_name": "Email CCs",
+        "items": {
+          "description": "Email CC object for adding CCs to a ticket.",
+          "properties": {
+            "action": {
+              "default": "put",
+              "description": "Action: 'put' to add, 'delete' to remove",
+              "title": "Action",
+              "type": "string"
+            },
+            "user_email": {
+              "description": "Email address to add as CC",
+              "title": "User Email",
+              "type": "string"
+            },
+            "user_id": {
+              "description": "User ID to add as CC",
+              "title": "User Id",
+              "type": "integer"
+            },
+            "user_name": {
+              "description": "Name of the user to add as CC",
+              "title": "User Name",
+              "type": "string"
+            }
+          },
+          "title": "EmailCCInput",
+          "type": "object"
+        },
+        "title": "Email Ccs",
+        "type": "array"
+      },
+      "external_id": {
+        "description": "An external ID to link this ticket to records in another system.",
+        "examples": ["EXT-12345"],
+        "human_parameter_description": "A unique identifier from an external system (e.g., CRM, ERP) for cross-referencing.",
+        "human_parameter_name": "External ID",
+        "title": "External Id",
+        "type": "string"
+      },
+      "followers": {
+        "description": "Array of follower objects. Write-only field for adding/removing followers.",
+        "examples": [
+          [
+            {
+              "action": "put",
+              "user_id": 12345
+            }
+          ]
+        ],
+        "human_parameter_description": "Follower entries to add or remove. Use 'put' action to add, 'delete' to remove.",
+        "human_parameter_name": "Followers",
+        "items": {
+          "description": "Follower object for adding followers to a ticket.",
+          "properties": {
+            "action": {
+              "default": "put",
+              "description": "Action: 'put' to add, 'delete' to remove",
+              "title": "Action",
+              "type": "string"
+            },
+            "user_email": {
+              "description": "Email address to add as follower",
+              "title": "User Email",
+              "type": "string"
+            },
+            "user_id": {
+              "description": "User ID to add as follower",
+              "title": "User Id",
+              "type": "integer"
+            }
+          },
+          "title": "FollowerInput",
+          "type": "object"
+        },
+        "title": "Followers",
+        "type": "array"
+      },
+      "group_id": {
+        "description": "The ID of the group to assign the ticket to.",
+        "examples": [12345678],
+        "human_parameter_description": "The Zendesk group ID the ticket should be assigned to. Groups are collections of agents.",
+        "human_parameter_name": "Group ID",
+        "title": "Group Id",
+        "type": "integer"
+      },
+      "priority": {
+        "default": "normal",
+        "description": "Zendesk priority. Must be one of: 'urgent', 'high', 'normal', 'low'. Defaults to 'normal'.",
+        "enum": ["urgent", "high", "normal", "low"],
+        "examples": ["high"],
+        "human_parameter_description": "How urgent this request is and how quickly it needs attention. Choose urgent, high, normal, or low based on impact and time sensitivity. Defaults to 'normal'.",
+        "human_parameter_name": "Priority",
+        "title": "Priority",
+        "type": "string"
+      },
+      "requester_email": {
+        "description": "Email of the requester. Must accompany `requester_name`. Ignored if requester_id is provided.",
+        "examples": ["jane@example.com"],
+        "human_parameter_description": "The requester's email address so they can receive ticket notifications. Include this only if you're also providing their name.",
+        "human_parameter_name": "Requester Email",
+        "title": "Requester Email",
+        "type": "string"
+      },
+      "requester_id": {
+        "description": "The ID of the user requesting support. If provided, requester_name and requester_email are ignored.",
+        "examples": [12345678],
+        "human_parameter_description": "The Zendesk user ID of the person reporting this issue. Use this if you know the user's ID, otherwise use requester_name/email.",
+        "human_parameter_name": "Requester ID",
+        "title": "Requester Id",
+        "type": "integer"
+      },
+      "requester_name": {
+        "description": "Name of the requester. If you supply this, you MUST also supply `requester_email`. Leave both blank to default to the authenticated user. Ignored if requester_id is provided.",
+        "examples": ["Jane Doe"],
+        "human_parameter_description": "Full name of the person reporting the issue or needing help. Provide this only if you're also adding their email so they receive updates.",
+        "human_parameter_name": "Requester Name",
+        "title": "Requester Name",
+        "type": "string"
+      },
+      "status": {
+        "description": "The state of the ticket. Allowed values: 'new', 'open', 'pending', 'hold', 'solved', 'closed'.",
+        "enum": ["new", "open", "pending", "hold", "solved", "closed"],
+        "examples": ["open"],
+        "human_parameter_description": "The current state of the ticket. Tickets typically start as 'new' and move through 'open', 'pending', 'hold', 'solved', and 'closed'.",
+        "human_parameter_name": "Status",
+        "title": "Status",
+        "type": "string"
+      },
+      "subject": {
+        "description": "Short summary of the issue. Keep it concise (e.g. 'Cannot log in').",
+        "examples": ["Unable to reset password", "Billing discrepancy"],
+        "human_parameter_description": "A short, clear title for the issue so support understands it at a glance. Keep it brief, like 'Can't log in' or 'Billing discrepancy'.",
+        "human_parameter_name": "Subject",
+        "title": "Subject",
+        "type": "string"
+      },
+      "tags": {
+        "description": "Array of tags to apply to the ticket.",
+        "examples": [["urgent", "billing", "vip"]],
+        "human_parameter_description": "Labels to categorize or filter the ticket. Tags help with reporting and automation.",
+        "human_parameter_name": "Tags",
+        "items": {
+          "type": "string"
+        },
+        "title": "Tags",
+        "type": "array"
+      },
+      "ticket_form_id": {
+        "description": "The ID of the ticket form to render for the ticket. Enterprise only.",
+        "examples": [360003653593],
+        "human_parameter_description": "The ID of a custom ticket form to associate with this ticket. This feature requires an Enterprise plan.",
+        "human_parameter_name": "Ticket Form ID",
+        "title": "Ticket Form Id",
+        "type": "integer"
+      },
+      "ticket_type": {
+        "description": "The type of this ticket. Allowed values: 'problem', 'incident', 'question', 'task'.",
+        "enum": ["problem", "incident", "question", "task"],
+        "examples": ["question"],
+        "human_parameter_description": "Categorize the ticket: 'problem' for root cause issues, 'incident' for occurrences of a problem, 'question' for inquiries, 'task' for work items.",
+        "human_parameter_name": "Type",
+        "title": "Ticket Type",
+        "type": "string"
+      },
+      "via_followup_source_id": {
+        "description": "The ID of a closed ticket to create a follow-up from. The new ticket will be linked to the source ticket.",
+        "examples": [12345],
+        "human_parameter_description": "ID of a closed ticket this new ticket follows up on. Creates a link between tickets.",
+        "human_parameter_name": "Follow-up Source ID",
+        "title": "Via Followup Source Id",
+        "type": "integer"
+      }
+    },
+    "required": ["subject", "description"],
+    "title": "CreateZendeskTicketRequest",
+    "type": "object"
+  },
+  "name": "create_zendesk_ticket",
+  "outputSchema": {
+    "$defs": {
+      "CreateZendeskTicketResponse": {
+        "properties": {
+          "assignee_id": {
+            "description": "The ID of the agent assigned to the ticket",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "brand_id": {
+            "description": "The ID of the brand associated with the ticket",
+            "title": "Brand Id",
+            "type": "integer"
+          },
+          "collaborator_ids": {
+            "description": "IDs of users CC'd on the ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "When the ticket was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "The first comment on the ticket (read-only)",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "description": "Due date for task tickets in ISO 8601 format",
+            "title": "Due At",
+            "type": "string"
+          },
+          "email_cc_ids": {
+            "description": "IDs of users added as email CCs",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Email Cc Ids",
+            "type": "array"
+          },
+          "external_id": {
+            "description": "External ID linking to records in another system",
+            "title": "External Id",
+            "type": "string"
+          },
+          "follower_ids": {
+            "description": "IDs of users following the ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Follower Ids",
+            "type": "array"
+          },
+          "group_id": {
+            "description": "The ID of the group assigned to the ticket",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "The ID of the organization of the requester",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "The urgency level of the ticket (urgent, high, normal, low)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "The ID of the user who requested support",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The state of the ticket (new, open, pending, hold, solved, closed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "The subject/title of the ticket",
+            "title": "Subject",
+            "type": "string"
+          },
+          "submitter_id": {
+            "description": "The ID of the user who submitted the ticket",
+            "title": "Submitter Id",
+            "type": "integer"
+          },
+          "success": {
+            "description": "Indicates whether the ticket creation was successful",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "List of tags applied to the ticket",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "ticket_form_id": {
+            "description": "The ID of the ticket form associated with the ticket",
+            "title": "Ticket Form Id",
+            "type": "integer"
+          },
+          "ticket_id": {
+            "description": "ID of the created ticket",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "ticket_type": {
+            "description": "The type of the ticket (problem, incident, question, task)",
+            "title": "Ticket Type",
+            "type": "string"
+          },
+          "ticket_url": {
+            "description": "URL of the created ticket",
+            "title": "Ticket Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When the ticket was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "via_followup_source_id": {
+            "description": "ID of the source ticket if this is a follow-up",
+            "title": "Via Followup Source Id",
+            "type": "integer"
+          }
+        },
+        "required": ["success", "ticket_id", "ticket_url"],
+        "title": "CreateZendeskTicketResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateZendeskTicketResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

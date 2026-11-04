@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a specific Sentry issue, identified by its ID, from an organization; this operation is irreversible and idempotent.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteOrganizationIssue`",
+    "properties": {
+      "issue_id": {
+        "description": "The unique identifier (ID) of the Sentry issue to be permanently deleted.",
+        "examples": ["123456789", "9876543210"],
+        "title": "Issue Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization to which the issue belongs.",
+        "examples": ["my-awesome-org", "sentry"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "issue_id"],
+    "title": "DeleteOrganizationIssueRequest",
+    "type": "object"
+  },
+  "name": "delete_organization_issue",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationIssueResponse": {
+        "description": "Response schema for `DeleteOrganizationIssue`.\n\nDELETE endpoints return empty response bodies on success. Single issue deletion returns\nHTTP 202 (Accepted) as the operation is processed asynchronously. Bulk deletion returns\nHTTP 204 (No Content) upon successful completion. Both endpoints return empty response\nbodies on success with no fields.",
+        "properties": {},
+        "title": "DeleteOrganizationIssueResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationIssueResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

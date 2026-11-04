@@ -1,0 +1,592 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Searches Trello content (e.g., boards, cards, members) within specified organizations using a query and customizable result fields. IMPORTANT LIMITATIONS: - Search indexing has a delay: newly created/updated cards may not appear for several minutes. - For exact name matching or time-sensitive lookups, use trello.get_lists_cards_by_id_list or trello.get_boards_cards_by_id_board to enumerate cards directly, then filter by name. - The search uses word tokenization: queries like 'Payment failed when sending tips' are split into individual terms ['Payment', 'failed', 'when', 'sending', 'tips']. Common words may be ignored. - Set partial='true' (default) for better recall with prefix matching on the last search term.",
+  "inputSchema": {
+    "description": "Request schema for `GetSearch` action. Defines the parameters for searching Trello content.\n\nIMPORTANT: Trello search has an indexing delay - newly created or updated cards may not appear\nin search results for several minutes. For time-sensitive or exact name matching, consider using\ntrello.get_lists_cards_by_id_list or trello.get_boards_cards_by_id_board to enumerate cards directly.",
+    "properties": {
+      "board_fields": {
+        "default": "name,idOrganization",
+        "description": "Fields for found boards; 'all' or a comma-separated list (e.g., 'name,url'). Default is 'name,idOrganization'.",
+        "examples": ["all", "name,idOrganization,url", "name,desc"],
+        "title": "Board Fields",
+        "type": "string"
+      },
+      "boards_limit": {
+        "default": "10",
+        "description": "Maximum number of board results (1-1000). Use 0 to exclude boards from search results. Default is 10.",
+        "examples": ["10", "100", "0"],
+        "title": "Boards Limit",
+        "type": "string"
+      },
+      "card_attachments": {
+        "description": "Whether to include attachments for cards ('true', 'false', or 'cover' for card cover attachments).",
+        "examples": ["true", "false", "cover"],
+        "title": "Card Attachments",
+        "type": "string"
+      },
+      "card_board": {
+        "description": "Whether to include the board object for each card returned ('true' or 'false').",
+        "examples": ["true", "false"],
+        "title": "Card Board",
+        "type": "string"
+      },
+      "card_fields": {
+        "default": "all",
+        "description": "Fields for found cards; 'all' or a comma-separated list (e.g., 'name,due'). Default is 'all'.",
+        "examples": ["all", "name,idList,due", "name,desc,labels"],
+        "title": "Card Fields",
+        "type": "string"
+      },
+      "card_list": {
+        "description": "Whether to include the list object for each card returned ('true' or 'false').",
+        "examples": ["true", "false"],
+        "title": "Card List",
+        "type": "string"
+      },
+      "card_members": {
+        "description": "Whether to include member objects for each card returned ('true' or 'false').",
+        "examples": ["true", "false"],
+        "title": "Card Members",
+        "type": "string"
+      },
+      "card_stickers": {
+        "description": "Whether to include sticker objects for each card returned ('true' or 'false').",
+        "examples": ["true", "false"],
+        "title": "Card Stickers",
+        "type": "string"
+      },
+      "cards_limit": {
+        "default": "10",
+        "description": "Maximum number of card results (1-1000). Use 0 to exclude cards from search results. Default is 10.",
+        "examples": ["10", "100", "0"],
+        "title": "Cards Limit",
+        "type": "string"
+      },
+      "cards_page": {
+        "default": "0",
+        "description": "Page number for paginated card results. Must be 0-100. Default is 0.",
+        "examples": ["0", "1"],
+        "title": "Cards Page",
+        "type": "string"
+      },
+      "idBoards": {
+        "default": "mine",
+        "description": "A comma-separated list of board IDs to search within, or 'mine' to search all boards the user is a member of (default). Each board ID must be a 24-character hexadecimal string (e.g., '5f9f1b9b8f8f8f8f8f8f8f8f'). Do NOT use the short 8-character ID from the board URL (e.g., 'VGflYpta' from 'trello.com/b/VGflYpta/board-name'). To get the correct ID, use the TRELLO_GET_BOARDS_BY_ID_MEMBER action or extract it from API responses.",
+        "examples": ["mine", "5f9f1b9b8f8f8f8f8f8f8f8f", "5f9f1b9b8f8f8f8f8f8f8f8f,5f9f1b9b8f8f8f8f8f8f8f90"],
+        "title": "Id Boards",
+        "type": "string"
+      },
+      "idCards": {
+        "description": "A comma-separated list of card IDs to search for. Each card ID must be a 24-character hexadecimal string (e.g., '5f9f1b9b8f8f8f8f8f8f8f8f'). Do NOT use the short card ID from the card URL.",
+        "examples": ["5f9f1b9b8f8f8f8f8f8f8f8f", "60d5ecb311521c001f8a3b2f,60d5ecb311521c001f8a3b30"],
+        "title": "Id Cards",
+        "type": "string"
+      },
+      "idOrganizations": {
+        "description": "A comma-separated list of organization (workspace) IDs to search within. Each organization ID must be a 24-character hexadecimal string (e.g., '5f9f1b9b8f8f8f8f8f8f8f8f').",
+        "examples": ["5f9f1b9b8f8f8f8f8f8f8f8f", "60d5ecb311521c001f8a3b2f,60d5ecb311521c001f8a3b30"],
+        "title": "Id Organizations",
+        "type": "string"
+      },
+      "member_fields": {
+        "default": "avatarHash,fullName,initials,username,confirmed",
+        "description": "Fields for found members; 'all' or a comma-separated list (e.g., 'fullName,username'). Default is 'avatarHash,fullName,initials,username,confirmed'.",
+        "examples": ["all", "fullName,username,initials", "avatarHash,bio"],
+        "title": "Member Fields",
+        "type": "string"
+      },
+      "members_limit": {
+        "default": "10",
+        "description": "Maximum number of member results (1-1000). Use 0 to exclude members from search results. Default is 10.",
+        "examples": ["10", "100", "0"],
+        "title": "Members Limit",
+        "type": "string"
+      },
+      "modelTypes": {
+        "default": "all",
+        "description": "Types of Trello objects to search (e.g., 'cards,boards' or 'all' from 'actions', 'boards', 'cards', 'members', 'organizations'). Default is 'all'.",
+        "examples": ["all", "boards,cards", "members"],
+        "title": "Model Types",
+        "type": "string"
+      },
+      "organization_fields": {
+        "default": "name,displayName",
+        "description": "Fields for found organizations; 'all' or a comma-separated list (e.g., 'name,url'). Default is 'name,displayName'.",
+        "examples": ["all", "name,displayName,url", "desc,website"],
+        "title": "Organization Fields",
+        "type": "string"
+      },
+      "organizations_limit": {
+        "default": "10",
+        "description": "Maximum number of organization results (1-1000). Use 0 to exclude organizations from search results. Default is 10.",
+        "examples": ["10", "100", "0"],
+        "title": "Organizations Limit",
+        "type": "string"
+      },
+      "partial": {
+        "default": "true",
+        "description": "Enable partial/prefix matching for search terms ('true' or 'false'). Default is 'true'. When true, the last word in the query will match word prefixes (e.g., 'pay' matches 'payment'). When false, only exact word matches are returned. Setting to 'true' (recommended) improves search recall, especially for card names that may not be indexed immediately after creation.",
+        "examples": ["true", "false"],
+        "title": "Partial",
+        "type": "string"
+      },
+      "query": {
+        "description": "The search query string. Trello tokenizes the query into individual words and searches for cards/boards/etc. containing those terms. Note: Common words like 'when', 'the', 'is' may be ignored as stop words.",
+        "examples": ["project alpha tasks", "meeting notes Q3"],
+        "maxLength": 16384,
+        "minLength": 1,
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": ["query"],
+    "title": "GetSearchRequest",
+    "type": "object"
+  },
+  "name": "get_search",
+  "outputSchema": {
+    "$defs": {
+      "Action": {
+        "description": "Trello Action object.",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "description": "Relevant information regarding the action",
+            "title": "Data",
+            "type": "object"
+          },
+          "date": {
+            "description": "When the action occurred (ISO 8601 timestamp)",
+            "title": "Date",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the action",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "The ID of the member who caused the action",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of action (e.g., updateCard, commentCard)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idMemberCreator", "data", "type", "date"],
+        "title": "Action",
+        "type": "object"
+      },
+      "Board": {
+        "description": "Trello Board object.",
+        "properties": {
+          "closed": {
+            "description": "Boolean whether the board has been closed or not",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "desc": {
+            "description": "Board description (deprecated field)",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "description": "Custom emoji data for descriptions",
+            "title": "Desc Data",
+            "type": "string"
+          },
+          "enterpriseOwned": {
+            "description": "Enterprise ownership status",
+            "title": "Enterprise Owned",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The ID of the board",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "MongoID of board creator",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "idOrganization": {
+            "description": "MongoID of associated organization",
+            "title": "Id Organization",
+            "type": "string"
+          },
+          "labelNames": {
+            "additionalProperties": true,
+            "description": "Custom label names by color",
+            "title": "Label Names",
+            "type": "object"
+          },
+          "limits": {
+            "additionalProperties": true,
+            "description": "Board limit information",
+            "title": "Limits",
+            "type": "object"
+          },
+          "memberships": {
+            "description": "User relationship objects",
+            "items": {},
+            "title": "Memberships",
+            "type": "array"
+          },
+          "name": {
+            "description": "The name of the board",
+            "title": "Name",
+            "type": "string"
+          },
+          "pinned": {
+            "description": "Boolean whether the board has been pinned or not",
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "prefs": {
+            "additionalProperties": true,
+            "description": "Board settings and preferences",
+            "title": "Prefs",
+            "type": "object"
+          },
+          "shortUrl": {
+            "description": "URL using shortened ID",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "starred": {
+            "description": "Whether current user starred the board",
+            "title": "Starred",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "Persistent URL for the board",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "Board",
+        "type": "object"
+      },
+      "Card": {
+        "description": "Trello Card object.",
+        "properties": {
+          "address": {
+            "description": "Card location address",
+            "title": "Address",
+            "type": "string"
+          },
+          "badges": {
+            "additionalProperties": true,
+            "description": "Pieces of information displayed on card front",
+            "title": "Badges",
+            "type": "object"
+          },
+          "checkItemStates": {
+            "description": "Checklist item states",
+            "items": {},
+            "title": "Check Item States",
+            "type": "array"
+          },
+          "closed": {
+            "description": "Whether the card is closed (archived)",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "coordinates": {
+            "additionalProperties": true,
+            "description": "Latitude/longitude coordinates",
+            "title": "Coordinates",
+            "type": "object"
+          },
+          "dateLastActivity": {
+            "description": "Last activity timestamp (ISO 8601)",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "desc": {
+            "description": "Card description (max 16384 chars)",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "additionalProperties": true,
+            "description": "Custom emoji data for descriptions",
+            "title": "Desc Data",
+            "type": "object"
+          },
+          "due": {
+            "description": "The due date on the card, if one exists (ISO 8601 timestamp)",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueComplete": {
+            "description": "Whether the status of the card is complete",
+            "title": "Due Complete",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The ID of the card",
+            "title": "Id",
+            "type": "string"
+          },
+          "idAttachmentCover": {
+            "description": "Cover image attachment ID",
+            "title": "Id Attachment Cover",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board the card is on",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "idChecklists": {
+            "description": "An array of checklist IDs on this card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Checklists",
+            "type": "array"
+          },
+          "idLabels": {
+            "description": "An array of label IDs on this card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Labels",
+            "type": "array"
+          },
+          "idList": {
+            "description": "The ID of the list the card is in",
+            "title": "Id List",
+            "type": "string"
+          },
+          "idMembers": {
+            "description": "An array of member IDs on this card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members",
+            "type": "array"
+          },
+          "idMembersVoted": {
+            "description": "Members who voted on card",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Members Voted",
+            "type": "array"
+          },
+          "idShort": {
+            "description": "Numeric board-specific card ID",
+            "title": "Id Short",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Label objects on card",
+            "items": {},
+            "title": "Labels",
+            "type": "array"
+          },
+          "locationName": {
+            "description": "Card location name",
+            "title": "Location Name",
+            "type": "string"
+          },
+          "manualCoverAttachment": {
+            "description": "Whether cover was manually selected",
+            "title": "Manual Cover Attachment",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Name of the card",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the card in the list",
+            "title": "Pos",
+            "type": "number"
+          },
+          "shortLink": {
+            "description": "The 8 character shortened ID for the card",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "URL to the card without the name slug",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "start": {
+            "description": "The start date on the card, if one exists (ISO 8601 timestamp)",
+            "title": "Start",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Whether this member is subscribed to the card",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "Full URL to the card, with the name slug",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "Card",
+        "type": "object"
+      },
+      "GetSearchResponse": {
+        "description": "Response schema for `GetSearch` action. Contains the search results from Trello.\n\nThe Trello API /1/search endpoint returns search options and separate arrays for each resource type.\nFields are only included in the response when requested via modelTypes or when they have results.",
+        "properties": {
+          "actions": {
+            "description": "Array of Action objects matching the search query (only present when requested/found)",
+            "items": {
+              "$ref": "#/$defs/Action"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "boards": {
+            "description": "Array of Board objects matching the search query (only present when requested/found)",
+            "items": {
+              "$ref": "#/$defs/Board"
+            },
+            "title": "Boards",
+            "type": "array"
+          },
+          "cards": {
+            "description": "Array of Card objects matching the search query (only present when requested/found)",
+            "items": {
+              "$ref": "#/$defs/Card"
+            },
+            "title": "Cards",
+            "type": "array"
+          },
+          "members": {
+            "description": "Array of Member objects matching the search query (only present when requested/found)",
+            "items": {
+              "$ref": "#/$defs/Member"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "options": {
+            "$ref": "#/$defs/SearchOptions",
+            "description": "Search options used for the query",
+            "title": "Options"
+          }
+        },
+        "required": ["options"],
+        "title": "GetSearchResponse",
+        "type": "object"
+      },
+      "Member": {
+        "description": "Trello Member object.",
+        "properties": {
+          "avatarUrl": {
+            "description": "The url of this member's avatar",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "confirmed": {
+            "description": "Email verification status",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "fullName": {
+            "description": "Full name if public",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "List of boards this member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idOrganizations": {
+            "description": "List of workspaces this member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Organizations",
+            "type": "array"
+          },
+          "initials": {
+            "description": "Account initials if public",
+            "title": "Initials",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of this account",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "Member",
+        "type": "object"
+      },
+      "SearchOptions": {
+        "description": "Search options used for the query. Part of the official Trello API response.",
+        "properties": {
+          "modelTypes": {
+            "description": "Array of model types to search (actions, boards, cards, members, organizations)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Model Types",
+            "type": "array"
+          },
+          "modifiers": {
+            "description": "Array of search modifiers applied to the query (e.g., edited:day, created:day, list:name)",
+            "items": {},
+            "title": "Modifiers",
+            "type": "array"
+          },
+          "partial": {
+            "description": "Whether partial matching is enabled for search terms",
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "terms": {
+            "description": "Array of search terms used in the query",
+            "items": {},
+            "title": "Terms",
+            "type": "array"
+          }
+        },
+        "title": "SearchOptions",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetSearchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

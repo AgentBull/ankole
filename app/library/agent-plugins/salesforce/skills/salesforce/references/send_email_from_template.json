@@ -1,0 +1,219 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Sends an email using a predefined Salesforce email template with merge field support.",
+  "inputSchema": {
+    "properties": {
+      "add_threading_tokens": {
+        "default": false,
+        "description": "Whether to add threading tokens for email-to-case or custom threading. Useful for case-related emails.",
+        "human_parameter_description": "Add special tokens to help keep replies tied to the right case or conversation thread. Use this when emailing about a case.",
+        "human_parameter_name": "Add Threading Tokens",
+        "title": "Add Threading Tokens",
+        "type": "boolean"
+      },
+      "additional_to_addresses": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Additional email addresses to send to (besides the recipient). Can be a comma-delimited string or a list.",
+        "examples": ["manager@company.com", ["team@company.com", "support@company.com"]],
+        "human_parameter_description": "Add extra primary recipients to the email in addition to the main recipient. Enter one address or multiple.",
+        "human_parameter_name": "Additional To Addresses",
+        "title": "Additional To Addresses"
+      },
+      "attachment_ids": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "IDs of files to attach. Can be a comma-delimited string or a list.",
+        "examples": ["069XXXXXXXXXXXXXXX", ["069XXXXXXXXXXXXXXX", "069YYYYYYYYYYYYYYY"]],
+        "human_parameter_description": "Attach files by providing their file IDs. You can include one or multiple attachments.",
+        "human_parameter_name": "Attachment IDs",
+        "title": "Attachment Ids"
+      },
+      "bcc_addresses": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "BCC email addresses. Can be a comma-delimited string or a list.",
+        "examples": ["archive@company.com"],
+        "human_parameter_description": "People you want to blind-copy on the email. Other recipients won’t see these addresses.",
+        "human_parameter_name": "BCC Addresses",
+        "title": "Bcc Addresses"
+      },
+      "cc_addresses": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "CC email addresses. Can be a comma-delimited string or a list.",
+        "examples": ["supervisor@company.com", ["legal@company.com", "compliance@company.com"]],
+        "human_parameter_description": "People you want to copy on the email. They’ll receive the message and can see other CC’d recipients.",
+        "human_parameter_name": "CC Addresses",
+        "title": "Cc Addresses"
+      },
+      "log_email": {
+        "default": true,
+        "description": "Whether to log the email on the recipient's activity timeline. Defaults to true for template emails.",
+        "human_parameter_description": "Choose whether to save this email to the recipient’s activity history. Turn this off if you don’t want it recorded.",
+        "human_parameter_name": "Log Email",
+        "title": "Log Email",
+        "type": "boolean"
+      },
+      "recipient_id": {
+        "description": "ID of the lead, contact, or person account to send the email to. Required when using templates.",
+        "examples": ["003XXXXXXXXXXXXXXX", "00QXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "Select the person you’re emailing by providing their record ID. Use a Lead, Contact, or Person Account ID for the recipient.",
+        "human_parameter_name": "Recipient ID",
+        "title": "Recipient Id",
+        "type": "string"
+      },
+      "related_record_id": {
+        "default": "",
+        "description": "ID of a related record (e.g., Case, Opportunity) to populate merge fields from a different object.",
+        "examples": ["500XXXXXXXXXXXXXXX", "006XXXXXXXXXXXXXXX", "001XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "Optionally link a related record (like a Case or Opportunity) so the template can pull in the right details. Use this if your template references another object.",
+        "human_parameter_name": "Related Record ID",
+        "title": "Related Record Id",
+        "type": "string"
+      },
+      "sender_address": {
+        "default": "",
+        "description": "Organization-wide email address. Required only when sender_type is OrgWideEmailAddress.",
+        "examples": ["noreply@company.com", "support@company.com"],
+        "human_parameter_description": "If you selected an organization-wide sender, enter that email address here. Leave blank if using your own user.",
+        "human_parameter_name": "Sender Address",
+        "title": "Sender Address",
+        "type": "string"
+      },
+      "sender_type": {
+        "default": "CurrentUser",
+        "description": "Type of sender. Valid values: CurrentUser, DefaultWorkflowUser, OrgWideEmailAddress.",
+        "examples": ["CurrentUser", "OrgWideEmailAddress"],
+        "human_parameter_description": "Choose who the email should appear to be from—your user, the default workflow user, or an organization-wide email address.",
+        "human_parameter_name": "Sender Type",
+        "title": "Sender Type",
+        "type": "string"
+      },
+      "template_id": {
+        "description": "ID of the email template to use.",
+        "examples": ["00XXXXXXXXXXXXXXXM", "00XWd000000q8qPMAQ"],
+        "human_parameter_description": "Choose the email template you want to send. This selects the content and merge fields used in the message.",
+        "human_parameter_name": "Template ID",
+        "title": "Template Id",
+        "type": "string"
+      }
+    },
+    "required": ["template_id", "recipient_id"],
+    "title": "SendEmailFromTemplateRequest",
+    "type": "object"
+  },
+  "name": "send_email_from_template",
+  "outputSchema": {
+    "$defs": {
+      "EmailSimpleError": {
+        "description": "Error object returned when emailSimple action fails.",
+        "properties": {
+          "fields": {
+            "description": "Array of field names that caused or are related to the error.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Detailed error message describing what went wrong.",
+            "title": "Message",
+            "type": "string"
+          },
+          "statusCode": {
+            "description": "Error status code (e.g., 'UNKNOWN_EXCEPTION', 'INVALID_EMAIL_ADDRESS').",
+            "title": "Status Code",
+            "type": "string"
+          }
+        },
+        "required": ["statusCode", "message"],
+        "title": "EmailSimpleError",
+        "type": "object"
+      },
+      "SendEmailFromTemplateResponse": {
+        "description": "Response from Salesforce REST Actions API emailSimple invocable action.",
+        "properties": {
+          "actionName": {
+            "description": "Name of the action executed. For emailSimple, this returns 'emailSimple'.",
+            "title": "Action Name",
+            "type": "string"
+          },
+          "errors": {
+            "description": "Array of error objects when the action fails. Null when isSuccess is true.",
+            "items": {
+              "$ref": "#/$defs/EmailSimpleError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "isSuccess": {
+            "description": "Indicates whether the action execution was successful.",
+            "title": "Is Success",
+            "type": "boolean"
+          },
+          "outputValues": {
+            "additionalProperties": true,
+            "description": "Output data from the action containing email send confirmation details. Null when isSuccess is false.",
+            "title": "Output Values",
+            "type": "object"
+          }
+        },
+        "required": ["actionName", "isSuccess"],
+        "title": "SendEmailFromTemplateResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SendEmailFromTemplateResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Add organization tags in Zendesk. Use when you need to tag an organization for categorization, filtering, or automation purposes. Tags are appended to the organization's existing tags. This action is idempotent — adding the same tag multiple times will not create duplicates in the organization's tag list.",
+  "inputSchema": {
+    "description": "Request parameters for adding organization tags.",
+    "properties": {
+      "organization_id": {
+        "description": "The ID of the organization to add tags to",
+        "examples": [16, 26925678097820],
+        "title": "Organization Id",
+        "type": "integer"
+      },
+      "tags": {
+        "description": "An array of tag names to add to the organization. Tags will be appended to the existing tags list.",
+        "human_parameter_description": "The list of tag names to add to the organization (e.g., ['test-tag-123', 'support']). Tags will be appended to any existing tags.",
+        "human_parameter_name": "Tags",
+        "items": {
+          "type": "string"
+        },
+        "title": "Tags",
+        "type": "array"
+      }
+    },
+    "required": ["organization_id", "tags"],
+    "title": "UpdateOrganizationsTagsRequest",
+    "type": "object"
+  },
+  "name": "update_organizations_tags",
+  "outputSchema": {
+    "$defs": {
+      "UpdateOrganizationsTagsResponse": {
+        "description": "Response containing the updated organization tags.",
+        "properties": {
+          "tags": {
+            "description": "An array of strings representing all tags currently associated with the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags"],
+        "title": "UpdateOrganizationsTagsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateOrganizationsTagsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

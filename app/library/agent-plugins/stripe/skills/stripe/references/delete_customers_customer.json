@@ -1,0 +1,59 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a customer and cancels active subscriptions. Use when you need to remove a customer record from your Stripe account. This operation is irreversible and automatically terminates any active subscriptions.",
+  "inputSchema": {
+    "description": "Request model for deleting a customer.",
+    "properties": {
+      "customer": {
+        "description": "The identifier of the customer to be deleted. Must be a valid Stripe customer ID starting with 'cus_'.",
+        "examples": ["cus_TepCq3nsQFRPxT", "cus_NffrFeUfNV2Hib"],
+        "title": "Customer",
+        "type": "string"
+      }
+    },
+    "required": ["customer"],
+    "title": "DeleteCustomersCustomerRequest",
+    "type": "object"
+  },
+  "name": "delete_customers_customer",
+  "outputSchema": {
+    "$defs": {
+      "DeleteCustomersCustomerResponse": {
+        "description": "Response model for a deleted customer.",
+        "properties": {
+          "deleted": {
+            "description": "Confirmation flag, always true for successful deletion.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The unique identifier of the deleted customer.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'customer' for this endpoint.",
+            "title": "Object",
+            "type": "string"
+          }
+        },
+        "title": "DeleteCustomersCustomerResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteCustomersCustomerResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

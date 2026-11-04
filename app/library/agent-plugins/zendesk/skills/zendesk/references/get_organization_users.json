@@ -1,0 +1,411 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List users associated with a specific Zendesk organization. Supports filtering by role, permission set, or external ID, and pagination by page number.",
+  "inputSchema": {
+    "description": "Request parameters for listing organization users with pagination and filtering.",
+    "properties": {
+      "external_id": {
+        "description": "Filter by external ID. Must be unique per user under the same account.",
+        "examples": ["abc"],
+        "title": "External Id",
+        "type": "string"
+      },
+      "organization_id": {
+        "description": "The numeric ID of the organization to list users from. Must be a non-null positive integer.",
+        "examples": [16],
+        "minimum": 1,
+        "title": "Organization Id",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Page number for offset pagination (starts at 1). Cannot be used with cursor pagination (page[size] and page[after]/page[before]).",
+        "examples": [1],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of users to return per page.",
+        "examples": [50],
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "permission_set": {
+        "description": "Filter by custom role ID. For Enterprise plan and above. Only one role ID per request.",
+        "examples": [123],
+        "title": "Permission Set",
+        "type": "integer"
+      },
+      "role": {
+        "description": "Filter results by a single role. Use 'end-user', 'agent', or 'admin'.",
+        "enum": ["end-user", "agent", "admin"],
+        "examples": ["agent"],
+        "title": "Role",
+        "type": "string"
+      },
+      "role_list": {
+        "description": "Filter results by multiple roles. Provide a list of roles to include users matching any of them.",
+        "examples": [["agent", "admin"]],
+        "items": {
+          "enum": ["end-user", "agent", "admin"],
+          "type": "string"
+        },
+        "title": "Role List",
+        "type": "array"
+      },
+      "sort_by": {
+        "description": "The field to sort users by. Defaults to natural order if not specified.",
+        "enum": ["id", "name", "created_at", "updated_at"],
+        "examples": ["name"],
+        "title": "Sort By",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "The sort order for results. Defaults to 'asc' if not specified.",
+        "enum": ["asc", "desc"],
+        "examples": ["asc"],
+        "title": "Sort Order",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id"],
+    "title": "GetOrganizationUsersRequest",
+    "type": "object"
+  },
+  "name": "get_organization_users",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationUsersResponse": {
+        "description": "Response containing list of users for an organization.",
+        "properties": {
+          "count": {
+            "description": "Total count of users in the organization",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "users": {
+            "description": "List of users in the organization",
+            "items": {
+              "$ref": "#/$defs/OrganizationUser"
+            },
+            "title": "Users",
+            "type": "array"
+          }
+        },
+        "required": ["users"],
+        "title": "GetOrganizationUsersResponse",
+        "type": "object"
+      },
+      "OrganizationUser": {
+        "description": "Zendesk user object for organization user listings.",
+        "properties": {
+          "locale": {
+            "description": "User locale",
+            "title": "Locale",
+            "type": "string"
+          },
+          "remote_photo_url": {
+            "description": "Remote photo URL",
+            "title": "Remote Photo Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Notes on the user profile",
+            "title": "Notes",
+            "type": "string"
+          },
+          "role_type": {
+            "description": "Role type ID",
+            "title": "Role Type",
+            "type": "integer"
+          },
+          "external_id": {
+            "description": "External system ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the user was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "iana_time_zone": {
+            "description": "IANA timezone",
+            "title": "Iana Time Zone",
+            "type": "string"
+          },
+          "two_factor_auth_enabled": {
+            "description": "True if 2FA is enabled",
+            "title": "Two Factor Auth Enabled",
+            "type": "boolean"
+          },
+          "agent_brand_ids": {
+            "description": "Brand IDs the agent is assigned to",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Agent Brand Ids",
+            "type": "array"
+          },
+          "details": {
+            "description": "User details",
+            "title": "Details",
+            "type": "string"
+          },
+          "only_private_comments": {
+            "description": "True if user can only make private comments",
+            "title": "Only Private Comments",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "List of user tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Timestamp when the user was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "phone": {
+            "description": "User phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Locale ID",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User's full name",
+            "title": "Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's primary email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "alias": {
+            "description": "User alias",
+            "title": "Alias",
+            "type": "string"
+          },
+          "shared_agent": {
+            "description": "True if agent is shared",
+            "title": "Shared Agent",
+            "type": "boolean"
+          },
+          "custom_role_id": {
+            "description": "Custom role ID",
+            "title": "Custom Role Id",
+            "type": "integer"
+          },
+          "restricted_agent": {
+            "description": "True if agent is restricted",
+            "title": "Restricted Agent",
+            "type": "boolean"
+          },
+          "moderator": {
+            "description": "True if user is a moderator",
+            "title": "Moderator",
+            "type": "boolean"
+          },
+          "role": {
+            "description": "User role (end-user, agent, admin)",
+            "title": "Role",
+            "type": "string"
+          },
+          "report_csv": {
+            "description": "True if user can access CSV reports",
+            "title": "Report Csv",
+            "type": "boolean"
+          },
+          "last_login_at": {
+            "description": "Timestamp of last login",
+            "title": "Last Login At",
+            "type": "string"
+          },
+          "signature": {
+            "description": "User signature",
+            "title": "Signature",
+            "type": "string"
+          },
+          "verified": {
+            "description": "True if user is verified",
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "suspended": {
+            "description": "True if user is suspended",
+            "title": "Suspended",
+            "type": "boolean"
+          },
+          "user_fields": {
+            "additionalProperties": true,
+            "description": "Custom user fields with admin-defined keys and dynamic values",
+            "title": "User Fields",
+            "type": "object"
+          },
+          "active": {
+            "description": "True if the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "photo": {
+            "$ref": "#/$defs/UserPhotoAttachment",
+            "description": "User photo object",
+            "title": "Photo"
+          },
+          "ticket_restriction": {
+            "description": "Ticket restriction level",
+            "title": "Ticket Restriction",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User timezone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "shared_phone_number": {
+            "description": "True if phone number is shared",
+            "title": "Shared Phone Number",
+            "type": "boolean"
+          },
+          "shared": {
+            "description": "True if user is shared",
+            "title": "Shared",
+            "type": "boolean"
+          },
+          "chat_only": {
+            "description": "True if user is chat-only",
+            "title": "Chat Only",
+            "type": "boolean"
+          },
+          "default_group_id": {
+            "description": "Default group ID",
+            "title": "Default Group Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "Organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          }
+        },
+        "required": ["name"],
+        "title": "OrganizationUser",
+        "type": "object"
+      },
+      "UserPhotoAttachment": {
+        "description": "User photo object represented as an Attachment.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type (e.g., image/png)",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL where the attachment can be downloaded",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "True if attachment is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Filename",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Attachment ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "True if inline attachment",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "mapped_content_url": {
+            "description": "Mapped URL for the attachment",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "List of thumbnail versions",
+            "items": {
+              "$ref": "#/$defs/UserPhotoAttachment"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          },
+          "url": {
+            "description": "API URL to access attachment details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "UserPhotoAttachment",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationUsersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

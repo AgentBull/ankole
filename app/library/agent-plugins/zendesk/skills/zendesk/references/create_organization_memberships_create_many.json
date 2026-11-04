@@ -1,0 +1,191 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create multiple organization memberships in Zendesk by posting up to 100 membership objects at a time. Each membership links a user to an organization. Use when onboarding multiple users to organizations in bulk, such as during team migrations or organizational restructuring. The operation returns a job_status payload; the initial status is typically 'queued' for larger batches.",
+  "inputSchema": {
+    "description": "Request for creating multiple organization memberships in Zendesk.",
+    "properties": {
+      "organization_memberships": {
+        "description": "Array of organization membership objects to create (max 100). Each object requires user_id and organization_id.",
+        "examples": [
+          [
+            {
+              "default": false,
+              "organization_id": 26925678097820,
+              "user_id": 26923127464348
+            },
+            {
+              "default": false,
+              "organization_id": 26924554541212,
+              "user_id": 26923144119324
+            }
+          ]
+        ],
+        "human_parameter_description": "List of organization membership objects to create. Each requires user_id and organization_id. Maximum 100 items per request.",
+        "human_parameter_name": "Organization Memberships",
+        "items": {
+          "description": "Individual organization membership object for bulk creation.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether this organization should be the user's default organization",
+              "examples": [false],
+              "human_parameter_description": "Set to true to make this the user's default organization. Defaults to false.",
+              "human_parameter_name": "Default",
+              "title": "Default",
+              "type": "boolean"
+            },
+            "organization_id": {
+              "description": "The ID of the organization to add the user to",
+              "examples": [26925678097820],
+              "human_parameter_description": "The numeric ID of the Zendesk organization the user should be added to.",
+              "human_parameter_name": "Organization ID",
+              "title": "Organization Id",
+              "type": "integer"
+            },
+            "user_id": {
+              "description": "The ID of the user to add to the organization",
+              "examples": [26923127464348],
+              "human_parameter_description": "The numeric ID of the Zendesk user to add as a member to the organization.",
+              "human_parameter_name": "User ID",
+              "title": "User Id",
+              "type": "integer"
+            }
+          },
+          "required": ["user_id", "organization_id"],
+          "title": "OrganizationMembershipItem",
+          "type": "object"
+        },
+        "maxItems": 100,
+        "minItems": 1,
+        "title": "Organization Memberships",
+        "type": "array"
+      }
+    },
+    "required": ["organization_memberships"],
+    "title": "CreateOrganizationMembershipsCreateManyRequest",
+    "type": "object"
+  },
+  "name": "create_organization_memberships_create_many",
+  "outputSchema": {
+    "$defs": {
+      "CreateOrganizationMembershipsCreateManyResponse": {
+        "description": "Response from bulk organization membership creation operation.",
+        "properties": {
+          "job_status": {
+            "$ref": "#/$defs/JobStatus",
+            "description": "Background job status object containing the job ID, status, progress, and results",
+            "title": "Job Status"
+          }
+        },
+        "required": ["job_status"],
+        "title": "CreateOrganizationMembershipsCreateManyResponse",
+        "type": "object"
+      },
+      "JobStatus": {
+        "description": "Job status object returned from bulk membership operations.",
+        "properties": {
+          "id": {
+            "description": "Automatically assigned when the job is queued",
+            "examples": ["82de0b044094f0c67893ac9fe64f1a99"],
+            "title": "Id",
+            "type": "string"
+          },
+          "job_type": {
+            "description": "The type of the job",
+            "examples": ["organization_membership_create_many"],
+            "title": "Job Type",
+            "type": "string"
+          },
+          "message": {
+            "description": "Message from the job worker, if any",
+            "examples": ["Completed at 2018-03-08 10:07:04 +0000"],
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "description": "Number of tasks that have already been completed",
+            "examples": [2],
+            "title": "Progress",
+            "type": "integer"
+          },
+          "results": {
+            "description": "Result data from processed tasks. Each result contains the action taken, record ID, status, and success flag.",
+            "items": {
+              "$ref": "#/$defs/JobStatusResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "status": {
+            "description": "The current status of the job",
+            "enum": ["queued", "working", "failed", "completed"],
+            "examples": ["completed"],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "description": "The total number of tasks this job is batching through",
+            "examples": [2],
+            "title": "Total",
+            "type": "integer"
+          },
+          "url": {
+            "description": "The URL to poll for status updates",
+            "examples": ["https://example.zendesk.com/api/v2/job_statuses/82de0b0467893ac9fe64f1a99"],
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "status"],
+        "title": "JobStatus",
+        "type": "object"
+      },
+      "JobStatusResult": {
+        "description": "Individual result entry from a bulk membership creation job.",
+        "properties": {
+          "action": {
+            "description": "The action taken on the record (e.g., 'create', 'update')",
+            "examples": ["create"],
+            "title": "Action",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the created or updated organization membership",
+            "examples": [244],
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The status of the action (e.g., 'Created', 'Updated')",
+            "examples": ["Created"],
+            "title": "Status",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the action was successful",
+            "examples": [true],
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "JobStatusResult",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateOrganizationMembershipsCreateManyResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

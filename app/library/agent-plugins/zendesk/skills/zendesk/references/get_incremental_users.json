@@ -1,0 +1,273 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve users that have been modified since a specified start time using the Incremental User Export API. Use when you need to sync or track changes to Zendesk users over time, such as for data warehousing, backup, or external system synchronization. Provide a start_time (Unix timestamp) and the API returns users that have been created, updated, or deleted since that time. Call repeatedly with the end_time from each response to paginate through all changes. This action is read-only and idempotent. Note: Data isn't available for the most recent minute due to eventual consistency. Users may appear as modified or deleted; interpret based on your use case.",
+  "inputSchema": {
+    "description": "Request parameters for incremental user export.",
+    "properties": {
+      "per_page": {
+        "description": "The number of records to return per page (max 100).",
+        "examples": [100],
+        "human_parameter_description": "How many user records to return on each page. You can request up to 100 per page.",
+        "human_parameter_name": "Records Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "start_time": {
+        "description": "The Unix timestamp (seconds since epoch) to start the incremental export from. Must be at least one minute in the past. Data isn't provided for the most recent minute. Use the end_time from a previous response for subsequent pagination.",
+        "examples": [1332034771],
+        "human_parameter_description": "The Unix timestamp (in seconds) marking where to start fetching incremental user data. Must be at least one minute in the past. Use the end_time from a previous response to get the next batch of changes.",
+        "human_parameter_name": "Start Time",
+        "minimum": 0,
+        "title": "Start Time",
+        "type": "integer"
+      }
+    },
+    "required": ["start_time"],
+    "title": "GetIncrementalUsersRequest",
+    "type": "object"
+  },
+  "name": "get_incremental_users",
+  "outputSchema": {
+    "$defs": {
+      "GetIncrementalUsersResponse": {
+        "description": "Response containing incrementally exported users.",
+        "properties": {
+          "count": {
+            "description": "Number of users in this response",
+            "title": "Count",
+            "type": "integer"
+          },
+          "end_of_stream": {
+            "description": "Whether this is the end of the incremental export stream. When false, use next_page or end_time to continue fetching.",
+            "title": "End Of Stream",
+            "type": "boolean"
+          },
+          "end_time": {
+            "description": "Unix timestamp marking the end of this export window. Use this as the start_time for the next request to continue fetching changes.",
+            "title": "End Time",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for the next page of results. Use this to continue pagination if there are more records.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "users": {
+            "description": "List of user records that were modified since start_time",
+            "items": {
+              "$ref": "#/$defs/IncrementalZendeskUser"
+            },
+            "title": "Users",
+            "type": "array"
+          }
+        },
+        "required": ["count", "end_of_stream", "users"],
+        "title": "GetIncrementalUsersResponse",
+        "type": "object"
+      },
+      "IncrementalZendeskUser": {
+        "description": "Zendesk user object from incremental export.",
+        "properties": {
+          "locale": {
+            "description": "User locale",
+            "title": "Locale",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Notes on the user profile",
+            "title": "Notes",
+            "type": "string"
+          },
+          "role_type": {
+            "description": "Role type ID",
+            "title": "Role Type",
+            "type": "integer"
+          },
+          "external_id": {
+            "description": "External system ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the user was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "iana_time_zone": {
+            "description": "IANA timezone",
+            "title": "Iana Time Zone",
+            "type": "string"
+          },
+          "two_factor_auth_enabled": {
+            "description": "True if 2FA is enabled",
+            "title": "Two Factor Auth Enabled",
+            "type": "boolean"
+          },
+          "details": {
+            "description": "User details",
+            "title": "Details",
+            "type": "string"
+          },
+          "only_private_comments": {
+            "description": "True if user can only make private comments",
+            "title": "Only Private Comments",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "List of user tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Timestamp when the user was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "phone": {
+            "description": "User phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Locale ID",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User's full name",
+            "title": "Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's primary email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "alias": {
+            "description": "User alias",
+            "title": "Alias",
+            "type": "string"
+          },
+          "shared_agent": {
+            "description": "True if agent is shared",
+            "title": "Shared Agent",
+            "type": "boolean"
+          },
+          "custom_role_id": {
+            "description": "Custom role ID",
+            "title": "Custom Role Id",
+            "type": "integer"
+          },
+          "restricted_agent": {
+            "description": "True if agent is restricted",
+            "title": "Restricted Agent",
+            "type": "boolean"
+          },
+          "moderator": {
+            "description": "True if user is a moderator",
+            "title": "Moderator",
+            "type": "boolean"
+          },
+          "role": {
+            "description": "User role (end-user, agent, admin)",
+            "title": "Role",
+            "type": "string"
+          },
+          "last_login_at": {
+            "description": "Timestamp of last login",
+            "title": "Last Login At",
+            "type": "string"
+          },
+          "signature": {
+            "description": "User signature",
+            "title": "Signature",
+            "type": "string"
+          },
+          "verified": {
+            "description": "True if user is verified",
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "suspended": {
+            "description": "True if user is suspended",
+            "title": "Suspended",
+            "type": "boolean"
+          },
+          "user_fields": {
+            "additionalProperties": true,
+            "description": "Custom user fields with admin-defined keys and dynamic values",
+            "title": "User Fields",
+            "type": "object"
+          },
+          "active": {
+            "description": "True if the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "ticket_restriction": {
+            "description": "Ticket restriction level",
+            "title": "Ticket Restriction",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User timezone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "shared": {
+            "description": "True if user is shared",
+            "title": "Shared",
+            "type": "boolean"
+          },
+          "chat_only": {
+            "description": "True if user is chat-only (Zendesk Chat)",
+            "title": "Chat Only",
+            "type": "boolean"
+          },
+          "default_group_id": {
+            "description": "Default group ID",
+            "title": "Default Group Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "Organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "IncrementalZendeskUser",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetIncrementalUsersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

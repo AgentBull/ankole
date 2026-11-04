@@ -1,0 +1,124 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of version control repositories for a specific Sentry organization, which must exist and is identified by its ID or slug.",
+  "inputSchema": {
+    "description": "Request schema for `ListOrganizationRepositories`",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID or slug) of the Sentry organization for which to list repositories. The slug is the URL-friendly name of the organization.",
+        "examples": ["my-sentry-org", "another-org-slug"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "ListOrganizationRepositoriesRequest",
+    "type": "object"
+  },
+  "name": "list_organization_repositories",
+  "outputSchema": {
+    "$defs": {
+      "ListOrganizationRepositoriesResponse": {
+        "description": "Response schema for `ListOrganizationRepositories`",
+        "properties": {
+          "repositories": {
+            "description": "List of repositories connected to the organization",
+            "items": {
+              "$ref": "#/$defs/Repository"
+            },
+            "title": "Repositories",
+            "type": "array"
+          }
+        },
+        "required": ["repositories"],
+        "title": "ListOrganizationRepositoriesResponse",
+        "type": "object"
+      },
+      "Repository": {
+        "description": "A version control repository connected to Sentry",
+        "properties": {
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the repository was added to Sentry",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "externalId": {
+            "description": "The external ID for the repository in the provider's system (may be null)",
+            "title": "External Id",
+            "type": "string"
+          },
+          "externalSlug": {
+            "description": "The external slug identifier for the repository (may be null)",
+            "title": "External Slug",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier for this repository",
+            "title": "Id",
+            "type": "string"
+          },
+          "integrationId": {
+            "description": "The ID of the integration associated with this repository (may be null)",
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The repository name (e.g., 'owner/repo')",
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/$defs/RepositoryProvider",
+            "description": "The version control provider for this repository",
+            "title": "Provider"
+          },
+          "status": {
+            "description": "The status of the repository (e.g., 'active', 'disabled')",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL of the repository (may be null)",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "provider", "status", "dateCreated"],
+        "title": "Repository",
+        "type": "object"
+      },
+      "RepositoryProvider": {
+        "description": "Provider information for a repository",
+        "properties": {
+          "id": {
+            "description": "The provider ID (e.g., 'github', 'gitlab', 'bitbucket', 'unknown')",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The human-readable name of the provider",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "RepositoryProvider",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListOrganizationRepositoriesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

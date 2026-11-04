@@ -1,0 +1,271 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List billing credit balance transactions for a customer or customer account, with pagination and optional credit grant filtering. Use to view credit and debit transactions and track billing credit activity.",
+  "inputSchema": {
+    "description": "Request model for listing billing credit balance transactions.",
+    "properties": {
+      "credit_grant": {
+        "description": "Filter transactions to only include those for a specific credit grant ID.",
+        "examples": ["cg_12345", "cg_AbCdEf123456"],
+        "title": "Credit Grant",
+        "type": "string"
+      },
+      "customer": {
+        "description": "Filter transactions to only include those belonging to a particular customer ID.",
+        "examples": ["cus_12345", "cus_TepD5P6X8fBgRB"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "customer_account": {
+        "description": "Filter transactions to only include those for a specific customer account ID.",
+        "examples": ["acc_12345", "acc_AbCdEf123456"],
+        "title": "Customer Account",
+        "type": "string"
+      },
+      "ending_before": {
+        "description": "Cursor for backward pagination - object ID to end before. Use for fetching the previous page.",
+        "examples": ["cbtxn_67890", "cbtxn_XyZ789"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Number of objects to return per page (range: 1-100, default: 10).",
+        "examples": [10, 25, 100],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "starting_after": {
+        "description": "Cursor for forward pagination - object ID to start after. Use for fetching the next page.",
+        "examples": ["cbtxn_12345", "cbtxn_AbCdEf123456"],
+        "title": "Starting After",
+        "type": "string"
+      }
+    },
+    "title": "GetV1BillingCreditBalanceTransactionsOverviewBillingCreditBalanceTransactionsRequest",
+    "type": "object"
+  },
+  "name": "list_billing_credit_balance_transactions",
+  "outputSchema": {
+    "$defs": {
+      "AmountDetails": {
+        "description": "Transaction amount details.",
+        "properties": {
+          "monetary": {
+            "$ref": "#/$defs/MonetaryAmount",
+            "description": "Monetary amount information if type is 'monetary'.",
+            "title": "Monetary"
+          },
+          "type": {
+            "description": "Amount type, currently 'monetary' only.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AmountDetails",
+        "type": "object"
+      },
+      "CreditBalanceTransaction": {
+        "description": "Billing credit balance transaction object.",
+        "properties": {
+          "created": {
+            "description": "Time at which the transaction was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "credit": {
+            "$ref": "#/$defs/CreditDetails",
+            "description": "Credit details; present only when type is 'credit'.",
+            "title": "Credit"
+          },
+          "credit_grant": {
+            "description": "Associated credit grant identifier.",
+            "title": "Credit Grant",
+            "type": "string"
+          },
+          "debit": {
+            "$ref": "#/$defs/DebitDetails",
+            "description": "Debit details; present only when type is 'debit'.",
+            "title": "Debit"
+          },
+          "effective_at": {
+            "description": "Unix timestamp when this transaction takes effect.",
+            "title": "Effective At",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the transaction.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'billing.credit_balance_transaction'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "test_clock": {
+            "description": "Test clock ID if applicable.",
+            "title": "Test Clock",
+            "type": "string"
+          },
+          "type": {
+            "description": "Transaction type - 'credit' or 'debit'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "created", "credit_grant", "effective_at", "livemode"],
+        "title": "CreditBalanceTransaction",
+        "type": "object"
+      },
+      "CreditDetails": {
+        "description": "Credit transaction details.",
+        "properties": {
+          "amount": {
+            "$ref": "#/$defs/AmountDetails",
+            "title": "Amount"
+          },
+          "credits_application_invoice_voided": {
+            "$ref": "#/$defs/CreditsApplicationInvoiceVoided",
+            "description": "Present when type is 'credits_application_invoice_voided'.",
+            "title": "Credits Application Invoice Voided"
+          },
+          "type": {
+            "description": "Credit type - 'credits_application_invoice_voided' or 'credits_granted'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "type"],
+        "title": "CreditDetails",
+        "type": "object"
+      },
+      "CreditsApplicationInvoiceVoided": {
+        "description": "Details when credit type is credits_application_invoice_voided.",
+        "properties": {
+          "invoice": {
+            "description": "Original invoice identifier.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "invoice_line_item": {
+            "description": "Original line item identifier.",
+            "title": "Invoice Line Item",
+            "type": "string"
+          }
+        },
+        "required": ["invoice", "invoice_line_item"],
+        "title": "CreditsApplicationInvoiceVoided",
+        "type": "object"
+      },
+      "CreditsApplied": {
+        "description": "Details when debit type is credits_applied.",
+        "properties": {
+          "invoice": {
+            "description": "Invoice receiving the credits.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "invoice_line_item": {
+            "description": "Line item receiving the credits.",
+            "title": "Invoice Line Item",
+            "type": "string"
+          }
+        },
+        "required": ["invoice", "invoice_line_item"],
+        "title": "CreditsApplied",
+        "type": "object"
+      },
+      "DebitDetails": {
+        "description": "Debit transaction details.",
+        "properties": {
+          "amount": {
+            "$ref": "#/$defs/AmountDetails",
+            "title": "Amount"
+          },
+          "credits_applied": {
+            "$ref": "#/$defs/CreditsApplied",
+            "description": "Present when type is 'credits_applied'.",
+            "title": "Credits Applied"
+          },
+          "type": {
+            "description": "Debit type - 'credits_applied', 'credits_expired', or 'credits_voided'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "type"],
+        "title": "DebitDetails",
+        "type": "object"
+      },
+      "GetV1BillingCreditBalanceTransactionsOverviewBillingCreditBalanceTransactionsResponse": {
+        "description": "Response model for listing billing credit balance transactions.",
+        "properties": {
+          "data": {
+            "description": "Array of credit balance transaction objects.",
+            "items": {
+              "$ref": "#/$defs/CreditBalanceTransaction"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether additional results exist beyond this page.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "Endpoint URL reference.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "data", "has_more", "url"],
+        "title": "GetV1BillingCreditBalanceTransactionsOverviewBillingCreditBalanceTransactionsResponse",
+        "type": "object"
+      },
+      "MonetaryAmount": {
+        "description": "Monetary amount details.",
+        "properties": {
+          "currency": {
+            "description": "Three-letter ISO currency code, lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "value": {
+            "description": "Positive integer representing the amount.",
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": ["currency", "value"],
+        "title": "MonetaryAmount",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetV1BillingCreditBalanceTransactionsOverviewBillingCreditBalanceTransactionsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

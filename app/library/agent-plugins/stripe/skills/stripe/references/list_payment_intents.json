@@ -1,0 +1,852 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list PaymentIntents from Stripe. Use when you need to retrieve a list of payment intents with optional filtering by customer, creation date, or pagination parameters.",
+  "inputSchema": {
+    "description": "Request model for listing payment intents.",
+    "properties": {
+      "created": {
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "description": "Filter by creation date using Unix timestamps. Supported keys: 'gt' (greater than), 'gte' (greater than or equal), 'lt' (less than), 'lte' (less than or equal).",
+        "examples": [
+          {
+            "gte": 1609459200,
+            "lte": 1640995200
+          },
+          {
+            "gt": 1609459200
+          }
+        ],
+        "title": "Created",
+        "type": "object"
+      },
+      "customer": {
+        "description": "Only return PaymentIntents for the customer specified by this customer ID.",
+        "examples": ["cus_12345"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "customer_account": {
+        "description": "Only return PaymentIntents for the account representing the customer specified by this account ID.",
+        "examples": ["cus_account_67890"],
+        "title": "Customer Account",
+        "type": "string"
+      },
+      "ending_before": {
+        "description": "A cursor for use in pagination. Object ID that defines your place in the list. For instance, if you make a list request and receive 100 objects, ending with obj_foo, your subsequent call can include ending_before=obj_foo in order to fetch the previous page of the list.",
+        "examples": ["pi_12345"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "limit": {
+        "description": "A limit on the number of objects to be returned. Limit can range between 1 and 100, and the default is 10.",
+        "examples": [10, 25, 100],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "starting_after": {
+        "description": "A cursor for use in pagination. Object ID that defines your place in the list. For instance, if you make a list request and receive 100 objects, starting with obj_bar, your subsequent call can include starting_after=obj_bar in order to fetch the next page of the list.",
+        "examples": ["pi_67890"],
+        "title": "Starting After",
+        "type": "string"
+      }
+    },
+    "title": "ListPaymentIntentsRequest",
+    "type": "object"
+  },
+  "name": "list_payment_intents",
+  "outputSchema": {
+    "$defs": {
+      "AmountDetails": {
+        "description": "Industry-specific breakdown of amount information.",
+        "properties": {
+          "discount_amount": {
+            "description": "Total discount amount.",
+            "title": "Discount Amount",
+            "type": "integer"
+          },
+          "shipping": {
+            "$ref": "#/$defs/AmountDetailsShipping",
+            "description": "Shipping cost details.",
+            "title": "Shipping"
+          },
+          "tax": {
+            "$ref": "#/$defs/AmountDetailsTax",
+            "description": "Tax information.",
+            "title": "Tax"
+          },
+          "tip": {
+            "$ref": "#/$defs/AmountDetailsTip",
+            "description": "Tip information.",
+            "title": "Tip"
+          }
+        },
+        "title": "AmountDetails",
+        "type": "object"
+      },
+      "AmountDetailsShipping": {
+        "description": "Shipping amount details.",
+        "properties": {
+          "amount": {
+            "description": "Shipping cost amount.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "from_postal_code": {
+            "description": "Origin postal code.",
+            "title": "From Postal Code",
+            "type": "string"
+          },
+          "to_postal_code": {
+            "description": "Destination postal code.",
+            "title": "To Postal Code",
+            "type": "string"
+          }
+        },
+        "title": "AmountDetailsShipping",
+        "type": "object"
+      },
+      "AmountDetailsTax": {
+        "description": "Tax amount details.",
+        "properties": {
+          "total_tax_amount": {
+            "description": "Total tax amount.",
+            "title": "Total Tax Amount",
+            "type": "integer"
+          }
+        },
+        "title": "AmountDetailsTax",
+        "type": "object"
+      },
+      "AmountDetailsTip": {
+        "description": "Tip amount details.",
+        "properties": {
+          "amount": {
+            "description": "Portion of the amount that corresponds to a tip.",
+            "title": "Amount",
+            "type": "integer"
+          }
+        },
+        "title": "AmountDetailsTip",
+        "type": "object"
+      },
+      "AutomaticPaymentMethods": {
+        "description": "Settings for automatic payment method selection.",
+        "properties": {
+          "allow_redirects": {
+            "description": "Controls whether redirect-based payment methods are allowed. Can be 'always' or 'never'.",
+            "title": "Allow Redirects",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Whether automatic payment methods are enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": ["enabled"],
+        "title": "AutomaticPaymentMethods",
+        "type": "object"
+      },
+      "CardInstallmentPlan": {
+        "description": "Card installment plan details.",
+        "properties": {
+          "count": {
+            "description": "Number of installments.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "interval": {
+            "description": "Interval for installments.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of installment plan.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "CardInstallmentPlan",
+        "type": "object"
+      },
+      "CardInstallments": {
+        "description": "Card installments configuration.",
+        "properties": {
+          "available_plans": {
+            "description": "List of available installment plans.",
+            "items": {
+              "$ref": "#/$defs/CardInstallmentPlan"
+            },
+            "title": "Available Plans",
+            "type": "array"
+          },
+          "enabled": {
+            "description": "Whether installments are enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "plan": {
+            "$ref": "#/$defs/CardInstallmentPlan",
+            "description": "Selected installment plan.",
+            "title": "Plan"
+          }
+        },
+        "title": "CardInstallments",
+        "type": "object"
+      },
+      "CardMandateOptions": {
+        "description": "Card mandate configuration for recurring payments.",
+        "properties": {
+          "amount": {
+            "description": "Amount for the mandate.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "amount_type": {
+            "description": "Type of amount (fixed or maximum).",
+            "title": "Amount Type",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the mandate.",
+            "title": "Description",
+            "type": "string"
+          },
+          "end_date": {
+            "description": "End date timestamp.",
+            "title": "End Date",
+            "type": "integer"
+          },
+          "interval": {
+            "description": "Interval for the mandate.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "interval_count": {
+            "description": "Number of intervals.",
+            "title": "Interval Count",
+            "type": "integer"
+          },
+          "reference": {
+            "description": "Mandate reference.",
+            "title": "Reference",
+            "type": "string"
+          },
+          "start_date": {
+            "description": "Start date timestamp.",
+            "title": "Start Date",
+            "type": "integer"
+          },
+          "supported_types": {
+            "description": "Supported mandate types.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Supported Types",
+            "type": "array"
+          }
+        },
+        "title": "CardMandateOptions",
+        "type": "object"
+      },
+      "CardPaymentMethodOptions": {
+        "additionalProperties": true,
+        "description": "Card payment method configuration.",
+        "properties": {
+          "installments": {
+            "$ref": "#/$defs/CardInstallments",
+            "description": "Installment configuration.",
+            "title": "Installments"
+          },
+          "mandate_options": {
+            "$ref": "#/$defs/CardMandateOptions",
+            "description": "Mandate configuration for recurring payments.",
+            "title": "Mandate Options"
+          },
+          "network": {
+            "description": "Selected card network.",
+            "title": "Network",
+            "type": "string"
+          },
+          "request_three_d_secure": {
+            "description": "3D Secure authentication setting.",
+            "title": "Request Three D Secure",
+            "type": "string"
+          },
+          "setup_future_usage": {
+            "description": "Setup future usage setting for this payment method.",
+            "title": "Setup Future Usage",
+            "type": "string"
+          }
+        },
+        "title": "CardPaymentMethodOptions",
+        "type": "object"
+      },
+      "Hooks": {
+        "description": "Automations to execute during the PaymentIntent lifecycle.",
+        "properties": {
+          "inputs": {
+            "$ref": "#/$defs/HooksInputs",
+            "description": "Input configuration for hooks.",
+            "title": "Inputs"
+          }
+        },
+        "title": "Hooks",
+        "type": "object"
+      },
+      "HooksInputs": {
+        "description": "Inputs for hooks automation.",
+        "properties": {
+          "tax": {
+            "$ref": "#/$defs/HooksInputsTax",
+            "description": "Tax calculation configuration.",
+            "title": "Tax"
+          }
+        },
+        "title": "HooksInputs",
+        "type": "object"
+      },
+      "HooksInputsTax": {
+        "description": "Tax calculation hook inputs.",
+        "properties": {
+          "calculation": {
+            "description": "The TaxCalculation ID.",
+            "title": "Calculation",
+            "type": "string"
+          }
+        },
+        "title": "HooksInputsTax",
+        "type": "object"
+      },
+      "LastPaymentError": {
+        "description": "The payment error from the previous confirmation attempt.",
+        "properties": {
+          "charge": {
+            "description": "ID of the failed charge.",
+            "title": "Charge",
+            "type": "string"
+          },
+          "code": {
+            "description": "Machine-readable error code.",
+            "title": "Code",
+            "type": "string"
+          },
+          "decline_code": {
+            "description": "Decline reason from the card issuer.",
+            "title": "Decline Code",
+            "type": "string"
+          },
+          "doc_url": {
+            "description": "Link to documentation about the error.",
+            "title": "Doc Url",
+            "type": "string"
+          },
+          "message": {
+            "description": "Human-readable explanation of the error.",
+            "title": "Message",
+            "type": "string"
+          },
+          "param": {
+            "description": "Reference to the problematic parameter.",
+            "title": "Param",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of error.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "LastPaymentError",
+        "type": "object"
+      },
+      "ListPaymentIntentsResponse": {
+        "description": "Response model for listing payment intents.",
+        "properties": {
+          "data": {
+            "description": "Array of PaymentIntent objects.",
+            "items": {
+              "$ref": "#/$defs/PaymentIntent"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether there are more items beyond this set.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL path of the endpoint.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "ListPaymentIntentsResponse",
+        "type": "object"
+      },
+      "NextAction": {
+        "additionalProperties": true,
+        "description": "Next action required to complete the payment.\n\nWhen a payment requires additional authentication or customer action,\nthis field specifies what type of action is needed (e.g., redirecting\nto a URL or using Stripe SDK).",
+        "properties": {
+          "redirect_to_url": {
+            "$ref": "#/$defs/NextActionRedirectToUrl",
+            "description": "Redirect URL details when type is 'redirect_to_url'.",
+            "title": "Redirect To Url"
+          },
+          "type": {
+            "description": "Type of next action (e.g., 'redirect_to_url', 'use_stripe_sdk', 'display_bank_transfer_instructions').",
+            "title": "Type",
+            "type": "string"
+          },
+          "use_stripe_sdk": {
+            "$ref": "#/$defs/NextActionUseStripeSDK",
+            "description": "Stripe SDK action details when type is 'use_stripe_sdk'.",
+            "title": "Use Stripe Sdk"
+          }
+        },
+        "title": "NextAction",
+        "type": "object"
+      },
+      "NextActionRedirectToUrl": {
+        "description": "Redirect-based next action details.",
+        "properties": {
+          "return_url": {
+            "description": "URL to redirect back to after authentication.",
+            "title": "Return Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to redirect the customer to for authentication.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "NextActionRedirectToUrl",
+        "type": "object"
+      },
+      "NextActionUseStripeSDK": {
+        "additionalProperties": true,
+        "description": "Stripe SDK-based authentication details.",
+        "properties": {
+          "stripe_js": {
+            "description": "Stripe.js authentication URL.",
+            "title": "Stripe Js",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of SDK action (e.g., 'three_d_secure_redirect').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "NextActionUseStripeSDK",
+        "type": "object"
+      },
+      "PaymentIntent": {
+        "description": "PaymentIntent object.",
+        "properties": {
+          "transfer_group": {
+            "description": "Transfer group identifier.",
+            "title": "Transfer Group",
+            "type": "string"
+          },
+          "source": {
+            "description": "ID of the Source object.",
+            "title": "Source",
+            "type": "string"
+          },
+          "excluded_payment_method_types": {
+            "description": "Payment method types excluded.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Excluded Payment Method Types",
+            "type": "array"
+          },
+          "next_action": {
+            "$ref": "#/$defs/NextAction",
+            "description": "Next action required to complete the payment.",
+            "title": "Next Action"
+          },
+          "canceled_at": {
+            "description": "Timestamp when canceled.",
+            "title": "Canceled At",
+            "type": "integer"
+          },
+          "payment_method_types": {
+            "description": "List of payment method types allowed.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Payment Method Types",
+            "type": "array"
+          },
+          "application": {
+            "description": "ID of the Connect application that created the PaymentIntent.",
+            "title": "Application",
+            "type": "string"
+          },
+          "amount_details": {
+            "$ref": "#/$defs/AmountDetails",
+            "description": "Industry-specific breakdown of amount information.",
+            "title": "Amount Details"
+          },
+          "description": {
+            "description": "Description of the payment.",
+            "title": "Description",
+            "type": "string"
+          },
+          "created": {
+            "description": "Timestamp when created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "automatic_payment_methods": {
+            "$ref": "#/$defs/AutomaticPaymentMethods",
+            "description": "Settings for automatic payment method selection.",
+            "title": "Automatic Payment Methods"
+          },
+          "status": {
+            "description": "Status of the PaymentIntent.",
+            "title": "Status",
+            "type": "string"
+          },
+          "redaction": {
+            "additionalProperties": true,
+            "description": "Redaction information.",
+            "title": "Redaction",
+            "type": "object"
+          },
+          "client_secret": {
+            "description": "Client secret for client-side operations.",
+            "title": "Client Secret",
+            "type": "string"
+          },
+          "cancellation_reason": {
+            "description": "Reason for cancellation.",
+            "title": "Cancellation Reason",
+            "type": "string"
+          },
+          "customer": {
+            "description": "ID of the Customer.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "payment_method_options": {
+            "$ref": "#/$defs/PaymentMethodOptions",
+            "description": "Payment-method-specific configuration.",
+            "title": "Payment Method Options"
+          },
+          "latest_charge": {
+            "description": "ID of the latest Charge.",
+            "title": "Latest Charge",
+            "type": "string"
+          },
+          "amount_capturable": {
+            "description": "Amount that can be captured from this PaymentIntent.",
+            "title": "Amount Capturable",
+            "type": "integer"
+          },
+          "review": {
+            "description": "ID of the review.",
+            "title": "Review",
+            "type": "string"
+          },
+          "application_fee_amount": {
+            "description": "Application fee amount.",
+            "title": "Application Fee Amount",
+            "type": "integer"
+          },
+          "processing": {
+            "$ref": "#/$defs/Processing",
+            "description": "Processing details when payment is being processed asynchronously.",
+            "title": "Processing"
+          },
+          "on_behalf_of": {
+            "description": "Connected account ID for which payment is made.",
+            "title": "On Behalf Of",
+            "type": "string"
+          },
+          "last_payment_error": {
+            "$ref": "#/$defs/LastPaymentError",
+            "description": "The payment error from the previous confirmation attempt.",
+            "title": "Last Payment Error"
+          },
+          "transfer_data": {
+            "$ref": "#/$defs/TransferData",
+            "description": "Transfer configuration.",
+            "title": "Transfer Data"
+          },
+          "receipt_email": {
+            "description": "Email address for receipt.",
+            "title": "Receipt Email",
+            "type": "string"
+          },
+          "statement_descriptor_suffix": {
+            "description": "Suffix appended to statement descriptor.",
+            "title": "Statement Descriptor Suffix",
+            "type": "string"
+          },
+          "payment_method_configuration_details": {
+            "$ref": "#/$defs/PaymentMethodConfigurationDetails",
+            "description": "Payment method configuration details used for this PaymentIntent.",
+            "title": "Payment Method Configuration Details"
+          },
+          "shipping": {
+            "$ref": "#/$defs/Shipping",
+            "description": "Shipping information.",
+            "title": "Shipping"
+          },
+          "statement_descriptor": {
+            "description": "Text that appears on customer's statement.",
+            "title": "Statement Descriptor",
+            "type": "string"
+          },
+          "customer_account": {
+            "description": "ID of the customer account.",
+            "title": "Customer Account",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "livemode": {
+            "description": "True if in live mode, false if in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "amount": {
+            "description": "Amount intended to be collected by this PaymentIntent, in the smallest currency unit.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "confirmation_method": {
+            "description": "Confirmation method. Can be 'automatic' or 'manual'.",
+            "title": "Confirmation Method",
+            "type": "string"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "setup_future_usage": {
+            "description": "Indicates intention to save payment method for future payments.",
+            "title": "Setup Future Usage",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "amount_received": {
+            "description": "Amount that was successfully collected.",
+            "title": "Amount Received",
+            "type": "integer"
+          },
+          "payment_method": {
+            "description": "ID of the PaymentMethod.",
+            "title": "Payment Method",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'payment_intent'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "hooks": {
+            "$ref": "#/$defs/Hooks",
+            "description": "Automations to execute during PaymentIntent lifecycle.",
+            "title": "Hooks"
+          },
+          "capture_method": {
+            "description": "Controls when funds are captured. Can be 'automatic', 'automatic_async', or 'manual'.",
+            "title": "Capture Method",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "amount_capturable",
+          "amount_received",
+          "capture_method",
+          "confirmation_method",
+          "created",
+          "currency",
+          "livemode",
+          "metadata",
+          "payment_method_types",
+          "status"
+        ],
+        "title": "PaymentIntent",
+        "type": "object"
+      },
+      "PaymentMethodConfigurationDetails": {
+        "description": "Payment method configuration details.",
+        "properties": {
+          "id": {
+            "description": "The ID of the payment method configuration.",
+            "title": "Id",
+            "type": "string"
+          },
+          "parent": {
+            "description": "The parent payment method configuration ID.",
+            "title": "Parent",
+            "type": "string"
+          }
+        },
+        "title": "PaymentMethodConfigurationDetails",
+        "type": "object"
+      },
+      "PaymentMethodOptions": {
+        "additionalProperties": true,
+        "description": "Payment method options for various payment types.\n\nStripe supports 30+ payment method types (card, link, klarna, paypal, sepa_debit,\nacss_debit, affirm, afterpay_clearpay, alipay, etc.). This model provides typed\nfields for commonly used payment methods while allowing other payment method types\nto pass through without validation errors.",
+        "properties": {
+          "card": {
+            "$ref": "#/$defs/CardPaymentMethodOptions",
+            "description": "Card payment method configuration.",
+            "title": "Card"
+          },
+          "link": {
+            "additionalProperties": true,
+            "description": "Link payment method configuration.",
+            "title": "Link",
+            "type": "object"
+          }
+        },
+        "title": "PaymentMethodOptions",
+        "type": "object"
+      },
+      "Processing": {
+        "additionalProperties": true,
+        "description": "Processing details for the payment.\n\nPresent when a payment is being processed asynchronously.",
+        "properties": {
+          "type": {
+            "description": "Type of payment method being processed (e.g., 'card').",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "Processing",
+        "type": "object"
+      },
+      "Shipping": {
+        "description": "Shipping information.",
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/ShippingAddress",
+            "description": "Shipping address.",
+            "title": "Address"
+          },
+          "carrier": {
+            "description": "Shipping carrier.",
+            "title": "Carrier",
+            "type": "string"
+          },
+          "name": {
+            "description": "Recipient name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Recipient phone number.",
+            "title": "Phone",
+            "type": "string"
+          },
+          "tracking_number": {
+            "description": "Tracking number.",
+            "title": "Tracking Number",
+            "type": "string"
+          }
+        },
+        "title": "Shipping",
+        "type": "object"
+      },
+      "ShippingAddress": {
+        "description": "Shipping address details.",
+        "properties": {
+          "city": {
+            "description": "City name.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter country code.",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Address line 1.",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Address line 2.",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "Postal or ZIP code.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State or province.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "ShippingAddress",
+        "type": "object"
+      },
+      "TransferData": {
+        "description": "Transfer configuration for connected accounts.",
+        "properties": {
+          "amount": {
+            "description": "Amount to transfer.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "destination": {
+            "description": "Connected account ID to transfer funds to.",
+            "title": "Destination",
+            "type": "string"
+          }
+        },
+        "title": "TransferData",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListPaymentIntentsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

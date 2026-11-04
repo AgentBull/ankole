@@ -23,6 +23,8 @@ defmodule Ankole.Connectors.Browser do
     allow(:create_connection, check: :guardrail)
     allow(:update_connection, check: :guardrail)
     allow(:accounts, check: :guardrail)
+    allow(:connect_personal_credentials, check: :guardrail)
+    allow(:connect_team_credentials, check: :guardrail)
     allow(:disconnect, check: :guardrail)
     allow(:oauth_begin, check: :guardrail)
     allow(:oauth_claim, check: :guardrail)
@@ -53,6 +55,8 @@ defmodule Ankole.Connectors.Browser do
     id: [type: UUIDv7, allow_nil?: false],
     auth_config_id: [type: UUIDv7, allow_nil?: false],
     connected_account_id: [type: UUIDv7],
+    owner_principal_uid: [type: :string],
+    connected_account_status: [type: :string],
     plugin_id: [type: :string, allow_nil?: false],
     trigger_type: [type: :string, allow_nil?: false],
     scope_key: [type: :string, allow_nil?: false],
@@ -142,7 +146,22 @@ defmodule Ankole.Connectors.Browser do
         ]
       )
 
+      argument(:scope, :string, constraints: [match: ~r/\A(mine|team)\z/], default: "mine")
       run(__MODULE__.Actions)
+    end
+
+    for action <- [:connect_personal_credentials, :connect_team_credentials] do
+      action action, :map do
+        constraints(
+          fields: [
+            account: [type: :map, allow_nil?: false, constraints: [fields: @account_fields]]
+          ]
+        )
+
+        argument(:connection, :string, allow_nil?: false)
+        argument(:credentials, JSONMap, allow_nil?: false, sensitive?: true)
+        run(__MODULE__.Actions)
+      end
     end
 
     action :disconnect, :map do
@@ -198,7 +217,8 @@ defmodule Ankole.Connectors.Browser do
         fields: [trigger: [type: :map, allow_nil?: false, constraints: [fields: @trigger_fields]]]
       )
 
-      argument(:auth_config_id, UUIDv7, allow_nil?: false)
+      argument(:auth_config_id, UUIDv7)
+      argument(:connection, :string)
       argument(:connected_account_id, UUIDv7)
       argument(:trigger_type, :string, allow_nil?: false)
       argument(:scope_key, :string, allow_nil?: false)

@@ -1,0 +1,134 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Watch for changes to Events resources. Watch channels expire; persist the channel `id` per `calendarId` to re-establish watches after expiration or restarts.",
+  "inputSchema": {
+    "properties": {
+      "address": {
+        "description": "The address where notifications are delivered for this channel. Must be a publicly accessible HTTPS URL; http:// or localhost URLs will not receive notifications.",
+        "examples": ["https://example.com/notifications"],
+        "human_parameter_description": "The URL where we should send change notifications. Provide a publicly accessible HTTPS endpoint that you control.",
+        "human_parameter_name": "Address",
+        "title": "Address",
+        "type": "string"
+      },
+      "calendarId": {
+        "description": "Calendar identifier. To retrieve calendar IDs call the calendarList.list method. If you want to access the primary calendar of the currently logged in user, use the \"primary\" keyword.",
+        "examples": ["primary"],
+        "human_parameter_description": "Which calendar you want to watch for changes. Use 'primary' for your own calendar, or enter a specific calendar ID.",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "id": {
+        "description": "A UUID or similar unique string that identifies this channel.",
+        "examples": ["01234567-89ab-cdef-0123456789ab"],
+        "human_parameter_description": "A unique identifier for this watch channel so you can track or stop it later. Use a UUID or any unique string you control.",
+        "human_parameter_name": "Channel ID",
+        "title": "Id",
+        "type": "string"
+      },
+      "params": {
+        "additionalProperties": false,
+        "description": "Additional parameters controlling delivery channel behavior. Optional.",
+        "human_parameter_description": "Extra settings that control how notifications are sent (for example, how long the channel should stay active). You can leave this empty unless you need custom behavior.",
+        "properties": {
+          "ttl": {
+            "description": "Time To Live for the notification channel.",
+            "title": "Ttl",
+            "type": "string"
+          }
+        },
+        "title": "EventsWatchRequestParams",
+        "type": "object"
+      },
+      "payload": {
+        "description": "A Boolean value to indicate whether payload is wanted. Optional.",
+        "human_parameter_description": "Choose whether to include event details in each notification. Turn this on if your endpoint needs the full event data.",
+        "title": "Payload",
+        "type": "boolean"
+      },
+      "token": {
+        "description": "An arbitrary string delivered to the target address with each notification delivered over this channel. Optional.",
+        "examples": ["target=myApp-myCalendarChannelDest"],
+        "human_parameter_description": "Any secret or identifier you want echoed back with each notification, so your endpoint can verify the source. Optional.",
+        "human_parameter_name": "Token",
+        "title": "Token",
+        "type": "string"
+      },
+      "type": {
+        "default": "web_hook",
+        "description": "The type of delivery mechanism used for this channel.",
+        "examples": ["web_hook"],
+        "human_parameter_description": "How notifications will be delivered. Use 'web_hook' to receive HTTP callbacks at the address you provide.",
+        "human_parameter_name": "Channel Type",
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["calendarId", "id", "address"],
+    "title": "EventsWatchRequest",
+    "type": "object"
+  },
+  "name": "events_watch",
+  "outputSchema": {
+    "$defs": {
+      "EventsWatchResponse": {
+        "properties": {
+          "display_url": {
+            "description": "URL to view this resource in Google Calendar web UI. None for notification channels as they have no direct web UI.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "expiration": {
+            "description": "The actual expiration time for this channel, expressed as a Unix timestamp in milliseconds and represented as a string. Present only if applicable (i.e., if the channel has an expiration).",
+            "title": "Expiration",
+            "type": "string"
+          },
+          "id": {
+            "description": "A unique string that identifies this channel. Client-defined unique identifier used to distinguish notifications; typically the ID you specified when creating the channel.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "api#channel",
+            "description": "Identifies this as a notification channel resource. Always \"api#channel\".",
+            "title": "Kind",
+            "type": "string"
+          },
+          "resourceId": {
+            "description": "An opaque identifier for the resource being watched on this channel, assigned by Google; stable across different API versions and used (along with id) to stop the channel and validate notifications.",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "resourceUri": {
+            "description": "The canonical URI of the watched resource (e.g., the calendar's events feed) in the context of the current API version.",
+            "title": "Resource Uri",
+            "type": "string"
+          },
+          "token": {
+            "description": "Optional arbitrary verification token supplied by the client; delivered to the target address with each notification for this channel and echoed back to help verify notification source. Present only if you provided a token when creating the channel.",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "id", "resourceId", "resourceUri"],
+        "title": "EventsWatchResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/EventsWatchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

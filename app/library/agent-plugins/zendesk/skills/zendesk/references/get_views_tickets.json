@@ -1,0 +1,346 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List tickets from a specific Zendesk view, with optional sorting and cursor pagination. This read-only action can be used to analyze tickets matching the view's conditions; retrieve additional pages as needed.",
+  "inputSchema": {
+    "description": "Request parameters for listing tickets from a specific view.",
+    "properties": {
+      "page_after": {
+        "description": "Cursor value to retrieve the next page of results. Obtained from previous response's 'next_page' URL.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from previous response to get the next page of results.",
+        "human_parameter_name": "After Cursor",
+        "title": "Page After",
+        "type": "string"
+      },
+      "page_before": {
+        "description": "Cursor value to retrieve the previous page of results. Obtained from previous response's 'previous_page' URL.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from previous response to get the previous page of results.",
+        "human_parameter_name": "Before Cursor",
+        "title": "Page Before",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Number of tickets per page for cursor pagination (max 100). Use cursor-based pagination for large datasets.",
+        "examples": [50],
+        "human_parameter_description": "Number of tickets to return per page for cursor-based pagination. Use for large datasets.",
+        "human_parameter_name": "Page Size (Cursor)",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "sort_by": {
+        "description": "Sort or group the tickets by a column in the View columns table. The 'subject' and 'submitter' columns are not supported for sorting.",
+        "examples": ["updated_at"],
+        "human_parameter_description": "The field to sort tickets by. Note that 'subject' and 'submitter' columns are not supported for sorting.",
+        "human_parameter_name": "Sort By",
+        "title": "Sort By",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort order direction. One of 'asc' or 'desc'. Defaults to 'asc' for alphabetical and position sort, 'desc' for all others.",
+        "enum": ["asc", "desc"],
+        "examples": ["desc"],
+        "human_parameter_description": "Choose ascending (asc) or descending (desc) order for the sorting.",
+        "human_parameter_name": "Sort Order",
+        "title": "Sort Order",
+        "type": "string"
+      },
+      "view_id": {
+        "description": "The ID of the view to retrieve tickets from",
+        "examples": [25],
+        "human_parameter_description": "The numeric ID of the view whose tickets you want to retrieve. You can find this from the view list or from a view URL.",
+        "human_parameter_name": "View ID",
+        "minimum": 1,
+        "title": "View Id",
+        "type": "integer"
+      }
+    },
+    "required": ["view_id"],
+    "title": "GetViewsTicketsRequest",
+    "type": "object"
+  },
+  "name": "get_views_tickets",
+  "outputSchema": {
+    "$defs": {
+      "CustomField": {
+        "description": "Custom field value object.",
+        "properties": {
+          "id": {
+            "description": "Custom field ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "value": {
+            "description": "Custom field value (can be string, bool, int, or other types)",
+            "title": "Value"
+          }
+        },
+        "title": "CustomField",
+        "type": "object"
+      },
+      "GetViewsTicketsResponse": {
+        "description": "Response containing tickets from a Zendesk view.",
+        "properties": {
+          "count": {
+            "description": "Total count of tickets matching the view conditions",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for next page of results, if more exist",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "tickets": {
+            "description": "List of tickets from the specified view",
+            "items": {
+              "$ref": "#/$defs/ZendeskTicketFromView"
+            },
+            "title": "Tickets",
+            "type": "array"
+          }
+        },
+        "required": ["tickets"],
+        "title": "GetViewsTicketsResponse",
+        "type": "object"
+      },
+      "SatisfactionRating": {
+        "description": "Customer satisfaction rating for the ticket.",
+        "properties": {
+          "comment": {
+            "description": "Rating comment",
+            "title": "Comment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Rating ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "score": {
+            "description": "Rating score (good or bad)",
+            "title": "Score",
+            "type": "string"
+          }
+        },
+        "title": "SatisfactionRating",
+        "type": "object"
+      },
+      "ViaInfo": {
+        "description": "Channel information for ticket creation.",
+        "properties": {
+          "channel": {
+            "description": "Channel through which ticket was created",
+            "title": "Channel",
+            "type": "string"
+          }
+        },
+        "title": "ViaInfo",
+        "type": "object"
+      },
+      "ZendeskTicketFromView": {
+        "description": "Zendesk ticket object returned from a view.",
+        "properties": {
+          "assignee_id": {
+            "description": "ID of the assigned agent",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "brand_id": {
+            "description": "Brand ID associated with ticket",
+            "title": "Brand Id",
+            "type": "integer"
+          },
+          "collaborator_ids": {
+            "description": "IDs of users added as collaborators",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Ticket creation timestamp",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "Custom field values",
+            "items": {
+              "$ref": "#/$defs/CustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "custom_status_id": {
+            "description": "Custom status ID for the ticket",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Ticket description",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "description": "Ticket due date",
+            "title": "Due At",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External ID linking ticket to another system",
+            "title": "External Id",
+            "type": "string"
+          },
+          "follower_ids": {
+            "description": "IDs of users following this ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Follower Ids",
+            "type": "array"
+          },
+          "from_messaging_channel": {
+            "description": "Whether ticket originated from messaging channel",
+            "title": "From Messaging Channel",
+            "type": "boolean"
+          },
+          "generated_timestamp": {
+            "description": "Timestamp when the view generated this row",
+            "title": "Generated Timestamp",
+            "type": "integer"
+          },
+          "group_id": {
+            "description": "ID of the assigned group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "has_incidents": {
+            "description": "Whether the ticket has related incidents",
+            "title": "Has Incidents",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique ticket ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "ID of the requester's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Ticket priority (urgent, high, normal, low)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "problem_id": {
+            "description": "Related problem ticket ID if type is incident",
+            "title": "Problem Id",
+            "type": "integer"
+          },
+          "raw_subject": {
+            "description": "Ticket raw subject with dynamic content placeholders",
+            "title": "Raw Subject",
+            "type": "string"
+          },
+          "recipient": {
+            "description": "Original recipient email address",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "ID of the user who requested the ticket",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "satisfaction_rating": {
+            "$ref": "#/$defs/SatisfactionRating",
+            "description": "Customer satisfaction rating",
+            "title": "Satisfaction Rating"
+          },
+          "sharing_agreement_ids": {
+            "description": "IDs of sharing agreements for this ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sharing Agreement Ids",
+            "type": "array"
+          },
+          "status": {
+            "description": "Ticket status (new, open, pending, hold, solved, closed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Ticket subject",
+            "title": "Subject",
+            "type": "string"
+          },
+          "submitter_id": {
+            "description": "ID of the user who submitted the ticket",
+            "title": "Submitter Id",
+            "type": "integer"
+          },
+          "tags": {
+            "description": "List of ticket tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "ticket_form_id": {
+            "description": "Ticket form ID used for this ticket",
+            "title": "Ticket Form Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Ticket type (problem, incident, question, task)",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Ticket last update timestamp",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the ticket",
+            "title": "Url",
+            "type": "string"
+          },
+          "via": {
+            "$ref": "#/$defs/ViaInfo",
+            "description": "Channel through which the ticket was created",
+            "title": "Via"
+          }
+        },
+        "title": "ZendeskTicketFromView",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetViewsTicketsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

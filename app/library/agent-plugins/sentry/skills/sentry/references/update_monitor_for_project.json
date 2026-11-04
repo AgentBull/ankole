@@ -1,0 +1,653 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates a monitor for a project. Use when you need to modify monitor name, schedule, check-in margin, max runtime, timezone, status, owner, or alert thresholds for a project-level monitor.",
+  "inputSchema": {
+    "description": "Request schema for updating a monitor for a project.",
+    "properties": {
+      "config": {
+        "additionalProperties": false,
+        "description": "The configuration for the monitor including schedule, thresholds, and alert settings.",
+        "properties": {
+          "checkin_margin": {
+            "description": "Grace period in minutes before a monitor is marked as missed if check-in is late.",
+            "examples": [10, 15, 30],
+            "title": "Checkin Margin",
+            "type": "integer"
+          },
+          "failure_issue_threshold": {
+            "description": "Number of consecutive failures before creating an incident.",
+            "examples": [1, 3, 5],
+            "title": "Failure Issue Threshold",
+            "type": "integer"
+          },
+          "max_runtime": {
+            "description": "Maximum expected execution time in minutes. Check-ins running longer will be marked as failed.",
+            "examples": [30, 60, 120],
+            "title": "Max Runtime",
+            "type": "integer"
+          },
+          "recovery_threshold": {
+            "description": "Number of consecutive successful check-ins required to resolve an incident.",
+            "examples": [1, 2, 3],
+            "title": "Recovery Threshold",
+            "type": "integer"
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "array"
+              }
+            ],
+            "description": "Schedule definition. For crontab: a cron expression string (e.g., '0 */6 * * *'). For interval: array with [value, unit] (e.g., [5, 'minute']).",
+            "examples": ["0 */6 * * *", "0 0 * * *"],
+            "title": "Schedule"
+          },
+          "schedule_type": {
+            "description": "Type of schedule: 'crontab' for cron expressions or 'interval' for fixed intervals.",
+            "enum": ["crontab", "interval"],
+            "examples": ["crontab", "interval"],
+            "title": "ScheduleTypeEnum",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "IANA timezone identifier for the schedule (e.g., 'UTC', 'America/New_York').",
+            "examples": ["UTC", "America/New_York", "Europe/London"],
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": ["schedule"],
+        "title": "Config",
+        "type": "object"
+      },
+      "is_muted": {
+        "description": "Disable creation of monitor incidents. Set to true to suppress alerts.",
+        "examples": [true, false],
+        "title": "Is Muted",
+        "type": "boolean"
+      },
+      "monitor_id_or_slug": {
+        "description": "The ID or slug of the monitor to update.",
+        "examples": ["daily-health-check-monitor", "my-monitor", "abcdef123"],
+        "title": "Monitor Id Or Slug",
+        "type": "string"
+      },
+      "name": {
+        "description": "Name of the monitor. Used for notifications. Required field.",
+        "examples": ["Daily Health Check", "Backup Job Monitor", "Data Sync Task"],
+        "title": "Name",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["my-org", "example", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "owner": {
+        "description": "The ID of the team or user that owns the monitor. Format: 'user:51' or 'team:6'.",
+        "examples": ["user:51", "team:6", "user:12345"],
+        "title": "Owner",
+        "type": "string"
+      },
+      "project": {
+        "description": "The project slug to associate the monitor to. Required field.",
+        "examples": ["my-project", "backend-api", "frontend-app"],
+        "title": "Project",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The ID or slug of the project the resource belongs to.",
+        "examples": ["my-project", "backend-api", "9876543"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      },
+      "slug": {
+        "description": "Uniquely identifies your monitor within your organization. Changing this slug will require updates to any instrumented check-in calls. Must start with a lowercase letter and contain only lowercase letters, numbers, underscores, or hyphens.",
+        "examples": ["daily-health-check", "backup-monitor-v2"],
+        "pattern": "^[a-z][a-z0-9_\\-]*$",
+        "title": "Slug",
+        "type": "string"
+      },
+      "status": {
+        "description": "Status of the monitor. Disabled monitors will not accept events and will not count towards the monitor quota.",
+        "enum": ["active", "disabled"],
+        "examples": ["active", "disabled"],
+        "title": "StatusEnum",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug", "monitor_id_or_slug", "name", "project", "config"],
+    "title": "UpdateMonitorForProjectRequest",
+    "type": "object"
+  },
+  "name": "update_monitor_for_project",
+  "outputSchema": {
+    "$defs": {
+      "ActiveIncident": {
+        "description": "Active incident details.",
+        "properties": {
+          "brokenNotice": {
+            "description": "Whether a broken notice was sent.",
+            "title": "Broken Notice",
+            "type": "boolean"
+          },
+          "resolvingTimestamp": {
+            "description": "ISO 8601 timestamp when the incident is resolving.",
+            "title": "Resolving Timestamp",
+            "type": "string"
+          },
+          "startingTimestamp": {
+            "description": "ISO 8601 timestamp when the incident started.",
+            "title": "Starting Timestamp",
+            "type": "string"
+          }
+        },
+        "title": "ActiveIncident",
+        "type": "object"
+      },
+      "AlertRuleTarget": {
+        "description": "Alert rule target configuration.",
+        "properties": {
+          "targetIdentifier": {
+            "description": "Target identifier.",
+            "title": "Target Identifier",
+            "type": "integer"
+          },
+          "targetType": {
+            "description": "Target type.",
+            "title": "Target Type",
+            "type": "string"
+          }
+        },
+        "title": "AlertRuleTarget",
+        "type": "object"
+      },
+      "MonitorAlertRule": {
+        "description": "Alert rule configuration for the monitor.",
+        "properties": {
+          "environment": {
+            "description": "Environment the alert rule applies to.",
+            "title": "Environment",
+            "type": "string"
+          },
+          "targets": {
+            "description": "Alert notification targets.",
+            "items": {
+              "$ref": "#/$defs/AlertRuleTarget"
+            },
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "title": "MonitorAlertRule",
+        "type": "object"
+      },
+      "MonitorConfigResponse": {
+        "description": "Monitor configuration in the response.",
+        "properties": {
+          "alert_rule_id": {
+            "description": "Alert rule identifier.",
+            "title": "Alert Rule Id",
+            "type": "integer"
+          },
+          "checkin_margin": {
+            "description": "Grace period in minutes.",
+            "title": "Checkin Margin",
+            "type": "integer"
+          },
+          "failure_issue_threshold": {
+            "description": "Consecutive failures threshold.",
+            "title": "Failure Issue Threshold",
+            "type": "integer"
+          },
+          "max_runtime": {
+            "description": "Maximum runtime in minutes.",
+            "title": "Max Runtime",
+            "type": "integer"
+          },
+          "recovery_threshold": {
+            "description": "Consecutive successes threshold.",
+            "title": "Recovery Threshold",
+            "type": "integer"
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "array"
+              }
+            ],
+            "description": "Schedule definition.",
+            "title": "Schedule"
+          },
+          "schedule_type": {
+            "description": "Type of schedule: 'crontab' or 'interval'.",
+            "title": "Schedule Type",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "IANA timezone identifier.",
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "title": "MonitorConfigResponse",
+        "type": "object"
+      },
+      "MonitorEnvironment": {
+        "description": "Per-environment state for the monitor.",
+        "properties": {
+          "activeIncident": {
+            "$ref": "#/$defs/ActiveIncident",
+            "description": "Details of any active incident.",
+            "title": "Active Incident"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp of environment creation.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "isMuted": {
+            "description": "Whether alerts are muted for this environment.",
+            "title": "Is Muted",
+            "type": "boolean"
+          },
+          "lastCheckIn": {
+            "description": "ISO 8601 timestamp of last check-in.",
+            "title": "Last Check In",
+            "type": "string"
+          },
+          "name": {
+            "description": "Environment name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nextCheckIn": {
+            "description": "ISO 8601 timestamp of next expected check-in.",
+            "title": "Next Check In",
+            "type": "string"
+          },
+          "nextCheckInLatest": {
+            "description": "ISO 8601 timestamp of latest acceptable next check-in.",
+            "title": "Next Check In Latest",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current status in this environment.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "MonitorEnvironment",
+        "type": "object"
+      },
+      "MonitorOwner": {
+        "description": "Monitor owner details (user or team).",
+        "properties": {
+          "email": {
+            "description": "Owner email (for user owners).",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Owner identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Owner name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Owner type: 'user' or 'team'.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "MonitorOwner",
+        "type": "object"
+      },
+      "MonitorProject": {
+        "description": "Project details for the monitor.",
+        "properties": {
+          "hasSessions": {
+            "description": "Whether the project has sessions.",
+            "title": "Has Sessions",
+            "type": "boolean"
+          },
+          "access": {
+            "description": "Access permissions.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "firstTransactionEvent": {
+            "description": "Whether the project has transaction events.",
+            "title": "First Transaction Event",
+            "type": "boolean"
+          },
+          "hasTraceMetrics": {
+            "description": "Whether the project has trace metrics.",
+            "title": "Has Trace Metrics",
+            "type": "boolean"
+          },
+          "isBookmarked": {
+            "description": "Whether the project is bookmarked.",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "hasInsightsVitals": {
+            "description": "Whether the project has vitals insights.",
+            "title": "Has Insights Vitals",
+            "type": "boolean"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp of project creation.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "slug": {
+            "description": "Project slug.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "hasInsightsScreenLoad": {
+            "description": "Whether the project has screen load insights.",
+            "title": "Has Insights Screen Load",
+            "type": "boolean"
+          },
+          "avatar": {
+            "$ref": "#/$defs/ProjectAvatar",
+            "description": "Project avatar information.",
+            "title": "Avatar"
+          },
+          "status": {
+            "description": "Project status.",
+            "title": "Status",
+            "type": "string"
+          },
+          "name": {
+            "description": "Project display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "hasLogs": {
+            "description": "Whether the project has logs.",
+            "title": "Has Logs",
+            "type": "boolean"
+          },
+          "isInternal": {
+            "description": "Whether the project is internal.",
+            "title": "Is Internal",
+            "type": "boolean"
+          },
+          "color": {
+            "description": "Project color.",
+            "title": "Color",
+            "type": "string"
+          },
+          "hasInsightsMCP": {
+            "description": "Whether the project has MCP insights.",
+            "title": "Has Insights Mcp",
+            "type": "boolean"
+          },
+          "hasFeedbacks": {
+            "description": "Whether the project has feedbacks.",
+            "title": "Has Feedbacks",
+            "type": "boolean"
+          },
+          "hasInsightsDb": {
+            "description": "Whether the project has database insights.",
+            "title": "Has Insights Db",
+            "type": "boolean"
+          },
+          "isMember": {
+            "description": "Whether the user is a member of the project.",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "isPublic": {
+            "description": "Whether the project is public.",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "hasProfiles": {
+            "description": "Whether the project has profiles.",
+            "title": "Has Profiles",
+            "type": "boolean"
+          },
+          "hasMonitors": {
+            "description": "Whether the project has monitors.",
+            "title": "Has Monitors",
+            "type": "boolean"
+          },
+          "firstEvent": {
+            "description": "ISO 8601 timestamp of first event.",
+            "title": "First Event",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Platform/language of the project.",
+            "title": "Platform",
+            "type": "string"
+          },
+          "hasInsightsAppStart": {
+            "description": "Whether the project has app start insights.",
+            "title": "Has Insights App Start",
+            "type": "boolean"
+          },
+          "hasInsightsAgentMonitoring": {
+            "description": "Whether the project has agent monitoring insights.",
+            "title": "Has Insights Agent Monitoring",
+            "type": "boolean"
+          },
+          "hasFlags": {
+            "description": "Whether the project has feature flags.",
+            "title": "Has Flags",
+            "type": "boolean"
+          },
+          "hasAccess": {
+            "description": "Whether the user has access to the project.",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "hasInsightsAssets": {
+            "description": "Whether the project has asset insights.",
+            "title": "Has Insights Assets",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Project identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "hasNewFeedbacks": {
+            "description": "Whether the project has new feedbacks.",
+            "title": "Has New Feedbacks",
+            "type": "boolean"
+          },
+          "hasInsightsQueues": {
+            "description": "Whether the project has queue insights.",
+            "title": "Has Insights Queues",
+            "type": "boolean"
+          },
+          "hasReplays": {
+            "description": "Whether the project has replays.",
+            "title": "Has Replays",
+            "type": "boolean"
+          },
+          "hasInsightsCaches": {
+            "description": "Whether the project has cache insights.",
+            "title": "Has Insights Caches",
+            "type": "boolean"
+          },
+          "features": {
+            "description": "List of enabled features.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "hasInsightsHttp": {
+            "description": "Whether the project has HTTP insights.",
+            "title": "Has Insights Http",
+            "type": "boolean"
+          },
+          "hasMinifiedStackTrace": {
+            "description": "Whether the project has minified stack traces.",
+            "title": "Has Minified Stack Trace",
+            "type": "boolean"
+          }
+        },
+        "title": "MonitorProject",
+        "type": "object"
+      },
+      "ProjectAvatar": {
+        "description": "Project avatar information.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar.",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the avatar.",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "title": "ProjectAvatar",
+        "type": "object"
+      },
+      "UpdateMonitorForProjectResponse": {
+        "description": "Response schema containing detailed information about the updated monitor.",
+        "properties": {
+          "alertRule": {
+            "$ref": "#/$defs/MonitorAlertRule",
+            "description": "Alert rule configuration associated with the monitor.",
+            "title": "Alert Rule"
+          },
+          "config": {
+            "$ref": "#/$defs/MonitorConfigResponse",
+            "description": "Monitor configuration including schedule and thresholds.",
+            "title": "Config"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp of when the monitor was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "environments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/MonitorEnvironment"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "$ref": "#/$defs/MonitorEnvironment"
+                },
+                "type": "object"
+              }
+            ],
+            "description": "Per-environment state information for the monitor.",
+            "title": "Environments"
+          },
+          "id": {
+            "description": "Unique identifier for the monitor.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isMuted": {
+            "description": "Whether alerts for this monitor are muted.",
+            "title": "Is Muted",
+            "type": "boolean"
+          },
+          "isUpserting": {
+            "description": "Whether the monitor is currently being updated.",
+            "title": "Is Upserting",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Monitor display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/$defs/MonitorOwner",
+            "description": "Owner information (user or team) for the monitor.",
+            "title": "Owner"
+          },
+          "project": {
+            "$ref": "#/$defs/MonitorProject",
+            "description": "Details of the project associated with this monitor.",
+            "title": "Project"
+          },
+          "slug": {
+            "description": "URL-friendly identifier for the monitor.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current status of the monitor.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "UpdateMonitorForProjectResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateMonitorForProjectResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

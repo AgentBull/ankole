@@ -1,0 +1,545 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Returns a list of issues (error groups) for an organization. Use when you need to retrieve and analyze error patterns, track unresolved issues, or monitor issue trends. Default query applies 'is:unresolved issue.priority:[high,medium]'.",
+  "inputSchema": {
+    "description": "Request schema for listing issues within a Sentry organization.",
+    "properties": {
+      "collapse": {
+        "description": "Fields to exclude from the response. Valid choices: base, filtered, lifetime, stats, unhandled.",
+        "examples": [["stats"], ["base", "stats"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Collapse",
+        "type": "array"
+      },
+      "cursor": {
+        "description": "Pagination cursor to retrieve next or previous results. Iterate using Link response headers until exhausted to retrieve all results.",
+        "examples": ["0:0:1", "0:100:0"],
+        "title": "Cursor",
+        "type": "string"
+      },
+      "end": {
+        "description": "Query period end time in ISO-8601 format (e.g., 2001-12-14T12:34:56.7890).",
+        "examples": ["2024-12-31T23:59:59.999Z"],
+        "title": "End",
+        "type": "string"
+      },
+      "environment": {
+        "description": "Filter issues by environment names. Pass multiple environment names to filter by multiple environments.",
+        "examples": [["production"], ["staging", "production"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "expand": {
+        "description": "Additional data to include in the response. Valid choices: inbox, integrationIssues, latestEventHasAttachments, owners, pluginActions, pluginIssues, sentryAppIssues, sessions.",
+        "examples": [["owners"], ["inbox", "owners"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Expand",
+        "type": "array"
+      },
+      "groupStatsPeriod": {
+        "description": "Stats timeline period.",
+        "enum": ["14d", "24h", "auto"],
+        "examples": ["24h", "14d", "auto"],
+        "title": "Group Stats Period",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of issues to return. Default: 100, Maximum: 100.",
+        "examples": [10, 25, 50, 100],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization to retrieve issues from.",
+        "examples": ["example", "my-organization"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project": {
+        "description": "Filter issues by project IDs. Use -1 to include all available projects.",
+        "examples": [[1234567], [123, 456, 789], [-1]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Project",
+        "type": "array"
+      },
+      "query": {
+        "description": "Search query for filtering issues. Defaults to 'is:unresolved issue.priority:[high,medium]'. Use an empty string to return all results. Must follow Sentry search syntax; malformed or overly narrow queries silently return empty results.",
+        "examples": ["is:unresolved", "is:resolved", "assigned:me", ""],
+        "title": "Query",
+        "type": "string"
+      },
+      "shortIdLookup": {
+        "description": "Parse query for short IDs when set to 1.",
+        "enum": ["0", "1"],
+        "examples": ["1", "0"],
+        "title": "Short Id Lookup",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Sort order for issues.",
+        "enum": ["date", "freq", "inbox", "new", "trends", "user"],
+        "examples": ["date", "freq", "new", "trends", "user"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "start": {
+        "description": "Query period start time in ISO-8601 format (e.g., 2001-12-14T12:34:56.7890).",
+        "examples": ["2024-01-01T00:00:00.000Z"],
+        "title": "Start",
+        "type": "string"
+      },
+      "statsPeriod": {
+        "description": "Time period for the query (e.g., 24h, 7d, 14d). Supports d (days), h (hours), m (minutes), s (seconds), w (weeks) suffixes. Overrides start and end parameters. Affects stats display only, not which issues are returned; use start/end or filter on dateCreated/lastSeen for precise time-bounded issue sets.",
+        "examples": ["24h", "7d", "14d"],
+        "title": "Stats Period",
+        "type": "string"
+      },
+      "viewId": {
+        "description": "View ID to apply custom query and filters.",
+        "examples": ["1234567890"],
+        "title": "View Id",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug"],
+    "title": "ListAnOrganizationsIssuesRequest",
+    "type": "object"
+  },
+  "name": "list_an_organizations_issues",
+  "outputSchema": {
+    "$defs": {
+      "Annotation": {
+        "description": "Annotation on an issue.",
+        "properties": {
+          "displayName": {
+            "description": "Human-readable label",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "Reference link",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["displayName", "url"],
+        "title": "Annotation",
+        "type": "object"
+      },
+      "AssignedTo": {
+        "description": "Issue ownership assignment.",
+        "properties": {
+          "email": {
+            "description": "Contact information",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Assignee identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Either 'user' or 'team'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "name", "email"],
+        "title": "AssignedTo",
+        "type": "object"
+      },
+      "Inbox": {
+        "description": "Inbox information.",
+        "properties": {
+          "date_added": {
+            "description": "When issue entered inbox",
+            "title": "Date Added",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Categorization code",
+            "title": "Reason",
+            "type": "integer"
+          },
+          "reason_details": {
+            "additionalProperties": true,
+            "description": "Conditions like count thresholds",
+            "title": "Reason Details",
+            "type": "object"
+          }
+        },
+        "required": ["reason", "date_added"],
+        "title": "Inbox",
+        "type": "object"
+      },
+      "Issue": {
+        "description": "Individual issue object returned by the Sentry API.",
+        "properties": {
+          "project": {
+            "$ref": "#/$defs/Project",
+            "description": "Project information",
+            "title": "Project"
+          },
+          "subscriptionDetails": {
+            "additionalProperties": true,
+            "description": "Subscription details including disabled status and reason",
+            "title": "Subscription Details",
+            "type": "object"
+          },
+          "lastSeen": {
+            "description": "Most recent occurrence timestamp",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "integrationIssues": {
+            "description": "Integration issue objects",
+            "items": {},
+            "title": "Integration Issues",
+            "type": "array"
+          },
+          "hasSeen": {
+            "description": "User view status",
+            "title": "Has Seen",
+            "type": "boolean"
+          },
+          "lifetime": {
+            "additionalProperties": true,
+            "description": "Aggregate lifetime metrics with flexible key-value structure",
+            "title": "Lifetime",
+            "type": "object"
+          },
+          "pluginIssues": {
+            "description": "Plugin issue objects",
+            "items": {},
+            "title": "Plugin Issues",
+            "type": "array"
+          },
+          "isBookmarked": {
+            "description": "User bookmark status",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "culprit": {
+            "description": "Error location",
+            "title": "Culprit",
+            "type": "string"
+          },
+          "stats": {
+            "additionalProperties": true,
+            "description": "Time-series event data with flexible key-value structure",
+            "title": "Stats",
+            "type": "object"
+          },
+          "logger": {
+            "description": "Logger name",
+            "title": "Logger",
+            "type": "string"
+          },
+          "level": {
+            "description": "Severity level",
+            "title": "Level",
+            "type": "string"
+          },
+          "sentryAppIssues": {
+            "description": "Sentry app issue objects",
+            "items": {},
+            "title": "Sentry App Issues",
+            "type": "array"
+          },
+          "priorityLockedAt": {
+            "description": "Priority lock timestamp",
+            "title": "Priority Locked At",
+            "type": "string"
+          },
+          "annotations": {
+            "description": "List of annotations",
+            "items": {
+              "$ref": "#/$defs/Annotation"
+            },
+            "title": "Annotations",
+            "type": "array"
+          },
+          "isUnhandled": {
+            "description": "Unhandled exception flag",
+            "title": "Is Unhandled",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "Current status",
+            "title": "Status",
+            "type": "string"
+          },
+          "priority": {
+            "description": "Priority level",
+            "title": "Priority",
+            "type": "string"
+          },
+          "numComments": {
+            "description": "Comment count",
+            "title": "Num Comments",
+            "type": "integer"
+          },
+          "seerAutofixLastTriggered": {
+            "description": "Last autofix trigger time",
+            "title": "Seer Autofix Last Triggered",
+            "type": "string"
+          },
+          "permalink": {
+            "description": "Direct link to issue",
+            "title": "Permalink",
+            "type": "string"
+          },
+          "type": {
+            "description": "Issue type",
+            "title": "Type",
+            "type": "string"
+          },
+          "assignedTo": {
+            "$ref": "#/$defs/AssignedTo",
+            "description": "Issue ownership assignment",
+            "title": "Assigned To"
+          },
+          "latestEventHasAttachments": {
+            "description": "Attachment presence flag",
+            "title": "Latest Event Has Attachments",
+            "type": "boolean"
+          },
+          "shareId": {
+            "description": "Public share identifier",
+            "title": "Share Id",
+            "type": "string"
+          },
+          "isPublic": {
+            "description": "Public visibility flag",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "count": {
+            "description": "Total event count",
+            "title": "Count",
+            "type": "string"
+          },
+          "sessionCount": {
+            "description": "Related session count",
+            "title": "Session Count",
+            "type": "integer"
+          },
+          "firstSeen": {
+            "description": "Initial occurrence timestamp",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "pluginActions": {
+            "description": "Plugin action string pairs",
+            "items": {},
+            "title": "Plugin Actions",
+            "type": "array"
+          },
+          "platform": {
+            "description": "Platform type",
+            "title": "Platform",
+            "type": "string"
+          },
+          "isSubscribed": {
+            "description": "Subscription status",
+            "title": "Is Subscribed",
+            "type": "boolean"
+          },
+          "shortId": {
+            "description": "Human-readable issue ID",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "seerFixabilityScore": {
+            "description": "AI-generated fixability score",
+            "title": "Seer Fixability Score",
+            "type": "number"
+          },
+          "userCount": {
+            "description": "Affected user count",
+            "title": "User Count",
+            "type": "integer"
+          },
+          "issueCategory": {
+            "description": "Issue classification",
+            "title": "Issue Category",
+            "type": "string"
+          },
+          "filtered": {
+            "additionalProperties": true,
+            "description": "Filtered aggregate data with flexible key-value structure",
+            "title": "Filtered",
+            "type": "object"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Additional contextual data with arbitrary key-value pairs",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "id": {
+            "description": "Issue identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "inbox": {
+            "$ref": "#/$defs/Inbox",
+            "description": "Inbox information",
+            "title": "Inbox"
+          },
+          "statusDetails": {
+            "additionalProperties": true,
+            "description": "Status metadata including optional fields like autoResolved, ignoreCount, ignoreUntil, and nested actor information",
+            "title": "Status Details",
+            "type": "object"
+          },
+          "substatus": {
+            "description": "Detailed status",
+            "title": "Substatus",
+            "type": "string"
+          },
+          "title": {
+            "description": "Issue title",
+            "title": "Title",
+            "type": "string"
+          },
+          "owners": {
+            "$ref": "#/$defs/Owner",
+            "description": "Ownership assignment history",
+            "title": "Owners"
+          },
+          "issueType": {
+            "description": "Categorized issue type",
+            "title": "Issue Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "shareId",
+          "shortId",
+          "title",
+          "permalink",
+          "level",
+          "status",
+          "statusDetails",
+          "isPublic",
+          "project",
+          "type",
+          "issueType",
+          "issueCategory",
+          "metadata",
+          "numComments",
+          "assignedTo",
+          "isBookmarked",
+          "isSubscribed",
+          "hasSeen",
+          "annotations",
+          "isUnhandled",
+          "count",
+          "userCount",
+          "stats",
+          "lifetime",
+          "sessionCount",
+          "inbox",
+          "owners",
+          "pluginActions",
+          "pluginIssues",
+          "integrationIssues",
+          "sentryAppIssues",
+          "latestEventHasAttachments"
+        ],
+        "title": "Issue",
+        "type": "object"
+      },
+      "ListAnOrganizationsIssuesResponse": {
+        "description": "Response schema containing the list of issues for the organization. The API returns an array of issue objects directly.",
+        "items": {
+          "$ref": "#/$defs/Issue"
+        },
+        "title": "ListAnOrganizationsIssuesResponse",
+        "type": "array"
+      },
+      "Owner": {
+        "description": "Ownership assignment history.",
+        "properties": {
+          "date_added": {
+            "description": "Assignment timestamp",
+            "title": "Date Added",
+            "type": "string"
+          },
+          "owner": {
+            "description": "Owner identifier",
+            "title": "Owner",
+            "type": "string"
+          },
+          "type": {
+            "description": "Assignment category",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "owner", "date_added"],
+        "title": "Owner",
+        "type": "object"
+      },
+      "Project": {
+        "description": "Project information for an issue.",
+        "properties": {
+          "id": {
+            "description": "Unique project identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable project name",
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Technology stack (e.g., python)",
+            "title": "Platform",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly project identifier",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "slug"],
+        "title": "Project",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListAnOrganizationsIssuesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

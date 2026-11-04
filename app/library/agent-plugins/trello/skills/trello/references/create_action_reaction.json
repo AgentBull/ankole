@@ -1,0 +1,148 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to add a new emoji reaction to a Trello action. Use when acknowledging comments or actions with reactions.",
+  "inputSchema": {
+    "description": "Request schema for `CreateActionReaction`",
+    "properties": {
+      "idAction": {
+        "description": "The ID of the action to add a reaction to.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "6992fe59c94c7dc923073175"],
+        "title": "Id Action",
+        "type": "string"
+      },
+      "native": {
+        "description": "The emoji to add as a native unicode emoji.",
+        "examples": ["👍", "❤️", "🎉"],
+        "title": "Native",
+        "type": "string"
+      },
+      "shortName": {
+        "description": "The primary shortName of the emoji to add (e.g., '+1', 'heart', 'thumbsup'). See Trello emoji documentation for available emojis.",
+        "examples": ["+1", "heart", "thumbsup", "clap"],
+        "title": "Short Name",
+        "type": "string"
+      },
+      "skinVariation": {
+        "description": "The skin variation of the emoji to add.",
+        "examples": ["1f3fb", "1f3fc"],
+        "title": "Skin Variation",
+        "type": "string"
+      },
+      "unified": {
+        "description": "The unified value of the emoji to add.",
+        "examples": ["1f44d", "2764-fe0f"],
+        "title": "Unified",
+        "type": "string"
+      }
+    },
+    "required": ["idAction"],
+    "title": "CreateActionReactionRequest",
+    "type": "object"
+  },
+  "name": "create_action_reaction",
+  "outputSchema": {
+    "$defs": {
+      "CreateActionReactionResponse": {
+        "description": "Response schema for `CreateActionReaction`",
+        "properties": {
+          "emoji": {
+            "$ref": "#/$defs/ReactionEmoji",
+            "description": "Details about the emoji used for the reaction.",
+            "title": "Emoji"
+          },
+          "id": {
+            "description": "The unique identifier for the reaction.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idEmoji": {
+            "description": "The ID of the emoji used for the reaction.",
+            "title": "Id Emoji",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "The ID of the member who added the reaction.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "idModel": {
+            "description": "The ID of the action this reaction is attached to.",
+            "title": "Id Model",
+            "type": "string"
+          },
+          "member": {
+            "$ref": "#/$defs/ReactionMember",
+            "description": "Member information for who added the reaction.",
+            "title": "Member"
+          }
+        },
+        "required": ["id"],
+        "title": "CreateActionReactionResponse",
+        "type": "object"
+      },
+      "ReactionEmoji": {
+        "description": "Emoji details for the reaction",
+        "properties": {
+          "name": {
+            "description": "The name of the emoji.",
+            "title": "Name",
+            "type": "string"
+          },
+          "native": {
+            "description": "The native unicode representation of the emoji.",
+            "title": "Native",
+            "type": "string"
+          },
+          "shortName": {
+            "description": "The short name identifier for the emoji.",
+            "title": "Short Name",
+            "type": "string"
+          },
+          "skinVariation": {
+            "description": "The skin variation of the emoji, if applicable.",
+            "title": "Skin Variation",
+            "type": "string"
+          },
+          "unified": {
+            "description": "The unified code of the emoji.",
+            "title": "Unified",
+            "type": "string"
+          }
+        },
+        "title": "ReactionEmoji",
+        "type": "object"
+      },
+      "ReactionMember": {
+        "description": "Member information for who added the reaction",
+        "properties": {
+          "id": {
+            "description": "The unique identifier of the member who added the reaction.",
+            "title": "Id",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of the member who added the reaction.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "ReactionMember",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateActionReactionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

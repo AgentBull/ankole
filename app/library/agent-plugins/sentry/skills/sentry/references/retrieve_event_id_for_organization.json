@@ -1,0 +1,77 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Resolves a Sentry event ID to its project and issue details within an accessible Sentry organization.",
+  "inputSchema": {
+    "description": "Input parameters to resolve a Sentry event ID to its associated project and issue details within a specific organization.",
+    "properties": {
+      "event_id": {
+        "description": "The unique 32-character hexadecimal identifier of the Sentry event to be resolved.",
+        "examples": ["c996092c854049c4b99d79b6f95ab52f", "f0cacc12b3de45f6a7d8e9f0a1b2c3d4"],
+        "title": "Event Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization where the event occurred. This specifies the scope for the event lookup.",
+        "examples": ["my-sentry-org", "sentry", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "event_id"],
+    "title": "RetrieveEventIdForOrganizationRequest",
+    "type": "object"
+  },
+  "name": "retrieve_event_id_for_organization",
+  "outputSchema": {
+    "$defs": {
+      "RetrieveEventIdForOrganizationResponse": {
+        "description": "Output schema containing the resolved information for the Sentry event, including organization, project, issue, and full event details.",
+        "properties": {
+          "event": {
+            "additionalProperties": true,
+            "description": "Complete event object containing detailed information including: id, groupID, eventID, projectID, message, title, platform, tags, user info, contexts, entries (stacktraces/messages), dateCreated, dateReceived, fingerprints, and metadata.",
+            "title": "Event",
+            "type": "object"
+          },
+          "eventId": {
+            "description": "The internal event ID (same as the input event_id).",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "groupId": {
+            "description": "The internal issue/group ID that this event is associated with. Use this ID to query issue-related endpoints.",
+            "title": "Group Id",
+            "type": "string"
+          },
+          "organizationSlug": {
+            "description": "The slug of the organization where the event belongs.",
+            "title": "Organization Slug",
+            "type": "string"
+          },
+          "projectSlug": {
+            "description": "The slug of the project where the event belongs.",
+            "title": "Project Slug",
+            "type": "string"
+          }
+        },
+        "required": ["organizationSlug", "projectSlug", "groupId", "eventId", "event"],
+        "title": "RetrieveEventIdForOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveEventIdForOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

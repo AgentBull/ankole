@@ -1,0 +1,228 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves the credit balance summary for a customer in Stripe Billing. This action returns the available and ledger balances for billing credits granted to a customer. You can filter by a specific credit grant, price type (metered), specific prices, or billable items. The balance summary includes one entry per currency used in the credit grants. Use Cases: - Check remaining billing credits for a customer - View credit balances for specific metered prices or products - Monitor available vs. ledger balance for billing credits - Track credit usage across different currencies",
+  "inputSchema": {
+    "properties": {
+      "customer": {
+        "description": "The Stripe customer ID whose credit balance summary is being retrieved. Either 'customer' or 'customer_account' must be specified. Starts with 'cus_'.",
+        "examples": ["cus_Tsff73vDvrw2Rc"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "customer_account": {
+        "description": "The Stripe account ID representing the customer. Either 'customer' or 'customer_account' must be specified. Use this for multi-entity accounts.",
+        "examples": ["acct_123abc456def"],
+        "title": "Customer Account",
+        "type": "string"
+      },
+      "filter": {
+        "additionalProperties": false,
+        "description": "Filtering criteria for the credit balance summary. Specify either 'credit_grant' to get balance for a specific grant, or 'applicability_scope' to filter by price type, specific prices, or billable items.",
+        "properties": {
+          "applicability_scope": {
+            "additionalProperties": false,
+            "description": "Billing credit scope for fetching balance summary. Required when filter type is 'applicability_scope'.",
+            "properties": {
+              "billable_items": {
+                "description": "List of specific billable item IDs to filter the balance summary. Cannot be combined with 'price_type' or 'prices'.",
+                "items": {
+                  "properties": {
+                    "id": {
+                      "description": "The Stripe billable item ID. Must be a metered billable item.",
+                      "examples": ["billitem_123abc"],
+                      "title": "Id",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id"],
+                  "title": "ApplicabilityScopeBillableItem",
+                  "type": "object"
+                },
+                "title": "Billable Items",
+                "type": "array"
+              },
+              "price_type": {
+                "const": "metered",
+                "description": "Filter by price type. Use 'metered' to get balance summary for all metered prices. Cannot be combined with 'prices' or 'billable_items'.",
+                "title": "Price Type",
+                "type": "string"
+              },
+              "prices": {
+                "description": "List of specific metered price IDs to filter the balance summary. Cannot be combined with 'price_type' or 'billable_items'.",
+                "items": {
+                  "properties": {
+                    "id": {
+                      "description": "The Stripe price ID. Must be a metered price with an attached billing meter.",
+                      "examples": ["price_1SuuY8P3BKO35fWywnIAK8zm"],
+                      "title": "Id",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id"],
+                  "title": "ApplicabilityScopePrice",
+                  "type": "object"
+                },
+                "title": "Prices",
+                "type": "array"
+              }
+            },
+            "title": "ApplicabilityScope",
+            "type": "object"
+          },
+          "credit_grant": {
+            "description": "The Stripe credit grant ID for which to fetch the balance summary. Required when filter type is 'credit_grant'. Starts with 'credgr_'.",
+            "examples": ["credgr_61U4IOeqqvhUbql8A41P3BKO35fWyH0a"],
+            "title": "Credit Grant",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of filter to apply. Must be either 'applicability_scope' or 'credit_grant'.",
+            "enum": ["applicability_scope", "credit_grant"],
+            "examples": ["applicability_scope", "credit_grant"],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "Filter",
+        "type": "object"
+      }
+    },
+    "required": ["filter"],
+    "title": "GetBillingCreditBalanceSummaryRequest",
+    "type": "object"
+  },
+  "name": "get_billing_credit_balance_summary",
+  "outputSchema": {
+    "$defs": {
+      "BalanceAmount": {
+        "properties": {
+          "custom_pricing_unit": {
+            "$ref": "#/$defs/CustomPricingUnitBalance",
+            "description": "Custom pricing unit balance details when type is 'custom_pricing_unit'.",
+            "title": "Custom Pricing Unit"
+          },
+          "last_updated_at": {
+            "description": "Unix timestamp (in milliseconds) when the balance was last updated.",
+            "title": "Last Updated At",
+            "type": "integer"
+          },
+          "monetary": {
+            "$ref": "#/$defs/MonetaryBalance",
+            "description": "Monetary balance details when type is 'monetary'.",
+            "title": "Monetary"
+          },
+          "type": {
+            "description": "The type of balance. Either 'monetary' for currency-based balance or 'custom_pricing_unit' for unit-based balance.",
+            "enum": ["monetary", "custom_pricing_unit"],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "BalanceAmount",
+        "type": "object"
+      },
+      "CreditBalance": {
+        "properties": {
+          "available_balance": {
+            "$ref": "#/$defs/BalanceAmount",
+            "description": "Credits ready for customer use, accounting for expired credits not yet processed.",
+            "title": "Available Balance"
+          },
+          "ledger_balance": {
+            "$ref": "#/$defs/BalanceAmount",
+            "description": "Balance reflecting committed ledger transactions.",
+            "title": "Ledger Balance"
+          }
+        },
+        "required": ["available_balance", "ledger_balance"],
+        "title": "CreditBalance",
+        "type": "object"
+      },
+      "CustomPricingUnitBalance": {
+        "properties": {
+          "unit_name": {
+            "description": "Name of the custom pricing unit.",
+            "title": "Unit Name",
+            "type": "string"
+          },
+          "unit_value": {
+            "description": "Custom unit balance value.",
+            "title": "Unit Value",
+            "type": "string"
+          }
+        },
+        "required": ["unit_value", "unit_name"],
+        "title": "CustomPricingUnitBalance",
+        "type": "object"
+      },
+      "GetBillingCreditBalanceSummaryResponse": {
+        "properties": {
+          "balances": {
+            "description": "Collection of billing credit balances, with one entry per credit grant currency.",
+            "items": {
+              "$ref": "#/$defs/CreditBalance"
+            },
+            "title": "Balances",
+            "type": "array"
+          },
+          "customer": {
+            "description": "The customer identifier associated with the balance.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "customer_account": {
+            "description": "The account identifier for the balance.",
+            "title": "Customer Account",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Indicates whether the object exists in live mode (true) or test mode (false).",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'billing.credit_balance_summary'.",
+            "title": "Object",
+            "type": "string"
+          }
+        },
+        "required": ["object", "balances", "customer", "livemode"],
+        "title": "GetBillingCreditBalanceSummaryResponse",
+        "type": "object"
+      },
+      "MonetaryBalance": {
+        "properties": {
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase (e.g., 'usd').",
+            "title": "Currency",
+            "type": "string"
+          },
+          "value": {
+            "description": "Positive integer amount in the smallest currency unit (e.g., cents).",
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": ["currency", "value"],
+        "title": "MonetaryBalance",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBillingCreditBalanceSummaryResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

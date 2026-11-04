@@ -1,0 +1,649 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Add a public or private comment to a Zendesk ticket, optionally changing its assignee. Comments are public by default.",
+  "inputSchema": {
+    "description": "Request model for replying to a Zendesk ticket.",
+    "properties": {
+      "assignee_id": {
+        "description": "The ID of the agent to assign the ticket to",
+        "human_parameter_description": "The ID of the agent you want to assign this ticket to. Leave empty to keep the current assignment.",
+        "human_parameter_name": "Assignee ID",
+        "title": "Assignee Id",
+        "type": "integer"
+      },
+      "body": {
+        "default": "",
+        "description": "Comment content Must contain only the final reply text — do not include draft reasoning or mixed content.",
+        "human_parameter_description": "What you want to say in the reply. This text will be added as a comment on the ticket.",
+        "human_parameter_name": "Comment Body",
+        "title": "Body",
+        "type": "string"
+      },
+      "public": {
+        "default": true,
+        "description": "Whether the comment is public or internal Public comments are customer-facing and trigger email notifications to the requester; set to false for internal agent notes to prevent unintended customer visibility.",
+        "human_parameter_description": "Choose whether your comment is visible to the requester. Turn this on for customer-facing replies, or off for internal notes.",
+        "human_parameter_name": "Public Comment",
+        "title": "Public",
+        "type": "boolean"
+      },
+      "ticket_id": {
+        "description": "ID of the ticket to reply to. Note: Closed tickets cannot be updated.",
+        "human_parameter_description": "The ID number of the ticket you want to reply to. Use the ID from Zendesk so your comment is added to the correct ticket. Note: You cannot reply to closed tickets.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "ReplyZendeskTicketRequest",
+    "type": "object"
+  },
+  "name": "reply_zendesk_ticket",
+  "outputSchema": {
+    "$defs": {
+      "Attachment": {
+        "description": "Attachment associated with a comment.",
+        "properties": {
+          "contentType": {
+            "description": "The content type of the image. Example value: image/png.",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "contentUrl": {
+            "description": "A full URL where the attachment image file can be downloaded.",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "If true, the attachment has been deleted.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "fileName": {
+            "description": "The name of the image file.",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "The height of the image file in pixels. If height is unknown, returns null.",
+            "title": "Height",
+            "type": "string"
+          },
+          "id": {
+            "description": "Automatically assigned when created.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "If true, the attachment is excluded from the attachment list and URL can be referenced within ticket comment.",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malwareAccessOverride": {
+            "description": "If true, you can download an attachment flagged as malware.",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malwareScanResult": {
+            "description": "Result of malware scan. Possible values: malware_found, malware_not_found, failed_to_scan, not_scanned.",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mappedContentUrl": {
+            "description": "The URL the attachment image file has been mapped to.",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "The size of the image file in bytes.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "An array of attachment objects. Note that photo thumbnails do not have thumbnails.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          },
+          "url": {
+            "description": "A URL to access the attachment details.",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "The width of the image file in pixels. If width is unknown, returns null.",
+            "title": "Width",
+            "type": "string"
+          }
+        },
+        "title": "Attachment",
+        "type": "object"
+      },
+      "Audit": {
+        "description": "Audit object containing events that describe changes made to the ticket.",
+        "properties": {
+          "authorId": {
+            "description": "The user who created the audit.",
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "createdAt": {
+            "description": "The time the audit was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "events": {
+            "description": "An array of the events that happened in this audit.",
+            "items": {
+              "$ref": "#/$defs/AuditEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "description": "Automatically assigned when creating audits.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "metadata": {
+            "$ref": "#/$defs/AuditMetadata",
+            "description": "Metadata for the audit, including system and custom information.",
+            "title": "Metadata"
+          },
+          "ticketId": {
+            "description": "The ID of the associated ticket.",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "via": {
+            "$ref": "#/$defs/Via",
+            "description": "Describes how the audit was created.",
+            "title": "Via"
+          }
+        },
+        "required": ["id", "ticketId"],
+        "title": "Audit",
+        "type": "object"
+      },
+      "AuditEvent": {
+        "description": "Event in a ticket audit.",
+        "properties": {
+          "attachments": {
+            "description": "Attachments associated with the comment (for Comment events).",
+            "items": {
+              "$ref": "#/$defs/Attachment"
+            },
+            "title": "Attachments",
+            "type": "array"
+          },
+          "auditId": {
+            "description": "The id of the ticket audit record (for Comment events).",
+            "title": "Audit Id",
+            "type": "integer"
+          },
+          "authorId": {
+            "description": "The ID of the author (for Comment events).",
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "body": {
+            "description": "The comment text (for Comment events).",
+            "title": "Body",
+            "type": "string"
+          },
+          "fieldName": {
+            "description": "The name of the field that was changed (for Create and Change events).",
+            "title": "Field Name",
+            "type": "string"
+          },
+          "htmlBody": {
+            "description": "The comment formatted as HTML (for Comment events).",
+            "title": "Html Body",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the event.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "plainBody": {
+            "description": "The comment as plain text (for Comment events).",
+            "title": "Plain Body",
+            "type": "string"
+          },
+          "previousValue": {
+            "description": "The previous value of the field (for Change events).",
+            "title": "Previous Value"
+          },
+          "public": {
+            "description": "True if a public comment; false if an internal note (for Comment events).",
+            "title": "Public",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "The type of event. Examples: 'Comment', 'Create', 'Change', 'Notification', 'VoiceComment', 'CommentRedactionEvent', 'AttachmentRedactionEvent'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "The new value of the field (for Create and Change events).",
+            "title": "Value"
+          },
+          "via": {
+            "$ref": "#/$defs/Via",
+            "description": "Describes how the object was created (for Comment events).",
+            "title": "Via"
+          }
+        },
+        "required": ["type"],
+        "title": "AuditEvent",
+        "type": "object"
+      },
+      "AuditMetadata": {
+        "description": "Metadata for an audit.",
+        "properties": {
+          "custom": {
+            "additionalProperties": true,
+            "description": "Custom metadata provided by the API user.",
+            "title": "Custom",
+            "type": "object"
+          },
+          "system": {
+            "additionalProperties": true,
+            "description": "System-generated metadata such as IP address.",
+            "title": "System",
+            "type": "object"
+          }
+        },
+        "title": "AuditMetadata",
+        "type": "object"
+      },
+      "CustomField": {
+        "description": "Custom field for a ticket.",
+        "properties": {
+          "id": {
+            "description": "The ID of the custom field.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "value": {
+            "description": "The value of the custom field.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "CustomField",
+        "type": "object"
+      },
+      "ReplyZendeskTicketResponse": {
+        "description": "Response model for the Zendesk ticket reply action.",
+        "properties": {
+          "ticket": {
+            "$ref": "#/$defs/Ticket",
+            "description": "The updated ticket object containing all ticket properties and the audit of changes made.",
+            "title": "Ticket"
+          }
+        },
+        "required": ["ticket"],
+        "title": "ReplyZendeskTicketResponse",
+        "type": "object"
+      },
+      "SatisfactionRating": {
+        "description": "Satisfaction rating for a ticket.",
+        "properties": {
+          "assigneeId": {
+            "description": "The id of agent assigned to at the time of rating.",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "comment": {
+            "description": "The comment received with this rating, if available.",
+            "title": "Comment",
+            "type": "string"
+          },
+          "createdAt": {
+            "description": "The time the satisfaction rating got created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "groupId": {
+            "description": "The id of group assigned to at the time of rating.",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Automatically assigned upon creation.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "The reason for a bad rating given by the requester.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "reasonId": {
+            "description": "The id of the reason for a bad rating.",
+            "title": "Reason Id",
+            "type": "integer"
+          },
+          "requesterId": {
+            "description": "The id of ticket requester submitting the rating.",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "score": {
+            "description": "The rating value. Possible values: 'offered', 'unoffered', 'good', 'bad'.",
+            "title": "Score",
+            "type": "string"
+          },
+          "ticketId": {
+            "description": "The id of ticket being rated.",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "updatedAt": {
+            "description": "The time the satisfaction rating got updated.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "The API url of this rating.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "SatisfactionRating",
+        "type": "object"
+      },
+      "Ticket": {
+        "description": "Ticket object returned by Zendesk.",
+        "properties": {
+          "recipient": {
+            "description": "The original recipient e-mail address of the ticket.",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "url": {
+            "description": "The API url of this ticket.",
+            "title": "Url",
+            "type": "string"
+          },
+          "satisfactionRating": {
+            "$ref": "#/$defs/SatisfactionRating",
+            "description": "The satisfaction rating of the ticket, if it exists, or the state of satisfaction, 'offered' or 'unoffered'.",
+            "title": "Satisfaction Rating"
+          },
+          "updatedAt": {
+            "description": "When this record last got updated.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "customFields": {
+            "description": "Custom fields for the ticket.",
+            "items": {
+              "$ref": "#/$defs/CustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "forumTopicId": {
+            "description": "The topic in the Zendesk Web portal this ticket originated from, if any. Deprecated.",
+            "title": "Forum Topic Id",
+            "type": "integer"
+          },
+          "emailCcIds": {
+            "description": "The ids of agents or end users currently CC'ed on the ticket.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Email Cc Ids",
+            "type": "array"
+          },
+          "customStatusId": {
+            "description": "The custom ticket status id of the ticket.",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Read-only first comment on the ticket.",
+            "title": "Description",
+            "type": "string"
+          },
+          "tags": {
+            "description": "The array of tags applied to this ticket.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "status": {
+            "description": "The state of the ticket. Possible values: 'new', 'open', 'pending', 'hold', 'solved', or 'closed'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "audit": {
+            "$ref": "#/$defs/Audit",
+            "description": "An audit object containing events that describe the changes made to the ticket.",
+            "title": "Audit"
+          },
+          "priority": {
+            "description": "The urgency with which the ticket should be addressed. Possible values: 'urgent', 'high', 'normal', 'low'.",
+            "title": "Priority",
+            "type": "string"
+          },
+          "hasIncidents": {
+            "description": "Is true if a ticket is a problem type and has one or more incidents linked to it. Otherwise, the value is false.",
+            "title": "Has Incidents",
+            "type": "boolean"
+          },
+          "organizationId": {
+            "description": "The organization of the requester.",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "groupId": {
+            "description": "The group this ticket is assigned to.",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "assigneeId": {
+            "description": "The agent currently assigned to the ticket.",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "The type of this ticket. Possible values: 'problem', 'incident', 'question', or 'task'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "problemId": {
+            "description": "For tickets of type 'incident', the ID of the problem the incident is linked to.",
+            "title": "Problem Id",
+            "type": "integer"
+          },
+          "generatedTimestamp": {
+            "description": "Unix timestamp reflecting the most accurate time of last update.",
+            "title": "Generated Timestamp",
+            "type": "integer"
+          },
+          "createdAt": {
+            "description": "When this record was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "isPublic": {
+            "description": "Is true if any comments are public, false otherwise.",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "allowAttachments": {
+            "description": "Permission for agents to add add attachments to a comment. Defaults to true.",
+            "title": "Allow Attachments",
+            "type": "boolean"
+          },
+          "submitterId": {
+            "description": "The user who submitted the ticket. The submitter always becomes the author of the first comment on the ticket.",
+            "title": "Submitter Id",
+            "type": "integer"
+          },
+          "dueAt": {
+            "description": "If this is a ticket of type 'task' it has a due date. Due date format uses ISO 8601 format.",
+            "title": "Due At",
+            "type": "string"
+          },
+          "assigneeEmail": {
+            "description": "Write-only. The email address of the agent to assign the ticket to.",
+            "title": "Assignee Email",
+            "type": "string"
+          },
+          "brandId": {
+            "description": "Enterprise only. The id of the brand this ticket is associated with.",
+            "title": "Brand Id",
+            "type": "integer"
+          },
+          "rawSubject": {
+            "description": "The dynamic content placeholder, if present, or the subject value, if not.",
+            "title": "Raw Subject",
+            "type": "string"
+          },
+          "followerIds": {
+            "description": "The ids of agents currently following the ticket.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Follower Ids",
+            "type": "array"
+          },
+          "externalId": {
+            "description": "An id you can use to link Zendesk Support tickets to local records.",
+            "title": "External Id",
+            "type": "string"
+          },
+          "allowChannelback": {
+            "description": "Is false if channelback is disabled, true otherwise. Only applicable for channels framework ticket.",
+            "title": "Allow Channelback",
+            "type": "boolean"
+          },
+          "followupIds": {
+            "description": "The ids of the followups created from this ticket. Ids are only visible once the ticket is closed.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Followup Ids",
+            "type": "array"
+          },
+          "subject": {
+            "description": "The value of the subject field for this ticket.",
+            "title": "Subject",
+            "type": "string"
+          },
+          "collaboratorIds": {
+            "description": "The ids of users currently CC'ed on the ticket.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "fromMessagingChannel": {
+            "description": "If true, the ticket's via type is a messaging channel.",
+            "title": "From Messaging Channel",
+            "type": "boolean"
+          },
+          "sharingAgreementIds": {
+            "description": "The ids of the sharing agreements used for this ticket.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sharing Agreement Ids",
+            "type": "array"
+          },
+          "id": {
+            "description": "Automatically assigned when the ticket is created.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "ticketFormId": {
+            "description": "Enterprise only. The id of the ticket form to render for the ticket.",
+            "title": "Ticket Form Id",
+            "type": "integer"
+          },
+          "requesterId": {
+            "description": "The user who requested this ticket.",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "via": {
+            "$ref": "#/$defs/Via",
+            "description": "This object explains how the ticket or event was created.",
+            "title": "Via"
+          }
+        },
+        "required": ["id"],
+        "title": "Ticket",
+        "type": "object"
+      },
+      "Via": {
+        "description": "Information about how the ticket or event was created.",
+        "properties": {
+          "channel": {
+            "description": "The channel through which the ticket was created. Examples: 'email', 'api', 'chat', 'web', 'mobile', 'twitter', 'facebook', 'trigger'.",
+            "title": "Channel",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/ViaSource",
+            "description": "Additional information about the source of the ticket.",
+            "title": "Source"
+          }
+        },
+        "title": "Via",
+        "type": "object"
+      },
+      "ViaSource": {
+        "description": "Source information for the via object.",
+        "properties": {
+          "from": {
+            "additionalProperties": true,
+            "description": "Information about the originator. Structure varies by channel type.",
+            "title": "From",
+            "type": "object"
+          },
+          "rel": {
+            "description": "The relationship type. Examples: 'trigger', 'merge'.",
+            "title": "Rel",
+            "type": "string"
+          },
+          "to": {
+            "additionalProperties": true,
+            "description": "Information about the destination. Structure varies by channel type.",
+            "title": "To",
+            "type": "object"
+          }
+        },
+        "title": "ViaSource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ReplyZendeskTicketResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

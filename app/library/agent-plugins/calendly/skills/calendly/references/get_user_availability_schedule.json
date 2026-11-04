@@ -1,0 +1,139 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a user availability schedule by its UUID, including its availability rules and whether it is the user's default schedule.",
+  "inputSchema": {
+    "description": "Request to retrieve a user availability schedule.",
+    "properties": {
+      "uuid": {
+        "description": "Unique identifier (UUID) of the availability schedule.",
+        "examples": ["AAAAAAAAAAAAAAAA"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "GetUserAvailabilityScheduleRequest",
+    "type": "object"
+  },
+  "name": "get_user_availability_schedule",
+  "outputSchema": {
+    "$defs": {
+      "AvailabilityInterval": {
+        "description": "Time interval during which the user is available.",
+        "properties": {
+          "from": {
+            "description": "Start time of the availability interval in 24-hour HH:MM format (e.g., '08:30').",
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "description": "End time of the availability interval in 24-hour HH:MM format (e.g., '17:00').",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": ["from", "to"],
+        "title": "AvailabilityInterval",
+        "type": "object"
+      },
+      "AvailabilityRule": {
+        "description": "Availability rule defining when the user is available.",
+        "properties": {
+          "date": {
+            "description": "Specific date for the rule in YYYY-MM-DD format (e.g., '2022-12-31'). Present when type is 'date'.",
+            "title": "Date",
+            "type": "string"
+          },
+          "intervals": {
+            "description": "Array of time intervals during which the user is available.",
+            "items": {
+              "$ref": "#/$defs/AvailabilityInterval"
+            },
+            "title": "Intervals",
+            "type": "array"
+          },
+          "type": {
+            "description": "Type of availability rule, typically 'wday' for weekday-based rules or 'date' for specific date rules.",
+            "title": "Type",
+            "type": "string"
+          },
+          "wday": {
+            "description": "Day of the week for the rule (e.g., 'monday', 'tuesday', 'sunday'). Present when type is 'wday'.",
+            "title": "Wday",
+            "type": "string"
+          }
+        },
+        "required": ["type", "intervals"],
+        "title": "AvailabilityRule",
+        "type": "object"
+      },
+      "GetUserAvailabilityScheduleResponse": {
+        "description": "Contains the details of the retrieved user availability schedule.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/UserAvailabilityScheduleResource",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "GetUserAvailabilityScheduleResponse",
+        "type": "object"
+      },
+      "UserAvailabilityScheduleResource": {
+        "description": "The user availability schedule resource object.",
+        "properties": {
+          "default": {
+            "description": "Indicates whether this is the default availability schedule for the user.",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Human-readable name for the availability schedule (e.g., 'Working Hours').",
+            "title": "Name",
+            "type": "string"
+          },
+          "rules": {
+            "description": "Array of availability rules defining when the user is available.",
+            "items": {
+              "$ref": "#/$defs/AvailabilityRule"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "timezone": {
+            "description": "Timezone in which the availability schedule is defined (e.g., 'America/New_York').",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the user availability schedule.",
+            "title": "Uri",
+            "type": "string"
+          },
+          "user": {
+            "description": "The URI of the user who owns this availability schedule.",
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "name", "default", "user", "timezone", "rules"],
+        "title": "UserAvailabilityScheduleResource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUserAvailabilityScheduleResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

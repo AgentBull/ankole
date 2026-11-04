@@ -1,0 +1,59 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to delete an invoice item from Stripe. Use when removing invoice items that are not attached to invoices or attached to draft invoices.",
+  "inputSchema": {
+    "description": "Request model for deleting an invoice item.",
+    "properties": {
+      "invoiceitem": {
+        "description": "The identifier of the invoice item to be deleted. Deleting invoice items is only possible when they're not attached to invoices, or if it's attached to a draft invoice.",
+        "examples": ["ii_1ShVXxQvM72TjFrb4RNF8VWx", "ii_1A2B3C4D5E6F7G8H"],
+        "title": "Invoiceitem",
+        "type": "string"
+      }
+    },
+    "required": ["invoiceitem"],
+    "title": "DeleteInvoiceitemRequest",
+    "type": "object"
+  },
+  "name": "delete_invoiceitem",
+  "outputSchema": {
+    "$defs": {
+      "DeleteInvoiceitemResponse": {
+        "description": "Response model for a deleted invoice item.",
+        "properties": {
+          "deleted": {
+            "description": "Always true for a successful deletion.",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the deleted invoice item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'invoiceitem' for this endpoint.",
+            "title": "Object",
+            "type": "string"
+          }
+        },
+        "title": "DeleteInvoiceitemResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteInvoiceitemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

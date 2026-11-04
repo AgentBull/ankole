@@ -1,0 +1,173 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a recurring audience list that automatically generates new audience lists daily based on the latest data. Use when you need to automate audience list creation and reduce quota token consumption.",
+  "inputSchema": {
+    "description": "Request model for creating a recurring audience list under a GA4 property.",
+    "properties": {
+      "activeDaysRemaining": {
+        "description": "Counter decreasing daily. Defaults to 180 days for Analytics 360 properties (max 365) and 14 days for standard properties (max 30).",
+        "maximum": 365,
+        "minimum": 1,
+        "title": "Active Days Remaining",
+        "type": "integer"
+      },
+      "audience": {
+        "description": "Audience resource name identifying the audience being listed. Format: properties/{property_id}/audiences/{audience_id}.",
+        "examples": ["properties/489591273/audiences/11228260226"],
+        "pattern": "^properties/[^/]+/audiences/[^/]+$",
+        "title": "Audience",
+        "type": "string"
+      },
+      "dimensions": {
+        "description": "List of dimensions requested and displayed in the audience list response.",
+        "items": {
+          "description": "Model for an audience dimension.",
+          "properties": {
+            "dimensionName": {
+              "description": "API name of the dimension (e.g., deviceId, userId, isAdsPersonalizationAllowed).",
+              "title": "Dimension Name",
+              "type": "string"
+            }
+          },
+          "required": ["dimensionName"],
+          "title": "AudienceDimension",
+          "type": "object"
+        },
+        "title": "Dimensions",
+        "type": "array"
+      },
+      "parent": {
+        "description": "Parent property resource name where the recurring audience list will be created. Format: properties/{property_id}.",
+        "examples": ["properties/489591273"],
+        "pattern": "^properties/[^/]+$",
+        "title": "Parent",
+        "type": "string"
+      },
+      "webhookNotification": {
+        "additionalProperties": false,
+        "description": "Configuration for receiving webhook notifications about recurring audience list status.",
+        "properties": {
+          "channelToken": {
+            "description": "Optional token for source verification, included in X-Goog-Channel-Token header. Max length: 64 characters.",
+            "maxLength": 64,
+            "title": "Channel Token",
+            "type": "string"
+          },
+          "uri": {
+            "description": "HTTPS endpoint URL to receive POST notifications. Must have valid SSL certificate and reply with HTTP 200 within 5 seconds. Max length: 128 characters.",
+            "maxLength": 128,
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri"],
+        "title": "WebhookNotification",
+        "type": "object"
+      }
+    },
+    "required": ["parent", "audience", "dimensions"],
+    "title": "CreateRecurringAudienceListRequest",
+    "type": "object"
+  },
+  "name": "create_recurring_audience_list",
+  "outputSchema": {
+    "$defs": {
+      "AudienceDimension": {
+        "description": "Model for an audience dimension.",
+        "properties": {
+          "dimensionName": {
+            "description": "API name of the dimension (e.g., deviceId, userId, isAdsPersonalizationAllowed).",
+            "title": "Dimension Name",
+            "type": "string"
+          }
+        },
+        "required": ["dimensionName"],
+        "title": "AudienceDimension",
+        "type": "object"
+      },
+      "CreateRecurringAudienceListResponse": {
+        "description": "Response model for CreateRecurringAudienceList action, representing the created RecurringAudienceList resource.",
+        "properties": {
+          "activeDaysRemaining": {
+            "description": "Counter decreasing daily.",
+            "title": "Active Days Remaining",
+            "type": "integer"
+          },
+          "audience": {
+            "description": "Audience resource name. Format: properties/{property}/audiences/{audience}",
+            "title": "Audience",
+            "type": "string"
+          },
+          "audienceDisplayName": {
+            "description": "Descriptive display name for the audience (e.g., 'Purchasers').",
+            "title": "Audience Display Name",
+            "type": "string"
+          },
+          "audienceLists": {
+            "description": "Audience list resource names for instances created for this recurring audience list, ordered with most recent first.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Audience Lists",
+            "type": "array"
+          },
+          "dimensions": {
+            "description": "Dimensions requested and displayed in the audience list response.",
+            "items": {
+              "$ref": "#/$defs/AudienceDimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "name": {
+            "description": "Resource name assigned at creation. Format: properties/{property}/recurringAudienceLists/{recurringAudienceList}",
+            "title": "Name",
+            "type": "string"
+          },
+          "webhookNotification": {
+            "$ref": "#/$defs/WebhookNotification",
+            "description": "Webhook notification configuration.",
+            "title": "Webhook Notification"
+          }
+        },
+        "required": ["name", "audience", "dimensions"],
+        "title": "CreateRecurringAudienceListResponse",
+        "type": "object"
+      },
+      "WebhookNotification": {
+        "description": "Configuration for receiving webhook notifications about recurring audience list status.",
+        "properties": {
+          "channelToken": {
+            "description": "Optional token for source verification, included in X-Goog-Channel-Token header. Max length: 64 characters.",
+            "maxLength": 64,
+            "title": "Channel Token",
+            "type": "string"
+          },
+          "uri": {
+            "description": "HTTPS endpoint URL to receive POST notifications. Must have valid SSL certificate and reply with HTTP 200 within 5 seconds. Max length: 128 characters.",
+            "maxLength": 128,
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri"],
+        "title": "WebhookNotification",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateRecurringAudienceListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

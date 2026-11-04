@@ -1,0 +1,466 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a workflow alert for a Sentry organization using the New Monitors and Alerts system. Use when you need to set up automated alerting for issues based on trigger conditions and filters. Note: This endpoint is currently in beta and may change.",
+  "inputSchema": {
+    "description": "Request model for creating an alert for a Sentry organization.\n\nThis endpoint is in beta and creates workflow alerts using the New Monitors and Alerts system.",
+    "properties": {
+      "actionFilters": {
+        "description": "The filters to run before the action will fire and the action(s) to fire. Each filter has 'logicType' ('any-short', 'all', or 'none'), 'conditions' array, and 'actions' array. Conditions can filter by: level, age_comparison, assigned_to, issue_category, issue_occurrences, issue_priority, event_frequency, tagged_event, event_attribute, latest_release, and more. Actions define what happens when conditions match: email, slack, discord, msteams, pagerduty, opsgenie, jira, github, vsts notifications, or ticket creation.",
+        "items": {
+          "description": "A filter that determines when actions should fire.",
+          "properties": {
+            "actions": {
+              "description": "Array of actions to execute when conditions are met.",
+              "items": {
+                "description": "An action to execute when conditions are met.",
+                "properties": {
+                  "config": {
+                    "additionalProperties": false,
+                    "description": "Configuration for the action.",
+                    "properties": {
+                      "targetDisplay": {
+                        "description": "Display name for the target.",
+                        "title": "Target Display",
+                        "type": "string"
+                      },
+                      "targetIdentifier": {
+                        "description": "Identifier for the target (e.g., user ID, team ID, channel ID).",
+                        "title": "Target Identifier",
+                        "type": "string"
+                      },
+                      "targetType": {
+                        "description": "The type of target for the action (e.g., 'user', 'team', 'specific').",
+                        "title": "Target Type",
+                        "type": "string"
+                      }
+                    },
+                    "title": "Config",
+                    "type": "object"
+                  },
+                  "data": {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "description": "Additional data for the action.",
+                    "title": "Data",
+                    "type": "object"
+                  },
+                  "integrationId": {
+                    "description": "The ID of the integration to use for this action.",
+                    "title": "Integration Id",
+                    "type": "string"
+                  },
+                  "status": {
+                    "description": "The status of the action (e.g., 'active').",
+                    "title": "Status",
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "The type of action (e.g., 'email', 'slack', 'pagerduty', 'plugin').",
+                    "title": "Type",
+                    "type": "string"
+                  }
+                },
+                "required": ["type", "config", "status"],
+                "title": "Action",
+                "type": "object"
+              },
+              "title": "Actions",
+              "type": "array"
+            },
+            "conditions": {
+              "description": "Array of conditions that must be met before actions fire.",
+              "items": {
+                "description": "A condition within an action filter.",
+                "properties": {
+                  "comparison": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "additionalProperties": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "boolean"
+                            }
+                          ]
+                        },
+                        "type": "object"
+                      }
+                    ],
+                    "description": "The comparison value or object for this condition.",
+                    "title": "Comparison"
+                  },
+                  "conditionResult": {
+                    "description": "The expected result of the condition.",
+                    "title": "Condition Result",
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "description": "The type of condition (e.g., 'level', 'age_comparison', 'assigned_to').",
+                    "title": "Type",
+                    "type": "string"
+                  }
+                },
+                "required": ["type", "comparison", "conditionResult"],
+                "title": "ActionFilterCondition",
+                "type": "object"
+              },
+              "title": "Conditions",
+              "type": "array"
+            },
+            "logicType": {
+              "description": "The logic type for evaluating conditions. Valid values: 'any-short', 'all', 'none'.",
+              "title": "Logic Type",
+              "type": "string"
+            }
+          },
+          "required": ["logicType", "actions"],
+          "title": "ActionFilter",
+          "type": "object"
+        },
+        "title": "Action Filters",
+        "type": "array"
+      },
+      "config": {
+        "additionalProperties": false,
+        "description": "Configuration for the alert, typically includes 'frequency' in minutes. Valid frequency values: 0 (0 min), 5 (5 min), 10 (10 min), 30 (30 min), 60 (1 hour), 180 (3 hours), 720 (12 hours), 1440 (24 hours).",
+        "properties": {
+          "frequency": {
+            "description": "The frequency at which the alert will fire, in minutes. Valid values: 0, 5, 10, 30, 60, 180, 720, 1440.",
+            "title": "Frequency",
+            "type": "integer"
+          }
+        },
+        "required": ["frequency"],
+        "title": "Config",
+        "type": "object"
+      },
+      "enabled": {
+        "default": true,
+        "description": "Whether the alert is enabled or disabled.",
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "environment": {
+        "description": "The name of the environment for the alert to evaluate in.",
+        "examples": ["production", "staging", "development"],
+        "title": "Environment",
+        "type": "string"
+      },
+      "name": {
+        "description": "The name of the alert.",
+        "examples": ["Test Alert from API", "High Priority Error Alert"],
+        "maxLength": 256,
+        "title": "Name",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["my-organization", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "triggers": {
+        "additionalProperties": false,
+        "description": "The conditions on which the alert will trigger. Must include 'logicType' (one of 'any-short', 'all', or 'none') and 'conditions' array. Available trigger conditions: 'first_seen_event' (new issue created), 'issue_resolved_trigger' (issue resolved), 'reappeared_event' (issue reappears), 'regression_event' (issue regression). Each condition should have 'type', 'comparison' (true), and 'conditionResult' (true).",
+        "properties": {
+          "actions": {
+            "description": "Array of actions to execute (typically empty for triggers).",
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "conditions": {
+            "description": "Array of trigger conditions that determine when the alert fires.",
+            "items": {
+              "description": "A single condition within trigger conditions.",
+              "properties": {
+                "comparison": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "additionalProperties": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      },
+                      "type": "object"
+                    }
+                  ],
+                  "description": "The comparison value or object for this condition.",
+                  "title": "Comparison"
+                },
+                "conditionResult": {
+                  "description": "The expected result of the condition.",
+                  "title": "Condition Result",
+                  "type": "boolean"
+                },
+                "type": {
+                  "description": "The type of condition (e.g., 'first_seen_event', 'issue_resolved_trigger', 'reappeared_event', 'regression_event').",
+                  "title": "Type",
+                  "type": "string"
+                }
+              },
+              "required": ["type", "comparison", "conditionResult"],
+              "title": "TriggerCondition",
+              "type": "object"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "logicType": {
+            "description": "The logic type for evaluating conditions. Valid values: 'any-short', 'all', 'none'.",
+            "title": "Logic Type",
+            "type": "string"
+          }
+        },
+        "required": ["logicType", "conditions"],
+        "title": "Triggers",
+        "type": "object"
+      }
+    },
+    "required": ["organization_id_or_slug", "name", "triggers", "actionFilters", "config"],
+    "title": "CreateAnAlertForAnOrganizationRequest",
+    "type": "object"
+  },
+  "name": "create_an_alert_for_an_organization",
+  "outputSchema": {
+    "$defs": {
+      "CreateAnAlertForAnOrganizationResponse": {
+        "additionalProperties": true,
+        "description": "Response model for the created alert.",
+        "properties": {
+          "actionFilters": {
+            "description": "The filters and actions configured for the alert.",
+            "items": {
+              "$ref": "#/$defs/ResponseActionFilter"
+            },
+            "title": "Action Filters",
+            "type": "array"
+          },
+          "config": {
+            "additionalProperties": true,
+            "description": "Configuration settings for the alert including frequency.",
+            "title": "Config",
+            "type": "object"
+          },
+          "createdBy": {
+            "description": "Identifier of the user who created the alert.",
+            "title": "Created By",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the alert was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateUpdated": {
+            "description": "ISO 8601 timestamp when the alert was last updated.",
+            "title": "Date Updated",
+            "type": "string"
+          },
+          "detectorIds": {
+            "description": "Array of detector IDs associated with this alert.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Detector Ids",
+            "type": "array"
+          },
+          "enabled": {
+            "description": "Whether the alert is enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "environment": {
+            "description": "The environment the alert applies to, or null for all environments.",
+            "title": "Environment",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the created alert.",
+            "title": "Id",
+            "type": "string"
+          },
+          "lastTriggered": {
+            "description": "ISO 8601 timestamp when the alert was last triggered, or null if never triggered.",
+            "title": "Last Triggered",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the alert.",
+            "title": "Name",
+            "type": "string"
+          },
+          "organizationId": {
+            "description": "The ID of the organization this alert belongs to.",
+            "title": "Organization Id",
+            "type": "string"
+          },
+          "triggers": {
+            "$ref": "#/$defs/ResponseTriggers",
+            "description": "The trigger conditions for the alert.",
+            "title": "Triggers"
+          }
+        },
+        "required": ["id", "name", "organizationId", "enabled", "config", "dateCreated", "dateUpdated"],
+        "title": "CreateAnAlertForAnOrganizationResponse",
+        "type": "object"
+      },
+      "ResponseActionFilter": {
+        "additionalProperties": true,
+        "description": "Action filter in the response.",
+        "properties": {
+          "actions": {
+            "description": "Array of actions to execute.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "conditions": {
+            "description": "Array of conditions that must be met.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "id": {
+            "description": "The ID of the action filter.",
+            "title": "Id",
+            "type": "string"
+          },
+          "logicType": {
+            "description": "The logic type for evaluating conditions.",
+            "title": "Logic Type",
+            "type": "string"
+          },
+          "organizationId": {
+            "description": "The organization ID associated with this action filter.",
+            "title": "Organization Id",
+            "type": "string"
+          }
+        },
+        "title": "ResponseActionFilter",
+        "type": "object"
+      },
+      "ResponseTriggers": {
+        "additionalProperties": true,
+        "description": "Triggers in the response.",
+        "properties": {
+          "actions": {
+            "description": "Array of actions to execute.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "conditions": {
+            "description": "Array of trigger conditions.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "id": {
+            "description": "The ID of the trigger.",
+            "title": "Id",
+            "type": "string"
+          },
+          "logicType": {
+            "description": "The logic type for evaluating conditions.",
+            "title": "Logic Type",
+            "type": "string"
+          },
+          "organizationId": {
+            "description": "The organization ID associated with this trigger.",
+            "title": "Organization Id",
+            "type": "string"
+          }
+        },
+        "title": "ResponseTriggers",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateAnAlertForAnOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -173,6 +173,47 @@ defmodule Ankole.Connectors.OAuthProtocolTest do
     refute_received {:token_request, _, _}
   end
 
+  test "disconnect cleans an already degraded subscription using the retained credential", ctx do
+    {:ok, account} = expired_account(ctx, "unsubscribe-refresh")
+
+    {:ok, trigger} =
+      Ankole.Connectors.Triggers.create(ctx.human, %{
+        "auth_config_id" => ctx.config.id,
+        "connected_account_id" => account.id,
+        "trigger_type" => "github_repository",
+        "scope_key" => "example/project"
+      })
+
+    {:ok, row} = Ankole.Connectors.Triggers.get(trigger.id)
+
+    {:ok, _} =
+      Ankole.Ash.update(row, :update, %{status: "degraded", external_subscription_id: "99"})
+
+    {:ok, _} = Accounts.disconnect_account(ctx.human, account.id)
+
+    cleanup =
+      async_tenant(fn ->
+        Ankole.Connectors.Jobs.ReconcileTrigger.run(%Oban.Job{
+          args: %{"trigger_id" => trigger.id}
+        })
+      end)
+
+    assert_receive {:hook_request, lookup, "GET", "/repos/example/project/hooks", _}, 2_000
+
+    callback =
+      AnkoleWeb.Endpoint.url() <> "/webhooks/connectors/#{ctx.tenant.id}/triggers/#{trigger.id}"
+
+    send(lookup, {:hook_response, 200, [%{"id" => 99, "config" => %{"url" => callback}}]})
+    assert_receive {:hook_request, remove, "DELETE", "/repos/example/project/hooks/99", _}, 2_000
+    send(remove, {:hook_response, 204, nil})
+    assert :ok = Task.await(cleanup)
+
+    assert {:ok, %{status: "paused", external_subscription_id: nil}} =
+             Ankole.Connectors.Triggers.get(trigger.id)
+
+    refute_received {:token_request, _, _}
+  end
+
   test "OAuth-only tools give members a consent link and require a workspace account for services",
        ctx do
     spec = Enum.find(Connector.tools(), &(&1.upstream_auth == :adaptive_token))
@@ -244,6 +285,62 @@ defmodule Ankole.Connectors.OAuthProtocolTest do
     assert {:ok, %{status: "expired"}} = Accounts.get_by_id(account.id)
   end
 
+  test "failed shared refresh keeps both first and subsequent reconnects in the team flow", ctx do
+    spec = Enum.find(Connector.tools(), &(&1.upstream_auth == :adaptive_token))
+    granted = Enum.uniq(["read:org" | spec.scopes || []])
+
+    {:ok, _account} =
+      Repo.transact_top_level(fn ->
+        Accounts.put_tokens_in_tx(
+          ctx.config,
+          "app",
+          "workspace",
+          %{
+            "access_token" => "expired",
+            "refresh_token" => "revoked",
+            "expires_in" => -10
+          },
+          %{granted_scopes: granted}
+        )
+      end)
+
+    call =
+      async_tenant(fn ->
+        Ankole.Connectors.resolve_call(spec, ctx.human, ctx.config.slug, "workspace")
+      end)
+
+    assert_receive {:token_request, request, %{"refresh_token" => "revoked"}}, 2_000
+    send(request, {:token_response, 400, %{"error" => "invalid_grant"}})
+
+    assert {:error, %{code: "oauth_consent_required", authorization_url: url}} = Task.await(call)
+    assert URI.decode_query(URI.parse(url).query)["subject_kind"] == "app"
+
+    assert Enum.sort(URI.decode_query(URI.parse(url).query)["scopes"] |> String.split()) ==
+             Enum.sort(granted)
+
+    for selector <- [nil, "workspace"] do
+      assert {:error, %{code: "oauth_consent_required", authorization_url: url}} =
+               Ankole.Connectors.resolve_call(spec, ctx.human, ctx.config.slug, selector)
+
+      assert URI.decode_query(URI.parse(url).query)["subject_kind"] == "app"
+
+      assert Enum.sort(URI.decode_query(URI.parse(url).query)["scopes"] |> String.split()) ==
+               Enum.sort(granted)
+    end
+
+    assert {:ok, %{authorization_url: authorize}} =
+             OAuth.begin(ctx.admin, %{
+               "connection" => ctx.config.slug,
+               "subject_kind" => "app",
+               "scopes" => spec.scopes
+             })
+
+    assert Enum.sort(URI.decode_query(URI.parse(authorize).query)["scope"] |> String.split()) ==
+             Enum.sort(granted)
+
+    refute_receive {:token_request, _, _}
+  end
+
   test "explicit workspace selection wins and revoked personal grants never fall through to a workspace",
        ctx do
     spec = Enum.find(Connector.tools(), &(&1.upstream_auth == :adaptive_token))
@@ -263,7 +360,7 @@ defmodule Ankole.Connectors.OAuthProtocolTest do
           "app",
           "workspace",
           %{"access_token" => "workspace-token", "expires_in" => 3600},
-          %{}
+          %{granted_scopes: spec.scopes || []}
         )
       end)
 

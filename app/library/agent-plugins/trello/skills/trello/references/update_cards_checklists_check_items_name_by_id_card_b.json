@@ -1,0 +1,103 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update checklist item name in card",
+  "inputSchema": {
+    "description": "Request schema for `UpdateCardsChecklistsCheckItemsNameByIdCardByIdChecklistByIdCheckItem`",
+    "properties": {
+      "idCard": {
+        "description": "ID or shortLink of the card containing the checklist and item.",
+        "examples": ["mhy541XP", "my-trello-card-shortlink"],
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idCheckItem": {
+        "description": "ID of the check item within the specified checklist to rename.",
+        "examples": ["5f9d4a3b8c7e6a0008d1b2c3"],
+        "title": "Id Check Item",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "ID of the checklist on the specified card, containing the item to be updated.",
+        "examples": ["60d5f8b0e6a0b12c9d4f5e6a"],
+        "title": "Id Checklist",
+        "type": "string"
+      },
+      "value": {
+        "description": "New name for the check item (1-16384 characters).",
+        "examples": ["Review updated proposal", "Finalize design mockups Chapter 1"],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idCard", "idChecklist", "idCheckItem"],
+    "title": "UpdateCardsChecklistsCheckItemsNameByIdCardByIdChecklistByIdCheckItemRequest",
+    "type": "object"
+  },
+  "name": "update_cards_checklists_check_items_name_by_id_card_b",
+  "outputSchema": {
+    "$defs": {
+      "UpdateCardsChecklistsCheckItemsNameByIdCardByIdChecklistByIdCheckItemResponse": {
+        "description": "Response schema for `UpdateCardsChecklistsCheckItemsNameByIdCardByIdChecklistByIdCheckItem`",
+        "properties": {
+          "due": {
+            "description": "Due date in ISO 8601 format (YYYY-MM-DDThh:mm:ss.sssZ). Requires Business Class or higher. Can be null.",
+            "title": "Due",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the check item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "ID of the parent checklist containing this check item.",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member assigned to this check item. Requires Business Class or higher. Can be null.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "The text/title of the check item.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "description": "Additional metadata about the name. Often null.",
+            "title": "Name Data",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position/order of the item within the checklist.",
+            "title": "Pos",
+            "type": "number"
+          },
+          "state": {
+            "description": "Completion state of the check item. Can be 'complete' or 'incomplete'.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idChecklist", "state", "name", "pos"],
+        "title": "UpdateCardsChecklistsCheckItemsNameByIdCardByIdChecklistByIdCheckItemResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateCardsChecklistsCheckItemsNameByIdCardByIdChecklistByIdCheckItemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

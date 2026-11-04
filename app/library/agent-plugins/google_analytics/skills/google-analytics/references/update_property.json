@@ -1,0 +1,185 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to update an existing GA4 Property. Use when you need to modify property settings such as display name, time zone, currency code, or industry category.",
+  "inputSchema": {
+    "description": "Request model for updating a GA4 Property.",
+    "properties": {
+      "currencyCode": {
+        "description": "The currency type used in reports involving monetary values. Format: ISO 4217. Examples: 'USD', 'EUR', 'JPY'",
+        "examples": ["USD", "EUR", "JPY"],
+        "title": "Currency Code",
+        "type": "string"
+      },
+      "displayName": {
+        "description": "Human-readable display name for this property. The max allowed display name length is 100 UTF-16 code units.",
+        "examples": ["My Updated Property", "Test 2 Updated"],
+        "title": "Display Name",
+        "type": "string"
+      },
+      "industryCategory": {
+        "description": "Industry category for a property.",
+        "enum": [
+          "INDUSTRY_CATEGORY_UNSPECIFIED",
+          "AUTOMOTIVE",
+          "BUSINESS_AND_INDUSTRIAL_MARKETS",
+          "FINANCE",
+          "HEALTHCARE",
+          "TECHNOLOGY",
+          "TRAVEL",
+          "OTHER",
+          "ARTS_AND_ENTERTAINMENT",
+          "BEAUTY_AND_FITNESS",
+          "BOOKS_AND_LITERATURE",
+          "FOOD_AND_DRINK",
+          "GAMES",
+          "HOBBIES_AND_LEISURE",
+          "HOME_AND_GARDEN",
+          "INTERNET_AND_TELECOM",
+          "LAW_AND_GOVERNMENT",
+          "NEWS",
+          "ONLINE_COMMUNITIES",
+          "PEOPLE_AND_SOCIETY",
+          "PETS_AND_ANIMALS",
+          "REAL_ESTATE",
+          "REFERENCE",
+          "SCIENCE",
+          "SPORTS",
+          "JOBS_AND_EDUCATION",
+          "SHOPPING"
+        ],
+        "title": "IndustryCategory",
+        "type": "string"
+      },
+      "name": {
+        "description": "Required. The resource name of the Property to update. Must be in the exact format: properties/{property_id} where property_id is a numeric identifier. IMPORTANT: Must start with 'properties/' prefix, contain no forward slashes in the property_id, have no trailing slashes, and no additional path segments. Valid example: 'properties/489591273'. Invalid examples: '489591273' (missing prefix), 'properties/489591273/' (trailing slash), 'properties/489591273/extra' (extra segments)",
+        "examples": ["properties/525798648", "properties/1000"],
+        "title": "Name",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Immutable. Resource name of this property's logical parent. Format: accounts/{account}, properties/{property}. Example: 'accounts/100', 'properties/101'",
+        "examples": ["accounts/100", "properties/101"],
+        "title": "Parent",
+        "type": "string"
+      },
+      "propertyType": {
+        "description": "Property type for a property.",
+        "enum": [
+          "PROPERTY_TYPE_UNSPECIFIED",
+          "PROPERTY_TYPE_ORDINARY",
+          "PROPERTY_TYPE_SUBPROPERTY",
+          "PROPERTY_TYPE_ROLLUP"
+        ],
+        "title": "PropertyType",
+        "type": "string"
+      },
+      "timeZone": {
+        "description": "Required. Reporting Time Zone, used as the day boundary for reports. Format: IANA time zone. Example: 'America/Los_Angeles'",
+        "examples": ["America/Los_Angeles", "America/New_York", "Europe/London"],
+        "title": "Time Zone",
+        "type": "string"
+      },
+      "updateMask": {
+        "description": "Required. The list of fields to be updated. Field names must be in snake case (e.g., 'display_name', 'time_zone', 'currency_code'). Omitted fields will not be updated. To replace the entire entity, use one path with the string '*' to match all fields. Common fields: 'display_name', 'time_zone', 'currency_code', 'industry_category'",
+        "examples": ["displayName", "displayName,timeZone", "*"],
+        "title": "Update Mask",
+        "type": "string"
+      }
+    },
+    "required": ["name", "updateMask"],
+    "title": "UpdatePropertyRequest",
+    "type": "object"
+  },
+  "name": "update_property",
+  "outputSchema": {
+    "$defs": {
+      "UpdatePropertyResponse": {
+        "description": "Response model for UpdateProperty action representing an updated GA4 Property resource.",
+        "properties": {
+          "account": {
+            "description": "Immutable. The resource name of the parent account. Format: accounts/{account_id}. Example: 'accounts/123'",
+            "title": "Account",
+            "type": "string"
+          },
+          "createTime": {
+            "description": "Output only. Time when the entity was originally created.",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "currencyCode": {
+            "description": "The currency type used in reports involving monetary values. Format: ISO 4217. Examples: 'USD', 'EUR', 'JPY'",
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "deleteTime": {
+            "description": "Output only. If set, the time at which this property was trashed. If not set, then this property is not currently in the trash can.",
+            "title": "Delete Time",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Required. Human-readable display name for this property. The max allowed display name length is 100 UTF-16 code units.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "expireTime": {
+            "description": "Output only. If set, the time at which this trashed property will be permanently deleted. If not set, then this property is not currently in the trash can and is not slated to be deleted.",
+            "title": "Expire Time",
+            "type": "string"
+          },
+          "industryCategory": {
+            "description": "Industry associated with this property. Example: AUTOMOTIVE, FOOD_AND_DRINK",
+            "title": "Industry Category",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name of this property. Format: properties/{property_id}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "parent": {
+            "description": "Immutable. Resource name of this property's logical parent. Format: accounts/{account}, properties/{property}. Example: 'accounts/100', 'properties/101'",
+            "title": "Parent",
+            "type": "string"
+          },
+          "propertyType": {
+            "description": "Immutable. The property type for this Property resource.",
+            "title": "Property Type",
+            "type": "string"
+          },
+          "serviceLevel": {
+            "description": "Output only. The Google Analytics service level that applies to this property.",
+            "title": "Service Level",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "Required. Reporting Time Zone, used as the day boundary for reports. Format: IANA time zone. Example: 'America/Los_Angeles'",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updateTime": {
+            "description": "Output only. Time when entity payload fields were last updated.",
+            "title": "Update Time",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "title": "UpdatePropertyResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdatePropertyResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

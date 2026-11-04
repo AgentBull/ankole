@@ -1,0 +1,263 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to update a ticket in Zendesk. Use when you need to modify ticket fields like status, priority, or subject after confirming the ticket ID.",
+  "inputSchema": {
+    "properties": {
+      "additional_collaborators": {
+        "description": "Add collaborators without removing existing ones.",
+        "human_parameter_description": "Add collaborators by ID, email, or {name, email} objects without replacing existing ones.",
+        "human_parameter_name": "Additional Collaborators",
+        "items": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          ]
+        },
+        "title": "Additional Collaborators",
+        "type": "array"
+      },
+      "assignee_id": {
+        "description": "The numeric ID of the agent to assign the ticket to. The agent must be a member of the group the ticket is assigned to. Use this parameter directly rather than passing through data to avoid 400 errors.",
+        "human_parameter_description": "Assign the ticket to a specific agent by their user ID.",
+        "human_parameter_name": "Assignee ID",
+        "title": "Assignee Id",
+        "type": "integer"
+      },
+      "collaborator_ids": {
+        "description": "Collaborator user IDs to set (replaces existing).",
+        "human_parameter_description": "Alternative way to replace collaborators by their user IDs.",
+        "human_parameter_name": "Collaborator IDs",
+        "items": {
+          "type": "integer"
+        },
+        "title": "Collaborator Ids",
+        "type": "array"
+      },
+      "collaborators": {
+        "description": "Collaborators to set (replaces existing). Accepts user IDs, emails, or {name, email} objects.",
+        "human_parameter_description": "Provide collaborators by ID, email, or objects with name and email to replace existing collaborators.",
+        "human_parameter_name": "Collaborators",
+        "items": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": true,
+              "type": "object"
+            }
+          ]
+        },
+        "title": "Collaborators",
+        "type": "array"
+      },
+      "comment_author_id": {
+        "description": "Author ID for the comment, if different from the authenticated user.",
+        "human_parameter_description": "Specify the user ID to attribute the comment to (optional).",
+        "human_parameter_name": "Comment Author ID",
+        "title": "Comment Author Id",
+        "type": "integer"
+      },
+      "comment_body": {
+        "description": "Text body of the comment to add.",
+        "human_parameter_description": "Provide the comment text to add to the ticket. At least one of Comment Body or Comment HTML Body is required when adding a comment.",
+        "human_parameter_name": "Comment Body",
+        "title": "Comment Body",
+        "type": "string"
+      },
+      "comment_html_body": {
+        "description": "HTML body of the comment to add.",
+        "human_parameter_description": "Provide HTML content for the comment. At least one of Comment Body or Comment HTML Body is required when adding a comment.",
+        "human_parameter_name": "Comment HTML Body",
+        "title": "Comment Html Body",
+        "type": "string"
+      },
+      "comment_public": {
+        "description": "Whether the added comment is public (visible to requester) or internal. Defaults to true (public); set false to create an internal note.",
+        "human_parameter_description": "Set to true for customer-visible replies or false for internal notes.",
+        "human_parameter_name": "Comment Public",
+        "title": "Comment Public",
+        "type": "boolean"
+      },
+      "comment_uploads": {
+        "description": "Upload tokens to attach files to the comment.",
+        "human_parameter_description": "Include upload tokens returned by the Upload API to attach files to the new comment.",
+        "human_parameter_name": "Comment Upload Tokens",
+        "items": {
+          "type": "string"
+        },
+        "title": "Comment Uploads",
+        "type": "array"
+      },
+      "custom_fields": {
+        "description": "List of custom field values. Each item: {id: number, value: any}.",
+        "human_parameter_description": "Set ticket custom fields. Each item should include id and value.",
+        "human_parameter_name": "Custom Fields",
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Custom Fields",
+        "type": "array"
+      },
+      "custom_status_id": {
+        "description": "The ID of a custom ticket status. Required for accounts with custom statuses enabled. Use this instead of 'status' when custom statuses are active. Retrieve available custom status IDs from the Custom Ticket Statuses API.",
+        "human_parameter_description": "Set the ticket's custom status by providing its ID. Use this when your Zendesk account has custom statuses enabled.",
+        "human_parameter_name": "Custom Status ID",
+        "title": "Custom Status Id",
+        "type": "integer"
+      },
+      "data": {
+        "additionalProperties": true,
+        "description": "Optional raw ticket update object. Provide this to send fields under the 'ticket' wrapper directly. Alternatively, use the un-nested fields above.",
+        "human_parameter_description": "You can provide the raw Zendesk ticket update payload here. If you also set un-nested fields, they will override overlapping keys in this object.",
+        "human_parameter_name": "Raw Ticket Data",
+        "title": "Data",
+        "type": "object"
+      },
+      "due_at": {
+        "description": "Due date/time for task-type tickets (ISO 8601).",
+        "human_parameter_description": "Set the due date/time for task-type tickets in ISO 8601 format.",
+        "human_parameter_name": "Due At",
+        "title": "Due At",
+        "type": "string"
+      },
+      "email_ccs": {
+        "description": "Email CCs to add/remove. Each object includes user_id or user_email, optional user_name, and action ('put'|'delete').",
+        "human_parameter_description": "Set email CCs by specifying user_id or user_email, optional user_name, and an action.",
+        "human_parameter_name": "Email CCs",
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Email Ccs",
+        "type": "array"
+      },
+      "followers": {
+        "description": "Followers to add/remove. Each object should include user_id or user_email, with optional action ('put'|'delete').",
+        "human_parameter_description": "Manage agent followers by providing objects with user_id or user_email and optional action.",
+        "human_parameter_name": "Followers",
+        "items": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "title": "Followers",
+        "type": "array"
+      },
+      "group_id": {
+        "description": "The numeric ID of the group to assign the ticket to.",
+        "human_parameter_description": "Assign the ticket to a specific group by its ID.",
+        "human_parameter_name": "Group ID",
+        "title": "Group Id",
+        "type": "integer"
+      },
+      "metadata": {
+        "additionalProperties": true,
+        "description": "Custom metadata to attach to this update's audit (approximately up to 1 KB).",
+        "human_parameter_description": "Attach small custom metadata to the update; saved with the update audit when the ticket changes.",
+        "human_parameter_name": "Metadata",
+        "title": "Metadata",
+        "type": "object"
+      },
+      "priority": {
+        "description": "Ticket priority. Allowed values: urgent, high, normal, low. Values are case-sensitive.",
+        "enum": ["urgent", "high", "normal", "low"],
+        "human_parameter_description": "Set the ticket priority. Choose one of urgent, high, normal, or low.",
+        "human_parameter_name": "Priority",
+        "title": "Priority",
+        "type": "string"
+      },
+      "safe_update": {
+        "description": "Enable optimistic locking to prevent overwrites during collisions. Must be paired with updated_stamp to take effect.",
+        "human_parameter_description": "Enable collision-safe update. When using this, provide Updated Stamp.",
+        "human_parameter_name": "Safe Update",
+        "title": "Safe Update",
+        "type": "boolean"
+      },
+      "status": {
+        "description": "Ticket status category. Allowed values: new, open, pending, hold, solved. Note: If your account has custom statuses enabled, use custom_status_id instead.",
+        "enum": ["new", "open", "pending", "hold", "solved"],
+        "human_parameter_description": "Update the ticket status category (e.g., new, open, pending, hold, solved). If custom statuses are enabled, use custom_status_id.",
+        "human_parameter_name": "Status",
+        "title": "Status",
+        "type": "string"
+      },
+      "subject": {
+        "description": "Ticket subject/title to set during update.",
+        "human_parameter_description": "Set or change the ticket subject/title.",
+        "human_parameter_name": "Subject",
+        "title": "Subject",
+        "type": "string"
+      },
+      "tags": {
+        "description": "Tags to set on the ticket. Using tags here replaces all existing tags.",
+        "human_parameter_description": "Provide a full list of tags to set on the ticket. Using this replaces existing tags.",
+        "human_parameter_name": "Tags",
+        "items": {
+          "type": "string"
+        },
+        "title": "Tags",
+        "type": "array"
+      },
+      "ticket_id": {
+        "description": "ID of the ticket to update.",
+        "human_parameter_description": "The unique ID of the Zendesk ticket you want to update.",
+        "human_parameter_name": "Ticket ID",
+        "title": "Ticket Id",
+        "type": "integer"
+      },
+      "updated_stamp": {
+        "description": "Last-known updated_at timestamp (ISO 8601) used together with safe_update.",
+        "human_parameter_description": "Provide the last-known updated_at value when performing a safe update.",
+        "human_parameter_name": "Updated Stamp",
+        "title": "Updated Stamp",
+        "type": "string"
+      }
+    },
+    "required": ["ticket_id"],
+    "title": "UpdateZendeskTicketRequest",
+    "type": "object"
+  },
+  "name": "update_zendesk_ticket",
+  "outputSchema": {
+    "$defs": {
+      "UpdateZendeskTicketResponse": {
+        "properties": {
+          "success": {
+            "description": "Indicates whether the ticket update was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "UpdateZendeskTicketResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateZendeskTicketResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

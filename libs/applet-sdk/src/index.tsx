@@ -25,6 +25,7 @@ import {
   type QueryKey,
   type UseMutationOptions
 } from '@tanstack/react-query'
+import { previewRecordList } from './records'
 import type {
   AggregateQuery,
   AppletRuntime,
@@ -169,18 +170,11 @@ export function useRecords(tableID: string, options: RecordQuery & { pageSize?: 
     filters: { mutationKey: [...runtime.base.key(tableID), 'write'], status: 'pending' },
     select: mutation => mutation.state.variables as RecordWrite
   })
-  const preview = records.data && {
-    ...records.data,
-    records: records.data.records.map(record =>
-      pending.reduce((preview, changes) => {
-        const update = changes.updates?.find(item => item.id === record.id)
-        return update ? { ...preview, data: { ...preview.data, ...update.data } } : preview
-      }, record)
-    )
-  }
+  const listed = records.data?.records
+  const previewed = listed ? previewRecordList(listed, pending) : undefined
   return {
     ...records,
-    data: preview,
+    data: records.data && previewed && previewed !== listed ? { ...records.data, records: previewed } : records.data,
     ...write
   }
 }

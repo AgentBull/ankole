@@ -1,0 +1,321 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update multiple views in Zendesk in a single request. Use when you need to bulk update view settings such as position, active status, or title for multiple views at once. Note: You might be restricted from updating some default views. If included in a bulk update, the unrestricted views will be updated. This action is idempotent — re-running with the same parameters will produce the same result.",
+  "inputSchema": {
+    "description": "Request to update multiple views in Zendesk.",
+    "properties": {
+      "views": {
+        "description": "List of views to update. Each view must include an 'id' and can optionally include 'position', 'active', and 'title'.",
+        "examples": [
+          [
+            {
+              "id": 26923118341532,
+              "title": "Updated Test View"
+            },
+            {
+              "active": false,
+              "id": 26923118341533
+            }
+          ]
+        ],
+        "human_parameter_description": "An array of view objects to update. Each object requires an 'id' field and can optionally include 'position', 'active', and 'title'.",
+        "human_parameter_name": "Views",
+        "items": {
+          "description": "Individual view update item for bulk update.",
+          "properties": {
+            "active": {
+              "description": "Whether to activate (true) or deactivate (false) the view",
+              "examples": [true],
+              "human_parameter_description": "Set to true to activate the view or false to deactivate it.",
+              "human_parameter_name": "Active Status",
+              "title": "Active",
+              "type": "boolean"
+            },
+            "id": {
+              "description": "The ID of the view to update",
+              "examples": [26923118341532],
+              "human_parameter_description": "The unique ID of the Zendesk view you want to update. You can find view IDs from the List Views action.",
+              "human_parameter_name": "View ID",
+              "title": "Id",
+              "type": "integer"
+            },
+            "position": {
+              "description": "The new position of the view in the list",
+              "examples": [8],
+              "human_parameter_description": "Set the new position of the view in the list (lower numbers appear first).",
+              "human_parameter_name": "Position",
+              "title": "Position",
+              "type": "integer"
+            },
+            "title": {
+              "description": "The new title of the view",
+              "examples": ["Updated Test View"],
+              "human_parameter_description": "Update the title/name of the view.",
+              "human_parameter_name": "Title",
+              "title": "Title",
+              "type": "string"
+            }
+          },
+          "required": ["id"],
+          "title": "ViewUpdateItem",
+          "type": "object"
+        },
+        "title": "Views",
+        "type": "array"
+      }
+    },
+    "required": ["views"],
+    "title": "UpdateManyViewsRequest",
+    "type": "object"
+  },
+  "name": "update_many_views",
+  "outputSchema": {
+    "$defs": {
+      "UpdateManyViewsResponse": {
+        "description": "Response from updating multiple views.",
+        "properties": {
+          "count": {
+            "description": "Total number of views updated",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "views": {
+            "description": "List of updated views returned by the API",
+            "items": {
+              "$ref": "#/$defs/View"
+            },
+            "title": "Views",
+            "type": "array"
+          }
+        },
+        "required": ["views", "count"],
+        "title": "UpdateManyViewsResponse",
+        "type": "object"
+      },
+      "View": {
+        "description": "Individual Zendesk view object returned from update.",
+        "properties": {
+          "active": {
+            "description": "Whether the view is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "conditions": {
+            "$ref": "#/$defs/ViewCondition",
+            "description": "Conditions that define when the view applies",
+            "title": "Conditions"
+          },
+          "created_at": {
+            "description": "Timestamp when the view was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether the view is a default view",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "View description",
+            "title": "Description",
+            "type": "string"
+          },
+          "execution": {
+            "$ref": "#/$defs/ViewExecution",
+            "description": "Display and execution settings for the view",
+            "title": "Execution"
+          },
+          "id": {
+            "description": "Unique view ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "position": {
+            "description": "Position in the view order",
+            "title": "Position",
+            "type": "integer"
+          },
+          "restriction": {
+            "$ref": "#/$defs/ViewRestriction",
+            "description": "Access restrictions for the view",
+            "title": "Restriction"
+          },
+          "title": {
+            "description": "View title",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the view was last updated",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "title": "View",
+        "type": "object"
+      },
+      "ViewColumn": {
+        "description": "Column definition for view display.",
+        "properties": {
+          "id": {
+            "description": "Column identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Column title",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Column type",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL for the column",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ViewColumn",
+        "type": "object"
+      },
+      "ViewCondition": {
+        "description": "Condition object for view rules.",
+        "properties": {
+          "all": {
+            "description": "Conditions that must all be true for the view to match",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "All",
+            "type": "array"
+          },
+          "any": {
+            "description": "Conditions where any one must be true for the view to match",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Any",
+            "type": "array"
+          }
+        },
+        "title": "ViewCondition",
+        "type": "object"
+      },
+      "ViewExecution": {
+        "description": "Execution configuration for view display settings.",
+        "properties": {
+          "columns": {
+            "description": "Columns to display in the view",
+            "items": {
+              "$ref": "#/$defs/ViewColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "group": {
+            "$ref": "#/$defs/ViewExecutionGroup",
+            "description": "Grouping configuration",
+            "title": "Group"
+          },
+          "sort": {
+            "$ref": "#/$defs/ViewExecutionSort",
+            "description": "Sort configuration",
+            "title": "Sort"
+          }
+        },
+        "title": "ViewExecution",
+        "type": "object"
+      },
+      "ViewExecutionGroup": {
+        "description": "Grouping configuration for view execution.",
+        "properties": {
+          "id": {
+            "description": "Field ID to group by",
+            "title": "Id",
+            "type": "string"
+          },
+          "order": {
+            "description": "Sort order",
+            "title": "Order",
+            "type": "string"
+          },
+          "title": {
+            "description": "Display title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "ViewExecutionGroup",
+        "type": "object"
+      },
+      "ViewExecutionSort": {
+        "description": "Sort configuration for view execution.",
+        "properties": {
+          "id": {
+            "description": "Field ID to sort by",
+            "title": "Id",
+            "type": "string"
+          },
+          "order": {
+            "description": "Sort order",
+            "title": "Order",
+            "type": "string"
+          },
+          "title": {
+            "description": "Display title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "ViewExecutionSort",
+        "type": "object"
+      },
+      "ViewRestriction": {
+        "description": "Restriction settings for view access.",
+        "properties": {
+          "id": {
+            "description": "Restriction ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Type of restriction (e.g., User)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "ViewRestriction",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateManyViewsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

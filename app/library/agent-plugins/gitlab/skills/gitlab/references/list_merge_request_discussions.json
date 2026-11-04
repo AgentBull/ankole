@@ -1,0 +1,449 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists grouped discussion threads and their notes for a merge request.",
+  "inputSchema": {
+    "properties": {
+      "merge_request_iid": {
+        "description": "The project-local IID of the merge request.",
+        "examples": [11],
+        "minimum": 1,
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "page": {
+        "default": 1,
+        "description": "Page number to retrieve.",
+        "examples": [1],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "default": 20,
+        "description": "Number of discussions to return per page, from 1 to 100.",
+        "examples": [20],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The numeric project ID or namespace/project path. URL encoding is handled automatically.",
+        "examples": [123, "group/project-name"],
+        "title": "Project Id"
+      }
+    },
+    "required": ["project_id", "merge_request_iid"],
+    "title": "ListMergeRequestDiscussionsRequest",
+    "type": "object"
+  },
+  "name": "list_merge_request_discussions",
+  "outputSchema": {
+    "$defs": {
+      "DiscussionAuthor": {
+        "properties": {
+          "avatar_url": {
+            "description": "The user's avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "The user's ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The user's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "The user's account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "The user's username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "The user's GitLab profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "name", "state", "web_url"],
+        "title": "DiscussionAuthor",
+        "type": "object"
+      },
+      "DiscussionLinePosition": {
+        "properties": {
+          "line_code": {
+            "description": "GitLab line code identifying this diff line.",
+            "title": "Line Code",
+            "type": "string"
+          },
+          "new_line": {
+            "description": "Line number in the new file.",
+            "title": "New Line",
+            "type": "integer"
+          },
+          "old_line": {
+            "description": "Line number in the old file.",
+            "title": "Old Line",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Whether this endpoint is on the new or old side of the diff.",
+            "enum": ["new", "old"],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["line_code", "type"],
+        "title": "DiscussionLinePosition",
+        "type": "object"
+      },
+      "DiscussionLineRange": {
+        "properties": {
+          "end": {
+            "$ref": "#/$defs/DiscussionLinePosition",
+            "description": "End of the diff line range.",
+            "title": "End"
+          },
+          "start": {
+            "$ref": "#/$defs/DiscussionLinePosition",
+            "description": "Start of the diff line range.",
+            "title": "Start"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "DiscussionLineRange",
+        "type": "object"
+      },
+      "DiscussionNote": {
+        "properties": {
+          "attachment": {
+            "description": "Attachment URL, when present.",
+            "title": "Attachment",
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/$defs/DiscussionAuthor",
+            "description": "The note author.",
+            "title": "Author"
+          },
+          "body": {
+            "description": "The note content.",
+            "title": "Body",
+            "type": "string"
+          },
+          "commit_id": {
+            "description": "Associated commit SHA for a diff note.",
+            "title": "Commit Id",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "ISO 8601 creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The note ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "noteable_id": {
+            "description": "The merge request's global ID.",
+            "title": "Noteable Id",
+            "type": "string"
+          },
+          "noteable_iid": {
+            "description": "The merge request's project-local IID.",
+            "title": "Noteable Iid",
+            "type": "integer"
+          },
+          "noteable_type": {
+            "description": "The noteable resource type.",
+            "title": "Noteable Type",
+            "type": "string"
+          },
+          "position": {
+            "$ref": "#/$defs/DiscussionPosition",
+            "description": "Diff position for a diff note.",
+            "title": "Position"
+          },
+          "project_id": {
+            "description": "The project ID.",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "resolvable": {
+            "description": "Whether the note can be resolved.",
+            "title": "Resolvable",
+            "type": "boolean"
+          },
+          "resolved": {
+            "description": "Whether the note is resolved.",
+            "title": "Resolved",
+            "type": "boolean"
+          },
+          "resolved_at": {
+            "description": "ISO 8601 resolution timestamp.",
+            "title": "Resolved At",
+            "type": "string"
+          },
+          "resolved_by": {
+            "$ref": "#/$defs/DiscussionAuthor",
+            "description": "User who resolved the note.",
+            "title": "Resolved By"
+          },
+          "suggestions": {
+            "description": "Code suggestions attached to the note.",
+            "items": {
+              "$ref": "#/$defs/DiscussionSuggestion"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          },
+          "system": {
+            "description": "Whether GitLab generated this note.",
+            "title": "System",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "The note type, such as DiscussionNote or DiffNote.",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "ISO 8601 last-update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "body",
+          "author",
+          "created_at",
+          "updated_at",
+          "system",
+          "noteable_id",
+          "noteable_type",
+          "project_id"
+        ],
+        "title": "DiscussionNote",
+        "type": "object"
+      },
+      "DiscussionPosition": {
+        "properties": {
+          "base_sha": {
+            "description": "Base commit SHA for the diff.",
+            "title": "Base Sha",
+            "type": "string"
+          },
+          "head_sha": {
+            "description": "Merge request HEAD commit SHA.",
+            "title": "Head Sha",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height for an image position.",
+            "title": "Height",
+            "type": "integer"
+          },
+          "line_range": {
+            "$ref": "#/$defs/DiscussionLineRange",
+            "description": "Selected range for a multiline diff note.",
+            "title": "Line Range"
+          },
+          "new_line": {
+            "description": "Selected line in the new file.",
+            "title": "New Line",
+            "type": "integer"
+          },
+          "new_path": {
+            "description": "File path after the change.",
+            "title": "New Path",
+            "type": "string"
+          },
+          "old_line": {
+            "description": "Selected line in the old file.",
+            "title": "Old Line",
+            "type": "integer"
+          },
+          "old_path": {
+            "description": "File path before the change.",
+            "title": "Old Path",
+            "type": "string"
+          },
+          "position_type": {
+            "description": "Type of diff position.",
+            "enum": ["text", "image", "file"],
+            "title": "Position Type",
+            "type": "string"
+          },
+          "start_sha": {
+            "description": "Target-branch start commit SHA.",
+            "title": "Start Sha",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width for an image position.",
+            "title": "Width",
+            "type": "integer"
+          },
+          "x": {
+            "description": "Horizontal coordinate for an image position.",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Vertical coordinate for an image position.",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": ["position_type"],
+        "title": "DiscussionPosition",
+        "type": "object"
+      },
+      "DiscussionSuggestion": {
+        "properties": {
+          "appliable": {
+            "description": "Whether the suggestion can be applied.",
+            "title": "Appliable",
+            "type": "boolean"
+          },
+          "applied": {
+            "description": "Whether the suggestion has been applied.",
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "from_content": {
+            "description": "Content before applying the suggestion.",
+            "title": "From Content",
+            "type": "string"
+          },
+          "from_line": {
+            "description": "First line replaced by the suggestion.",
+            "title": "From Line",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The suggestion ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "to_content": {
+            "description": "Suggested replacement content.",
+            "title": "To Content",
+            "type": "string"
+          },
+          "to_line": {
+            "description": "Last line replaced by the suggestion.",
+            "title": "To Line",
+            "type": "integer"
+          }
+        },
+        "required": ["id"],
+        "title": "DiscussionSuggestion",
+        "type": "object"
+      },
+      "ListMergeRequestDiscussionsResponse": {
+        "properties": {
+          "discussions": {
+            "description": "Merge request discussions on the requested page.",
+            "items": {
+              "$ref": "#/$defs/MergeRequestDiscussion"
+            },
+            "title": "Discussions",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number, when one exists.",
+            "title": "Next Page",
+            "type": "integer"
+          },
+          "page": {
+            "description": "Current page number reported by GitLab.",
+            "title": "Page",
+            "type": "integer"
+          },
+          "per_page": {
+            "description": "Page size reported by GitLab.",
+            "title": "Per Page",
+            "type": "integer"
+          },
+          "prev_page": {
+            "description": "Previous page number, when one exists.",
+            "title": "Prev Page",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total number of discussions, when reported.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "description": "Total number of pages, when reported.",
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": ["discussions"],
+        "title": "ListMergeRequestDiscussionsResponse",
+        "type": "object"
+      },
+      "MergeRequestDiscussion": {
+        "properties": {
+          "id": {
+            "description": "The discussion ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "individual_note": {
+            "description": "Whether this discussion represents an individual note.",
+            "title": "Individual Note",
+            "type": "boolean"
+          },
+          "notes": {
+            "description": "Notes grouped in this discussion thread.",
+            "items": {
+              "$ref": "#/$defs/DiscussionNote"
+            },
+            "title": "Notes",
+            "type": "array"
+          }
+        },
+        "required": ["id", "individual_note", "notes"],
+        "title": "MergeRequestDiscussion",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListMergeRequestDiscussionsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

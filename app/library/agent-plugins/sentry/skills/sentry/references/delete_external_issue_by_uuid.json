@@ -1,0 +1,55 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Unlinks an external issue (e.g., from Jira/GitHub), identified by `external_issue_id`, from the Sentry app installation specified by `uuid`.",
+  "inputSchema": {
+    "description": "Request model for deleting an external issue associated with a Sentry app installation.",
+    "properties": {
+      "external_issue_id": {
+        "description": "Platform-specific identifier of the external issue to be unlinked.",
+        "examples": ["PROJECT-123", "4567"],
+        "title": "External Issue Id",
+        "type": "string"
+      },
+      "uuid": {
+        "description": "Unique identifier (UUID) of the Sentry app installation.",
+        "examples": ["f47ac10b-58cc-4372-a567-0e02b2c3d479"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid", "external_issue_id"],
+    "title": "DeleteExternalIssueByUuidRequest",
+    "type": "object"
+  },
+  "name": "delete_external_issue_by_uuid",
+  "outputSchema": {
+    "$defs": {
+      "DeleteExternalIssueByUuidResponse": {
+        "description": "Response model for the delete external issue operation.\n\nReturns None/empty response on successful deletion (204 No Content).\nError responses (403 Forbidden, 404 Not Found) contain an optional detail field.",
+        "properties": {
+          "detail": {
+            "description": "Error detail message. Present only in error responses (403/404). Null for successful deletions.",
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "title": "DeleteExternalIssueByUuidResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteExternalIssueByUuidResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

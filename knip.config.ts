@@ -26,6 +26,7 @@ const config: KnipConfig = {
       entry: [
         'tools/deploy/kubernetes/update-schema.ts!',
         'tools/e2e/support/pod_content_browser.mjs!',
+        'plugins/cloud_connectors_adapter/sync-catalog.ts!',
         ...privateWebapps,
         'app/library/agent-plugins/lark/skills/lark-approvals/examples/approval-inbox/server/main.js!'
       ]
@@ -101,6 +102,8 @@ const config: KnipConfig = {
     '**/*.d.ts',
     '**/test/**',
     '**/*.test.ts',
+    '**/*.bench.ts',
+    '**/*.bench.tsx',
     '**/.astro/**',
     '**/generated/**',
     'var/**',

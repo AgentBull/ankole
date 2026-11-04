@@ -1,0 +1,94 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Links an existing Sentry issue to an issue in an external service, or updates an existing link, requiring a configured Sentry App installation `uuid`.",
+  "inputSchema": {
+    "description": "Request schema for `CreateSentryExternalIssueLink`",
+    "properties": {
+      "identifier": {
+        "description": "Unique identifier for the external issue within the third-party service (e.g., JIRA issue key, GitHub issue number).",
+        "examples": ["PROJ-123", "456"],
+        "title": "Identifier",
+        "type": "string"
+      },
+      "issueId": {
+        "description": "ID of the Sentry issue to link to the external issue.",
+        "examples": [1234567890],
+        "title": "Issue Id",
+        "type": "integer"
+      },
+      "project": {
+        "description": "Identifier for the project in the external service (not the Sentry project ID), e.g., JIRA project key, GitHub repository name.",
+        "examples": ["PROJ", "my-github-repo"],
+        "title": "Project",
+        "type": "string"
+      },
+      "uuid": {
+        "description": "UUID of the Sentry App installation, used to associate the external issue with the correct Sentry instance.",
+        "examples": ["a1b2c3d4-e5f6-7890-1234-567890abcdef"],
+        "title": "Uuid",
+        "type": "string"
+      },
+      "webUrl": {
+        "description": "URL of the external issue in the third-party service; should be a direct link.",
+        "examples": ["https://example.com/issues/123"],
+        "title": "Web Url",
+        "type": "string"
+      }
+    },
+    "required": ["uuid", "issueId", "webUrl", "project", "identifier"],
+    "title": "CreateSentryExternalIssueLinkRequest",
+    "type": "object"
+  },
+  "name": "create_sentry_external_issue_link",
+  "outputSchema": {
+    "$defs": {
+      "CreateSentryExternalIssueLinkResponse": {
+        "description": "Response schema for `CreateSentryExternalIssueLink`",
+        "properties": {
+          "displayName": {
+            "description": "Human-readable name combining project and issue identifier (format: project#identifier)",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the external issue link",
+            "title": "Id",
+            "type": "string"
+          },
+          "issueId": {
+            "description": "The linked Sentry issue identifier",
+            "title": "Issue Id",
+            "type": "string"
+          },
+          "serviceType": {
+            "description": "Type of external service platform",
+            "title": "Service Type",
+            "type": "string"
+          },
+          "webUrl": {
+            "description": "URL pointing to the external issue in the external service",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "issueId", "serviceType", "displayName", "webUrl"],
+        "title": "CreateSentryExternalIssueLinkResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateSentryExternalIssueLinkResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

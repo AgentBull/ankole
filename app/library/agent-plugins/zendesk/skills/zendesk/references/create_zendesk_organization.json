@@ -1,0 +1,191 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a new organization in Zendesk. After creation, the organization ID is auto-assigned and returned. Verify the exact ID before performing downstream operations that target this organization. Multiple organizations may share similar names — always confirm the correct organization by ID. This action is irreversible — the organization cannot be recovered once deleted. Use this action when you need to register a new company, customer, or group as a Zendesk organization so you can assign users, tickets, or other resources to it.",
+  "inputSchema": {
+    "properties": {
+      "details": {
+        "description": "Any details about the organization, such as the address",
+        "human_parameter_description": "Optional additional information about the organization, like an address or description.",
+        "human_parameter_name": "Details",
+        "title": "Details",
+        "type": "string"
+      },
+      "domain_names": {
+        "description": "An array of domain names associated with this organization",
+        "human_parameter_description": "A list of domain names (e.g., example.com) that should be associated with this organization for ticket routing.",
+        "human_parameter_name": "Domain Names",
+        "items": {
+          "type": "string"
+        },
+        "title": "Domain Names",
+        "type": "array"
+      },
+      "external_id": {
+        "description": "A unique external id to associate organizations to an external record",
+        "human_parameter_description": "An optional identifier from your external system to link this organization to external records.",
+        "human_parameter_name": "External ID",
+        "title": "External Id",
+        "type": "string"
+      },
+      "group_id": {
+        "description": "New tickets from users in this organization are automatically put in this group",
+        "human_parameter_description": "Optional ID of a group where new tickets from users in this organization will be automatically assigned.",
+        "human_parameter_name": "Group ID",
+        "title": "Group Id",
+        "type": "integer"
+      },
+      "name": {
+        "description": "A unique name for the organization. Leading and trailing whitespace are automatically trimmed. Names differing only by whitespace are treated as duplicates.",
+        "human_parameter_description": "The unique name you want to give to this Zendesk organization. This is the required field that identifies the organization.",
+        "human_parameter_name": "Organization Name",
+        "title": "Name",
+        "type": "string"
+      },
+      "notes": {
+        "description": "Any notes you have about the organization",
+        "human_parameter_description": "Internal notes about the organization that won't be visible to end users.",
+        "human_parameter_name": "Notes",
+        "title": "Notes",
+        "type": "string"
+      },
+      "shared_comments": {
+        "description": "End users in this organization are able to comment on each other's tickets",
+        "human_parameter_description": "When enabled, end users in this organization can comment on each other's tickets.",
+        "human_parameter_name": "Shared Comments",
+        "title": "Shared Comments",
+        "type": "boolean"
+      },
+      "shared_tickets": {
+        "description": "End users in this organization are able to see each other's tickets",
+        "human_parameter_description": "When enabled, end users in this organization can view each other's tickets.",
+        "human_parameter_name": "Shared Tickets",
+        "title": "Shared Tickets",
+        "type": "boolean"
+      },
+      "tags": {
+        "description": "The tags of the organization",
+        "human_parameter_description": "Optional list of tags to categorize this organization.",
+        "human_parameter_name": "Tags",
+        "items": {
+          "type": "string"
+        },
+        "title": "Tags",
+        "type": "array"
+      }
+    },
+    "required": ["name"],
+    "title": "CreateZendeskOrganizationRequest",
+    "type": "object"
+  },
+  "name": "create_zendesk_organization",
+  "outputSchema": {
+    "$defs": {
+      "CreateZendeskOrganizationResponse": {
+        "properties": {
+          "organization": {
+            "$ref": "#/$defs/ZendeskCreatedOrganization",
+            "description": "The newly created organization object",
+            "human_parameter_description": "The full organization object that was created in Zendesk, including the auto-assigned ID.",
+            "human_parameter_name": "Created Organization",
+            "title": "Organization"
+          }
+        },
+        "required": ["organization"],
+        "title": "CreateZendeskOrganizationResponse",
+        "type": "object"
+      },
+      "ZendeskCreatedOrganization": {
+        "description": "Zendesk organization object returned after creation.",
+        "properties": {
+          "created_at": {
+            "description": "The time the organization was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "details": {
+            "description": "Any details about the organization",
+            "title": "Details",
+            "type": "string"
+          },
+          "domain_names": {
+            "description": "Domain names associated with this organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Domain Names",
+            "type": "array"
+          },
+          "external_id": {
+            "description": "External id for external record association",
+            "title": "External Id",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "Default group for new tickets",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Automatically assigned organization identifier",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Organization name",
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Notes about the organization",
+            "title": "Notes",
+            "type": "string"
+          },
+          "shared_comments": {
+            "description": "Ticket comment sharing enabled",
+            "title": "Shared Comments",
+            "type": "boolean"
+          },
+          "shared_tickets": {
+            "description": "Ticket visibility sharing enabled",
+            "title": "Shared Tickets",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "Organization tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "updated_at": {
+            "description": "Time of last update",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API endpoint URL for this organization",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ZendeskCreatedOrganization",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateZendeskOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve attribution configuration for a Google Analytics property. Use when you need to check attribution models, lookback windows, and conversion export settings.",
+  "inputSchema": {
+    "description": "Request model for retrieving attribution settings for a property.",
+    "properties": {
+      "name": {
+        "description": "Required. The resource name of the attribution settings to retrieve. Must be in the exact format: properties/{property_id}/attributionSettings where property_id is a numeric identifier. IMPORTANT: Must start with 'properties/' prefix, contain no forward slashes in the property_id, have no trailing slashes, and must end with '/attributionSettings'. Valid example: 'properties/489591273/attributionSettings'. Invalid examples: '489591273' (missing prefix), 'properties/489591273' (missing suffix), 'properties/489591273/attributionSettings/' (trailing slash)",
+        "examples": ["properties/489591273/attributionSettings", "properties/1000/attributionSettings"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "GetAttributionSettingsRequest",
+    "type": "object"
+  },
+  "name": "get_attribution_settings",
+  "outputSchema": {
+    "$defs": {
+      "GetAttributionSettingsResponse": {
+        "description": "Response model for GetAttributionSettings action.",
+        "properties": {
+          "acquisitionConversionEventLookbackWindow": {
+            "description": "Lookback window configuration for acquisition conversion events. Default is 30 days. Possible values: ACQUISITION_CONVERSION_EVENT_LOOKBACK_WINDOW_UNSPECIFIED, ACQUISITION_CONVERSION_EVENT_LOOKBACK_WINDOW_7_DAYS, ACQUISITION_CONVERSION_EVENT_LOOKBACK_WINDOW_30_DAYS.",
+            "title": "Acquisition Conversion Event Lookback Window",
+            "type": "string"
+          },
+          "adsWebConversionDataExportScope": {
+            "description": "Conversion export scope for linked Ads accounts. Possible values: ADS_WEB_CONVERSION_DATA_EXPORT_SCOPE_UNSPECIFIED, NOT_SELECTED_YET, PAID_AND_ORGANIC_CHANNELS, GOOGLE_PAID_CHANNELS.",
+            "title": "Ads Web Conversion Data Export Scope",
+            "type": "string"
+          },
+          "name": {
+            "description": "Output only. Resource name for this AttributionSettings resource. Format: properties/{property_id}/attributionSettings.",
+            "title": "Name",
+            "type": "string"
+          },
+          "otherConversionEventLookbackWindow": {
+            "description": "Lookback window for non-acquisition conversion events. Default is 90 days. Possible values: OTHER_CONVERSION_EVENT_LOOKBACK_WINDOW_UNSPECIFIED, OTHER_CONVERSION_EVENT_LOOKBACK_WINDOW_30_DAYS, OTHER_CONVERSION_EVENT_LOOKBACK_WINDOW_60_DAYS, OTHER_CONVERSION_EVENT_LOOKBACK_WINDOW_90_DAYS.",
+            "title": "Other Conversion Event Lookback Window",
+            "type": "string"
+          },
+          "reportingAttributionModel": {
+            "description": "Model calculating conversion credit in reports. Changes apply to both historical and future data affecting conversion and revenue metrics. Possible values: REPORTING_ATTRIBUTION_MODEL_UNSPECIFIED, PAID_AND_ORGANIC_CHANNELS_DATA_DRIVEN, PAID_AND_ORGANIC_CHANNELS_LAST_CLICK, GOOGLE_PAID_CHANNELS_LAST_CLICK.",
+            "title": "Reporting Attribution Model",
+            "type": "string"
+          }
+        },
+        "title": "GetAttributionSettingsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetAttributionSettingsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

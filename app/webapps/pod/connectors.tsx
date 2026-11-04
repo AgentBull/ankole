@@ -4,7 +4,6 @@ import {
   Card,
   CardContent,
   CardHeader,
-  Checkbox,
   Dialog,
   DialogContent,
   DialogTitle,
@@ -26,31 +25,32 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ConfigField, type ConfigFieldDefinition } from '../common/config-fields'
+import { ConfigFields, defaultConfig, setPath, type ConfigFieldDefinition } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
-import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { authenticationRef, podID } from '../common/browser-context'
+import { localReturnPath } from '../common/pod-url'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import * as api from './api/generated/sdk.gen'
-import type { PodConnectorsCatalogResponse } from './api/generated/types.gen'
+import { ConnectionEditorDialog } from './connector-connection-dialog'
+import { CredentialBindingDialog } from './connector-credential-dialog'
 import {
   connectorAutomationContext,
   connectorAutomationReturnTo,
-  connectorCredentialFields,
   connectorFailureMessage,
   connectorReturnTo,
-  ConnectorsModel
+  connectorTriggerConfigFromURL,
+  ConnectorsModel,
+  type ConnectorConnection,
+  type ConnectorDefinition
 } from './state/connectors'
 import { requestErrorCode, requestErrorDetails } from '../common/request-errors'
 
-type Model = InstanceType<typeof ConnectorsModel>
-type Connector = NonNullable<PodConnectorsCatalogResponse['connectors']>[number]
-
 export function Connectors() {
   useSignals()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const model = useModel(ConnectorsModel)
   const params = new URLSearchParams(window.location.search)
+  const originalTaskPath = localReturnPath(params.get('intent'), window.location.origin)
   const automation = connectorAutomationContext(params)
   const session = useQuery({
     queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
@@ -61,7 +61,14 @@ export function Connectors() {
   const key = ['connectors', authenticationRef() ?? '', podID() ?? '']
   const catalog = useQuery({ queryKey: [...key, 'catalog'], queryFn: () => api.podConnectorsCatalog() })
   const connections = useQuery({ queryKey: [...key, 'connections'], queryFn: () => api.podConnectorAuthConfigsList() })
-  const accounts = useQuery({ queryKey: [...key, 'accounts'], queryFn: () => api.podConnectorAccountsList() })
+  const accounts = useQuery({
+    queryKey: [...key, 'accounts', 'mine'],
+    queryFn: () => api.podConnectorAccountsList({ query: { scope: 'mine' } })
+  })
+  const teamAccounts = useQuery({
+    queryKey: [...key, 'accounts', 'team'],
+    queryFn: () => api.podConnectorAccountsList({ query: { scope: 'team' } })
+  })
   const triggers = useQuery({
     queryKey: [...key, 'triggers'],
     queryFn: () => api.podConnectorTriggersList(),
@@ -79,14 +86,21 @@ export function Connectors() {
       connection: string
       scopes?: string[]
       subjectKind?: 'human' | 'app'
-      trigger?: { type: string; scope: string; id?: string }
+      trigger?: { type: string; scope: string; id?: string; config?: Record<string, unknown> }
     }) => {
       return api.podConnectorOAuthBegin({
         body: {
           data: {
             connection,
             scopes,
-            return_to: connectorReturnTo({ connection, scopes, trigger, automation, subjectKind }),
+            return_to: connectorReturnTo({
+              connection,
+              scopes,
+              trigger,
+              automation,
+              subjectKind,
+              intent: params.get('intent')
+            }),
             subject_kind: subjectKind
           }
         }
@@ -129,12 +143,7 @@ export function Connectors() {
     mutationFn: () =>
       api.podConnectorTriggersCreate({
         body: {
-          data: {
-            auth_config_id: model.triggerConnection.value!.id,
-            trigger_type: model.triggerType.value,
-            scope_key: model.triggerScope.value,
-            connected_account_id: selectedTrigger?.requires_personal_account ? selectedAccount?.id : undefined
-          }
+          data: model.triggerAttributes(defaultConfig(triggerConfigFields), selectedAccount?.id, fixedTriggerScope)
         }
       }),
     onSuccess: async () => {
@@ -142,50 +151,19 @@ export function Connectors() {
       await refresh()
     }
   })
-  const save = useMutation({
-    mutationFn: async () => {
-      const secret = Object.fromEntries(Object.entries(model.secret.value).filter(([, value]) => value !== ''))
-      const definition = catalog.data?.connectors?.find(item => item.plugin_id === model.plugin.value)
-      const defaults = Object.fromEntries(
-        (definition?.public_fields ?? [])
-          .filter(
-            field =>
-              field.default !== undefined &&
-              field.default !== null &&
-              (!Array.isArray(field.schemes) || field.schemes.includes(model.scheme.value))
-          )
-          .map(field => [String(field.key), field.default])
-      )
-      const data = {
-        slug: model.slug.value,
-        display_name: model.name.value,
-        is_default: model.isDefault.value,
-        public_metadata: { ...defaults, ...model.metadata.value },
-        secret
-      }
-      if (model.editing.value?.id) {
-        return api.podConnectorAuthConfigsUpdate({ path: { id: model.editing.value.id }, body: { data } })
-      }
-      return api.podConnectorAuthConfigsCreate({
-        body: { data: { ...data, plugin_id: model.plugin.value, auth_scheme: model.scheme.value } }
-      })
-    },
-    onSuccess: async () => {
-      model.editing.value = undefined
-      model.secret.value = {}
-      await refresh()
-    }
-  })
   const requested = params.get('connection')
-  const requestedSubjectKind = params.get('subject_kind') === 'app' ? 'app' : 'human'
+  const credentialMode = params.get('auth_mode')
+  const requestedSubjectKind =
+    credentialMode === 'team_credentials' || params.get('subject_kind') === 'app' ? 'app' : 'human'
   const authorizationCancelled = params.get('connector_error') === 'oauth_authorization_cancelled'
   const scopes = params.get('scopes')?.split(/[ ,]+/).filter(Boolean)
   const allConnections = connections.data?.connections ?? []
-  const allAccounts = accounts.data?.accounts ?? []
+  const allAccounts = [...(accounts.data?.accounts ?? []), ...(teamAccounts.data?.accounts ?? [])]
   const error =
     catalog.error ??
     connections.error ??
     accounts.error ??
+    teamAccounts.error ??
     triggers.error ??
     oauth.error ??
     claim.error ??
@@ -197,24 +175,75 @@ export function Connectors() {
     catalog.data?.connectors?.find(item => item.plugin_id === model.triggerConnection.value?.plugin_id)
       ?.trigger_types ?? []
   const selectedTrigger = triggerTypes.find(item => item.id === model.triggerType.value)
-  const personalAccounts = allAccounts.filter(
+  const fixedTriggerScope =
+    typeof selectedTrigger?.fixed_scope_key === 'string' ? selectedTrigger.fixed_scope_key : undefined
+  const triggerConfigFields = (selectedTrigger?.config_fields ?? []) as ConfigFieldDefinition[]
+  const triggerConfig = { ...defaultConfig(triggerConfigFields), ...model.triggerConfig.value }
+  const triggerScopeOptions = Array.isArray(selectedTrigger?.scope_options)
+    ? selectedTrigger.scope_options.map(String)
+    : []
+  const triggerAccounts = allAccounts.filter(
     account =>
-      account.auth_config_id === model.triggerConnection.value?.id &&
-      account.subject_kind === 'human' &&
-      account.owner_principal_uid === session.data?.principalUID
+      account.auth_config_id ===
+        allConnections.find(connection => connection.slug === model.triggerConnection.value?.slug)?.id &&
+      account.subject_kind === model.triggerSubject.value &&
+      (account.subject_kind === 'app' || account.owner_principal_uid === session.data?.principalUID)
   )
   const selectedAccount =
-    personalAccounts.find(account => account.id === model.triggerAccount.value) ?? personalAccounts[0]
+    triggerAccounts.find(account => account.id === model.triggerAccount.value) ?? triggerAccounts[0]
   const consentRequired = requestErrorCode(createTrigger.error) === 'oauth_consent_required'
   const needsAuthorization =
-    selectedTrigger?.requires_personal_account === true && (selectedAccount?.status !== 'active' || consentRequired)
+    (selectedTrigger?.requires_personal_account === true ||
+      selectedTrigger?.supports_personal_account === true ||
+      usesTokenCredentials(model.triggerConnection.value)) &&
+    (selectedAccount?.status !== 'active' || consentRequired)
   const restoredDraft = useRef(false)
+  const openedCredentialIntent = useRef(false)
+  useEffect(() => {
+    if (
+      openedCredentialIntent.current ||
+      !connections.data ||
+      !catalog.data ||
+      !['personal_credentials', 'team_credentials'].includes(credentialMode ?? '')
+    ) {
+      return
+    }
+    const connection = connections.data.connections.find(item => item.slug === requested)
+    const canBind =
+      credentialMode === 'team_credentials'
+        ? catalog.data.can_manage && usesTokenCredentials(connection)
+        : catalog.data.connectors?.some(item => item.plugin_id === connection?.plugin_id && item.personal_credentials)
+    if (connection && canBind) {
+      openedCredentialIntent.current = true
+      model.bindCredentials(connection, credentialMode === 'team_credentials' ? 'app' : 'human')
+    }
+  }, [connections.data, catalog.data, requested, credentialMode, model])
+  const authorizationIntentStarted = useRef(
+    params.has('connector_completion') || params.has('connector_error') || params.has('trigger_type')
+  )
+  useEffect(() => {
+    if (
+      authorizationIntentStarted.current ||
+      ['personal_credentials', 'team_credentials'].includes(credentialMode ?? '') ||
+      !requested ||
+      !connections.data ||
+      !catalog.data ||
+      !session.isSuccess
+    ) {
+      return
+    }
+    const connection = connections.data.connections.find(item => item.slug === requested)
+    if (!connection || !supportsOAuthAccount(connection) || connection.status !== 'active') return
+    if (requestedSubjectKind === 'app' && !catalog.data.can_manage) return
+    authorizationIntentStarted.current = true
+    oauth.mutate({ connection: connection.slug, scopes, subjectKind: requestedSubjectKind })
+  }, [connections.data, catalog.data, session.isSuccess, requested, requestedSubjectKind, credentialMode])
   const focusedTarget = useRef(false)
   useEffect(() => {
     if (focusedTarget.current || !connections.data || !triggers.data) return
     if (params.has('trigger_type') && !params.has('trigger_id')) return
-    if (model.triggerConnection.value || model.editing.value !== undefined) return
-    const target = params.get('trigger_id') ?? allConnections.find(item => item.slug === requested)?.id
+    if (model.triggerConnection.value || model.credentialConnection.value || model.editing.value !== undefined) return
+    const target = params.get('trigger_id') ?? (requested ? `${requestedSubjectKind}-${requested}` : undefined)
     if (!target) return
     const element = document.getElementById(`connector-${target}`)
     if (element) {
@@ -237,7 +266,13 @@ export function Connectors() {
         item => item.plugin_id === connection.plugin_id && item.trigger_types?.some(trigger => trigger.id === type)
       )
     ) {
-      model.openTrigger({ connection, type, scope: intent.get('scope_key') ?? '' })
+      model.openTrigger({
+        connection,
+        type,
+        scope: intent.get('scope_key') ?? '',
+        config: connectorTriggerConfigFromURL(intent),
+        subject: requestedSubjectKind
+      })
     }
   }, [connections.data, catalog.data, model])
   return (
@@ -251,7 +286,6 @@ export function Connectors() {
           {catalog.data?.can_manage && (
             <Button
               onClick={() => {
-                save.reset()
                 model.edit(null)
               }}>
               {t('pod.connectors.add')}
@@ -276,19 +310,27 @@ export function Connectors() {
             </Link>
           </p>
         )}
-        {authorizationCancelled && !claim.isSuccess && (
+        {authorizationCancelled && !claim.isSuccess && !model.credentialsBound.value && (
           <p role="status" className="text-sm">
             {t('pod.connectors.authorization_cancelled')}
           </p>
         )}
         {claim.isPending && <p role="status">{t('pod.connectors.finishing')}</p>}
-        {claim.isSuccess && (
+        {(claim.isSuccess || model.credentialsBound.value) && (
           <p role="status">
             {params.has('trigger_id')
               ? t('pod.connectors.subscription_retry_authorized')
               : params.has('trigger_type')
                 ? t('pod.connectors.subscription_authorized')
-                : `${t('pod.connectors.connected')} ${t('pod.connectors.resume_task')}`}
+                : `${t('pod.connectors.connected')} ${originalTaskPath ? '' : t('pod.connectors.resume_task')}`}
+            {originalTaskPath && (
+              <>
+                {' '}
+                <Link className="underline underline-offset-4" to={originalTaskPath}>
+                  {t('pod.connectors.return_to_task')}
+                </Link>
+              </>
+            )}
           </p>
         )}
         {claim.isError && (
@@ -296,7 +338,7 @@ export function Connectors() {
             {t('common.retry')}
           </Button>
         )}
-        {requested && !claim.isSuccess && (
+        {requested && !claim.isSuccess && !model.credentialsBound.value && (
           <p className="text-sm">
             {requestedSubjectKind === 'app' ? `${t('pod.connectors.application_account')} · ` : ''}
             {t('pod.connectors.consent_requested', { connection: requested })}
@@ -319,144 +361,199 @@ export function Connectors() {
             </Empty>
           </Card>
         )}
-        {allConnections.map(connection => {
-          const personal = allAccounts.filter(account => account.auth_config_id === connection.id)
-          const definition = catalog.data?.connectors?.find(item => item.plugin_id === connection.plugin_id)
-          const supportsOAuth =
-            ['lark', 'github', 'linear'].includes(connection.plugin_id ?? '') && connection.auth_scheme !== 'github_app'
-          return (
-            <Card
-              key={connection.id}
-              id={`connector-${connection.id}`}
-              tabIndex={-1}
-              className="scroll-m-6 [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-ring">
-              <CardHeader>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="font-medium">{connection.display_name || connection.slug}</h2>
-                  <Badge variant="secondary">{definition?.display_name || connection.plugin_id}</Badge>
-                  <Badge variant="outline">
-                    {t(`pod.connectors.status.${connection.status}`, { defaultValue: connection.status ?? '' })}
-                  </Badge>
-                  {connection.is_default && <Badge variant="outline">{t('pod.connectors.default')}</Badge>}
-                </div>
-                <p className="text-xs text-muted-foreground">{connection.slug}</p>
-              </CardHeader>
-              <CardContent className="grid gap-4">
-                {personal.map(account => (
-                  <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
-                    <div>
-                      <p>
-                        {account.subject_kind === 'app' ? `${t('pod.connectors.application_account')} · ` : ''}
-                        {account.owner_principal_uid && account.owner_principal_uid !== session.data?.principalUID
-                          ? `${account.owner_principal_uid} · `
-                          : ''}
-                        {typeof account.public_metadata?.name === 'string'
-                          ? account.public_metadata.name
-                          : account.external_subject_id || account.account_key}
-                      </p>
-                      <p className="text-muted-foreground">
-                        {t(`pod.connectors.status.${account.status}`, { defaultValue: account.status ?? '' })}
-                        {account.granted_scopes?.length ? ` · ${account.granted_scopes.join(', ')}` : ''}
-                      </p>
-                      {account.last_error && (
-                        <p className="text-destructive">{connectorFailureMessage(account.last_error)}</p>
+        {(['human', 'app'] as const).map(subjectKind => (
+          <section key={subjectKind} className="grid gap-4" aria-labelledby={`connectors-${subjectKind}`}>
+            <div>
+              <h2 id={`connectors-${subjectKind}`} className="text-lg">
+                {t(subjectKind === 'human' ? 'pod.connectors.personal_title' : 'pod.connectors.team_title')}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t(subjectKind === 'human' ? 'pod.connectors.personal_description' : 'pod.connectors.team_description')}
+              </p>
+            </div>
+            {allConnections
+              .filter(
+                connection =>
+                  subjectKind === 'app' || supportsPersonalAccount(connection, catalog.data?.connectors ?? [])
+              )
+              .map(connection => {
+                const personal = allAccounts.filter(
+                  account =>
+                    account.auth_config_id === connection.id &&
+                    account.subject_kind === subjectKind &&
+                    (subjectKind === 'app' || account.owner_principal_uid === session.data?.principalUID)
+                )
+                const definition = catalog.data?.connectors?.find(item => item.plugin_id === connection.plugin_id)
+                const supportsOAuth = supportsOAuthAccount(connection)
+                return (
+                  <Card
+                    key={connection.slug}
+                    id={`connector-${subjectKind}-${connection.slug}`}
+                    tabIndex={-1}
+                    className="scroll-m-6 [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-ring">
+                    <CardHeader>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-medium">{connection.display_name || connection.slug}</h3>
+                        <Badge variant="secondary">{definition?.display_name || connection.plugin_id}</Badge>
+                        <Badge variant="outline">
+                          {t(`pod.connectors.status.${connection.status}`, { defaultValue: connection.status ?? '' })}
+                        </Badge>
+                        {connection.is_default && <Badge variant="outline">{t('pod.connectors.default')}</Badge>}
+                      </div>
+                      {subjectKind === 'app' && <p className="text-xs text-muted-foreground">{connection.slug}</p>}
+                    </CardHeader>
+                    <CardContent className="grid gap-4">
+                      {personal.length === 0 && accounts.isSuccess && teamAccounts.isSuccess && session.isSuccess && (
+                        <p className="text-sm text-muted-foreground">
+                          {t(
+                            subjectKind === 'human'
+                              ? 'pod.connectors.personal_empty'
+                              : catalog.data?.can_manage
+                                ? 'pod.connectors.team_empty'
+                                : 'pod.connectors.team_empty_member'
+                          )}
+                        </p>
                       )}
-                    </div>
-                    {account.status === 'active' && (
-                      <Button
-                        variant="outline"
-                        disabled={disconnect.isPending}
-                        onClick={() => disconnect.mutate(account.id!)}>
-                        {t('pod.connectors.disconnect')}
-                      </Button>
-                    )}
-                  </div>
-                ))}
-                <div className="flex flex-wrap gap-2">
-                  {supportsOAuth && connection.status === 'active' && (
-                    <Button
-                      variant={
-                        requested === connection.slug && requestedSubjectKind === 'human' ? 'default' : 'outline'
-                      }
-                      disabled={oauth.isPending}
-                      onClick={() =>
-                        oauth.mutate({
-                          connection: connection.slug!,
-                          scopes: requested === connection.slug && requestedSubjectKind === 'human' ? scopes : undefined
-                        })
-                      }>
-                      {t(
-                        personal.some(
-                          account =>
-                            account.subject_kind === 'human' &&
-                            account.owner_principal_uid === session.data?.principalUID &&
-                            account.status === 'active'
-                        )
-                          ? 'pod.connectors.reconnect'
-                          : 'pod.connectors.connect'
+                      {personal.map(account => (
+                        <div key={account.id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                          <div>
+                            <p>
+                              {account.subject_kind === 'app' ? `${t('pod.connectors.application_account')} · ` : ''}
+                              {account.owner_principal_uid && account.owner_principal_uid !== session.data?.principalUID
+                                ? `${account.owner_principal_uid} · `
+                                : ''}
+                              {typeof account.public_metadata?.name === 'string'
+                                ? account.public_metadata.name
+                                : account.external_subject_id || account.account_key}
+                            </p>
+                            <p className="text-muted-foreground">
+                              {t(`pod.connectors.status.${account.status}`, { defaultValue: account.status ?? '' })}
+                              {account.granted_scopes?.length ? ` · ${account.granted_scopes.join(', ')}` : ''}
+                            </p>
+                            {account.last_error && (
+                              <p className="text-destructive">{connectorFailureMessage(account.last_error)}</p>
+                            )}
+                          </div>
+                          {account.status === 'active' && (subjectKind === 'human' || catalog.data?.can_manage) && (
+                            <Button
+                              variant="outline"
+                              disabled={disconnect.isPending}
+                              onClick={() => disconnect.mutate(account.id!)}>
+                              {t('pod.connectors.disconnect')}
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                      {connection.plugin_id === 'salesforce' && (
+                        <p className="text-sm text-muted-foreground">{t('pod.connectors.guide_salesforce')}</p>
                       )}
-                    </Button>
-                  )}
-                  {supportsOAuth &&
-                    connection.auth_scheme === 'oauth2' &&
-                    connection.status === 'active' &&
-                    catalog.data?.can_manage && (
-                      <Button
-                        variant={
-                          requested === connection.slug && requestedSubjectKind === 'app' ? 'default' : 'outline'
-                        }
-                        disabled={oauth.isPending}
-                        onClick={() =>
-                          oauth.mutate({
-                            connection: connection.slug!,
-                            subjectKind: 'app',
-                            scopes: requested === connection.slug && requestedSubjectKind === 'app' ? scopes : undefined
-                          })
-                        }>
-                        {t('pod.connectors.connect_application')}
-                      </Button>
-                    )}
-                  {(definition?.trigger_types?.length ?? 0) > 0 &&
-                    connection.status === 'active' &&
-                    (catalog.data?.can_manage ||
-                      definition?.trigger_types?.some(type => type.requires_personal_account)) && (
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          createTrigger.reset()
-                          model.openTrigger({ connection })
-                        }}>
-                        {t('pod.connectors.subscribe')}
-                      </Button>
-                    )}
-                  {catalog.data?.can_manage && (
-                    <>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          save.reset()
-                          model.edit(connection)
-                        }}>
-                        {t('pod.connectors.edit')}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        disabled={toggle.isPending}
-                        onClick={() =>
-                          toggle.mutate({
-                            id: connection.id!,
-                            status: connection.status === 'active' ? 'disabled' : 'active'
-                          })
-                        }>
-                        {t(connection.status === 'active' ? 'pod.connectors.disable' : 'pod.connectors.enable')}
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
+                      <div className="flex flex-wrap gap-2">
+                        {((subjectKind === 'human' && definition?.personal_credentials) ||
+                          (subjectKind === 'app' && catalog.data?.can_manage && usesTokenCredentials(connection))) &&
+                          connection.status === 'active' && (
+                            <Button
+                              variant={requested === connection.slug ? 'default' : 'outline'}
+                              onClick={() => {
+                                model.bindCredentials(connection, subjectKind)
+                              }}>
+                              {t(
+                                subjectKind === 'human'
+                                  ? 'pod.connectors.bind_personal_token'
+                                  : 'pod.connectors.bind_team_credentials'
+                              )}
+                            </Button>
+                          )}
+                        {subjectKind === 'human' && supportsOAuth && connection.status === 'active' && (
+                          <Button
+                            variant={
+                              requested === connection.slug && requestedSubjectKind === 'human' ? 'default' : 'outline'
+                            }
+                            disabled={oauth.isPending}
+                            onClick={() =>
+                              oauth.mutate({
+                                connection: connection.slug!,
+                                scopes:
+                                  requested === connection.slug && requestedSubjectKind === 'human' ? scopes : undefined
+                              })
+                            }>
+                            {t(
+                              personal.some(
+                                account =>
+                                  account.subject_kind === 'human' &&
+                                  account.owner_principal_uid === session.data?.principalUID &&
+                                  account.status === 'active'
+                              )
+                                ? 'pod.connectors.reconnect'
+                                : 'pod.connectors.connect'
+                            )}
+                          </Button>
+                        )}
+                        {subjectKind === 'app' &&
+                          supportsOAuth &&
+                          connection.auth_scheme === 'oauth2' &&
+                          connection.status === 'active' &&
+                          catalog.data?.can_manage && (
+                            <Button
+                              variant={
+                                requested === connection.slug && requestedSubjectKind === 'app' ? 'default' : 'outline'
+                              }
+                              disabled={oauth.isPending}
+                              onClick={() =>
+                                oauth.mutate({
+                                  connection: connection.slug!,
+                                  subjectKind: 'app',
+                                  scopes:
+                                    requested === connection.slug && requestedSubjectKind === 'app' ? scopes : undefined
+                                })
+                              }>
+                              {t('pod.connectors.connect_application')}
+                            </Button>
+                          )}
+                        {(definition?.trigger_types?.length ?? 0) > 0 &&
+                          connection.status === 'active' &&
+                          (subjectKind === 'app'
+                            ? catalog.data?.can_manage
+                            : definition?.trigger_types?.some(
+                                type => type.requires_personal_account || type.supports_personal_account
+                              )) && (
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                createTrigger.reset()
+                                model.openTrigger({ connection, subject: subjectKind })
+                              }}>
+                              {t('pod.connectors.subscribe')}
+                            </Button>
+                          )}
+                        {subjectKind === 'app' && catalog.data?.can_manage && connection.mode !== 'cloud' && (
+                          <>
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                model.edit(connection)
+                              }}>
+                              {t('pod.connectors.edit')}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              disabled={toggle.isPending}
+                              onClick={() =>
+                                toggle.mutate({
+                                  id: connection.id!,
+                                  status: connection.status === 'active' ? 'disabled' : 'active'
+                                })
+                              }>
+                              {t(connection.status === 'active' ? 'pod.connectors.disable' : 'pod.connectors.enable')}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+          </section>
+        ))}
         {(triggers.data?.triggers.length ?? 0) > 0 && (
           <section className="grid gap-3">
             <h2 className="text-lg">{t('pod.connectors.subscriptions')}</h2>
@@ -470,9 +567,19 @@ export function Connectors() {
               const retryConsent =
                 retry.variables === trigger.id && requestErrorCode(retry.error) === 'oauth_consent_required'
               const needsConsent =
-                definition?.requires_personal_account === true &&
-                (account?.status !== 'active' || retryConsent || trigger.last_error?.code === 'oauth_consent_required')
-              const canAuthorize = account?.owner_principal_uid === session.data?.principalUID
+                (definition?.requires_personal_account === true ||
+                  definition?.supports_personal_account === true ||
+                  usesTokenCredentials(connection)) &&
+                ((trigger.connected_account_status ?? account?.status) !== 'active' ||
+                  retryConsent ||
+                  trigger.last_error?.code === 'oauth_consent_required')
+              const owner = trigger.owner_principal_uid ?? account?.owner_principal_uid
+              const accountSubject = account?.subject_kind === 'human' || owner ? 'human' : 'app'
+              const canAuthorize =
+                accountSubject === 'app' ? catalog.data?.can_manage : owner === session.data?.principalUID
+              const callbackURL =
+                trigger.last_error?.callback_url ??
+                (trigger.plugin_id === 'sentry' ? trigger.external_subscription_id : undefined)
               return (
                 <Card
                   key={trigger.id}
@@ -494,27 +601,60 @@ export function Connectors() {
                       {trigger.last_error && (
                         <p className="text-sm text-destructive">{connectorFailureMessage(trigger.last_error)}</p>
                       )}
+                      {typeof callbackURL === 'string' && (
+                        <div className="mt-3 grid gap-2">
+                          <Label htmlFor={`callback-${trigger.id}`}>{t('pod.connectors.webhook_callback')}</Label>
+                          <Input
+                            id={`callback-${trigger.id}`}
+                            readOnly
+                            value={callbackURL}
+                            onFocus={event => event.target.select()}
+                          />
+                          <p className="text-sm text-muted-foreground">{t('pod.connectors.sentry_webhook_setup')}</p>
+                        </div>
+                      )}
                     </div>
                     {needsConsent && canAuthorize && connection && (
                       <Button
                         disabled={oauth.isPending}
-                        onClick={() =>
-                          oauth.mutate({
-                            connection: connection.slug!,
-                            scopes: (definition?.oauth_scopes ?? []) as string[],
-                            trigger: { type: trigger.trigger_type, scope: trigger.scope_key, id: trigger.id }
-                          })
-                        }>
+                        onClick={() => {
+                          if (usesTokenCredentials(connection)) {
+                            model.bindCredentials(connection, accountSubject)
+                          } else {
+                            oauth.mutate({
+                              connection: connection.slug!,
+                              subjectKind: accountSubject,
+                              scopes: (definition?.oauth_scopes ?? []) as string[],
+                              trigger: {
+                                type: trigger.trigger_type,
+                                scope: trigger.scope_key,
+                                id: trigger.id,
+                                config: trigger.config
+                              }
+                            })
+                          }
+                        }}>
                         {t('pod.connectors.authorize_subscription')}
                       </Button>
                     )}
                     {needsConsent && !canAuthorize && (
                       <p className="text-sm">
                         {t('pod.connectors.subscription_authorize_owner', {
-                          owner: account?.owner_principal_uid ?? ''
+                          owner: owner ?? ''
                         })}
                       </p>
                     )}
+                    {catalog.data?.can_manage &&
+                      owner &&
+                      owner !== session.data?.principalUID &&
+                      trigger.connected_account_id && (
+                        <Button
+                          variant="outline"
+                          disabled={disconnect.isPending}
+                          onClick={() => disconnect.mutate(trigger.connected_account_id!)}>
+                          {t('pod.connectors.disconnect_owner', { owner })}
+                        </Button>
+                      )}
                     <Button
                       variant="outline"
                       disabled={retry.isPending || claim.isPending}
@@ -541,7 +681,7 @@ export function Connectors() {
           </section>
         )}
         <Dialog
-          open={Boolean(model.triggerConnection.value)}
+          open={Boolean(model.triggerConnection.value) && !model.credentialConnection.value}
           onOpenChange={open => {
             if (!open) model.triggerConnection.value = undefined
           }}>
@@ -563,14 +703,25 @@ export function Connectors() {
               className="grid gap-4"
               onSubmit={event => {
                 event.preventDefault()
-                if (needsAuthorization) {
+                if (
+                  needsAuthorization &&
+                  model.triggerConnection.value &&
+                  usesTokenCredentials(model.triggerConnection.value)
+                ) {
+                  model.bindCredentials(model.triggerConnection.value, model.triggerSubject.value)
+                } else if (needsAuthorization) {
                   const details = requestErrorDetails(createTrigger.error)
                   oauth.mutate({
                     connection: model.triggerConnection.value!.slug!,
+                    subjectKind: model.triggerSubject.value,
                     scopes: (Array.isArray(details.scopes)
                       ? details.scopes
                       : (selectedTrigger?.oauth_scopes ?? [])) as string[],
-                    trigger: { type: model.triggerType.value, scope: model.triggerScope.value }
+                    trigger: {
+                      type: model.triggerType.value,
+                      scope: fixedTriggerScope ?? model.triggerScope.value,
+                      config: triggerConfig
+                    }
                   })
                 } else {
                   createTrigger.mutate()
@@ -583,6 +734,11 @@ export function Connectors() {
                 onValueChange={value => {
                   if (!value) return
                   model.triggerType.value = value
+                  model.triggerConfig.value = {}
+                  const scopeOptions = triggerTypes.find(type => type.id === value)?.scope_options
+                  if (Array.isArray(scopeOptions) && !scopeOptions.includes(model.triggerScope.value)) {
+                    model.triggerScope.value = ''
+                  }
                   model.triggerAccount.value = ''
                   createTrigger.reset()
                 }}>
@@ -591,7 +747,11 @@ export function Connectors() {
                 </SelectTrigger>
                 <SelectContent>
                   {triggerTypes
-                    .filter(type => catalog.data?.can_manage || type.requires_personal_account)
+                    .filter(type =>
+                      model.triggerSubject.value === 'app'
+                        ? catalog.data?.can_manage && !type.requires_personal_account
+                        : type.requires_personal_account || type.supports_personal_account
+                    )
                     .map(type => (
                       <SelectItem key={String(type.id)} value={String(type.id)}>
                         {String(type.label)}
@@ -599,44 +759,87 @@ export function Connectors() {
                     ))}
                 </SelectContent>
               </Select>
-              <Label htmlFor="connector-scope">
-                {String(selectedTrigger?.scope_label ?? t('pod.connectors.resource'))}
-              </Label>
-              <Input
-                id="connector-scope"
-                name="scope"
-                required
-                value={model.triggerScope.value}
-                onChange={event => {
-                  model.triggerScope.value = event.target.value
+              <ConfigFields
+                fields={triggerConfigFields}
+                config={triggerConfig}
+                locale={i18n.language}
+                fieldGroupClassName="grid gap-4"
+                onChange={(path, value) => {
+                  model.triggerConfig.value = setPath(model.triggerConfig.value, path, value)
                 }}
               />
-              {selectedTrigger?.requires_personal_account === true && personalAccounts.length > 0 && (
+              {!fixedTriggerScope && (
                 <>
-                  <Label>{t('pod.connectors.account')}</Label>
-                  <Select
-                    required
-                    value={selectedAccount?.id ?? ''}
-                    onValueChange={value => {
-                      if (!value) return
-                      model.triggerAccount.value = value
-                      createTrigger.reset()
-                    }}>
-                    <SelectTrigger aria-label={t('pod.connectors.account')}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {personalAccounts.map(account => (
-                        <SelectItem key={account.id} value={account.id}>
-                          {typeof account.public_metadata?.name === 'string'
-                            ? account.public_metadata.name
-                            : account.external_subject_id || account.account_key}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="connector-scope">
+                    {String(selectedTrigger?.scope_label ?? t('pod.connectors.resource'))}
+                  </Label>
+                  {triggerScopeOptions.length > 0 ? (
+                    <Select
+                      name="scope"
+                      required
+                      value={model.triggerScope.value}
+                      onValueChange={value => {
+                        if (value) model.triggerScope.value = value
+                      }}>
+                      <SelectTrigger id="connector-scope">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {triggerScopeOptions.map(value => (
+                          <SelectItem key={value} value={value}>
+                            {value}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      id="connector-scope"
+                      name="scope"
+                      required
+                      value={model.triggerScope.value}
+                      onChange={event => {
+                        model.triggerScope.value = event.target.value
+                      }}
+                    />
+                  )}
                 </>
               )}
+              {(selectedTrigger?.requires_personal_account === true ||
+                selectedTrigger?.supports_personal_account === true ||
+                usesTokenCredentials(model.triggerConnection.value)) &&
+                triggerAccounts.length > 0 && (
+                  <>
+                    <Label>
+                      {t(
+                        model.triggerSubject.value === 'human'
+                          ? 'pod.connectors.account'
+                          : 'pod.connectors.application_account'
+                      )}
+                    </Label>
+                    <Select
+                      required
+                      value={selectedAccount?.id ?? ''}
+                      onValueChange={value => {
+                        if (!value) return
+                        model.triggerAccount.value = value
+                        createTrigger.reset()
+                      }}>
+                      <SelectTrigger aria-label={t('pod.connectors.account')}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {triggerAccounts.map(account => (
+                          <SelectItem key={account.id} value={account.id}>
+                            {typeof account.public_metadata?.name === 'string'
+                              ? account.public_metadata.name
+                              : account.external_subject_id || account.account_key}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </>
+                )}
               <Button
                 type="submit"
                 disabled={createTrigger.isPending || oauth.isPending || claim.isPending || accounts.isPending}>
@@ -645,232 +848,53 @@ export function Connectors() {
             </form>
           </DialogContent>
         </Dialog>
-        <Dialog
-          open={model.editing.value !== undefined}
-          onOpenChange={open => {
-            if (!open) {
+        {model.credentialConnection.value && (
+          <CredentialBindingDialog
+            connection={model.credentialConnection.value}
+            subject={model.credentialSubject.value}
+            definition={catalog.data?.connectors?.find(
+              item => item.plugin_id === model.credentialConnection.value?.plugin_id
+            )}
+            onClose={() => {
+              model.credentialConnection.value = undefined
+            }}
+            onBound={async () => {
+              model.credentialConnection.value = undefined
+              model.credentialsBound.value = true
+              await refresh()
+            }}
+          />
+        )}
+        {model.editing.value !== undefined && (
+          <ConnectionEditorDialog
+            connection={model.editing.value}
+            connectors={catalog.data?.connectors ?? []}
+            callbackURL={catalog.data?.oauth_callback_url}
+            onClose={() => {
               model.editing.value = undefined
-              model.secret.value = {}
-            }
-          }}>
-          <DialogContent closeLabel={t('common.close')} className="max-h-[85dvh] overflow-y-auto">
-            <DialogTitle>{t(model.editing.value ? 'pod.connectors.edit' : 'pod.connectors.add')}</DialogTitle>
-            <ErrorBlock error={save.error} />
-            <ConnectionForm
-              model={model}
-              connectors={catalog.data?.connectors ?? []}
-              callbackURL={catalog.data?.oauth_callback_url}
-              pending={save.isPending}
-              submit={() => save.mutate()}
-            />
-          </DialogContent>
-        </Dialog>
+            }}
+            onRefresh={refresh}
+          />
+        )}
       </div>
     </div>
   )
 }
 
-function ConnectionForm({
-  model,
-  connectors,
-  callbackURL,
-  pending,
-  submit
-}: {
-  model: Model
-  connectors: Connector[]
-  callbackURL?: string
-  pending: boolean
-  submit(): void
-}) {
-  useSignals()
-  const { t, i18n } = useTranslation()
-  const connector = connectors.find(item => item.plugin_id === model.plugin.value)
-  const fields = (items: Record<string, unknown>[] | null | undefined, secret: boolean) =>
-    (secret
-      ? connectorCredentialFields(items ?? [], model.scheme.value, Boolean(model.editing.value))
-      : (items ?? []).filter(field => !Array.isArray(field.schemes) || field.schemes.includes(model.scheme.value))
-    ).map(field => {
-      const path = String(field.key)
-      const values = secret ? model.secret : model.metadata
-      const definition: ConfigFieldDefinition = {
-        path,
-        label: { default: String(field.label || path) },
-        type: String(field.type ?? 'string'),
-        encrypted: field.secret === true,
-        required: field.required === true,
-        options: Array.isArray(field.options)
-          ? field.options.map(option =>
-              typeof option === 'string' ? { value: option } : { value: String(option.value), label: option.label }
-            )
-          : []
-      }
-      return (
-        <ConfigField
-          key={`${secret}:${path}`}
-          field={definition}
-          locale={i18n.language}
-          value={
-            values.value[path] ??
-            (secret && field.secret !== true ? model.metadata.value[path] : undefined) ??
-            (secret ? '' : field.default)
-          }
-          required={definition.required === true && !(secret && model.editing.value)}
-          placeholder={
-            secret && field.secret === true && model.editing.value ? t('pod.connectors.keep_secret') : undefined
-          }
-          onChange={value => {
-            values.value = { ...values.value, [path]: value }
-          }}
-        />
-      )
-    })
+function usesTokenCredentials(connection?: ConnectorConnection) {
+  return ['api_token', 'personal_token'].includes(connection?.auth_scheme ?? '')
+}
+
+function supportsOAuthAccount(connection: ConnectorConnection) {
   return (
-    <form
-      className="grid gap-4"
-      onSubmit={event => {
-        event.preventDefault()
-        submit()
-      }}>
-      {!model.editing.value && (
-        <>
-          <Label>{t('pod.connectors.platform')}</Label>
-          <Select
-            value={model.plugin.value}
-            onValueChange={value => {
-              if (!value) return
-              model.plugin.value = value
-              model.scheme.value = connectors.find(item => item.plugin_id === value)?.auth_schemes?.[0] ?? ''
-              model.secret.value = {}
-              model.metadata.value = {}
-            }}>
-            <SelectTrigger aria-label={t('pod.connectors.platform')}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {connectors.map(item => (
-                <SelectItem key={item.plugin_id} value={item.plugin_id!}>
-                  {item.display_name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {(connector?.auth_schemes?.length ?? 0) > 1 && (
-            <>
-              <Label>{t('pod.connectors.auth_scheme')}</Label>
-              <Select
-                value={model.scheme.value}
-                onValueChange={value => {
-                  if (!value) return
-                  model.scheme.value = value
-                  model.secret.value = {}
-                  model.metadata.value = {}
-                }}>
-                <SelectTrigger aria-label={t('pod.connectors.auth_scheme')}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {connector!.auth_schemes!.map(value => (
-                    <SelectItem key={value} value={value}>
-                      {humanizeTechnicalLabel(value)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </>
-          )}
-        </>
-      )}
-      {['lark', 'github', 'linear'].includes(model.plugin.value) && (
-        <details className="rounded-lg border p-3 text-sm">
-          <summary className="cursor-pointer font-medium">{t('pod.connectors.setup_help')}</summary>
-          <div className="mt-3 grid gap-3 text-muted-foreground">
-            <p>{t(`pod.connectors.setup_${model.plugin.value}${model.scheme.value === 'github_app' ? '_app' : ''}`)}</p>
-            <p>{t('pod.connectors.setup_permissions')}</p>
-            <div className="flex flex-wrap gap-x-4 gap-y-2">
-              <a
-                className="underline underline-offset-4"
-                href={
-                  model.plugin.value === 'lark'
-                    ? model.metadata.value.domain === 'lark'
-                      ? 'https://open.larksuite.com/app'
-                      : 'https://open.feishu.cn/app'
-                    : model.plugin.value === 'github'
-                      ? 'https://github.com/settings/developers'
-                      : 'https://linear.app/settings/api'
-                }
-                target="_blank"
-                rel="noreferrer">
-                {t('pod.connectors.setup_platform')}
-              </a>
-              <a
-                className="underline underline-offset-4"
-                href={`https://ankole.agentbull.com/${i18n.language}/docs/automation-jobs/`}
-                target="_blank"
-                rel="noreferrer">
-                {t('pod.connectors.setup_docs')}
-              </a>
-            </div>
-          </div>
-        </details>
-      )}
-      {callbackURL && ['lark_app', 'oauth2'].includes(model.scheme.value) && (
-        <div className="grid gap-2">
-          <Label htmlFor="connector-callback">{t('pod.connectors.oauth_callback')}</Label>
-          <Input
-            id="connector-callback"
-            readOnly
-            value={callbackURL}
-            onFocus={event => event.target.select()}
-            aria-describedby="connector-callback-help"
-          />
-          <p id="connector-callback-help" className="text-xs text-muted-foreground">
-            {t('pod.connectors.oauth_callback_help')}
-          </p>
-        </div>
-      )}
-      <Label htmlFor="connector-name">{t('pod.connectors.name')}</Label>
-      <Input
-        id="connector-name"
-        name="display_name"
-        required
-        value={model.name.value}
-        onChange={event => {
-          model.name.value = event.target.value
-        }}
-      />
-      <Label htmlFor="connector-slug">{t('pod.connectors.slug')}</Label>
-      <Input
-        id="connector-slug"
-        name="slug"
-        required
-        pattern={'[a-z][a-z0-9_\\-]*'}
-        autoCapitalize="none"
-        autoCorrect="off"
-        spellCheck={false}
-        aria-describedby="connector-slug-help"
-        value={model.slug.value}
-        onChange={event => {
-          model.slug.value = event.target.value
-        }}
-      />
-      <p id="connector-slug-help" className="text-xs text-muted-foreground">
-        {t('pod.connectors.slug_help')}
-      </p>
-      {fields(connector?.public_fields, false)}
-      {fields(connector?.credential_fields, true)}
-      <Label className="flex items-center gap-2">
-        <Checkbox
-          checked={model.isDefault.value}
-          onCheckedChange={value => {
-            model.isDefault.value = value === true
-          }}
-        />
-        {t('pod.connectors.default')}
-      </Label>
-      <Button type="submit" disabled={pending}>
-        {t('common.save')}
-      </Button>
-    </form>
+    connection.auth_scheme === 'oauth2' ||
+    (['lark', 'github', 'linear'].includes(connection.plugin_id ?? '') && connection.auth_scheme !== 'github_app')
+  )
+}
+
+function supportsPersonalAccount(connection: ConnectorConnection, connectors: ConnectorDefinition[]) {
+  return (
+    supportsOAuthAccount(connection) ||
+    connectors.some(item => item.plugin_id === connection.plugin_id && item.personal_credentials)
   )
 }

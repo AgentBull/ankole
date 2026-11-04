@@ -1,0 +1,77 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves details for a specific Invitee No Show record by its UUID; an Invitee No Show is marked when an invitee does not attend a scheduled event.",
+  "inputSchema": {
+    "description": "Request schema for retrieving details about a specific Invitee No Show.",
+    "properties": {
+      "uuid": {
+        "description": "The unique identifier (UUID) of the Invitee No Show record to retrieve.",
+        "examples": ["NO_SHOW_UUID_123"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "GetInviteeNoShowRequest",
+    "type": "object"
+  },
+  "name": "get_invitee_no_show",
+  "outputSchema": {
+    "$defs": {
+      "GetInviteeNoShowResponse": {
+        "description": "Response schema for `GetInviteeNoShow`, containing the details of the Invitee No Show record.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/InviteeNoShowResource",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "GetInviteeNoShowResponse",
+        "type": "object"
+      },
+      "InviteeNoShowResource": {
+        "description": "The invitee no show resource object containing details about the no-show record.",
+        "properties": {
+          "created_at": {
+            "description": "The moment when the invitee no show resource was created (e.g., \"2020-01-02T03:04:05.678123Z\").",
+            "title": "Created At",
+            "type": "string"
+          },
+          "invitee": {
+            "description": "Reference URI to the invitee who was marked as a no-show.",
+            "title": "Invitee",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "The moment when the invitee no show resource was last updated (e.g., \"2020-01-02T03:04:05.678123Z\").",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the invitee no show resource.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "invitee", "created_at"],
+        "title": "InviteeNoShowResource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetInviteeNoShowResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

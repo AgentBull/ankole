@@ -1,0 +1,179 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves attachments for a Trello card.",
+  "inputSchema": {
+    "description": "Request schema for `GetCardsAttachmentsByIdCard`",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Comma-separated list of fields to return (e.g., bytes, date, edgeColor, idMember, isUpload, mimeType, name, previews, url), or 'all'.",
+        "examples": ["name,url,date", "all", "mimeType,bytes"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "filter": {
+        "description": "Filter for attachments: 'cover' for card cover, 'true' for all, or 'false' for non-cover (behavior can vary).",
+        "examples": ["true", "false", "cover"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "The ID or shortLink of the Trello card from which to retrieve attachments.",
+        "examples": ["60d5f0f0e6c1a0001f0e3b2a", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      }
+    },
+    "required": ["idCard"],
+    "title": "GetCardsAttachmentsByIdCardRequest",
+    "type": "object"
+  },
+  "name": "get_cards_attachments_by_id_card",
+  "outputSchema": {
+    "$defs": {
+      "AttachmentDetails": {
+        "description": "Details of a single attachment on a Trello card.",
+        "properties": {
+          "bytes": {
+            "description": "File size in bytes.",
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "date": {
+            "description": "Timestamp indicating when the attachment was added.",
+            "title": "Date",
+            "type": "string"
+          },
+          "edgeColor": {
+            "description": "For image attachments, the extracted edge color.",
+            "title": "Edge Color",
+            "type": "string"
+          },
+          "fileName": {
+            "description": "Original file name of the attachment.",
+            "title": "File Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the attachment.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "Identifier of the member who added the attachment.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "isUpload": {
+            "description": "Indicates whether the attachment was uploaded (true) or linked (false).",
+            "title": "Is Upload",
+            "type": "boolean"
+          },
+          "mimeType": {
+            "description": "MIME type of the attachment file.",
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the attachment.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position value for ordering attachments within the card.",
+            "title": "Pos",
+            "type": "number"
+          },
+          "previews": {
+            "description": "If the attachment is an image, an array of generated preview images in various sizes.",
+            "items": {
+              "$ref": "#/$defs/AttachmentPreview"
+            },
+            "title": "Previews",
+            "type": "array"
+          },
+          "url": {
+            "description": "URL to access the full attachment.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "AttachmentDetails",
+        "type": "object"
+      },
+      "AttachmentPreview": {
+        "description": "Preview information for an attachment.",
+        "properties": {
+          "_id": {
+            "description": "Alternative identifier for the preview.",
+            "title": " Id",
+            "type": "string"
+          },
+          "bytes": {
+            "description": "Size of the preview image in bytes.",
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "height": {
+            "description": "Height of the preview image in pixels.",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the preview.",
+            "title": "Id",
+            "type": "string"
+          },
+          "scaled": {
+            "description": "Indicates whether the preview is scaled.",
+            "title": "Scaled",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "URL to access the preview image.",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Width of the preview image in pixels.",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "AttachmentPreview",
+        "type": "object"
+      },
+      "GetCardsAttachmentsByIdCardResponse": {
+        "description": "Response schema for `GetCardsAttachmentsByIdCard`",
+        "properties": {
+          "attachments": {
+            "description": "List of attachments associated with the card.",
+            "items": {
+              "$ref": "#/$defs/AttachmentDetails"
+            },
+            "title": "Attachments",
+            "type": "array"
+          }
+        },
+        "required": ["attachments"],
+        "title": "GetCardsAttachmentsByIdCardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCardsAttachmentsByIdCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

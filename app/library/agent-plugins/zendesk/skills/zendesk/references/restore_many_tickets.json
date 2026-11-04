@@ -1,0 +1,88 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Restore multiple deleted Zendesk tickets by ID. The returned counts and results reflect only results present in the immediate response; a job response without results yields empty counts and results.",
+  "inputSchema": {
+    "properties": {
+      "ids": {
+        "description": "Comma-separated list of Zendesk ticket IDs to restore. Example: '1,2,3' to restore tickets with IDs 1, 2, and 3. Maximum 100 tickets per request.",
+        "examples": ["1,2,3", "12345,67890,11111"],
+        "title": "Ids",
+        "type": "string"
+      }
+    },
+    "required": ["ids"],
+    "title": "RestoreManyTicketsRequest",
+    "type": "object"
+  },
+  "name": "restore_many_tickets",
+  "outputSchema": {
+    "$defs": {
+      "RestoreManyTicketsResponse": {
+        "properties": {
+          "failed_count": {
+            "description": "Number of tickets that failed to restore",
+            "title": "Failed Count",
+            "type": "integer"
+          },
+          "restored_count": {
+            "description": "Number of tickets successfully restored",
+            "title": "Restored Count",
+            "type": "integer"
+          },
+          "results": {
+            "description": "List of individual restoration results",
+            "items": {
+              "$ref": "#/$defs/RestoreResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": ["restored_count", "failed_count", "results"],
+        "title": "RestoreManyTicketsResponse",
+        "type": "object"
+      },
+      "RestoreResult": {
+        "properties": {
+          "error": {
+            "description": "Error message if restoration failed",
+            "title": "Error",
+            "type": "string"
+          },
+          "id": {
+            "description": "ID of the ticket that was restored",
+            "title": "Id",
+            "type": "integer"
+          },
+          "success": {
+            "description": "Whether the ticket was successfully restored",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "Title/subject of the restored ticket",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["id", "success"],
+        "title": "RestoreResult",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RestoreManyTicketsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

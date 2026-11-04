@@ -1,0 +1,44 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a note from Salesforce. This action cannot be undone.",
+  "inputSchema": {
+    "properties": {
+      "note_id": {
+        "description": "The Salesforce ID of the note to delete.",
+        "examples": ["002Wd000001UYbaIAG", "002XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique Salesforce identifier of the note you want to delete. You can copy this ID from the note’s URL or from a previous search or list action.",
+        "human_parameter_name": "Note ID",
+        "title": "Note Id",
+        "type": "string"
+      }
+    },
+    "required": ["note_id"],
+    "title": "DeleteNoteRequest",
+    "type": "object"
+  },
+  "name": "delete_note",
+  "outputSchema": {
+    "$defs": {
+      "DeleteNoteResponse": {
+        "description": "Response for successful note deletion.\n\nHTTP 204 No Content - Salesforce returns empty body on successful deletion.\nError responses (4xx/5xx) are handled via raise_for_status().",
+        "properties": {},
+        "title": "DeleteNoteResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteNoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

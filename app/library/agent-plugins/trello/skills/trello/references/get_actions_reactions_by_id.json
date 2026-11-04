@@ -1,0 +1,162 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information about a specific reaction on a Trello action. Use when you need to get the member and emoji details for a specific reaction by its ID.",
+  "inputSchema": {
+    "description": "Request schema for `GetActionsReactionsById`",
+    "properties": {
+      "emoji": {
+        "default": true,
+        "description": "Whether to load the emoji as a nested resource.",
+        "title": "Emoji",
+        "type": "boolean"
+      },
+      "id": {
+        "description": "The ID of the reaction",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id",
+        "type": "string"
+      },
+      "idAction": {
+        "description": "The ID of the Action",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id Action",
+        "type": "string"
+      },
+      "member": {
+        "default": true,
+        "description": "Whether to load the member as a nested resource. See Members Nested Resource documentation.",
+        "title": "Member",
+        "type": "boolean"
+      }
+    },
+    "required": ["idAction", "id"],
+    "title": "GetActionsReactionsByIdRequest",
+    "type": "object"
+  },
+  "name": "get_actions_reactions_by_id",
+  "outputSchema": {
+    "$defs": {
+      "GetActionsReactionsByIdResponse": {
+        "description": "Response containing the reaction information",
+        "properties": {
+          "emoji": {
+            "$ref": "#/$defs/ReactionEmoji",
+            "description": "Emoji object used in the reaction (when emoji=true)",
+            "title": "Emoji"
+          },
+          "id": {
+            "description": "Unique identifier of the reaction",
+            "title": "Id",
+            "type": "string"
+          },
+          "idEmoji": {
+            "description": "ID of the emoji used in the reaction",
+            "title": "Id Emoji",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member who created the reaction",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "idModel": {
+            "description": "ID of the action that was reacted to",
+            "title": "Id Model",
+            "type": "string"
+          },
+          "member": {
+            "$ref": "#/$defs/ReactionMember",
+            "description": "Member object who created the reaction (when member=true)",
+            "title": "Member"
+          }
+        },
+        "required": ["id", "idMember", "idModel"],
+        "title": "GetActionsReactionsByIdResponse",
+        "type": "object"
+      },
+      "ReactionEmoji": {
+        "description": "Emoji information for a reaction",
+        "properties": {
+          "name": {
+            "description": "Name of the emoji",
+            "title": "Name",
+            "type": "string"
+          },
+          "native": {
+            "description": "Native emoji character",
+            "title": "Native",
+            "type": "string"
+          },
+          "shortName": {
+            "description": "Short name/code for the emoji",
+            "title": "Short Name",
+            "type": "string"
+          },
+          "skinVariation": {
+            "description": "Skin tone variation identifier",
+            "title": "Skin Variation",
+            "type": "string"
+          },
+          "unified": {
+            "description": "Unicode unified code point for the emoji",
+            "title": "Unified",
+            "type": "string"
+          }
+        },
+        "title": "ReactionEmoji",
+        "type": "object"
+      },
+      "ReactionMember": {
+        "description": "Member information for a reaction",
+        "properties": {
+          "avatarHash": {
+            "description": "Avatar hash for constructing avatar URLs",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "Direct URL to avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Full display name of the member",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "initials": {
+            "description": "Member's initials",
+            "title": "Initials",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the member",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "ReactionMember",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetActionsReactionsByIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

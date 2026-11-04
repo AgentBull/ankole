@@ -1,0 +1,99 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve a Key Event by its resource name. This operation is read-only.",
+  "inputSchema": {
+    "description": "Request model for retrieving a Key Event in a Google Analytics 4 property.",
+    "properties": {
+      "name": {
+        "description": "Required. Resource name of the Key Event to retrieve. Format: properties/{property}/keyEvents/{keyEvent}.",
+        "examples": ["properties/123/keyEvents/456"],
+        "pattern": "^properties/[^/]+/keyEvents/[^/]+$",
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "GetKeyEventRequest",
+    "type": "object"
+  },
+  "name": "get_key_event",
+  "outputSchema": {
+    "$defs": {
+      "DefaultValue": {
+        "properties": {
+          "currencyCode": {
+            "description": "Required. ISO 4217 currency code applied when unset.",
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "numericValue": {
+            "description": "Required. Used to populate the 'value' parameter when unset.",
+            "title": "Numeric Value",
+            "type": "number"
+          }
+        },
+        "required": ["numericValue", "currencyCode"],
+        "title": "DefaultValue",
+        "type": "object"
+      },
+      "GetKeyEventResponse": {
+        "description": "Response model for GetKeyEvent action.",
+        "properties": {
+          "countingMethod": {
+            "description": "Required. How key events are counted in a session.",
+            "enum": ["COUNTING_METHOD_UNSPECIFIED", "ONCE_PER_EVENT", "ONCE_PER_SESSION"],
+            "title": "Counting Method",
+            "type": "string"
+          },
+          "createTime": {
+            "description": "Output only. When the key event was created, in RFC3339 format.",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "custom": {
+            "description": "Output only. True if this refers to a custom event; false for a GA default event.",
+            "title": "Custom",
+            "type": "boolean"
+          },
+          "defaultValue": {
+            "$ref": "#/$defs/DefaultValue",
+            "description": "Output only. Default value and currency for the key event.",
+            "title": "Default Value"
+          },
+          "deletable": {
+            "description": "Output only. Whether this event can be deleted.",
+            "title": "Deletable",
+            "type": "boolean"
+          },
+          "eventName": {
+            "description": "Immutable. The event name (e.g., 'click', 'purchase').",
+            "title": "Event Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Output only. Resource name of this key event.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["name", "eventName", "createTime", "deletable", "custom", "countingMethod"],
+        "title": "GetKeyEventResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetKeyEventResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

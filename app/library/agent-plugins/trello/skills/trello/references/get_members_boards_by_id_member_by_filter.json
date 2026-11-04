@@ -1,0 +1,515 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of boards for a specific Trello member, applying a filter such as 'open', 'starred', or 'all'.",
+  "inputSchema": {
+    "description": "Request schema for `GetMembersBoardsByIdMemberByFilter`",
+    "properties": {
+      "fields": {
+        "default": "id,name,desc,closed,url,shortUrl,dateLastActivity,starred,idOrganization,shortLink",
+        "description": "Comma-separated list of board fields to include in the response. Use 'all' to include all fields. Limiting fields reduces response size significantly.",
+        "examples": ["id,name,url", "id,name,desc,closed,url,shortUrl,dateLastActivity,starred", "all"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "filter": {
+        "default": "open",
+        "description": "The filter to apply when retrieving boards. Determines which subset of boards is returned.",
+        "examples": ["all", "closed", "members", "open", "organization", "public", "starred", "invited"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID or username of the Trello member whose boards are to be retrieved.",
+        "examples": ["john.doe", "605c72ef312f568c1a345678"],
+        "title": "Id Member",
+        "type": "string"
+      }
+    },
+    "required": ["idMember"],
+    "title": "GetMembersBoardsByIdMemberByFilterRequest",
+    "type": "object"
+  },
+  "name": "get_members_boards_by_id_member_by_filter",
+  "outputSchema": {
+    "$defs": {
+      "BackgroundImageScaled": {
+        "description": "Scaled background image object with different dimensions",
+        "properties": {
+          "height": {
+            "description": "Height of the scaled image.",
+            "title": "Height",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL of the scaled image.",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Width of the scaled image.",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "BackgroundImageScaled",
+        "type": "object"
+      },
+      "Board": {
+        "description": "Represents a Trello board",
+        "properties": {
+          "closed": {
+            "description": "Whether the board is archived/closed.",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "dateLastActivity": {
+            "description": "ISO 8601 timestamp of the last activity on the board.",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "dateLastView": {
+            "description": "ISO 8601 timestamp of when the board was last viewed by the current user.",
+            "title": "Date Last View",
+            "type": "string"
+          },
+          "desc": {
+            "description": "The description of the board.",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "Custom emoji data for descriptions when present, or null.",
+            "title": "Desc Data"
+          },
+          "enterpriseOwned": {
+            "description": "Whether the board is owned by an Enterprise.",
+            "title": "Enterprise Owned",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The unique identifier of the board.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "The unique identifier of the member who created the board.",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "idOrganization": {
+            "description": "The unique identifier of the organization/workspace the board belongs to.",
+            "title": "Id Organization",
+            "type": "string"
+          },
+          "idTags": {
+            "description": "Array of tag identifiers associated with the board.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Tags",
+            "type": "array"
+          },
+          "invited": {
+            "description": "Whether the current user has been invited to the board.",
+            "title": "Invited",
+            "type": "boolean"
+          },
+          "labelNames": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Object containing color keys (green, yellow, orange, red, purple, blue, sky, lime, pink, black) mapped to custom label names.",
+            "title": "Label Names",
+            "type": "object"
+          },
+          "limits": {
+            "$ref": "#/$defs/BoardLimits",
+            "description": "Board capacity and resource limits.",
+            "title": "Limits"
+          },
+          "memberships": {
+            "description": "Array of membership objects representing board members and their roles.",
+            "items": {},
+            "title": "Memberships",
+            "type": "array"
+          },
+          "name": {
+            "description": "The name of the board.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pinned": {
+            "description": "Whether the board is pinned by the user.",
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "powerUps": {
+            "description": "Array of power-ups enabled on the board.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Power Ups",
+            "type": "array"
+          },
+          "prefs": {
+            "$ref": "#/$defs/BoardPrefs",
+            "description": "Board preferences and settings.",
+            "title": "Prefs"
+          },
+          "shortLink": {
+            "description": "The short identifier used in URLs.",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "The shortened URL of the board.",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "starred": {
+            "description": "Whether the board is starred by the current user.",
+            "title": "Starred",
+            "type": "boolean"
+          },
+          "subscribed": {
+            "description": "Whether the current user is subscribed to the board.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "url": {
+            "description": "The persistent URL of the board.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "Board",
+        "type": "object"
+      },
+      "BoardLimits": {
+        "description": "Board capacity and resource limits",
+        "properties": {
+          "attachments": {
+            "$ref": "#/$defs/BoardLimitsAttachments",
+            "description": "Attachment limits with perBoard property.",
+            "title": "Attachments"
+          },
+          "boards": {
+            "$ref": "#/$defs/BoardLimitsBoards",
+            "description": "Board limits with totalPerMember property.",
+            "title": "Boards"
+          },
+          "cards": {
+            "$ref": "#/$defs/BoardLimitsCards",
+            "description": "Card limits with openPerBoard and totalPerBoard properties.",
+            "title": "Cards"
+          },
+          "checkItems": {
+            "$ref": "#/$defs/BoardLimitsCheckItems",
+            "description": "Check item limits with perChecklist property.",
+            "title": "Check Items"
+          },
+          "checklists": {
+            "$ref": "#/$defs/BoardLimitsChecklists",
+            "description": "Checklist limits with perCard property.",
+            "title": "Checklists"
+          },
+          "customFieldOptions": {
+            "$ref": "#/$defs/BoardLimitsCustomFieldOptions",
+            "description": "Custom field option limits with perField property.",
+            "title": "Custom Field Options"
+          },
+          "customFields": {
+            "$ref": "#/$defs/BoardLimitsCustomFields",
+            "description": "Custom field limits with perBoard property.",
+            "title": "Custom Fields"
+          },
+          "labels": {
+            "$ref": "#/$defs/BoardLimitsLabels",
+            "description": "Label limits with perBoard property.",
+            "title": "Labels"
+          },
+          "lists": {
+            "$ref": "#/$defs/BoardLimitsLists",
+            "description": "List limits with openPerBoard and totalPerBoard properties.",
+            "title": "Lists"
+          },
+          "stickers": {
+            "$ref": "#/$defs/BoardLimitsStickers",
+            "description": "Sticker limits with perCard property.",
+            "title": "Stickers"
+          }
+        },
+        "title": "BoardLimits",
+        "type": "object"
+      },
+      "BoardLimitsAttachments": {
+        "description": "Attachment limits",
+        "properties": {
+          "perBoard": {
+            "description": "Attachment limit per board.",
+            "title": "Per Board"
+          }
+        },
+        "title": "BoardLimitsAttachments",
+        "type": "object"
+      },
+      "BoardLimitsBoards": {
+        "description": "Board limits",
+        "properties": {
+          "totalPerMember": {
+            "description": "Total board limit per member.",
+            "title": "Total Per Member"
+          }
+        },
+        "title": "BoardLimitsBoards",
+        "type": "object"
+      },
+      "BoardLimitsCards": {
+        "description": "Card limits",
+        "properties": {
+          "openPerBoard": {
+            "description": "Open cards limit per board.",
+            "title": "Open Per Board"
+          },
+          "totalPerBoard": {
+            "description": "Total cards limit per board.",
+            "title": "Total Per Board"
+          }
+        },
+        "title": "BoardLimitsCards",
+        "type": "object"
+      },
+      "BoardLimitsCheckItems": {
+        "description": "Check item limits",
+        "properties": {
+          "perChecklist": {
+            "description": "Check item limit per checklist.",
+            "title": "Per Checklist"
+          }
+        },
+        "title": "BoardLimitsCheckItems",
+        "type": "object"
+      },
+      "BoardLimitsChecklists": {
+        "description": "Checklist limits",
+        "properties": {
+          "perCard": {
+            "description": "Checklist limit per card.",
+            "title": "Per Card"
+          }
+        },
+        "title": "BoardLimitsChecklists",
+        "type": "object"
+      },
+      "BoardLimitsCustomFieldOptions": {
+        "description": "Custom field option limits",
+        "properties": {
+          "perField": {
+            "description": "Custom field option limit per field.",
+            "title": "Per Field"
+          }
+        },
+        "title": "BoardLimitsCustomFieldOptions",
+        "type": "object"
+      },
+      "BoardLimitsCustomFields": {
+        "description": "Custom field limits",
+        "properties": {
+          "perBoard": {
+            "description": "Custom field limit per board.",
+            "title": "Per Board"
+          }
+        },
+        "title": "BoardLimitsCustomFields",
+        "type": "object"
+      },
+      "BoardLimitsLabels": {
+        "description": "Label limits",
+        "properties": {
+          "perBoard": {
+            "description": "Label limit per board.",
+            "title": "Per Board"
+          }
+        },
+        "title": "BoardLimitsLabels",
+        "type": "object"
+      },
+      "BoardLimitsLists": {
+        "description": "List limits",
+        "properties": {
+          "openPerBoard": {
+            "description": "Open lists limit per board.",
+            "title": "Open Per Board"
+          },
+          "totalPerBoard": {
+            "description": "Total lists limit per board.",
+            "title": "Total Per Board"
+          }
+        },
+        "title": "BoardLimitsLists",
+        "type": "object"
+      },
+      "BoardLimitsStickers": {
+        "description": "Sticker limits",
+        "properties": {
+          "perCard": {
+            "description": "Sticker limit per card.",
+            "title": "Per Card"
+          }
+        },
+        "title": "BoardLimitsStickers",
+        "type": "object"
+      },
+      "BoardPrefs": {
+        "description": "Board preferences and settings",
+        "properties": {
+          "background": {
+            "description": "Background color or pattern name.",
+            "title": "Background",
+            "type": "string"
+          },
+          "backgroundBrightness": {
+            "description": "Brightness level of the background ('dark' or 'light').",
+            "title": "Background Brightness",
+            "type": "string"
+          },
+          "backgroundColor": {
+            "description": "Hex color code of the background.",
+            "title": "Background Color",
+            "type": "string"
+          },
+          "backgroundImage": {
+            "description": "URL of the background image, or null.",
+            "title": "Background Image",
+            "type": "string"
+          },
+          "backgroundImageScaled": {
+            "description": "Array of scaled background image objects with different dimensions.",
+            "items": {
+              "$ref": "#/$defs/BackgroundImageScaled"
+            },
+            "title": "Background Image Scaled",
+            "type": "array"
+          },
+          "backgroundTile": {
+            "description": "Whether the background image should be tiled.",
+            "title": "Background Tile",
+            "type": "boolean"
+          },
+          "calendarFeedEnabled": {
+            "description": "Whether calendar feed is enabled.",
+            "title": "Calendar Feed Enabled",
+            "type": "boolean"
+          },
+          "canBeOrg": {
+            "description": "Whether the board can be made organization-visible.",
+            "title": "Can Be Org",
+            "type": "boolean"
+          },
+          "canBePrivate": {
+            "description": "Whether the board can be made private.",
+            "title": "Can Be Private",
+            "type": "boolean"
+          },
+          "canBePublic": {
+            "description": "Whether the board can be made public.",
+            "title": "Can Be Public",
+            "type": "boolean"
+          },
+          "canInvite": {
+            "description": "Whether members can invite others to the board.",
+            "title": "Can Invite",
+            "type": "boolean"
+          },
+          "cardAging": {
+            "description": "Card aging style (e.g., 'regular', 'pirate').",
+            "title": "Card Aging",
+            "type": "string"
+          },
+          "cardCovers": {
+            "description": "Whether card covers are enabled.",
+            "title": "Card Covers",
+            "type": "boolean"
+          },
+          "comments": {
+            "description": "Who can comment on cards.",
+            "title": "Comments",
+            "type": "string"
+          },
+          "hideVotes": {
+            "description": "Whether votes are hidden.",
+            "title": "Hide Votes",
+            "type": "boolean"
+          },
+          "invitations": {
+            "description": "Who can send invitations to the board.",
+            "title": "Invitations",
+            "type": "string"
+          },
+          "isTemplate": {
+            "description": "Whether the board is a template.",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "permissionLevel": {
+            "description": "Permission level of the board (e.g., 'private', 'org', 'public').",
+            "title": "Permission Level",
+            "type": "string"
+          },
+          "selfJoin": {
+            "description": "Whether users can join the board themselves.",
+            "title": "Self Join",
+            "type": "boolean"
+          },
+          "voting": {
+            "description": "Voting permissions setting.",
+            "title": "Voting",
+            "type": "string"
+          }
+        },
+        "title": "BoardPrefs",
+        "type": "object"
+      },
+      "GetMembersBoardsByIdMemberByFilterResponse": {
+        "description": "Response schema for `GetMembersBoardsByIdMemberByFilter` - API returns array of boards directly",
+        "properties": {
+          "boards": {
+            "description": "List of boards matching the specified filter.",
+            "items": {
+              "$ref": "#/$defs/Board"
+            },
+            "title": "Boards",
+            "type": "array"
+          }
+        },
+        "required": ["boards"],
+        "title": "GetMembersBoardsByIdMemberByFilterResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMembersBoardsByIdMemberByFilterResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

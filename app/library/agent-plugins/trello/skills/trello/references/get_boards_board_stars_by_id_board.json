@@ -1,0 +1,82 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves board stars (user-marked favorites) for a specified Trello board, with a filter for the current user's stars or other board-star results.",
+  "inputSchema": {
+    "description": "Request schema for `GetBoardsBoardStarsByIdBoard`",
+    "properties": {
+      "filter": {
+        "default": "mine",
+        "description": "Filter for board stars: 'mine' for the current user's stars (default), or 'none' for all stars on the board.",
+        "examples": ["mine", "none"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The unique identifier of the Trello board.",
+        "title": "Id Board",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard"],
+    "title": "GetBoardsBoardStarsByIdBoardRequest",
+    "type": "object"
+  },
+  "name": "get_boards_board_stars_by_id_board",
+  "outputSchema": {
+    "$defs": {
+      "BoardStar": {
+        "description": "A single board star record",
+        "properties": {
+          "_id": {
+            "description": "The unique identifier for a board star record. Format: TrelloID (24-character hexadecimal string).",
+            "title": " Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "Reference to the board being starred. Format: TrelloID (24-character hexadecimal string).",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "pos": {
+            "description": "The position value determining star order. Can be a decimal value for precise ordering.",
+            "title": "Pos",
+            "type": "number"
+          }
+        },
+        "required": ["_id", "idBoard", "pos"],
+        "title": "BoardStar",
+        "type": "object"
+      },
+      "GetBoardsBoardStarsByIdBoardResponse": {
+        "description": "Response schema for `GetBoardsBoardStarsByIdBoard`",
+        "properties": {
+          "board_stars": {
+            "description": "List of board star records for the specified board.",
+            "items": {
+              "$ref": "#/$defs/BoardStar"
+            },
+            "title": "Board Stars",
+            "type": "array"
+          }
+        },
+        "required": ["board_stars"],
+        "title": "GetBoardsBoardStarsByIdBoardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBoardsBoardStarsByIdBoardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

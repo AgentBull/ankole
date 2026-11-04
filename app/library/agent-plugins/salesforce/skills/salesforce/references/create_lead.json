@@ -1,0 +1,368 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new lead in Salesforce. `LastName` and `Company` are required. Org-level validation rules (e.g., email format, custom required fields) may reject requests beyond these; inspect the error response body for the failing field. The created lead `id` is returned in a response wrapper, not at the top level.",
+  "inputSchema": {
+    "properties": {
+      "AnnualRevenue": {
+        "default": 0,
+        "description": "Lead's company annual revenue.",
+        "examples": [1000000, 5000000, 10000000],
+        "human_parameter_description": "Estimate the company's annual revenue. This helps assess account size and potential value.",
+        "human_parameter_name": "Annual Revenue",
+        "title": "Annual Revenue",
+        "type": "number"
+      },
+      "City": {
+        "default": "",
+        "description": "Lead's city.",
+        "examples": ["San Francisco", "New York", "Chicago"],
+        "human_parameter_description": "Enter the city for the address. This helps complete the mailing details.",
+        "human_parameter_name": "City",
+        "title": "City",
+        "type": "string"
+      },
+      "Company": {
+        "description": "Lead's company name. Required - must be provided to create a lead.",
+        "examples": ["Acme Corp", "Tech Solutions Inc", "Global Industries"],
+        "human_parameter_description": "Provide the company or organization the lead works for. This is required to save the lead in Salesforce.",
+        "human_parameter_name": "Company",
+        "title": "Company",
+        "type": "string"
+      },
+      "Country": {
+        "default": "",
+        "description": "Lead's country.",
+        "examples": ["USA", "United States", "Canada"],
+        "human_parameter_description": "Enter the country for the address. Spell it as you would in a mailing address.",
+        "human_parameter_name": "Country",
+        "title": "Country",
+        "type": "string"
+      },
+      "CustomFields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values. Custom field names typically end with '__c' (e.g., 'Level__c', 'Languages__c'). Use this to set any custom fields defined in your Salesforce org.",
+        "examples": [
+          {
+            "Languages__c": "English;Spanish",
+            "Level__c": "Primary"
+          },
+          {
+            "Custom_Rating__c": "A",
+            "Priority__c": "High"
+          }
+        ],
+        "human_parameter_description": "Provide a dictionary of custom field names (ending in __c) and their values to set custom fields on the lead.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "Email": {
+        "default": "",
+        "description": "Lead's email address.",
+        "examples": ["john.smith@example.com", "lead@company.com"],
+        "human_parameter_description": "Enter the lead's email address so you can contact them and avoid duplicates.",
+        "human_parameter_name": "Email Address",
+        "title": "Email",
+        "type": "string"
+      },
+      "FirstName": {
+        "default": "",
+        "description": "Lead's first name.",
+        "examples": ["John", "Jane", "Michael"],
+        "human_parameter_description": "Type the lead's given name. This helps personalize communications and match records.",
+        "human_parameter_name": "First Name",
+        "title": "First Name",
+        "type": "string"
+      },
+      "Industry": {
+        "default": "",
+        "description": "Lead's industry.",
+        "examples": ["Technology", "Healthcare", "Finance", "Retail", "Manufacturing"],
+        "human_parameter_description": "Select the industry the lead's company operates in. Useful for segmentation and reporting.",
+        "human_parameter_name": "Industry",
+        "title": "Industry",
+        "type": "string"
+      },
+      "LastName": {
+        "description": "Lead's last name. Required - must be provided to create a lead.",
+        "examples": ["Smith", "Johnson", "Williams"],
+        "human_parameter_description": "Enter the lead's family name. Salesforce requires this to create a new lead.",
+        "human_parameter_name": "Last Name",
+        "title": "Last Name",
+        "type": "string"
+      },
+      "LeadSource": {
+        "default": "",
+        "description": "Source of the lead.",
+        "examples": ["Web", "Phone Inquiry", "Partner Referral", "Purchased List", "Other"],
+        "human_parameter_description": "Specify how you obtained the lead, such as Web or Referral. This helps measure channel performance.",
+        "human_parameter_name": "Lead Source",
+        "title": "Lead Source",
+        "type": "string"
+      },
+      "NumberOfEmployees": {
+        "default": 0,
+        "description": "Number of employees at lead's company.",
+        "examples": [10, 50, 100, 500, 1000],
+        "human_parameter_description": "Enter how many employees the company has. Used for qualification and segmentation.",
+        "human_parameter_name": "Employee Count",
+        "title": "Number Of Employees",
+        "type": "integer"
+      },
+      "Phone": {
+        "default": "",
+        "description": "Lead's phone number.",
+        "examples": ["(555) 123-4567", "+1-800-555-0123"],
+        "human_parameter_description": "Provide a phone number where the lead can be reached. Include the country code if international.",
+        "human_parameter_name": "Phone Number",
+        "title": "Phone",
+        "type": "string"
+      },
+      "PostalCode": {
+        "default": "",
+        "description": "Lead's postal/zip code.",
+        "examples": ["94105", "10001", "60601"],
+        "human_parameter_description": "Enter the ZIP or postal code for the address. This improves mailing accuracy and geolocation.",
+        "human_parameter_name": "Postal Code",
+        "title": "Postal Code",
+        "type": "string"
+      },
+      "Rating": {
+        "default": "",
+        "description": "Lead rating.",
+        "examples": ["Hot", "Warm", "Cold"],
+        "human_parameter_description": "Indicate how hot or cold the lead is (e.g., Hot, Warm, Cold) to prioritize follow-up.",
+        "human_parameter_name": "Rating",
+        "title": "Rating",
+        "type": "string"
+      },
+      "State": {
+        "default": "",
+        "description": "Lead's state/province.",
+        "examples": ["CA", "NY", "IL", "California", "New York"],
+        "human_parameter_description": "Enter the state or province for the address. Use the full name or abbreviation.",
+        "human_parameter_name": "State",
+        "title": "State",
+        "type": "string"
+      },
+      "Status": {
+        "default": "",
+        "description": "Lead status.",
+        "examples": ["New", "Working - Contacted", "Qualified", "Closed - Converted", "Closed - Not Converted"],
+        "human_parameter_description": "Choose the current status of the lead (e.g., New, Working). This tracks progress in your sales process.",
+        "human_parameter_name": "Status",
+        "title": "Status",
+        "type": "string"
+      },
+      "Street": {
+        "default": "",
+        "description": "Lead's street address.",
+        "examples": ["123 Main St", "456 Oak Avenue, Suite 200"],
+        "human_parameter_description": "Provide the street address for the lead or their company. Include suite or unit if applicable.",
+        "human_parameter_name": "Street Address",
+        "title": "Street",
+        "type": "string"
+      },
+      "Title": {
+        "default": "",
+        "description": "Lead's job title. Maximum length is 128 characters.",
+        "examples": ["CEO", "VP of Sales", "Marketing Manager"],
+        "human_parameter_description": "Add the lead's job role or title, like 'VP Sales.' This helps qualify the lead and tailor outreach.",
+        "human_parameter_name": "Job Title",
+        "maxLength": 128,
+        "title": "Title",
+        "type": "string"
+      },
+      "Website": {
+        "default": "",
+        "description": "Lead's company website.",
+        "examples": ["https://www.example.com", "www.company.com"],
+        "human_parameter_description": "Share the lead's company website URL. This gives helpful context about the business.",
+        "human_parameter_name": "Website",
+        "title": "Website",
+        "type": "string"
+      },
+      "allow_duplicates": {
+        "default": false,
+        "description": "When True, allows creating duplicate leads even if Salesforce duplicate detection rules are triggered. When False (default), creation fails if duplicates are detected and returns duplicate information in the response.",
+        "human_parameter_description": "Set to true to override duplicate detection rules and force create the lead even if duplicates exist.",
+        "human_parameter_name": "Allow Duplicates",
+        "title": "Allow Duplicates",
+        "type": "boolean"
+      }
+    },
+    "required": ["LastName", "Company"],
+    "title": "CreateLeadRequest",
+    "type": "object"
+  },
+  "name": "create_lead",
+  "outputSchema": {
+    "$defs": {
+      "CreateLeadResponse": {
+        "description": "Response from creating a Lead record in Salesforce.",
+        "properties": {
+          "errors": {
+            "description": "An array of error objects. Empty array when the operation is successful. Contains error details when the operation fails.",
+            "items": {
+              "$ref": "#/$defs/ErrorDetail"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The unique Salesforce ID of the newly created Lead record. This field is populated when the creation is successful.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the Lead creation operation was successful. Returns true if the Lead was created successfully, false otherwise.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "success", "errors"],
+        "title": "CreateLeadResponse",
+        "type": "object"
+      },
+      "DuplicateResult": {
+        "description": "Represents the duplicate detection result.",
+        "properties": {
+          "allowSave": {
+            "description": "Whether Salesforce allows saving this duplicate. If true, the lead can be created by setting allow_duplicates=True.",
+            "title": "Allow Save",
+            "type": "boolean"
+          },
+          "duplicateRule": {
+            "description": "Name of the duplicate rule that was triggered.",
+            "title": "Duplicate Rule",
+            "type": "string"
+          },
+          "duplicateRuleEntityType": {
+            "description": "The object type (e.g., 'Lead').",
+            "title": "Duplicate Rule Entity Type",
+            "type": "string"
+          },
+          "errorMessage": {
+            "description": "Error message from duplicate detection.",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "matchResults": {
+            "description": "Array of match results containing duplicate records.",
+            "items": {
+              "$ref": "#/$defs/MatchResult"
+            },
+            "title": "Match Results",
+            "type": "array"
+          }
+        },
+        "title": "DuplicateResult",
+        "type": "object"
+      },
+      "ErrorDetail": {
+        "description": "Represents an error detail in a Salesforce API response.",
+        "properties": {
+          "duplicateResult": {
+            "$ref": "#/$defs/DuplicateResult",
+            "description": "Contains duplicate detection information when error_code is 'DUPLICATES_DETECTED'. Includes details about matched records and whether duplicates can be saved.",
+            "title": "Duplicate Result"
+          },
+          "errorCode": {
+            "description": "A specific error code identifier (e.g., 'REQUIRED_FIELD_MISSING', 'FIELD_CUSTOM_VALIDATION_EXCEPTION', 'MALFORMED_ID', 'NOT_FOUND', 'DUPLICATES_DETECTED').",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "An array of field API names that are associated with the error. Particularly used for field-level validation errors. Returns the API name of the field(s) where the error occurred.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "A human-readable description of the error that occurred.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["message", "errorCode"],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "MatchRecord": {
+        "description": "Represents a matched duplicate record.",
+        "properties": {
+          "matchConfidence": {
+            "description": "Confidence score (0-100) indicating how closely this record matches.",
+            "title": "Match Confidence",
+            "type": "number"
+          },
+          "record": {
+            "additionalProperties": true,
+            "description": "The matched record details including Id and other fields.",
+            "title": "Record",
+            "type": "object"
+          }
+        },
+        "required": ["record"],
+        "title": "MatchRecord",
+        "type": "object"
+      },
+      "MatchResult": {
+        "description": "Represents match results from duplicate detection.",
+        "properties": {
+          "entityType": {
+            "description": "The Salesforce object type (e.g., 'Lead').",
+            "title": "Entity Type",
+            "type": "string"
+          },
+          "matchEngine": {
+            "description": "The matching engine used (e.g., 'FuzzyMatchEngine').",
+            "title": "Match Engine",
+            "type": "string"
+          },
+          "matchRecords": {
+            "description": "Array of matched duplicate records.",
+            "items": {
+              "$ref": "#/$defs/MatchRecord"
+            },
+            "title": "Match Records",
+            "type": "array"
+          },
+          "rule": {
+            "description": "The name of the matching rule that was triggered.",
+            "title": "Rule",
+            "type": "string"
+          },
+          "size": {
+            "description": "Number of matches found.",
+            "title": "Size",
+            "type": "integer"
+          },
+          "success": {
+            "description": "Indicates if matching was successful.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "MatchResult",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateLeadResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

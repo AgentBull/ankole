@@ -1,0 +1,268 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List group memberships for a specific Zendesk group. Use when you need to retrieve all members assigned to a particular group, audit group membership, or understand which users belong to a specific support group. This action is read-only and idempotent. Supports both offset pagination (page, per_page) and cursor pagination (page_size, page_after, page_before). Also supports sideloading users and groups via the include parameter.",
+  "inputSchema": {
+    "description": "Request parameters for listing group memberships for a specific Zendesk group.",
+    "properties": {
+      "group_id": {
+        "description": "The numeric ID of the group to retrieve memberships for. This is the group ID, not a membership ID.",
+        "examples": [26923118304412],
+        "human_parameter_description": "The unique ID of the Zendesk group whose memberships you want to list. This is the group ID, not the membership ID.",
+        "human_parameter_name": "Group ID",
+        "title": "Group Id",
+        "type": "integer"
+      },
+      "include": {
+        "description": "Sideloads to include in the response. Accepts a comma-separated list of values. Valid values: `users`, `groups`.",
+        "examples": ["users"],
+        "human_parameter_description": "Include additional data like users or groups. Accepts comma-separated values like 'users,groups'.",
+        "human_parameter_name": "Include",
+        "title": "Include",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number for offset pagination (starts at 1). Cannot be used with cursor pagination.",
+        "examples": [1],
+        "human_parameter_description": "Which page of results you want to view. Start at 1. Cannot be used with cursor pagination.",
+        "human_parameter_name": "Page Number",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "page_after": {
+        "description": "Cursor for fetching next page in cursor pagination. Use with page_size. Cannot be used with offset pagination.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token from previous page for pagination. Use with page_size.",
+        "human_parameter_name": "Page Cursor",
+        "title": "Page After",
+        "type": "string"
+      },
+      "page_before": {
+        "description": "Cursor for fetching previous page in cursor pagination. Use with page_size. Cannot be used with offset pagination.",
+        "examples": ["<cursor_token_from_previous_response>"],
+        "human_parameter_description": "Cursor token to go to previous page. Use with page_size.",
+        "human_parameter_name": "Before Cursor",
+        "title": "Page Before",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Number of records per page for cursor pagination (max 100). Use with page_after. Cannot be used with offset pagination.",
+        "examples": [25],
+        "human_parameter_description": "Number of records per page using cursor pagination. Use with page_after. Cannot be used with offset pagination.",
+        "human_parameter_name": "Page Size",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of records to return per page (max 100).",
+        "examples": [25],
+        "human_parameter_description": "How many membership records to show per page. Up to 100.",
+        "human_parameter_name": "Records Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort": {
+        "description": "Field to sort results by. Prefix with `-` for descending order. Example: `?sort=user_id` or `?sort=-created_at`",
+        "examples": ["user_id"],
+        "human_parameter_description": "Field to sort results by. Prefix with - for descending. Examples: user_id, created_at, -created_at.",
+        "human_parameter_name": "Sort By",
+        "title": "Sort",
+        "type": "string"
+      }
+    },
+    "required": ["group_id"],
+    "title": "GetGroupMembershipsByGroupRequest",
+    "type": "object"
+  },
+  "name": "get_group_memberships_by_group",
+  "outputSchema": {
+    "$defs": {
+      "GetGroupMembershipsByGroupResponse": {
+        "description": "Response containing list of Zendesk group memberships for a specific group.",
+        "properties": {
+          "after_cursor": {
+            "description": "Cursor for next page (cursor pagination only)",
+            "title": "After Cursor",
+            "type": "string"
+          },
+          "before_cursor": {
+            "description": "Cursor for previous page (cursor pagination only)",
+            "title": "Before Cursor",
+            "type": "string"
+          },
+          "count": {
+            "description": "Total count of group memberships (offset pagination only)",
+            "title": "Count",
+            "type": "integer"
+          },
+          "group_memberships": {
+            "description": "List of group memberships for the specified group",
+            "items": {
+              "$ref": "#/$defs/GroupMembership"
+            },
+            "title": "Group Memberships",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether more results are available (cursor pagination only)",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_page": {
+            "description": "URL for next page of results (offset pagination)",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results (offset pagination)",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["group_memberships"],
+        "title": "GetGroupMembershipsByGroupResponse",
+        "type": "object"
+      },
+      "GroupMembership": {
+        "description": "Zendesk group membership object.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the membership was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether this is the user's default group",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "group": {
+            "$ref": "#/$defs/GroupMembershipGroup",
+            "description": "Sideloaded group object (when include=groups)",
+            "title": "Group"
+          },
+          "group_id": {
+            "description": "ID of the group in the membership",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique membership ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "Timestamp when the membership was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the membership",
+            "title": "Url",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/GroupMembershipUser",
+            "description": "Sideloaded user object (when include=users)",
+            "title": "User"
+          },
+          "user_id": {
+            "description": "ID of the user in the membership",
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": ["user_id", "group_id"],
+        "title": "GroupMembership",
+        "type": "object"
+      },
+      "GroupMembershipGroup": {
+        "description": "Sideloaded group object within group membership.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when group was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "Whether the group is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Group ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Group name",
+            "title": "Name",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when group was updated",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "title": "GroupMembershipGroup",
+        "type": "object"
+      },
+      "GroupMembershipUser": {
+        "description": "Sideloaded user object within group membership.",
+        "properties": {
+          "active": {
+            "description": "Whether the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "User's email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User's full name",
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "description": "User role (end-user, agent, admin)",
+            "title": "Role",
+            "type": "string"
+          },
+          "verified": {
+            "description": "Whether the user is verified",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "title": "GroupMembershipUser",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetGroupMembershipsByGroupResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

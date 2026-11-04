@@ -1,0 +1,125 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new deploy record in Sentry to track the introduction of a release version into a specific environment.",
+  "inputSchema": {
+    "description": "Request schema for `CreateReleaseDeployForOrg`",
+    "properties": {
+      "dateFinished": {
+        "description": "An optional ISO 8601 formatted date-time string (UTC is recommended) indicating when the deployment process finished. If not provided, Sentry uses the time the deploy API call is received.",
+        "examples": ["2024-01-15T12:30:00Z", "2024-01-01T01:00:00Z"],
+        "format": "date-time",
+        "title": "Date Finished",
+        "type": "string"
+      },
+      "dateStarted": {
+        "description": "An optional ISO 8601 formatted date-time string (UTC is recommended) indicating when the deployment process started.",
+        "examples": ["2024-01-15T10:00:00Z", "2023-12-31T23:59:59.999Z"],
+        "format": "date-time",
+        "title": "Date Started",
+        "type": "string"
+      },
+      "environment": {
+        "description": "The name of the environment to which this release is being deployed (e.g., 'production', 'staging'). This environment must be known to Sentry.",
+        "examples": ["production", "staging", "development"],
+        "title": "Environment",
+        "type": "string"
+      },
+      "name": {
+        "description": "An optional human-readable name for the deploy.",
+        "examples": ["Frontend Deployment Q3", "API Rollout v1.2"],
+        "title": "Name",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization.",
+        "examples": ["my-org", "sentry-org-slug", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "projects": {
+        "description": "An optional list of project slugs to associate this deploy with. If not provided, the deploy applies to all projects associated with the release.",
+        "examples": ["['frontend-app', 'backend-api']", "['mobile-app']"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Projects",
+        "type": "array"
+      },
+      "url": {
+        "description": "An optional URL that provides a link to the deployment, such as a commit or a CI build page.",
+        "examples": [
+          "https://github.com/my-org/my-repo/commit/abcdef123456",
+          "https://jenkins.example.com/job/my-job/123"
+        ],
+        "title": "Url",
+        "type": "string"
+      },
+      "version": {
+        "description": "The version identifier of the release to be deployed. This version must already exist in Sentry.",
+        "examples": ["1.0.0", "v2.3-alpha", "nightly-build-123"],
+        "title": "Version",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "version", "environment"],
+    "title": "CreateReleaseDeployForOrgRequest",
+    "type": "object"
+  },
+  "name": "create_release_deploy_for_org",
+  "outputSchema": {
+    "$defs": {
+      "CreateReleaseDeployForOrgResponse": {
+        "description": "Response schema for `CreateReleaseDeployForOrg`",
+        "properties": {
+          "dateFinished": {
+            "description": "An optional date that indicates when the deploy ended. If not provided in the request, the current time is used",
+            "title": "Date Finished",
+            "type": "string"
+          },
+          "dateStarted": {
+            "description": "An optional date that indicates when the deploy started",
+            "title": "Date Started",
+            "type": "string"
+          },
+          "environment": {
+            "description": "The environment name",
+            "title": "Environment",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the deploy",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The optional name of the deploy",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "The optional URL that points to the deploy",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "environment", "dateFinished"],
+        "title": "CreateReleaseDeployForOrgResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateReleaseDeployForOrgResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

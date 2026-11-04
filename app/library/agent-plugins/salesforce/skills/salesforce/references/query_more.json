@@ -1,0 +1,72 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve the next page of SOQL results using a query locator (GET /query/{queryLocator}). SOQL queries return at most ~2000 rows per response plus a nextRecordsUrl when more remain; this action follows that locator. Call it repeatedly, passing each response's nextRecordsUrl, until done=true. Without it, run_soql_query / query results beyond the first page are unreachable.",
+  "inputSchema": {
+    "properties": {
+      "next_records_url": {
+        "description": "The nextRecordsUrl from a previous query / queryAll / run_soql_query response where done=false. Pass it exactly as returned — the relative path '/services/data/v<ver>/query/<locator>' (or '/queryAll/<locator>'). Call this action repeatedly, passing each response's nextRecordsUrl, until done=true. (Bare locator tokens and absolute URLs are not accepted — the query vs queryAll resource is only known from the path.)",
+        "examples": [
+          "/services/data/v67.0/query/01gD0000002HU6KIAW-2000",
+          "/services/data/v67.0/queryAll/01gD0000002HU6KIAW-2000"
+        ],
+        "minLength": 1,
+        "title": "Next Records Url",
+        "type": "string"
+      }
+    },
+    "required": ["next_records_url"],
+    "title": "QueryMoreRequest",
+    "type": "object"
+  },
+  "name": "query_more",
+  "outputSchema": {
+    "$defs": {
+      "QueryMoreResponse": {
+        "description": "A page of SOQL query results retrieved via a query locator.",
+        "properties": {
+          "done": {
+            "description": "True when this is the final page. When false, pass this response's nextRecordsUrl back into this action to fetch the next page.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "nextRecordsUrl": {
+            "description": "The query locator path for the next page. Present only when done is false.",
+            "title": "Next Records Url",
+            "type": "string"
+          },
+          "records": {
+            "description": "The records in this page (up to ~2000). Each record includes an 'attributes' object plus the queried fields.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "totalSize": {
+            "description": "The total number of records matching the original query across all pages.",
+            "title": "Total Size",
+            "type": "integer"
+          }
+        },
+        "required": ["totalSize", "done", "records"],
+        "title": "QueryMoreResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/QueryMoreResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

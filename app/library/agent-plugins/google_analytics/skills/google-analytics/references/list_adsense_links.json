@@ -1,0 +1,89 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists a page of AdSense links for a Google Analytics property. Use the returned next-page token to retrieve additional pages.",
+  "inputSchema": {
+    "description": "Request model for listing AdSenseLinks on a Google Analytics property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of results to return. Must be between 1 and 200. Defaults to 50.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. Token for retrieving the next page of results.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. Resource name of the property. Format: properties/{propertyId} (e.g., properties/1234).",
+        "examples": ["properties/1234"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListAdsenseLinksRequest",
+    "type": "object"
+  },
+  "name": "list_adsense_links",
+  "outputSchema": {
+    "$defs": {
+      "AdSenseLink": {
+        "description": "Schema for an AdSenseLink resource.",
+        "properties": {
+          "adClientCode": {
+            "description": "Immutable. The AdSense ad client code that the Google Analytics property is linked to. Example: ca-pub-1234567890.",
+            "title": "Ad Client Code",
+            "type": "string"
+          },
+          "name": {
+            "description": "Output only. Resource name of the link. Format: properties/{propertyId}/adSenseLinks/{linkId}.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["name", "adClientCode"],
+        "title": "AdSenseLink",
+        "type": "object"
+      },
+      "ListAdsenseLinksResponse": {
+        "description": "Response model for listing AdSenseLinks.",
+        "properties": {
+          "adsenseLinks": {
+            "description": "List of AdSenseLink resources.",
+            "items": {
+              "$ref": "#/$defs/AdSenseLink"
+            },
+            "title": "Adsense Links",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "Token to retrieve the next page of results, if any.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "ListAdsenseLinksResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListAdsenseLinksResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

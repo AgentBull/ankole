@@ -1,0 +1,109 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Executes a SOQL SELECT query against Salesforce data and returns a page of matching records with pagination information. Queries using FIELDS(ALL) or FIELDS(CUSTOM) are limited to 200 records.",
+  "inputSchema": {
+    "properties": {
+      "query": {
+        "description": "SOQL query to execute. Must start with SELECT. Field names must match object schema exactly — use salesforce.get_all_fields_for_object for unfamiliar objects. ALIASES: No 'AS' keyword (use 'SUM(Amount) TotalSales' NOT 'SUM(Amount) AS TotalSales'). AGGREGATES: Without GROUP BY, ORDER BY/LIMIT not allowed (single-row result). COUNT() SYNTAX: Bare COUNT() only valid alone. With GROUP BY or other fields, must specify field: COUNT(Id) or COUNT(fieldName). Example: 'SELECT COUNT(Id), Status FROM Lead GROUP BY Status' NOT 'SELECT COUNT(), Status FROM Lead GROUP BY Status'. NON-GROUPABLE: Long text, rich text, encrypted text, compound address/location fields. NON-FILTERABLE: Long text area, rich text, encrypted text, multi-select picklists, blob fields CANNOT be in WHERE. FIELDS(ALL)/FIELDS(CUSTOM) require LIMIT ≤200. ID values need single quotes. Apostrophes use backslash: 'O\\'Brien'.",
+        "examples": [
+          "SELECT Id, Name, Email FROM Contact WHERE CreatedDate > 2024-01-01T00:00:00Z",
+          "SELECT Name, (SELECT LastName FROM Contacts) FROM Account",
+          "SELECT COUNT() FROM Lead WHERE Status = 'New'",
+          "SELECT COUNT(Id), StageName FROM Opportunity GROUP BY StageName",
+          "SELECT Id, Name FROM Opportunity ORDER BY Amount DESC LIMIT 10",
+          "SELECT FIELDS(ALL) FROM Account LIMIT 200",
+          "SELECT Id, Name FROM Contact WHERE LastName = 'O\\'Brien'",
+          "SELECT Id, Name, Description FROM Account LIMIT 10"
+        ],
+        "human_parameter_description": "The SOQL statement to run against your Salesforce data. Write the query that selects and filters the records you want to retrieve.",
+        "human_parameter_name": "Query",
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": ["query"],
+    "title": "ExecuteSoqlQueryRequest",
+    "type": "object"
+  },
+  "name": "run_soql_query",
+  "outputSchema": {
+    "$defs": {
+      "ExecuteSoqlQueryResponse": {
+        "description": "Response from executing a SOQL query against Salesforce data.",
+        "properties": {
+          "done": {
+            "description": "Indicates whether all results have been retrieved. Set to true when this is the final batch; false when additional records remain.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "nextRecordsUrl": {
+            "description": "The URL path to retrieve the next batch of records. Present only when done is false. Contains a query locator for pagination.",
+            "title": "Next Records Url",
+            "type": "string"
+          },
+          "records": {
+            "description": "Array of records returned by the query. Limited to a maximum of 2000 records per response.",
+            "items": {
+              "$ref": "#/$defs/QueryRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "totalSize": {
+            "description": "The total number of records that match the SOQL query across all pages.",
+            "title": "Total Size",
+            "type": "integer"
+          }
+        },
+        "required": ["totalSize", "done", "records"],
+        "title": "ExecuteSoqlQueryResponse",
+        "type": "object"
+      },
+      "QueryRecord": {
+        "additionalProperties": true,
+        "description": "A single record returned by the SOQL query.",
+        "properties": {
+          "attributes": {
+            "$ref": "#/$defs/RecordAttributes",
+            "title": "Attributes"
+          }
+        },
+        "required": ["attributes"],
+        "title": "QueryRecord",
+        "type": "object"
+      },
+      "RecordAttributes": {
+        "description": "Metadata about the record, including type and URL for RESTful access.",
+        "properties": {
+          "type": {
+            "description": "The Salesforce object type of this record (e.g., Account, Contact, Opportunity, AggregateResult).",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The REST API endpoint URL to directly access this specific record. Not present for aggregate query results.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "RecordAttributes",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ExecuteSoqlQueryResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

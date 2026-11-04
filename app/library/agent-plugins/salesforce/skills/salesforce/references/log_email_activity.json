@@ -1,0 +1,223 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates an EmailMessage record to log email activity in Salesforce, associating it with related records. Requires EmailMessage insert permissions enabled at the org level; some orgs block this entirely.",
+  "inputSchema": {
+    "properties": {
+      "bcc_address": {
+        "default": "",
+        "description": "BCC email addresses (comma-separated if multiple).",
+        "examples": ["archive@company.com", "compliance@company.com"],
+        "human_parameter_description": "Add hidden recipients who should receive the email without others seeing their addresses.",
+        "human_parameter_name": "BCC Address",
+        "title": "Bcc Address",
+        "type": "string"
+      },
+      "cc_address": {
+        "default": "",
+        "description": "CC email addresses (comma-separated if multiple).",
+        "examples": ["manager@company.com", "team@company.com,support@company.com"],
+        "human_parameter_description": "Add anyone you want to copy on the email. Separate multiple addresses with commas.",
+        "human_parameter_name": "CC Address",
+        "title": "Cc Address",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values. Custom field names typically end with '__c' (e.g., 'Email_Category__c').",
+        "examples": [
+          {
+            "Customer_Visible__c": true,
+            "Email_Category__c": "Follow-up"
+          },
+          {
+            "External_Message_ID__c": "MSG-98765"
+          }
+        ],
+        "human_parameter_description": "Provide custom Salesforce fields to capture org-specific email metadata. Use the API field name (ending in '__c') as the key.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "from_address": {
+        "description": "Email address of the sender.",
+        "examples": ["sales@company.com", "john.doe@company.com"],
+        "human_parameter_description": "The email address the message was sent from. Use the sender’s mailbox.",
+        "human_parameter_name": "From Address",
+        "title": "From Address",
+        "type": "string"
+      },
+      "html_body": {
+        "default": "",
+        "description": "HTML body of the email. If provided, takes precedence over text_body for display.",
+        "examples": [
+          "<html><body><p>Thank you for your time today.</p></body></html>",
+          "<h1>Product Information</h1><p>Please see the details below...</p>"
+        ],
+        "human_parameter_description": "Paste the formatted (HTML) version of the email content for rich formatting. If provided, this will be shown instead of the plain text.",
+        "human_parameter_name": "HTML Body",
+        "title": "Html Body",
+        "type": "string"
+      },
+      "is_client_managed": {
+        "default": true,
+        "description": "Whether the email is client-managed (not sent through Salesforce).",
+        "human_parameter_description": "Turn this on if the email was handled outside Salesforce. It helps track emails sent from external mail clients.",
+        "human_parameter_name": "Client Managed",
+        "title": "Is Client Managed",
+        "type": "boolean"
+      },
+      "is_externally_visible": {
+        "default": true,
+        "description": "Whether the email is visible in customer portals/communities.",
+        "human_parameter_description": "Choose whether customers can see this email in portals or communities.",
+        "human_parameter_name": "Externally Visible",
+        "title": "Is Externally Visible",
+        "type": "boolean"
+      },
+      "is_incoming": {
+        "default": false,
+        "description": "Whether this is an incoming email (true) or outgoing email (false).",
+        "human_parameter_description": "Select whether the email was received (incoming) or sent (outgoing) so the direction is recorded correctly.",
+        "human_parameter_name": "Is Incoming",
+        "title": "Is Incoming",
+        "type": "boolean"
+      },
+      "message_date": {
+        "description": "Date/time the email was sent in ISO format. Defaults to current time if not provided. Must be an explicit ISO datetime string; relative expressions like 'yesterday' cause validation errors.",
+        "examples": ["2025-08-28T14:30:00", "2025-08-28T09:15:00-05:00"],
+        "human_parameter_description": "When the email was sent. Leave this blank to use the current time, or provide the date and time if you want to set it explicitly.",
+        "human_parameter_name": "Message Date",
+        "title": "Message Date",
+        "type": "string"
+      },
+      "parent_id": {
+        "default": "",
+        "description": "ID of the parent record, typically a Case for case-related emails.",
+        "examples": ["500XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "Provide the parent record ID if this email belongs under a specific parent (often a Case) to keep related messages organized.",
+        "human_parameter_name": "Parent ID",
+        "title": "Parent Id",
+        "type": "string"
+      },
+      "related_to_id": {
+        "description": "ID of the record to associate this email with (Account, Opportunity, Case, etc.). Must reference a supported object type (Account, Opportunity, Case, Contact, Lead, etc.); unsupported object types cause validation errors or create standalone records invisible on timelines.",
+        "examples": ["001XXXXXXXXXXXXXXX", "006XXXXXXXXXXXXXXX", "500XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "Paste the Salesforce record ID (e.g., Account, Opportunity, or Case) that this email should be linked to, so it appears on the right record.",
+        "human_parameter_name": "Related To ID",
+        "title": "Related To Id",
+        "type": "string"
+      },
+      "status": {
+        "default": "3",
+        "description": "Status of the email. 0=New, 1=Read, 2=Replied, 3=Sent, 4=Forwarded, 5=Draft",
+        "examples": ["0", "3", "5"],
+        "human_parameter_description": "Choose how this email should be marked in Salesforce (for example, New, Sent, or Draft). If unsure, keep the default.",
+        "human_parameter_name": "Status",
+        "title": "Status",
+        "type": "string"
+      },
+      "subject": {
+        "description": "Subject line of the email.",
+        "examples": ["Follow-up on our meeting", "Product information requested", "Contract renewal discussion"],
+        "human_parameter_description": "Enter the email’s subject line so the message is easy to recognize and find later.",
+        "human_parameter_name": "Subject",
+        "title": "Subject",
+        "type": "string"
+      },
+      "text_body": {
+        "default": "",
+        "description": "Plain text body of the email.",
+        "examples": [
+          "Thank you for your time today. Please find the attached proposal.",
+          "As discussed, here are the product specifications you requested."
+        ],
+        "human_parameter_description": "Paste the email content in plain text. Use this if you don’t need rich formatting.",
+        "human_parameter_name": "Text Body",
+        "title": "Text Body",
+        "type": "string"
+      },
+      "to_address": {
+        "description": "Email addresses of the recipients (comma-separated if multiple).",
+        "examples": ["customer@example.com", "jane@company.com,bob@company.com"],
+        "human_parameter_description": "Enter one or more recipient email addresses. Separate multiple addresses with commas.",
+        "human_parameter_name": "To Address",
+        "title": "To Address",
+        "type": "string"
+      }
+    },
+    "required": ["subject", "from_address", "to_address", "related_to_id"],
+    "title": "LogEmailActivityRequest",
+    "type": "object"
+  },
+  "name": "log_email_activity",
+  "outputSchema": {
+    "$defs": {
+      "ErrorDetail": {
+        "description": "Error detail returned when the Salesforce operation fails.",
+        "properties": {
+          "fields": {
+            "description": "An array containing the API Name(s) of the field(s) related to the error. Only present when the error is related to specific fields.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "A human-readable error message explaining what went wrong and providing information about the field or object where the error occurred.",
+            "title": "Message",
+            "type": "string"
+          },
+          "statusCode": {
+            "description": "A string identifier for the error type (e.g., 'FIELD_CUSTOM_VALIDATION_EXCEPTION', 'INVALID_SESSION_ID', 'NOT_FOUND', 'REQUIRED_FIELD_MISSING').",
+            "title": "Status Code",
+            "type": "string"
+          }
+        },
+        "required": ["statusCode", "message"],
+        "title": "ErrorDetail",
+        "type": "object"
+      },
+      "LogEmailActivityResponse": {
+        "description": "Response from Salesforce after creating an EmailMessage record.",
+        "properties": {
+          "errors": {
+            "description": "An array of error objects. Empty array when the operation succeeds. Contains error details when the operation fails.",
+            "items": {
+              "$ref": "#/$defs/ErrorDetail"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The 18-character Salesforce ID of the newly created record. This field contains a value if the object was successfully inserted. If this field is empty, the operation was not successful.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Boolean value indicating whether the operation was successful (true) or not (false).",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "success", "errors"],
+        "title": "LogEmailActivityResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/LogEmailActivityResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

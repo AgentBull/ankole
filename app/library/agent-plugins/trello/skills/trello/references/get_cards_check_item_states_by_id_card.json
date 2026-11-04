@@ -1,0 +1,77 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Gets the completed checklist items on a Trello card. Note: This endpoint only returns check items marked as 'complete', not incomplete items. Returns item IDs and states, not full checklist or card details.",
+  "inputSchema": {
+    "description": "Request model for fetching check item states from a Trello card.",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Specifies the fields to return for each check item state. Use 'all' to retrieve all available fields, or provide a comma-separated list of specific fields. Valid fields are 'idCheckItem' and 'state'.",
+        "examples": ["all", "idCheckItem", "state", "idCheckItem,state"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "The unique identifier (ID) or short link of the Trello card for which to retrieve check item states.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "cNePxygY"],
+        "title": "Id Card",
+        "type": "string"
+      }
+    },
+    "required": ["idCard"],
+    "title": "GetCardsCheckItemStatesByIdCardRequest",
+    "type": "object"
+  },
+  "name": "get_cards_check_item_states_by_id_card",
+  "outputSchema": {
+    "$defs": {
+      "CheckItemState": {
+        "description": "Represents the state of a single checklist item that has been marked complete.",
+        "properties": {
+          "idCheckItem": {
+            "description": "The unique identifier of the checklist item",
+            "title": "Id Check Item",
+            "type": "string"
+          },
+          "state": {
+            "description": "The completion state of the checklist item. Will be 'complete' for items returned by this endpoint",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "CheckItemState",
+        "type": "object"
+      },
+      "GetCardsCheckItemStatesByIdCardResponse": {
+        "description": "Response model containing the check item states for a specified Trello card.",
+        "properties": {
+          "check_item_states": {
+            "description": "Array of check item states for the specified card",
+            "items": {
+              "$ref": "#/$defs/CheckItemState"
+            },
+            "title": "Check Item States",
+            "type": "array"
+          }
+        },
+        "required": ["check_item_states"],
+        "title": "GetCardsCheckItemStatesByIdCardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCardsCheckItemStatesByIdCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

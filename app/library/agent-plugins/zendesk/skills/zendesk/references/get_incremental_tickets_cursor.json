@@ -1,0 +1,452 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Export tickets incrementally using cursor-based pagination for synchronization, backups, or analytics. Supply a start time for the initial request and use the returned cursor in subsequent requests to fetch further pages.",
+  "inputSchema": {
+    "description": "Request parameters for incremental ticket export with cursor-based pagination.",
+    "properties": {
+      "cursor": {
+        "description": "The cursor pointer for pagination. Use the after_cursor value from a previous response to fetch subsequent pages of tickets.",
+        "examples": ["MTU3NjYxMzUzOS4wfHw0Njd8"],
+        "human_parameter_description": "Pagination cursor token. Obtain from a previous response's 'after_cursor' value to get the next page of results.",
+        "human_parameter_name": "Cursor",
+        "title": "Cursor",
+        "type": "string"
+      },
+      "start_time": {
+        "description": "The Unix timestamp (seconds since epoch) to start the incremental export from. Must be at least one minute in the past. Data isn't provided for the most recent minute. Required on the initial export request; not required on subsequent cursor-based pagination requests.",
+        "examples": [1332034771, 1713702000],
+        "human_parameter_description": "Unix timestamp for when to start the export. Must be at least one minute in the past. Required for the first request but optional when using cursor pagination.",
+        "human_parameter_name": "Start Time",
+        "title": "Start Time",
+        "type": "integer"
+      },
+      "support_type_scope": {
+        "description": "Filter tickets by support type. Possible values are 'all', 'agent', or 'ai_agent'. Defaults to 'agent'.",
+        "examples": ["agent", "all", "ai_agent"],
+        "human_parameter_description": "Filter tickets by their support type origin - 'agent' (human agent), 'ai_agent' (AI agent), or 'all' (both). Defaults to 'agent'.",
+        "human_parameter_name": "Support Type Scope",
+        "title": "Support Type Scope",
+        "type": "string"
+      }
+    },
+    "title": "GetIncrementalTicketsCursorRequest",
+    "type": "object"
+  },
+  "name": "get_incremental_tickets_cursor",
+  "outputSchema": {
+    "$defs": {
+      "GetIncrementalTicketsCursorResponse": {
+        "description": "Response for incremental ticket export with cursor-based pagination.",
+        "properties": {
+          "after_cursor": {
+            "description": "Cursor value for the next page. Use this value for the cursor parameter in subsequent requests.",
+            "title": "After Cursor",
+            "type": "string"
+          },
+          "after_url": {
+            "description": "URL to fetch the next page of results. Null if this is the last page (end_of_stream is true).",
+            "title": "After Url",
+            "type": "string"
+          },
+          "before_cursor": {
+            "description": "Cursor value for the previous page. Null if this is the first page.",
+            "title": "Before Cursor",
+            "type": "string"
+          },
+          "before_url": {
+            "description": "URL to fetch the previous page of results. Null if this is the first page.",
+            "title": "Before Url",
+            "type": "string"
+          },
+          "end_of_stream": {
+            "description": "Indicates whether this is the last page of results. When true, there are no more tickets to export.",
+            "title": "End Of Stream",
+            "type": "boolean"
+          },
+          "tickets": {
+            "description": "Array of tickets that have changed since start_time",
+            "items": {
+              "$ref": "#/$defs/Ticket"
+            },
+            "title": "Tickets",
+            "type": "array"
+          }
+        },
+        "required": ["tickets", "end_of_stream"],
+        "title": "GetIncrementalTicketsCursorResponse",
+        "type": "object"
+      },
+      "SatisfactionRating": {
+        "description": "Satisfaction rating for a ticket.",
+        "properties": {
+          "comment": {
+            "description": "Optional comment provided with the satisfaction rating",
+            "title": "Comment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the satisfaction rating",
+            "title": "Id",
+            "type": "integer"
+          },
+          "score": {
+            "description": "Satisfaction score (e.g., 'good', 'bad', 'unoffered')",
+            "title": "Score",
+            "type": "string"
+          }
+        },
+        "title": "SatisfactionRating",
+        "type": "object"
+      },
+      "Ticket": {
+        "description": "A ticket object in the incremental export response.",
+        "properties": {
+          "assignee_id": {
+            "description": "ID of the assigned agent",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "brand_id": {
+            "description": "Brand ID associated with the ticket",
+            "title": "Brand Id",
+            "type": "integer"
+          },
+          "collaborator_ids": {
+            "description": "IDs of users added as collaborators",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Ticket creation timestamp (ISO 8601)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "Custom field values for the ticket",
+            "items": {
+              "$ref": "#/$defs/TicketCustomFields"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "custom_status_id": {
+            "description": "Custom status ID for the ticket",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Ticket description",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "description": "Ticket due date timestamp",
+            "title": "Due At",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External identifier for the ticket",
+            "title": "External Id",
+            "type": "string"
+          },
+          "follower_ids": {
+            "description": "IDs of users following the ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Follower Ids",
+            "type": "array"
+          },
+          "from_messaging_channel": {
+            "description": "Whether ticket was created from a messaging channel",
+            "title": "From Messaging Channel",
+            "type": "boolean"
+          },
+          "generated_timestamp": {
+            "description": "Unix timestamp when the ticket data was generated",
+            "title": "Generated Timestamp",
+            "type": "integer"
+          },
+          "group_id": {
+            "description": "ID of the assigned group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "has_incidents": {
+            "description": "Whether the ticket has related incidents",
+            "title": "Has Incidents",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique ticket ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "ID of the requester's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Ticket priority (urgent, high, normal, low)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "problem_id": {
+            "description": "For incident tickets, the related problem ticket ID",
+            "title": "Problem Id",
+            "type": "integer"
+          },
+          "raw_subject": {
+            "description": "Raw subject with placeholder tokens",
+            "title": "Raw Subject",
+            "type": "string"
+          },
+          "recipient": {
+            "description": "Email address of the ticket recipient",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "ID of the user who requested the ticket",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "satisfaction_rating": {
+            "$ref": "#/$defs/SatisfactionRating",
+            "description": "Customer satisfaction rating for the ticket",
+            "title": "Satisfaction Rating"
+          },
+          "sharing_agreement_ids": {
+            "description": "IDs of sharing agreements associated with the ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sharing Agreement Ids",
+            "type": "array"
+          },
+          "status": {
+            "description": "Ticket status (new, open, pending, hold, solved, closed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Ticket subject",
+            "title": "Subject",
+            "type": "string"
+          },
+          "submitter_id": {
+            "description": "ID of the user who submitted the ticket",
+            "title": "Submitter Id",
+            "type": "integer"
+          },
+          "tags": {
+            "description": "List of ticket tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "description": "Ticket type (problem, incident, question, task)",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Ticket last update timestamp (ISO 8601)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the ticket",
+            "title": "Url",
+            "type": "string"
+          },
+          "via": {
+            "$ref": "#/$defs/ViaChannel",
+            "description": "How the ticket was created (channel, source, etc.)",
+            "title": "Via"
+          }
+        },
+        "required": ["id"],
+        "title": "Ticket",
+        "type": "object"
+      },
+      "TicketCustomFields": {
+        "description": "Custom fields array element for ticket.",
+        "properties": {
+          "id": {
+            "description": "Custom field ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "Custom field value",
+            "title": "Value"
+          }
+        },
+        "title": "TicketCustomFields",
+        "type": "object"
+      },
+      "ViaChannel": {
+        "description": "Via channel information indicating how ticket was created.",
+        "properties": {
+          "channel": {
+            "description": "Channel name (web, email, api, etc.)",
+            "title": "Channel",
+            "type": "string"
+          },
+          "id": {
+            "description": "Via ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/$defs/ViaSource",
+            "description": "Source details",
+            "title": "Source"
+          }
+        },
+        "title": "ViaChannel",
+        "type": "object"
+      },
+      "ViaSource": {
+        "description": "Source object within the via field.",
+        "properties": {
+          "from": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "From address details",
+            "title": "From",
+            "type": "object"
+          },
+          "rel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "Relationship type",
+            "title": "Rel"
+          },
+          "to": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "To address details",
+            "title": "To",
+            "type": "object"
+          }
+        },
+        "title": "ViaSource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetIncrementalTicketsCursorResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

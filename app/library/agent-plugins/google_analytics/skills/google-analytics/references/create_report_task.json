@@ -1,0 +1,639 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a report task as a long-running asynchronous request for customized Google Analytics event data reports. Use when you need to generate large or complex reports that process asynchronously.",
+  "inputSchema": {
+    "description": "Request model for creating a report task for a GA4 property.",
+    "properties": {
+      "parent": {
+        "description": "Required. Property identifier in format 'properties/{propertyId}'. The Google Analytics property for which to create the report task.",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      },
+      "reportDefinition": {
+        "additionalProperties": false,
+        "description": "Defines how the report executes.",
+        "properties": {
+          "cohortSpec": {
+            "additionalProperties": true,
+            "description": "Cohort analysis configuration.",
+            "title": "Cohort Spec",
+            "type": "object"
+          },
+          "currencyCode": {
+            "description": "ISO 4217 currency code.",
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "dateRanges": {
+            "description": "Date ranges (max 4) with startDate, endDate (YYYY-MM-DD), and optional name.",
+            "items": {
+              "description": "Represents a date range for the report.",
+              "properties": {
+                "endDate": {
+                  "description": "End date in YYYY-MM-DD format.",
+                  "title": "End Date",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Optional name for this date range.",
+                  "title": "Name",
+                  "type": "string"
+                },
+                "startDate": {
+                  "description": "Start date in YYYY-MM-DD format.",
+                  "title": "Start Date",
+                  "type": "string"
+                }
+              },
+              "title": "DateRange",
+              "type": "object"
+            },
+            "title": "Date Ranges",
+            "type": "array"
+          },
+          "dimensionFilter": {
+            "additionalProperties": true,
+            "description": "Dimension filters (andGroup, orGroup, notExpression, or filter).",
+            "title": "Dimension Filter",
+            "type": "object"
+          },
+          "dimensions": {
+            "description": "Report dimensions with name and optional dimensionExpression.",
+            "items": {
+              "description": "Represents a dimension in the report definition.",
+              "properties": {
+                "dimensionExpression": {
+                  "additionalProperties": true,
+                  "description": "Dimension expression for custom dimensions.",
+                  "title": "Dimension Expression",
+                  "type": "object"
+                },
+                "name": {
+                  "description": "Name of the dimension.",
+                  "title": "Name",
+                  "type": "string"
+                }
+              },
+              "title": "Dimension",
+              "type": "object"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "keepEmptyRows": {
+            "description": "Include empty rows flag.",
+            "title": "Keep Empty Rows",
+            "type": "boolean"
+          },
+          "limit": {
+            "description": "Max rows to return (default 10000, max 250000).",
+            "title": "Limit",
+            "type": "string"
+          },
+          "metricAggregations": {
+            "description": "Aggregations (TOTAL, MINIMUM, MAXIMUM, COUNT).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Aggregations",
+            "type": "array"
+          },
+          "metricFilter": {
+            "additionalProperties": true,
+            "description": "Metric filters.",
+            "title": "Metric Filter",
+            "type": "object"
+          },
+          "metrics": {
+            "description": "Report metrics with name, expression, and invisible flag.",
+            "items": {
+              "description": "Represents a metric in the report definition.",
+              "properties": {
+                "expression": {
+                  "description": "Expression for the metric calculation.",
+                  "title": "Expression",
+                  "type": "string"
+                },
+                "invisible": {
+                  "description": "Whether the metric is invisible in the report.",
+                  "title": "Invisible",
+                  "type": "boolean"
+                },
+                "name": {
+                  "description": "Name of the metric.",
+                  "title": "Name",
+                  "type": "string"
+                }
+              },
+              "title": "Metric",
+              "type": "object"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "offset": {
+            "description": "Row offset for pagination.",
+            "title": "Offset",
+            "type": "string"
+          },
+          "orderBys": {
+            "description": "Sort specifications with desc, metric, or dimension ordering.",
+            "items": {
+              "description": "Sort specification for report results. Must specify exactly one of: metric, dimension, or pivot.",
+              "properties": {
+                "desc": {
+                  "description": "Whether to sort in descending order (default: false for ascending).",
+                  "title": "Desc",
+                  "type": "boolean"
+                },
+                "dimension": {
+                  "additionalProperties": false,
+                  "description": "Arranges results by dimension values.",
+                  "properties": {
+                    "dimensionName": {
+                      "description": "Dimension name from the request to order by (e.g., 'pagePath').",
+                      "title": "Dimension Name",
+                      "type": "string"
+                    },
+                    "orderType": {
+                      "default": "ORDER_TYPE_UNSPECIFIED",
+                      "description": "Controls dimension value ordering rule.",
+                      "enum": ["ORDER_TYPE_UNSPECIFIED", "ALPHANUMERIC", "CASE_INSENSITIVE_ALPHANUMERIC", "NUMERIC"],
+                      "title": "DimensionOrderType",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["dimensionName"],
+                  "title": "DimensionOrderBy",
+                  "type": "object"
+                },
+                "metric": {
+                  "additionalProperties": false,
+                  "description": "Arranges results by metric values.",
+                  "properties": {
+                    "metricName": {
+                      "description": "Metric name from the request to order by (e.g., 'screenPageViews').",
+                      "title": "Metric Name",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["metricName"],
+                  "title": "MetricOrderBy",
+                  "type": "object"
+                },
+                "pivot": {
+                  "additionalProperties": false,
+                  "description": "Arranges results by metric values within a pivot column group.",
+                  "properties": {
+                    "metricName": {
+                      "description": "Metric name from the request to order by (e.g., 'sessions').",
+                      "title": "Metric Name",
+                      "type": "string"
+                    },
+                    "pivotSelections": {
+                      "description": "Dimension name-value pairs identifying the pivot group. Sorting applies to rows matching all pairs.",
+                      "items": {
+                        "description": "A dimension name and value pair for selecting rows in pivot ordering.",
+                        "properties": {
+                          "dimensionName": {
+                            "description": "Dimension name from the request (e.g., 'browser').",
+                            "title": "Dimension Name",
+                            "type": "string"
+                          },
+                          "dimensionValue": {
+                            "description": "Order by only when the named dimension is this value (e.g., 'Chrome').",
+                            "title": "Dimension Value",
+                            "type": "string"
+                          }
+                        },
+                        "required": ["dimensionName", "dimensionValue"],
+                        "title": "PivotSelection",
+                        "type": "object"
+                      },
+                      "title": "Pivot Selections",
+                      "type": "array"
+                    }
+                  },
+                  "required": ["metricName", "pivotSelections"],
+                  "title": "PivotOrderBy",
+                  "type": "object"
+                }
+              },
+              "title": "OrderBy",
+              "type": "object"
+            },
+            "title": "Order Bys",
+            "type": "array"
+          },
+          "samplingLevel": {
+            "description": "Sample size (LOW, MEDIUM, UNSAMPLED).",
+            "title": "Sampling Level",
+            "type": "string"
+          }
+        },
+        "title": "ReportDefinition",
+        "type": "object"
+      }
+    },
+    "required": ["parent"],
+    "title": "CreateReportTaskRequest",
+    "type": "object"
+  },
+  "name": "create_report_task",
+  "outputSchema": {
+    "$defs": {
+      "CreateReportTaskResponse": {
+        "description": "Response model representing a long-running Operation for report task creation.",
+        "properties": {
+          "done": {
+            "description": "Completion status: false indicates in-progress, true indicates completed.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "error": {
+            "$ref": "#/$defs/Status",
+            "description": "Error result if the operation failed or was cancelled.",
+            "title": "Error"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Service-specific metadata with progress information and creation timestamp.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "Server-assigned unique identifier for the operation within the service.",
+            "title": "Name",
+            "type": "string"
+          },
+          "response": {
+            "$ref": "#/$defs/ReportTask",
+            "description": "The created ReportTask resource if the operation completed successfully.",
+            "title": "Response"
+          }
+        },
+        "required": ["name"],
+        "title": "CreateReportTaskResponse",
+        "type": "object"
+      },
+      "DateRange": {
+        "description": "Represents a date range for the report.",
+        "properties": {
+          "endDate": {
+            "description": "End date in YYYY-MM-DD format.",
+            "title": "End Date",
+            "type": "string"
+          },
+          "name": {
+            "description": "Optional name for this date range.",
+            "title": "Name",
+            "type": "string"
+          },
+          "startDate": {
+            "description": "Start date in YYYY-MM-DD format.",
+            "title": "Start Date",
+            "type": "string"
+          }
+        },
+        "title": "DateRange",
+        "type": "object"
+      },
+      "Dimension": {
+        "description": "Represents a dimension in the report definition.",
+        "properties": {
+          "dimensionExpression": {
+            "additionalProperties": true,
+            "description": "Dimension expression for custom dimensions.",
+            "title": "Dimension Expression",
+            "type": "object"
+          },
+          "name": {
+            "description": "Name of the dimension.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "Dimension",
+        "type": "object"
+      },
+      "DimensionOrderBy": {
+        "description": "Arranges results by dimension values.",
+        "properties": {
+          "dimensionName": {
+            "description": "Dimension name from the request to order by (e.g., 'pagePath').",
+            "title": "Dimension Name",
+            "type": "string"
+          },
+          "orderType": {
+            "$ref": "#/$defs/DimensionOrderType",
+            "default": "ORDER_TYPE_UNSPECIFIED",
+            "description": "Controls dimension value ordering (ALPHANUMERIC, CASE_INSENSITIVE_ALPHANUMERIC, NUMERIC). Defaults to ORDER_TYPE_UNSPECIFIED.",
+            "title": "Order Type"
+          }
+        },
+        "required": ["dimensionName"],
+        "title": "DimensionOrderBy",
+        "type": "object"
+      },
+      "DimensionOrderType": {
+        "description": "Controls dimension value ordering rule.",
+        "enum": ["ORDER_TYPE_UNSPECIFIED", "ALPHANUMERIC", "CASE_INSENSITIVE_ALPHANUMERIC", "NUMERIC"],
+        "title": "DimensionOrderType",
+        "type": "string"
+      },
+      "Metric": {
+        "description": "Represents a metric in the report definition.",
+        "properties": {
+          "expression": {
+            "description": "Expression for the metric calculation.",
+            "title": "Expression",
+            "type": "string"
+          },
+          "invisible": {
+            "description": "Whether the metric is invisible in the report.",
+            "title": "Invisible",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Name of the metric.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "Metric",
+        "type": "object"
+      },
+      "MetricOrderBy": {
+        "description": "Arranges results by metric values.",
+        "properties": {
+          "metricName": {
+            "description": "Metric name from the request to order by (e.g., 'screenPageViews').",
+            "title": "Metric Name",
+            "type": "string"
+          }
+        },
+        "required": ["metricName"],
+        "title": "MetricOrderBy",
+        "type": "object"
+      },
+      "OrderBy": {
+        "description": "Sort specification for report results. Must specify exactly one of: metric, dimension, or pivot.",
+        "properties": {
+          "desc": {
+            "description": "Whether to sort in descending order (default: false for ascending).",
+            "title": "Desc",
+            "type": "boolean"
+          },
+          "dimension": {
+            "$ref": "#/$defs/DimensionOrderBy",
+            "description": "Order by dimension values. Example: {'dimensionName': 'pagePath', 'orderType': 'ALPHANUMERIC'}",
+            "title": "Dimension"
+          },
+          "metric": {
+            "$ref": "#/$defs/MetricOrderBy",
+            "description": "Order by metric values. Example: {'metricName': 'screenPageViews'}",
+            "title": "Metric"
+          },
+          "pivot": {
+            "$ref": "#/$defs/PivotOrderBy",
+            "description": "Order by pivot column group. Example: {'metricName': 'sessions', 'pivotSelections': [{'dimensionName': 'browser', 'dimensionValue': 'Chrome'}]}",
+            "title": "Pivot"
+          }
+        },
+        "title": "OrderBy",
+        "type": "object"
+      },
+      "PivotOrderBy": {
+        "description": "Arranges results by metric values within a pivot column group.",
+        "properties": {
+          "metricName": {
+            "description": "Metric name from the request to order by (e.g., 'sessions').",
+            "title": "Metric Name",
+            "type": "string"
+          },
+          "pivotSelections": {
+            "description": "Dimension name-value pairs identifying the pivot group. Sorting applies to rows matching all pairs.",
+            "items": {
+              "$ref": "#/$defs/PivotSelection"
+            },
+            "title": "Pivot Selections",
+            "type": "array"
+          }
+        },
+        "required": ["metricName", "pivotSelections"],
+        "title": "PivotOrderBy",
+        "type": "object"
+      },
+      "PivotSelection": {
+        "description": "A dimension name and value pair for selecting rows in pivot ordering.",
+        "properties": {
+          "dimensionName": {
+            "description": "Dimension name from the request (e.g., 'browser').",
+            "title": "Dimension Name",
+            "type": "string"
+          },
+          "dimensionValue": {
+            "description": "Order by only when the named dimension is this value (e.g., 'Chrome').",
+            "title": "Dimension Value",
+            "type": "string"
+          }
+        },
+        "required": ["dimensionName", "dimensionValue"],
+        "title": "PivotSelection",
+        "type": "object"
+      },
+      "ReportDefinition": {
+        "description": "Defines how the report executes.",
+        "properties": {
+          "cohortSpec": {
+            "additionalProperties": true,
+            "description": "Cohort analysis configuration.",
+            "title": "Cohort Spec",
+            "type": "object"
+          },
+          "currencyCode": {
+            "description": "ISO 4217 currency code.",
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "dateRanges": {
+            "description": "Date ranges (max 4) with startDate, endDate (YYYY-MM-DD), and optional name.",
+            "items": {
+              "$ref": "#/$defs/DateRange"
+            },
+            "title": "Date Ranges",
+            "type": "array"
+          },
+          "dimensionFilter": {
+            "additionalProperties": true,
+            "description": "Dimension filters (andGroup, orGroup, notExpression, or filter).",
+            "title": "Dimension Filter",
+            "type": "object"
+          },
+          "dimensions": {
+            "description": "Report dimensions with name and optional dimensionExpression.",
+            "items": {
+              "$ref": "#/$defs/Dimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "keepEmptyRows": {
+            "description": "Include empty rows flag.",
+            "title": "Keep Empty Rows",
+            "type": "boolean"
+          },
+          "limit": {
+            "description": "Max rows to return (default 10000, max 250000).",
+            "title": "Limit",
+            "type": "string"
+          },
+          "metricAggregations": {
+            "description": "Aggregations (TOTAL, MINIMUM, MAXIMUM, COUNT).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Aggregations",
+            "type": "array"
+          },
+          "metricFilter": {
+            "additionalProperties": true,
+            "description": "Metric filters.",
+            "title": "Metric Filter",
+            "type": "object"
+          },
+          "metrics": {
+            "description": "Report metrics with name, expression, and invisible flag.",
+            "items": {
+              "$ref": "#/$defs/Metric"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "offset": {
+            "description": "Row offset for pagination.",
+            "title": "Offset",
+            "type": "string"
+          },
+          "orderBys": {
+            "description": "Sort specifications with desc, metric, or dimension ordering.",
+            "items": {
+              "$ref": "#/$defs/OrderBy"
+            },
+            "title": "Order Bys",
+            "type": "array"
+          },
+          "samplingLevel": {
+            "description": "Sample size (LOW, MEDIUM, UNSAMPLED).",
+            "title": "Sampling Level",
+            "type": "string"
+          }
+        },
+        "title": "ReportDefinition",
+        "type": "object"
+      },
+      "ReportMetadata": {
+        "description": "Execution metadata for the report task.",
+        "properties": {
+          "beginCreatingTime": {
+            "description": "RFC3339 timestamp when creation started.",
+            "title": "Begin Creating Time",
+            "type": "string"
+          },
+          "creationQuotaTokensCharged": {
+            "description": "Quota tokens consumed during creation.",
+            "title": "Creation Quota Tokens Charged",
+            "type": "integer"
+          },
+          "errorMessage": {
+            "description": "Error message if task failed.",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "state": {
+            "description": "Task state (CREATING, ACTIVE, FAILED).",
+            "enum": ["STATE_UNSPECIFIED", "CREATING", "ACTIVE", "FAILED"],
+            "title": "State",
+            "type": "string"
+          },
+          "taskRowCount": {
+            "description": "Number of rows in task result.",
+            "title": "Task Row Count",
+            "type": "integer"
+          },
+          "totalRowCount": {
+            "description": "Total rows across all pages.",
+            "title": "Total Row Count",
+            "type": "integer"
+          }
+        },
+        "title": "ReportMetadata",
+        "type": "object"
+      },
+      "ReportTask": {
+        "description": "Schema for a ReportTask resource.",
+        "properties": {
+          "name": {
+            "description": "Resource name format 'properties/{property}/reportTasks/{reportTask}'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "reportDefinition": {
+            "$ref": "#/$defs/ReportDefinition",
+            "description": "Defines how the report executes.",
+            "title": "Report Definition"
+          },
+          "reportMetadata": {
+            "$ref": "#/$defs/ReportMetadata",
+            "description": "Execution metadata (output-only).",
+            "title": "Report Metadata"
+          }
+        },
+        "title": "ReportTask",
+        "type": "object"
+      },
+      "Status": {
+        "description": "Error status for long-running operation failures.",
+        "properties": {
+          "code": {
+            "description": "Status code from google.rpc.Code enum.",
+            "title": "Code",
+            "type": "integer"
+          },
+          "details": {
+            "description": "List of messages carrying error details.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Details",
+            "type": "array"
+          },
+          "message": {
+            "description": "Developer-facing error message in English.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["code", "message"],
+        "title": "Status",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateReportTaskResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

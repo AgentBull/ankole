@@ -1,0 +1,163 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves full details for an existing Stripe coupon using its unique ID. Use when you need to check coupon validity, discount details, or redemption limits.",
+  "inputSchema": {
+    "description": "Specifies the coupon ID to retrieve.",
+    "properties": {
+      "coupon_id": {
+        "description": "Unique identifier for the coupon to retrieve.",
+        "examples": ["SQdMBeqb", "25OFF", "SUMMER2024"],
+        "title": "Coupon Id",
+        "type": "string"
+      }
+    },
+    "required": ["coupon_id"],
+    "title": "GetCouponRequest",
+    "type": "object"
+  },
+  "name": "get_coupon",
+  "outputSchema": {
+    "$defs": {
+      "AppliesTo": {
+        "description": "Details about which products the coupon applies to.",
+        "properties": {
+          "products": {
+            "description": "List of product IDs this coupon applies to.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Products",
+            "type": "array"
+          }
+        },
+        "required": ["products"],
+        "title": "AppliesTo",
+        "type": "object"
+      },
+      "CurrencyOption": {
+        "description": "Currency-specific coupon configuration.",
+        "properties": {
+          "amount_off": {
+            "description": "Discount amount for the specified currency in smallest currency unit.",
+            "title": "Amount Off",
+            "type": "integer"
+          }
+        },
+        "required": ["amount_off"],
+        "title": "CurrencyOption",
+        "type": "object"
+      },
+      "GetCouponResponse": {
+        "description": "Contains detailed information of the retrieved coupon.",
+        "properties": {
+          "amount_off": {
+            "description": "Fixed discount amount in smallest currency unit (e.g., cents). Null if percentage-based discount.",
+            "title": "Amount Off",
+            "type": "integer"
+          },
+          "applies_to": {
+            "$ref": "#/$defs/AppliesTo",
+            "description": "Product restrictions containing list of product IDs this coupon applies to.",
+            "title": "Applies To"
+          },
+          "created": {
+            "description": "Unix timestamp of when the coupon was created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code (lowercase) for amount_off. Required if amount_off is set.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "currency_options": {
+            "additionalProperties": {
+              "$ref": "#/$defs/CurrencyOption"
+            },
+            "description": "Per-currency discount amounts with nested amount_off values.",
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "duration": {
+            "description": "Describes discount duration: 'forever', 'once', or 'repeating'.",
+            "title": "Duration",
+            "type": "string"
+          },
+          "duration_in_months": {
+            "description": "Number of months the coupon applies for repeating duration. Null for non-repeating.",
+            "title": "Duration In Months",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the coupon.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Whether the coupon exists in live mode (true) or testmode (false).",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "max_redemptions": {
+            "description": "Maximum number of times this coupon can be redeemed across all customers. Null means unlimited.",
+            "title": "Max Redemptions",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Set of key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "Name of the coupon displayed to customers on invoices or receipts.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'coupon'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percent_off": {
+            "description": "Percentage discount (e.g., 25.5 means 25.5% off). Null if fixed amount discount.",
+            "title": "Percent Off",
+            "type": "number"
+          },
+          "redeem_by": {
+            "description": "Unix timestamp after which the coupon can no longer be redeemed. Null if no expiration.",
+            "title": "Redeem By",
+            "type": "integer"
+          },
+          "times_redeemed": {
+            "description": "Number of times this coupon has been applied to a customer.",
+            "title": "Times Redeemed",
+            "type": "integer"
+          },
+          "valid": {
+            "description": "Whether the coupon can still be redeemed (taking into account redeem_by and max_redemptions).",
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "object", "duration", "times_redeemed", "created", "livemode", "valid"],
+        "title": "GetCouponResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCouponResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

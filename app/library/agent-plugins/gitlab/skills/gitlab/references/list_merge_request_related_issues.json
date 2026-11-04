@@ -1,0 +1,260 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List one page of issues referenced by a merge request's title, description, commit messages, comments, and discussions. Supports GitLab and external issue trackers. Follow next_page for additional results.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespaced project path.",
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Internal ID of the merge request in the project.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid"],
+    "title": "ListMergeRequestRelatedIssuesRequest",
+    "type": "object"
+  },
+  "name": "list_merge_request_related_issues",
+  "outputSchema": {
+    "$defs": {
+      "ListMergeRequestRelatedIssuesResponse": {
+        "properties": {
+          "issues": {
+            "description": "Issues related to the merge request on this page.",
+            "items": {
+              "$ref": "#/$defs/RelatedIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          }
+        },
+        "required": ["issues"],
+        "title": "ListMergeRequestRelatedIssuesResponse",
+        "type": "object"
+      },
+      "RelatedIssue": {
+        "additionalProperties": true,
+        "properties": {
+          "assignee": {
+            "$ref": "#/$defs/RelatedIssueUser",
+            "description": "Assigned user, if any.",
+            "title": "Assignee"
+          },
+          "author": {
+            "$ref": "#/$defs/RelatedIssueUser",
+            "description": "Issue author.",
+            "title": "Author"
+          },
+          "changes_count": {
+            "description": "Reported number of changes.",
+            "title": "Changes Count",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Issue creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Issue description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "GitLab issue ID or external tracker key.",
+            "title": "Id"
+          },
+          "iid": {
+            "description": "Project-local GitLab issue ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Issue label names.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "milestone": {
+            "$ref": "#/$defs/RelatedIssueMilestone",
+            "description": "Assigned milestone, if any.",
+            "title": "Milestone"
+          },
+          "project_id": {
+            "description": "GitLab project containing the issue.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Issue state.",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Issue title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Issue update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_notes_count": {
+            "description": "Number of user notes.",
+            "title": "User Notes Count",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "title"],
+        "title": "RelatedIssue",
+        "type": "object"
+      },
+      "RelatedIssueMilestone": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "description": "Milestone creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Milestone description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Milestone due date, if set.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "id": {
+            "description": "Milestone ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Project-local milestone ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "project_id": {
+            "description": "Milestone project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Milestone state.",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Milestone title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Milestone update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id", "title"],
+        "title": "RelatedIssueMilestone",
+        "type": "object"
+      },
+      "RelatedIssueUser": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "User avatar URL, if available.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "User profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "username"],
+        "title": "RelatedIssueUser",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListMergeRequestRelatedIssuesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

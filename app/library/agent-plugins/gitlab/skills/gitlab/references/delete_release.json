@@ -1,0 +1,406 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Delete a project release and return its release body, without deleting its tag. Requires at least the Developer role for the project. See https://docs.gitlab.com/api/releases/#delete-a-release.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "tag_name": {
+        "description": "Git tag associated with the release to delete.",
+        "title": "Tag Name",
+        "type": "string"
+      }
+    },
+    "required": ["id", "tag_name"],
+    "title": "DeleteReleaseRequest",
+    "type": "object"
+  },
+  "name": "delete_release",
+  "outputSchema": {
+    "$defs": {
+      "DeleteReleaseResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "assets": {
+            "$ref": "#/$defs/ReleaseAssets",
+            "description": "Release assets and evidence URL.",
+            "title": "Assets"
+          },
+          "author": {
+            "$ref": "#/$defs/ReleaseAuthor",
+            "description": "Release author.",
+            "title": "Author"
+          },
+          "commit": {
+            "$ref": "#/$defs/TagCommit",
+            "description": "Commit associated with the release.",
+            "title": "Commit"
+          },
+          "commit_path": {
+            "description": "Commit web path.",
+            "title": "Commit Path",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Release creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Release description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "evidence_sha": {
+            "description": "Release evidence SHA.",
+            "title": "Evidence Sha",
+            "type": "string"
+          },
+          "milestones": {
+            "description": "Associated milestones.",
+            "items": {
+              "$ref": "#/$defs/ReleaseMilestone"
+            },
+            "title": "Milestones",
+            "type": "array"
+          },
+          "name": {
+            "description": "Release name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "released_at": {
+            "description": "Release timestamp.",
+            "title": "Released At",
+            "type": "string"
+          },
+          "tag_name": {
+            "description": "Git tag of the deleted release; the tag remains.",
+            "title": "Tag Name",
+            "type": "string"
+          },
+          "tag_path": {
+            "description": "Tag web path.",
+            "title": "Tag Path",
+            "type": "string"
+          }
+        },
+        "required": ["tag_name"],
+        "title": "DeleteReleaseResponse",
+        "type": "object"
+      },
+      "ReleaseAssetLink": {
+        "additionalProperties": true,
+        "properties": {
+          "direct_asset_url": {
+            "description": "Direct asset download URL.",
+            "title": "Direct Asset Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Asset link ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "link_type": {
+            "description": "Asset link type.",
+            "title": "Link Type",
+            "type": "string"
+          },
+          "name": {
+            "description": "Asset link name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "Asset link URL.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseAssetLink",
+        "type": "object"
+      },
+      "ReleaseAssets": {
+        "additionalProperties": true,
+        "properties": {
+          "count": {
+            "description": "Total release assets.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "evidence_file_path": {
+            "description": "Release evidence file URL.",
+            "title": "Evidence File Path",
+            "type": "string"
+          },
+          "links": {
+            "description": "Release asset links.",
+            "items": {
+              "$ref": "#/$defs/ReleaseAssetLink"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "sources": {
+            "description": "Source archives.",
+            "items": {
+              "$ref": "#/$defs/ReleaseSource"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "title": "ReleaseAssets",
+        "type": "object"
+      },
+      "ReleaseAuthor": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Author avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Author user ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Author display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "Author account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Author username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Author profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseAuthor",
+        "type": "object"
+      },
+      "ReleaseIssueStats": {
+        "additionalProperties": true,
+        "properties": {
+          "closed": {
+            "description": "Closed milestone issues.",
+            "title": "Closed",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total milestone issues.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "title": "ReleaseIssueStats",
+        "type": "object"
+      },
+      "ReleaseMilestone": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "description": "Milestone creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Milestone description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Milestone due date.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "id": {
+            "description": "Milestone ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Milestone project-local ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "issue_stats": {
+            "$ref": "#/$defs/ReleaseIssueStats",
+            "description": "Milestone issue counts.",
+            "title": "Issue Stats"
+          },
+          "project_id": {
+            "description": "Milestone project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "start_date": {
+            "description": "Milestone start date.",
+            "title": "Start Date",
+            "type": "string"
+          },
+          "state": {
+            "description": "Milestone state.",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Milestone title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Milestone update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Milestone web URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseMilestone",
+        "type": "object"
+      },
+      "ReleaseSource": {
+        "additionalProperties": true,
+        "properties": {
+          "format": {
+            "description": "Source archive format.",
+            "title": "Format",
+            "type": "string"
+          },
+          "url": {
+            "description": "Source archive URL.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ReleaseSource",
+        "type": "object"
+      },
+      "TagCommit": {
+        "additionalProperties": true,
+        "properties": {
+          "author_email": {
+            "description": "Commit author email.",
+            "title": "Author Email",
+            "type": "string"
+          },
+          "author_name": {
+            "description": "Commit author name.",
+            "title": "Author Name",
+            "type": "string"
+          },
+          "authored_date": {
+            "description": "Authorship timestamp in ISO 8601 format.",
+            "title": "Authored Date",
+            "type": "string"
+          },
+          "committed_date": {
+            "description": "Commit timestamp in ISO 8601 format.",
+            "title": "Committed Date",
+            "type": "string"
+          },
+          "committer_email": {
+            "description": "Committer email.",
+            "title": "Committer Email",
+            "type": "string"
+          },
+          "committer_name": {
+            "description": "Committer name.",
+            "title": "Committer Name",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Commit creation timestamp in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Full commit SHA.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Full commit message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "parent_ids": {
+            "description": "Parent commit SHAs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parent Ids",
+            "type": "array"
+          },
+          "short_id": {
+            "description": "Short commit SHA.",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Commit title.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "short_id",
+          "title",
+          "created_at",
+          "parent_ids",
+          "message",
+          "author_name",
+          "author_email",
+          "authored_date",
+          "committer_name",
+          "committer_email",
+          "committed_date"
+        ],
+        "title": "TagCommit",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteReleaseResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to update custom messages for form UI elements like buttons, errors, and placeholders in Typeform. Use when you need to customize the text displayed to form respondents.",
+  "inputSchema": {
+    "properties": {
+      "block_short_text_placeholder": {
+        "description": "Placeholder text for short text input fields (max 100 characters).",
+        "examples": ["Type your answer here", "Enter text"],
+        "maxLength": 100,
+        "title": "Block Short Text Placeholder",
+        "type": "string"
+      },
+      "form_id": {
+        "description": "Unique form identifier",
+        "examples": ["Y78g1cmS"],
+        "title": "Form Id",
+        "type": "string"
+      },
+      "label_button_hint_default": {
+        "description": "Tooltip text for the continue button (max 28 characters). Use this to provide hints about the button's function.",
+        "examples": ["Click to continue"],
+        "maxLength": 28,
+        "title": "Label Button Hint Default",
+        "type": "string"
+      },
+      "label_button_no_answer_default": {
+        "description": "Text for the 'Continue without answering' button (max 100 characters). Shown when a question is optional.",
+        "examples": ["Skip this question"],
+        "maxLength": 100,
+        "title": "Label Button No Answer Default",
+        "type": "string"
+      },
+      "label_button_submit": {
+        "description": "Text for the submit button (max 100 characters). This is the final button to submit the form.",
+        "examples": ["Submit Form", "Send"],
+        "maxLength": 100,
+        "title": "Label Button Submit",
+        "type": "string"
+      },
+      "label_error_required": {
+        "description": "Error message shown when a required field is empty (max 64 characters).",
+        "examples": ["This field is required", "Please answer this question"],
+        "maxLength": 64,
+        "title": "Label Error Required",
+        "type": "string"
+      }
+    },
+    "required": ["form_id"],
+    "title": "UpdateFormMessagesRequest",
+    "type": "object"
+  },
+  "name": "update_form_messages",
+  "outputSchema": {
+    "$defs": {
+      "UpdateFormMessagesResponse": {
+        "properties": {
+          "message": {
+            "description": "Success message describing the operation result.",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the messages were successfully updated. Always true if no error was raised.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success", "message"],
+        "title": "UpdateFormMessagesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateFormMessagesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

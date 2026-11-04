@@ -1,0 +1,115 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of distinct values for a specified tag key associated with an existing Sentry issue, useful for understanding tag manifestations like browser versions or affected users.",
+  "inputSchema": {
+    "description": "Request schema for fetching distinct values for a specified tag associated with a Sentry issue.",
+    "properties": {
+      "environment": {
+        "description": "A list of environment names to filter the tag values; if provided, only values from these specified environments will be returned.",
+        "examples": [["production"], ["production", "staging"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "issue_id": {
+        "description": "The unique numerical identifier of the Sentry issue for which tag values are to be fetched.",
+        "examples": ["1234567890"],
+        "title": "Issue Id",
+        "type": "integer"
+      },
+      "key": {
+        "description": "The specific tag key (e.g., 'browser', 'user_id', 'environment') for which to retrieve distinct values associated with the issue.",
+        "examples": ["environment", "browser.name", "user", "os.name", "release", "level"],
+        "title": "Key",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["my-organization", "example"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Sort order for tag values; valid options are 'age', 'count', 'date', 'id'. Prefix with '-' for descending (e.g., '-count'); defaults to '-id'.",
+        "enum": ["age", "count", "date", "id"],
+        "title": "SortEnm",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "issue_id", "key"],
+    "title": "FetchTagValuesForIssueRequest",
+    "type": "object"
+  },
+  "name": "fetch_tag_values_for_issue",
+  "outputSchema": {
+    "$defs": {
+      "FetchTagValuesForIssueResponse": {
+        "description": "Response schema containing an array of tag values for the issue.",
+        "items": {
+          "$ref": "#/$defs/TagValue"
+        },
+        "title": "FetchTagValuesForIssueResponse",
+        "type": "array"
+      },
+      "TagValue": {
+        "description": "Represents a distinct tag value with metadata for a Sentry issue.",
+        "properties": {
+          "count": {
+            "description": "Number of occurrences of this tag value",
+            "title": "Count",
+            "type": "integer"
+          },
+          "firstSeen": {
+            "description": "ISO 8601 datetime of the initial occurrence (nullable)",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "key": {
+            "description": "The tag key identifier",
+            "title": "Key",
+            "type": "string"
+          },
+          "lastSeen": {
+            "description": "ISO 8601 datetime of the most recent occurrence (nullable)",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name for the tag value",
+            "title": "Name",
+            "type": "string"
+          },
+          "query": {
+            "description": "Query string associated with the tag value (nullable)",
+            "title": "Query",
+            "type": "string"
+          },
+          "value": {
+            "description": "The actual tag value",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["key", "name", "value", "count"],
+        "title": "TagValue",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/FetchTagValuesForIssueResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

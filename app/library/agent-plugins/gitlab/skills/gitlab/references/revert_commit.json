@@ -1,0 +1,139 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Revert a commit on a target branch, creating a new commit. Set dry_run=true to check applicability without writing. Conflicting or already-reverted changes can fail.",
+  "inputSchema": {
+    "properties": {
+      "branch": {
+        "description": "Target branch name.",
+        "title": "Branch",
+        "type": "string"
+      },
+      "dry_run": {
+        "description": "If true, check whether the revert applies without committing changes. GitLab defaults to false.",
+        "title": "Dry Run",
+        "type": "boolean"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "sha": {
+        "description": "SHA of the commit to revert.",
+        "title": "Sha",
+        "type": "string"
+      }
+    },
+    "required": ["id", "sha", "branch"],
+    "title": "RevertCommitRequest",
+    "type": "object"
+  },
+  "name": "revert_commit",
+  "outputSchema": {
+    "$defs": {
+      "RevertCommitResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "author_email": {
+            "description": "Revert commit author's email.",
+            "title": "Author Email",
+            "type": "string"
+          },
+          "author_name": {
+            "description": "Revert commit author's name.",
+            "title": "Author Name",
+            "type": "string"
+          },
+          "authored_date": {
+            "description": "Date the revert commit was authored.",
+            "title": "Authored Date",
+            "type": "string"
+          },
+          "committed_date": {
+            "description": "Date the revert commit was committed.",
+            "title": "Committed Date",
+            "type": "string"
+          },
+          "committer_email": {
+            "description": "Revert commit committer's email.",
+            "title": "Committer Email",
+            "type": "string"
+          },
+          "committer_name": {
+            "description": "Revert commit committer's name.",
+            "title": "Committer Name",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Creation date of the revert commit.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "dry_run": {
+            "const": "success",
+            "description": "Successful applicability check, returned instead of a commit for dry runs.",
+            "title": "Dry Run",
+            "type": "string"
+          },
+          "id": {
+            "description": "SHA of the created revert commit; absent for dry runs.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Full revert commit message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "parent_ids": {
+            "description": "Parent commit SHAs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parent Ids",
+            "type": "array"
+          },
+          "short_id": {
+            "description": "Short SHA of the revert commit.",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Title of the revert commit message.",
+            "title": "Title",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Web URL of the revert commit.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "RevertCommitResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RevertCommitResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

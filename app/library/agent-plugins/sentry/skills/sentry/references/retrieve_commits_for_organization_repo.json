@@ -1,0 +1,237 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of commits for a given repository within a Sentry organization.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a list of commits for a given repository within an organization.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier or short name (slug) of the organization.",
+        "examples": ["my-organization-slug", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "repo_id": {
+        "description": "The unique identifier of the repository.",
+        "examples": ["67890"],
+        "title": "Repo Id",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "repo_id"],
+    "title": "RetrieveCommitsForOrganizationRepoRequest",
+    "type": "object"
+  },
+  "name": "retrieve_commits_for_organization_repo",
+  "outputSchema": {
+    "$defs": {
+      "Commit": {
+        "description": "A commit in a repository",
+        "properties": {
+          "author": {
+            "$ref": "#/$defs/CommitAuthor",
+            "description": "The author of the commit",
+            "title": "Author"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the commit was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique commit identifier (commit hash)",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "The commit message",
+            "title": "Message",
+            "type": "string"
+          },
+          "pullRequest": {
+            "additionalProperties": true,
+            "description": "Associated pull request information (may be null)",
+            "title": "Pull Request",
+            "type": "object"
+          },
+          "releases": {
+            "description": "List of releases that include this commit",
+            "items": {
+              "$ref": "#/$defs/CommitRelease"
+            },
+            "title": "Releases",
+            "type": "array"
+          },
+          "repository": {
+            "$ref": "#/$defs/CommitRepository",
+            "description": "The repository this commit belongs to",
+            "title": "Repository"
+          },
+          "suspectCommitType": {
+            "description": "Classification of the commit as a suspect for issues (empty string if not a suspect)",
+            "title": "Suspect Commit Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "dateCreated", "suspectCommitType", "repository"],
+        "title": "Commit",
+        "type": "object"
+      },
+      "CommitAuthor": {
+        "description": "Author information for a commit",
+        "properties": {
+          "email": {
+            "description": "The author's email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "The author's name",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "CommitAuthor",
+        "type": "object"
+      },
+      "CommitRelease": {
+        "description": "Release information associated with a commit",
+        "properties": {
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the release was created in Sentry",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateReleased": {
+            "description": "ISO 8601 timestamp when the release was deployed (may be null)",
+            "title": "Date Released",
+            "type": "string"
+          },
+          "ref": {
+            "description": "The git reference (e.g., branch name) for this release",
+            "title": "Ref",
+            "type": "string"
+          },
+          "shortVersion": {
+            "description": "The shortened version identifier",
+            "title": "Short Version",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL to the release",
+            "title": "Url",
+            "type": "string"
+          },
+          "version": {
+            "description": "The version identifier of the release",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["version", "shortVersion", "dateCreated"],
+        "title": "CommitRelease",
+        "type": "object"
+      },
+      "CommitRepository": {
+        "description": "Repository information for a commit",
+        "properties": {
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the repository was added to Sentry",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "externalId": {
+            "description": "The external ID for the repository in the provider's system (may be null)",
+            "title": "External Id",
+            "type": "string"
+          },
+          "externalSlug": {
+            "description": "The external slug identifier for the repository (may be null)",
+            "title": "External Slug",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier for this repository",
+            "title": "Id",
+            "type": "string"
+          },
+          "integrationId": {
+            "description": "The ID of the integration associated with this repository (may be null)",
+            "title": "Integration Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The repository name",
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/$defs/CommitRepositoryProvider",
+            "description": "The version control provider for this repository",
+            "title": "Provider"
+          },
+          "status": {
+            "description": "The status of the repository (e.g., 'active', 'disabled')",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL of the repository (may be null)",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "provider", "status", "dateCreated"],
+        "title": "CommitRepository",
+        "type": "object"
+      },
+      "CommitRepositoryProvider": {
+        "description": "Version control provider information for a commit's repository",
+        "properties": {
+          "id": {
+            "description": "The provider ID (e.g., 'github', 'gitlab', 'bitbucket', 'unknown')",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The human-readable name of the provider",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "CommitRepositoryProvider",
+        "type": "object"
+      },
+      "RetrieveCommitsForOrganizationRepoResponse": {
+        "description": "Response schema for `RetrieveCommitsForOrganizationRepo`, containing a list of commit objects with detailed information including author, repository, and associated releases.",
+        "properties": {
+          "data": {
+            "description": "A list of commit objects from the repository, each containing commit details, author information, repository metadata, and associated releases.",
+            "items": {
+              "$ref": "#/$defs/Commit"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "RetrieveCommitsForOrganizationRepoResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveCommitsForOrganizationRepoResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

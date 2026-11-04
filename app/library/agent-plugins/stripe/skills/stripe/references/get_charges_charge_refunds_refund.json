@@ -1,0 +1,586 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve the details of an existing refund within a specific charge. Use when you need to get refund information using both the charge ID and refund ID.",
+  "inputSchema": {
+    "description": "Defines the request parameters for retrieving a specific refund from a charge.",
+    "properties": {
+      "charge": {
+        "description": "The identifier of the charge that contains the refund. This ID typically starts with 'ch_'.",
+        "examples": ["ch_3ShVZSQvM72TjFrb0Ww8ls5K"],
+        "title": "Charge",
+        "type": "string"
+      },
+      "expand": {
+        "description": "Specifies which fields in the response should be expanded. Expandable fields include: balance_transaction, charge, destination_details, failure_balance_transaction, next_action, payment_intent, presentment_details, source_transfer_reversal, transfer_reversal.",
+        "examples": [["balance_transaction", "charge"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Expand",
+        "type": "array"
+      },
+      "refund": {
+        "description": "The identifier of the refund to retrieve. This ID typically starts with 're_'.",
+        "examples": ["re_3ShVZSQvM72TjFrb0WQhuBKO"],
+        "title": "Refund",
+        "type": "string"
+      }
+    },
+    "required": ["charge", "refund"],
+    "title": "GetChargesChargeRefundsRefundRequest",
+    "type": "object"
+  },
+  "name": "get_charges_charge_refunds_refund",
+  "outputSchema": {
+    "$defs": {
+      "BankTransferDetails": {
+        "description": "Bank transfer refund details.",
+        "properties": {
+          "reference": {
+            "description": "Reference identifier assigned to the refund.",
+            "title": "Reference",
+            "type": "string"
+          },
+          "reference_status": {
+            "description": "Status of the reference. Possible values: pending, available, unavailable.",
+            "title": "Reference Status",
+            "type": "string"
+          }
+        },
+        "title": "BankTransferDetails",
+        "type": "object"
+      },
+      "BlikDetails": {
+        "description": "Blik payment method refund details.",
+        "properties": {
+          "network_decline_code": {
+            "description": "Decline code provided by the network which indicates the reason the refund failed.",
+            "title": "Network Decline Code",
+            "type": "string"
+          },
+          "reference": {
+            "description": "Reference identifier for the refund.",
+            "title": "Reference",
+            "type": "string"
+          },
+          "reference_status": {
+            "description": "Status of the reference. Possible values: pending, available, unavailable.",
+            "title": "Reference Status",
+            "type": "string"
+          }
+        },
+        "title": "BlikDetails",
+        "type": "object"
+      },
+      "CardDetails": {
+        "description": "Card-specific refund details.",
+        "properties": {
+          "reference": {
+            "description": "Reference number value for the card refund.",
+            "title": "Reference",
+            "type": "string"
+          },
+          "reference_status": {
+            "description": "Status of the reference. Possible values: pending, available, unavailable.",
+            "title": "Reference Status",
+            "type": "string"
+          },
+          "reference_type": {
+            "description": "Type classification of the reference.",
+            "title": "Reference Type",
+            "type": "string"
+          },
+          "type": {
+            "description": "Refund type. Possible values: pending, refund, reversal.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "CardDetails",
+        "type": "object"
+      },
+      "CryptoDetails": {
+        "description": "Cryptocurrency payment method refund details.",
+        "properties": {
+          "reference": {
+            "description": "Transaction hash for the cryptocurrency refund.",
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "title": "CryptoDetails",
+        "type": "object"
+      },
+      "DestinationDetails": {
+        "description": "Transaction-specific details for the refund across multiple payment method types.",
+        "properties": {
+          "us_bank_transfer": {
+            "$ref": "#/$defs/BankTransferDetails",
+            "description": "US bank transfer refund details.",
+            "title": "Us Bank Transfer"
+          },
+          "sofort": {
+            "additionalProperties": true,
+            "description": "Sofort payment method refund details.",
+            "title": "Sofort",
+            "type": "object"
+          },
+          "affirm": {
+            "additionalProperties": true,
+            "description": "Affirm payment method refund details.",
+            "title": "Affirm",
+            "type": "object"
+          },
+          "grabpay": {
+            "additionalProperties": true,
+            "description": "GrabPay payment method refund details.",
+            "title": "Grabpay",
+            "type": "object"
+          },
+          "jp_bank_transfer": {
+            "$ref": "#/$defs/BankTransferDetails",
+            "description": "Japanese bank transfer refund details.",
+            "title": "Jp Bank Transfer"
+          },
+          "revolut": {
+            "additionalProperties": true,
+            "description": "Revolut payment method refund details.",
+            "title": "Revolut",
+            "type": "object"
+          },
+          "p24": {
+            "$ref": "#/$defs/BankTransferDetails",
+            "description": "Przelewy24 payment method refund details.",
+            "title": "P24"
+          },
+          "mb_way": {
+            "$ref": "#/$defs/BankTransferDetails",
+            "description": "MB Way payment method refund details.",
+            "title": "Mb Way"
+          },
+          "pix": {
+            "additionalProperties": true,
+            "description": "Pix payment method refund details.",
+            "title": "Pix",
+            "type": "object"
+          },
+          "eu_bank_transfer": {
+            "$ref": "#/$defs/BankTransferDetails",
+            "description": "European bank transfer refund details.",
+            "title": "Eu Bank Transfer"
+          },
+          "zip": {
+            "additionalProperties": true,
+            "description": "Zip payment method refund details.",
+            "title": "Zip",
+            "type": "object"
+          },
+          "alipay": {
+            "additionalProperties": true,
+            "description": "Alipay payment method refund details.",
+            "title": "Alipay",
+            "type": "object"
+          },
+          "multibanco": {
+            "$ref": "#/$defs/BankTransferDetails",
+            "description": "Multibanco payment method refund details.",
+            "title": "Multibanco"
+          },
+          "au_bank_transfer": {
+            "$ref": "#/$defs/BankTransferDetails",
+            "description": "Australian bank transfer refund details.",
+            "title": "Au Bank Transfer"
+          },
+          "type": {
+            "description": "The payment method used in the refund (e.g., card).",
+            "title": "Type",
+            "type": "string"
+          },
+          "eps": {
+            "additionalProperties": true,
+            "description": "EPS payment method refund details.",
+            "title": "Eps",
+            "type": "object"
+          },
+          "br_bank_transfer": {
+            "$ref": "#/$defs/BankTransferDetails",
+            "description": "Brazilian bank transfer refund details.",
+            "title": "Br Bank Transfer"
+          },
+          "mx_bank_transfer": {
+            "$ref": "#/$defs/BankTransferDetails",
+            "description": "Mexican bank transfer refund details.",
+            "title": "Mx Bank Transfer"
+          },
+          "th_bank_transfer": {
+            "$ref": "#/$defs/BankTransferDetails",
+            "description": "Thai bank transfer refund details.",
+            "title": "Th Bank Transfer"
+          },
+          "blik": {
+            "$ref": "#/$defs/BlikDetails",
+            "description": "Blik payment method refund details.",
+            "title": "Blik"
+          },
+          "amazon_pay": {
+            "additionalProperties": true,
+            "description": "Amazon Pay payment method refund details.",
+            "title": "Amazon Pay",
+            "type": "object"
+          },
+          "paynow": {
+            "additionalProperties": true,
+            "description": "PayNow payment method refund details.",
+            "title": "Paynow",
+            "type": "object"
+          },
+          "customer_cash_balance": {
+            "additionalProperties": true,
+            "description": "Customer cash balance refund details.",
+            "title": "Customer Cash Balance",
+            "type": "object"
+          },
+          "twint": {
+            "additionalProperties": true,
+            "description": "Twint payment method refund details.",
+            "title": "Twint",
+            "type": "object"
+          },
+          "alma": {
+            "additionalProperties": true,
+            "description": "Alma payment method refund details.",
+            "title": "Alma",
+            "type": "object"
+          },
+          "crypto": {
+            "$ref": "#/$defs/CryptoDetails",
+            "description": "Cryptocurrency payment method refund details.",
+            "title": "Crypto"
+          },
+          "giropay": {
+            "additionalProperties": true,
+            "description": "Giropay payment method refund details.",
+            "title": "Giropay",
+            "type": "object"
+          },
+          "wechat_pay": {
+            "additionalProperties": true,
+            "description": "WeChat Pay payment method refund details.",
+            "title": "Wechat Pay",
+            "type": "object"
+          },
+          "paypal": {
+            "$ref": "#/$defs/PaypalDetails",
+            "description": "PayPal payment method refund details.",
+            "title": "Paypal"
+          },
+          "swish": {
+            "$ref": "#/$defs/SwishDetails",
+            "description": "Swish payment method refund details.",
+            "title": "Swish"
+          },
+          "klarna": {
+            "additionalProperties": true,
+            "description": "Klarna payment method refund details.",
+            "title": "Klarna",
+            "type": "object"
+          },
+          "afterpay_clearpay": {
+            "additionalProperties": true,
+            "description": "Afterpay/Clearpay payment method refund details.",
+            "title": "Afterpay Clearpay",
+            "type": "object"
+          },
+          "nz_bank_transfer": {
+            "$ref": "#/$defs/BankTransferDetails",
+            "description": "New Zealand bank transfer refund details.",
+            "title": "Nz Bank Transfer"
+          },
+          "cashapp": {
+            "additionalProperties": true,
+            "description": "Cash App payment method refund details.",
+            "title": "Cashapp",
+            "type": "object"
+          },
+          "gb_bank_transfer": {
+            "$ref": "#/$defs/BankTransferDetails",
+            "description": "UK bank transfer refund details.",
+            "title": "Gb Bank Transfer"
+          },
+          "card": {
+            "$ref": "#/$defs/CardDetails",
+            "description": "Card-specific refund details.",
+            "title": "Card"
+          }
+        },
+        "required": ["type"],
+        "title": "DestinationDetails",
+        "type": "object"
+      },
+      "DisplayDetails": {
+        "description": "Contains refund details for user presentation.",
+        "properties": {
+          "email_sent": {
+            "$ref": "#/$defs/EmailSent",
+            "title": "Email Sent"
+          },
+          "expires_at": {
+            "description": "The expiry timestamp for the refund action.",
+            "title": "Expires At",
+            "type": "integer"
+          }
+        },
+        "required": ["expires_at", "email_sent"],
+        "title": "DisplayDetails",
+        "type": "object"
+      },
+      "EmailSent": {
+        "description": "Information about customer notification email.",
+        "properties": {
+          "email_sent_at": {
+            "description": "When the notification was transmitted. Unix timestamp.",
+            "title": "Email Sent At",
+            "type": "integer"
+          },
+          "email_sent_to": {
+            "description": "The recipient's email address.",
+            "title": "Email Sent To",
+            "type": "string"
+          }
+        },
+        "required": ["email_sent_at", "email_sent_to"],
+        "title": "EmailSent",
+        "type": "object"
+      },
+      "GetChargesChargeRefundsRefundResponse": {
+        "description": "Defines the structure of the response when a refund is successfully retrieved from a charge.",
+        "properties": {
+          "amount": {
+            "description": "The total amount of the refund, in the smallest currency unit (e.g., cents for USD, yen for JPY).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "balance_transaction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "The ID of the Balance Transaction object that records the impact of this refund on your Stripe balance. This field is null if the refund is pending or has not yet affected the balance. When expanded, this is a full Balance Transaction object.",
+            "title": "Balance Transaction"
+          },
+          "charge": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "The ID of the Charge object that was refunded. When expanded, this is a full Charge object.",
+            "title": "Charge"
+          },
+          "created": {
+            "description": "Timestamp (Unix epoch seconds) at which the refund object was created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code (e.g., 'usd', 'eur') representing the currency of the refund, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the object for display purposes. Available on non-card refunds only.",
+            "title": "Description",
+            "type": "string"
+          },
+          "destination_details": {
+            "$ref": "#/$defs/DestinationDetails",
+            "description": "Transaction-specific details for the refund across multiple payment method types. This will be null if the information is not available or not applicable.",
+            "title": "Destination Details"
+          },
+          "failure_balance_transaction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "After the refund fails, this balance transaction describes the adjustment made on your account balance. When expanded, this is a full Balance Transaction object.",
+            "title": "Failure Balance Transaction"
+          },
+          "failure_reason": {
+            "description": "Reason for refund failure. Possible values: lost_or_stolen_card, expired_or_canceled_card, charge_for_pending_refund_disputed, insufficient_funds, declined, merchant_request, unknown.",
+            "title": "Failure Reason",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the refund object. This ID starts with 're_'.",
+            "title": "Id",
+            "type": "string"
+          },
+          "instructions_email": {
+            "description": "Email address for the customer to receive refund instructions for payment methods without native refund support.",
+            "title": "Instructions Email",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "A set of key-value pairs that you can attach to a refund object. It can be useful for storing additional information about the refund in a structured format.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "next_action": {
+            "$ref": "#/$defs/NextAction",
+            "description": "If the refund has a status of requires_action, this property describes what action is needed to continue processing the refund.",
+            "title": "Next Action"
+          },
+          "object": {
+            "description": "String representing the object's type. For refund objects, the value is always 'refund'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "payment_intent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "The ID of the PaymentIntent object that is associated with the refunded charge. This field is null if the refund is not linked to a PaymentIntent. When expanded, this is a full PaymentIntent object.",
+            "title": "Payment Intent"
+          },
+          "pending_reason": {
+            "description": "Reason refund is pending. Possible values: processing, insufficient_funds, charge_pending.",
+            "title": "Pending Reason",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for the refund, which is either user-provided or generated by Stripe internally. Possible values: duplicate, fraudulent, requested_by_customer, expired_uncaptured_charge.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "receipt_number": {
+            "description": "The transaction-specific receipt number issued for this refund. This number is generated by Stripe and can be displayed to the customer. This field is null if a receipt number was not generated.",
+            "title": "Receipt Number",
+            "type": "string"
+          },
+          "source_transfer_reversal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "The ID of the transfer reversal if this refund is reversing a transfer (e.g., in Stripe Connect). This field is null if the refund is not related to a transfer reversal from a source. When expanded, this is a full Transfer Reversal object.",
+            "title": "Source Transfer Reversal"
+          },
+          "status": {
+            "description": "The current status of the refund. Possible values are: pending, requires_action, succeeded, failed, canceled.",
+            "title": "Status",
+            "type": "string"
+          },
+          "transfer_reversal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "description": "The ID of the TransferReversal object created when this refund is processed. This is relevant for refunds that are part of a Connect transfer. This field is null if the refund is not associated with a transfer reversal. When expanded, this is a full Transfer Reversal object.",
+            "title": "Transfer Reversal"
+          }
+        },
+        "required": ["id", "object", "amount", "created", "currency"],
+        "title": "GetChargesChargeRefundsRefundResponse",
+        "type": "object"
+      },
+      "NextAction": {
+        "description": "If the refund has a status of requires_action, this property describes what action is needed.",
+        "properties": {
+          "display_details": {
+            "$ref": "#/$defs/DisplayDetails",
+            "description": "Contains refund details for user presentation.",
+            "title": "Display Details"
+          },
+          "type": {
+            "description": "Type of the next action to perform.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "NextAction",
+        "type": "object"
+      },
+      "PaypalDetails": {
+        "description": "PayPal payment method refund details.",
+        "properties": {
+          "network_decline_code": {
+            "description": "Decline code from the PayPal network.",
+            "title": "Network Decline Code",
+            "type": "string"
+          }
+        },
+        "title": "PaypalDetails",
+        "type": "object"
+      },
+      "SwishDetails": {
+        "description": "Swish payment method refund details.",
+        "properties": {
+          "network_decline_code": {
+            "description": "Decline code from the network.",
+            "title": "Network Decline Code",
+            "type": "string"
+          },
+          "reference": {
+            "description": "Reference identifier assigned to the refund.",
+            "title": "Reference",
+            "type": "string"
+          },
+          "reference_status": {
+            "description": "Status of the reference. Possible values: pending, available, unavailable.",
+            "title": "Reference Status",
+            "type": "string"
+          }
+        },
+        "title": "SwishDetails",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetChargesChargeRefundsRefundResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

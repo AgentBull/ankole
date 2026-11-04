@@ -1,0 +1,239 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a paginated list of published styles (fill colors, text styles, effects, grids) from a specified Figma team's library. Note: The team must have published styles in its library for this endpoint to return data. Teams without published styles will return an empty list.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a paginated list of published styles for a Figma team.",
+    "properties": {
+      "after": {
+        "description": "Opaque integer cursor to retrieve styles after this point; use `cursor.after` from a previous response. Mutually exclusive with `before` - only one can be specified.",
+        "examples": [1609459200000, 789012],
+        "title": "After",
+        "type": "integer"
+      },
+      "before": {
+        "description": "Opaque integer cursor to retrieve styles before this point; use `cursor.before` from a previous response. Mutually exclusive with `after` - only one can be specified.",
+        "examples": [1234560000000, 123456],
+        "title": "Before",
+        "type": "integer"
+      },
+      "page_size": {
+        "default": 30,
+        "description": "Number of style items to return per page. Maximum supported value is 100.",
+        "examples": [30, 50, 100],
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "team_id": {
+        "description": "Identifier of the Figma team to retrieve published styles from. Note: The team_id cannot be obtained programmatically via the API. To find a team_id, navigate to the team page in Figma (https://www.figma.com/files/team/YOUR_TEAM_ID/Team-Name) and extract the numeric ID from the URL.",
+        "examples": ["1234567890123456789"],
+        "title": "Team Id",
+        "type": "string"
+      }
+    },
+    "required": ["team_id"],
+    "title": "GetTeamStylesRequest",
+    "type": "object"
+  },
+  "name": "get_team_styles",
+  "outputSchema": {
+    "$defs": {
+      "Cursor": {
+        "properties": {
+          "after": {
+            "description": "Opaque cursor value for the `after` parameter to retrieve the next page of results. Null if no next page.",
+            "title": "After",
+            "type": "number"
+          },
+          "before": {
+            "description": "Opaque cursor value for the `before` parameter to retrieve the previous page of results. Null if no previous page.",
+            "title": "Before",
+            "type": "number"
+          }
+        },
+        "title": "Cursor",
+        "type": "object"
+      },
+      "Error": {
+        "enum": [false],
+        "title": "Error",
+        "type": "boolean"
+      },
+      "GetTeamStylesResponse": {
+        "description": "Response schema for `GetTeamStyles`, containing the list of styles and pagination details.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "The main container for the response, including status, error indication, and the metadata which holds the styles and pagination cursors.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetTeamStylesResponse",
+        "type": "object"
+      },
+      "Meta": {
+        "properties": {
+          "cursor": {
+            "$ref": "#/$defs/Cursor",
+            "description": "Pagination cursors for navigating the list of styles.",
+            "title": "Cursor"
+          },
+          "styles": {
+            "description": "List of style objects retrieved for the current page.",
+            "items": {
+              "$ref": "#/$defs/Style"
+            },
+            "title": "Styles",
+            "type": "array"
+          }
+        },
+        "required": ["styles"],
+        "title": "Meta",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "error": {
+            "$ref": "#/$defs/Error",
+            "description": "Indicates if an error occurred. For successful requests, this value is `false`.",
+            "title": "Error"
+          },
+          "meta": {
+            "$ref": "#/$defs/Meta",
+            "description": "Contains the core response data, including the list of styles and pagination cursors.",
+            "title": "Meta"
+          },
+          "status": {
+            "$ref": "#/$defs/Status",
+            "description": "HTTP status code of the response. A value of 200 indicates success.",
+            "title": "Status"
+          }
+        },
+        "required": ["status", "error", "meta"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Status": {
+        "enum": [200],
+        "title": "Status",
+        "type": "integer"
+      },
+      "Style": {
+        "properties": {
+          "created_at": {
+            "description": "Timestamp in UTC ISO 8601 format indicating when the style was created.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the style, as provided by its publisher.",
+            "title": "Description",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "Identifier of the Figma file where this style is defined and published.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "key": {
+            "description": "The unique identifier (key) for the style.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the style.",
+            "title": "Name",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "Identifier of the specific node within the Figma file that defines this style.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "sort_position": {
+            "description": "A user-specified string, often numerical, used for ordering or sorting styles.",
+            "title": "Sort Position",
+            "type": "string"
+          },
+          "style_type": {
+            "$ref": "#/$defs/StyleType",
+            "description": "Type of the style, indicating what properties it defines (e.g., FILL, TEXT, EFFECT, GRID).",
+            "title": "Style Type"
+          },
+          "thumbnail_url": {
+            "description": "URL for a thumbnail image preview of the style, if available.",
+            "title": "Thumbnail Url",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp in UTC ISO 8601 format indicating when the style was last updated.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Information about the user who created or last updated the style.",
+            "title": "User"
+          }
+        },
+        "required": [
+          "key",
+          "file_key",
+          "node_id",
+          "style_type",
+          "name",
+          "description",
+          "created_at",
+          "updated_at",
+          "user",
+          "sort_position"
+        ],
+        "title": "Style",
+        "type": "object"
+      },
+      "StyleType": {
+        "enum": ["FILL", "TEXT", "EFFECT", "GRID"],
+        "title": "StyleType",
+        "type": "string"
+      },
+      "User": {
+        "properties": {
+          "handle": {
+            "description": "Display name or handle of the user.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique and stable identifier of the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "img_url": {
+            "description": "URL of the user's profile image.",
+            "title": "Img Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "handle", "img_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTeamStylesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

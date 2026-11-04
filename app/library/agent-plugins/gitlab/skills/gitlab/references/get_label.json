@@ -1,0 +1,133 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a single project label by its ID or title. Use this action when you need to fetch details about a specific label within a GitLab project, such as its color, description, or associated issue/MR counts.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": [123, "namespace/project-name"],
+        "title": "Id"
+      },
+      "include_ancestor_groups": {
+        "description": "Include ancestor groups. Defaults to true.",
+        "title": "Include Ancestor Groups",
+        "type": "boolean"
+      },
+      "label_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The label's ID or title (name).",
+        "examples": [1, "bug"],
+        "title": "Label Id"
+      }
+    },
+    "required": ["id", "label_id"],
+    "title": "GetLabelRequest",
+    "type": "object"
+  },
+  "name": "get_label",
+  "outputSchema": {
+    "$defs": {
+      "GetLabelResponse": {
+        "properties": {
+          "archived": {
+            "description": "Whether the label is archived.",
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "closed_issues_count": {
+            "description": "Count of closed issues with this label.",
+            "title": "Closed Issues Count",
+            "type": "integer"
+          },
+          "color": {
+            "description": "Hex color code for the label.",
+            "title": "Color",
+            "type": "string"
+          },
+          "description": {
+            "description": "Label description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_html": {
+            "description": "HTML-formatted description.",
+            "title": "Description Html",
+            "type": "string"
+          },
+          "id": {
+            "description": "Label identifier.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_project_label": {
+            "description": "Indicates if this is a project-level label.",
+            "title": "Is Project Label",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Label name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "open_issues_count": {
+            "description": "Count of open issues with this label.",
+            "title": "Open Issues Count",
+            "type": "integer"
+          },
+          "open_merge_requests_count": {
+            "description": "Count of open merge requests with this label.",
+            "title": "Open Merge Requests Count",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Label priority level.",
+            "title": "Priority",
+            "type": "integer"
+          },
+          "subscribed": {
+            "description": "Whether the current user is subscribed to this label.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "text_color": {
+            "description": "Text color for contrast.",
+            "title": "Text Color",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "color", "text_color"],
+        "title": "GetLabelResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetLabelResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

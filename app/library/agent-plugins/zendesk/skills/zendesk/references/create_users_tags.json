@@ -1,0 +1,62 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Set tags on a Zendesk user via POST request to /api/v2/users/{user_id}/tags. Use when you need to add or update tags on a specific user. Note that this replaces all existing tags on the user with the provided set of tags. This action is idempotent.",
+  "inputSchema": {
+    "description": "Request parameters for setting user tags in Zendesk.",
+    "properties": {
+      "tags": {
+        "description": "An array of tag names to set on the user. Existing tags will be replaced with these tags.",
+        "examples": [["test-tag-1", "test-tag-2"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Tags",
+        "type": "array"
+      },
+      "user_id": {
+        "description": "The numeric ID of the user to set tags for",
+        "examples": [26923127464348],
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id", "tags"],
+    "title": "CreateUsersTagsRequest",
+    "type": "object"
+  },
+  "name": "create_users_tags",
+  "outputSchema": {
+    "$defs": {
+      "CreateUsersTagsResponse": {
+        "description": "Response containing the tags set on the user.",
+        "properties": {
+          "tags": {
+            "description": "An array of tag names that are now set on the user",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": ["tags"],
+        "title": "CreateUsersTagsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateUsersTagsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

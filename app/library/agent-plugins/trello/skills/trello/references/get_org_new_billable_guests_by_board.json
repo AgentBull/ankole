@@ -1,0 +1,158 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to check for new billable guests on a board within an organization. Use when you need to identify members who will incur billing charges.",
+  "inputSchema": {
+    "description": "Request schema for `GetOrgNewBillableGuestsByBoard`",
+    "properties": {
+      "id": {
+        "description": "The ID or name of the organization.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "myorganization"],
+        "title": "Id",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The ID of the board to check for new billable guests.",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id Board",
+        "type": "string"
+      }
+    },
+    "required": ["id", "idBoard"],
+    "title": "GetOrgNewBillableGuestsByBoardRequest",
+    "type": "object"
+  },
+  "name": "get_org_new_billable_guests_by_board",
+  "outputSchema": {
+    "$defs": {
+      "BillableGuest": {
+        "additionalProperties": true,
+        "description": "Individual billable guest member object",
+        "properties": {
+          "aaEmail": {
+            "description": "Atlassian Account email of the member",
+            "title": "Aa Email",
+            "type": "string"
+          },
+          "aaId": {
+            "description": "Atlassian Account ID of the member",
+            "title": "Aa Id",
+            "type": "string"
+          },
+          "activityBlocked": {
+            "description": "Whether the member's activity is blocked",
+            "title": "Activity Blocked",
+            "type": "boolean"
+          },
+          "avatarHash": {
+            "description": "Hash for the member's avatar",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "The URL of this member's avatar",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "bio": {
+            "description": "Member's biography or description",
+            "title": "Bio",
+            "type": "string"
+          },
+          "bioData": {
+            "additionalProperties": true,
+            "description": "Object containing emoji data and additional bio information",
+            "title": "Bio Data",
+            "type": "object"
+          },
+          "confirmed": {
+            "description": "Whether the user has confirmed their email address",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "Member's email address (may be null based on privacy settings)",
+            "title": "Email",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "The full name of the member",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "List of board IDs this member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idOrganizations": {
+            "description": "List of organization IDs this member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Organizations",
+            "type": "array"
+          },
+          "initials": {
+            "description": "The initials of the member",
+            "title": "Initials",
+            "type": "string"
+          },
+          "memberType": {
+            "description": "Type of member (e.g., 'normal', 'ghost')",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "nonPublic": {
+            "additionalProperties": true,
+            "description": "Object containing private information",
+            "title": "Non Public",
+            "type": "object"
+          },
+          "url": {
+            "description": "URL to the member's Trello profile",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of this member",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "BillableGuest",
+        "type": "object"
+      },
+      "GetOrgNewBillableGuestsByBoardResponse": {
+        "description": "Response schema for `GetOrgNewBillableGuestsByBoard` - returns list of billable guests.",
+        "items": {
+          "$ref": "#/$defs/BillableGuest"
+        },
+        "title": "GetOrgNewBillableGuestsByBoardResponse",
+        "type": "array"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrgNewBillableGuestsByBoardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

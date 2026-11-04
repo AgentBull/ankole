@@ -1,0 +1,81 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve a specified asset link from a project's release by tag and link ID.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "link_id": {
+        "description": "ID of the release asset link.",
+        "title": "Link Id",
+        "type": "integer"
+      },
+      "tag_name": {
+        "description": "Tag associated with the release, unencoded.",
+        "title": "Tag Name",
+        "type": "string"
+      }
+    },
+    "required": ["id", "tag_name", "link_id"],
+    "title": "GetReleaseAssetLinkRequest",
+    "type": "object"
+  },
+  "name": "get_release_asset_link",
+  "outputSchema": {
+    "$defs": {
+      "GetReleaseAssetLinkResponse": {
+        "additionalProperties": true,
+        "description": "The requested release asset link.",
+        "properties": {
+          "id": {
+            "description": "Asset link ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "link_type": {
+            "description": "Asset link type.",
+            "title": "Link Type",
+            "type": "string"
+          },
+          "name": {
+            "description": "Asset link name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "Asset URL.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "GetReleaseAssetLinkResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetReleaseAssetLinkResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

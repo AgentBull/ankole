@@ -1,0 +1,108 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list GoogleAdsLinks on a property. Use when you need to retrieve Google Ads account links configured for a Google Analytics property. Supports pagination for large result sets.",
+  "inputSchema": {
+    "description": "Request model for listing GoogleAdsLinks on a Google Analytics property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of resources to return. If unspecified, at most 50 resources will be returned. The maximum value is 200; higher values will be coerced to the maximum.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous ListGoogleAdsLinks call. Provide this to retrieve the subsequent page. When paginating, all other parameters must match the call that provided the page token.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The property resource name. Format: properties/{propertyId} (e.g., properties/1234).",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "AnalyticsAdminPropertiesGoogleAdsLinksListRequest",
+    "type": "object"
+  },
+  "name": "list_google_ads_links",
+  "outputSchema": {
+    "$defs": {
+      "AnalyticsAdminPropertiesGoogleAdsLinksListResponse": {
+        "description": "Response model for listing GoogleAdsLinks.",
+        "properties": {
+          "googleAdsLinks": {
+            "description": "List of Google Ads links configured on the property.",
+            "items": {
+              "$ref": "#/$defs/GoogleAdsLink"
+            },
+            "title": "Google Ads Links",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "Token to retrieve the next page of results. If omitted, there are no subsequent pages.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "AnalyticsAdminPropertiesGoogleAdsLinksListResponse",
+        "type": "object"
+      },
+      "GoogleAdsLink": {
+        "description": "Schema for a GoogleAdsLink resource.",
+        "properties": {
+          "canManageClients": {
+            "description": "Output only. Indicates if this link is managed by Google.",
+            "title": "Can Manage Clients",
+            "type": "boolean"
+          },
+          "createTime": {
+            "description": "Output only. Time when the link was originally created (RFC 3339 datetime format).",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "customerId": {
+            "description": "Immutable. Google Ads customer ID formatted as a ten-digit number without hyphens.",
+            "title": "Customer Id",
+            "type": "string"
+          },
+          "emailAddress": {
+            "description": "User-provided name for the link. Must not conflict with other links.",
+            "title": "Email Address",
+            "type": "string"
+          },
+          "name": {
+            "description": "Output only. Resource name format: properties/{propertyId}/googleAdsLinks/{googleAdsLinkId}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "updateTime": {
+            "description": "Output only. Time when the link was last updated (RFC 3339 datetime format).",
+            "title": "Update Time",
+            "type": "string"
+          }
+        },
+        "title": "GoogleAdsLink",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AnalyticsAdminPropertiesGoogleAdsLinksListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

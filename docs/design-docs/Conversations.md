@@ -616,7 +616,9 @@ In the timeline, compact event notices sit alongside attributed messages:
   escaped structural newlines, trailing whitespace inside bold delimiters, and
   accidental single-tilde strikethrough in ordinary text. It preserves code,
   HTML, inline and reference links, images, reference definitions, and `$` / `$$`
-  math. Human-authored messages use standard Markdown rendering. Pod marks its
+  math. Human-authored messages use standard Markdown rendering. During streaming,
+  Pod renders the entire available message as one Markdown document, preserving
+  nested block boundaries and references defined elsewhere in the message. Pod marks its
   HTML shell and interactive regions (`pre`, `code`, `.katex`, Mermaid viewers,
   and choice/approval cards) with `translate="no"` to ask translation tools to
   leave their DOM unchanged. Fenced `mermaid` blocks render

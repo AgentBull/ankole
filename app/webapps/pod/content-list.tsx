@@ -23,7 +23,7 @@ import {
   conversationPath
 } from './chat/conversation-row'
 import {
-  cachedPages,
+  pagesByID,
   directoryCapabilitiesQuery,
   pageAPI,
   pageChildrenQuery,
@@ -118,9 +118,7 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
   const capabilities = roots.data?.pages[0]
   const rows: Page[] | undefined = pages.data?.pages
   const retentionDays = pages.data && 'trash_retention_days' in pages.data ? pages.data.trash_retention_days : null
-  const pagesByID = new Map(
-    [...cachedPages(client), ...(rows ?? []), ...(searched.data?.ancestors ?? [])].map(page => [page.id, page])
-  )
+  const knownPages = pagesByID(client, [...(rows ?? []), ...(searched.data?.ancestors ?? [])])
   const error = pages.error || (!trash && roots.error) || restore.error
   return (
     <ContentListFrame
@@ -166,7 +164,7 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
             <PageListItem
               key={page.id}
               page={page}
-              ancestors={rootScope ? [] : pageAncestors(page, pagesByID)}
+              ancestors={rootScope ? [] : pageAncestors(page, knownPages)}
               showPrivateBadge={!rootScope && Boolean(page.private_owner_uid)}
               timestamp={
                 rootScope
@@ -258,7 +256,7 @@ function RecentContentList() {
   const entries = mergeRecentEntries(pages.data?.pages ?? [], conversations.data?.conversations ?? [])
   const pending = pages.isPending || conversations.isPending
   const error = pages.error || conversations.error || destinations.error
-  const pagesByID = new Map([...cachedPages(client), ...(pages.data?.pages ?? [])].map(page => [page.id, page]))
+  const knownPages = pagesByID(client, pages.data?.pages ?? [])
   return (
     <ContentListFrame
       title={scopeLabels.recent}
@@ -279,7 +277,7 @@ function RecentContentList() {
               <PageListItem
                 key={`page:${entry.id}`}
                 page={entry.page}
-                ancestors={pageAncestors(entry.page, pagesByID)}
+                ancestors={pageAncestors(entry.page, knownPages)}
                 showPrivateBadge={Boolean(entry.page.private_owner_uid)}
                 timestamp={formatRelativeTime(entry.timestamp, i18n.language)}
               />

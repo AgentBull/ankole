@@ -1,0 +1,389 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List recently viewed tickets in Zendesk. Returns tickets sorted by the time they were last viewed, most recent first. Useful for agents to quickly access tickets they've been working on. The endpoint returns tickets visible to the agent based on their permission restrictions. Pagination is limited to 10,000 records (100 pages * 100 per page). Use this action to retrieve the tickets an agent has recently accessed in the Zendesk interface.",
+  "inputSchema": {
+    "description": "Request parameters for listing recently viewed tickets.",
+    "properties": {
+      "page": {
+        "description": "Page number for offset pagination (1-100). Limited to first 100 pages or 10,000 records total.",
+        "examples": [1],
+        "human_parameter_description": "Which page of results you want to view. Start at 1 and increase to browse through more tickets. Limited to page 100.",
+        "human_parameter_name": "Page Number",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of tickets per page (max 100). Note: page * per_page cannot exceed 10,000.",
+        "examples": [25],
+        "human_parameter_description": "How many tickets to show on each page. You can choose up to 100; smaller numbers can make pages load faster.",
+        "human_parameter_name": "Tickets Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      }
+    },
+    "title": "GetRecentTicketsRequest",
+    "type": "object"
+  },
+  "name": "get_recent_tickets",
+  "outputSchema": {
+    "$defs": {
+      "CustomField": {
+        "description": "Custom field value for a ticket.",
+        "properties": {
+          "id": {
+            "description": "Custom field ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "description": "Value of the custom field",
+            "title": "Value"
+          }
+        },
+        "required": ["id"],
+        "title": "CustomField",
+        "type": "object"
+      },
+      "GetRecentTicketsResponse": {
+        "description": "Response containing list of recently viewed tickets.",
+        "properties": {
+          "count": {
+            "description": "Total number of tickets",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for next page of results, null if no more pages",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "page": {
+            "description": "Current page number",
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_count": {
+            "description": "Total number of pages",
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results, null if on first page",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "tickets": {
+            "description": "List of recently viewed tickets",
+            "items": {
+              "$ref": "#/$defs/RecentTicket"
+            },
+            "title": "Tickets",
+            "type": "array"
+          }
+        },
+        "required": ["tickets", "count"],
+        "title": "GetRecentTicketsResponse",
+        "type": "object"
+      },
+      "RecentTicket": {
+        "description": "Zendesk ticket object from recent tickets endpoint.",
+        "properties": {
+          "recipient": {
+            "description": "Original recipient email address",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "assignee_id": {
+            "description": "ID of the assigned agent",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "requester_id": {
+            "description": "ID of the user who requested the ticket",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "url": {
+            "description": "API URL of the ticket",
+            "title": "Url",
+            "type": "string"
+          },
+          "problem_id": {
+            "description": "Related problem ticket ID if this is an incident",
+            "title": "Problem Id",
+            "type": "integer"
+          },
+          "external_id": {
+            "description": "ID of the ticket in an external system",
+            "title": "External Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Ticket last update timestamp (ISO 8601)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "has_incidents": {
+            "default": false,
+            "description": "Whether the ticket has related incidents",
+            "title": "Has Incidents",
+            "type": "boolean"
+          },
+          "collaborator_ids": {
+            "description": "IDs of ticket collaborators",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "group_id": {
+            "description": "ID of the assigned group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Ticket description",
+            "title": "Description",
+            "type": "string"
+          },
+          "tags": {
+            "description": "List of ticket tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Ticket creation timestamp (ISO 8601)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "status": {
+            "description": "Ticket status (new, open, pending, hold, solved, closed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "priority": {
+            "description": "Ticket priority (urgent, high, normal, low)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "follower_ids": {
+            "description": "IDs of users following the ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Follower Ids",
+            "type": "array"
+          },
+          "type": {
+            "description": "Ticket type (problem, incident, question, task)",
+            "title": "Type",
+            "type": "string"
+          },
+          "raw_subject": {
+            "description": "Ticket subject with dynamic content placeholders",
+            "title": "Raw Subject",
+            "type": "string"
+          },
+          "brand_id": {
+            "description": "ID of the brand associated with the ticket",
+            "title": "Brand Id",
+            "type": "integer"
+          },
+          "custom_fields": {
+            "description": "Custom field values",
+            "items": {
+              "$ref": "#/$defs/CustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "is_public": {
+            "default": true,
+            "description": "Whether the ticket is public",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "from_messaging_channel": {
+            "default": false,
+            "description": "Whether ticket came from messaging channel",
+            "title": "From Messaging Channel",
+            "type": "boolean"
+          },
+          "due_at": {
+            "description": "Due date timestamp",
+            "title": "Due At",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Ticket subject",
+            "title": "Subject",
+            "type": "string"
+          },
+          "assignee_email": {
+            "description": "Email of the assigned agent",
+            "title": "Assignee Email",
+            "type": "string"
+          },
+          "custom_status_id": {
+            "description": "Custom status identifier",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique ticket ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "sharing_agreement_ids": {
+            "description": "IDs of sharing agreements",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sharing Agreement Ids",
+            "type": "array"
+          },
+          "satisfaction_rating": {
+            "$ref": "#/$defs/SatisfactionRating",
+            "description": "Customer satisfaction rating",
+            "title": "Satisfaction Rating"
+          },
+          "fields": {
+            "description": "Ticket field values",
+            "items": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "items": {},
+                    "type": "array"
+                  },
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "via": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Channel through which the ticket was created",
+            "title": "Via",
+            "type": "object"
+          },
+          "generated_timestamp": {
+            "description": "Unix timestamp when ticket was generated",
+            "title": "Generated Timestamp",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "ID of the requester's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "status", "requester_id", "created_at", "updated_at", "url"],
+        "title": "RecentTicket",
+        "type": "object"
+      },
+      "SatisfactionRating": {
+        "description": "Satisfaction rating for a ticket.",
+        "properties": {
+          "comment": {
+            "description": "Optional comment for the satisfaction rating",
+            "title": "Comment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Satisfaction rating ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "score": {
+            "description": "Satisfaction score (good, bad, or unoffered)",
+            "title": "Score",
+            "type": "string"
+          }
+        },
+        "title": "SatisfactionRating",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRecentTicketsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

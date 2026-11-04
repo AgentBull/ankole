@@ -1,0 +1,129 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get a single job status by ID from Zendesk. Shows the status of a background job initiated by bulk operations (like bulk updates, imports, or exports). The response includes progress information, completion status, and any results from individual tasks. Use this action when you have a job_status_id from a previously queued bulk operation and need to check if it completed successfully, failed, or is still processing. Check the 'status' field for the current state ('queued', 'working', 'completed', 'failed') and the 'results' array for individual task outcomes.",
+  "inputSchema": {
+    "description": "Request parameters for getting a single job status by ID.",
+    "properties": {
+      "job_status_id": {
+        "description": "The unique identifier of the job status to retrieve. This is the job ID returned when a bulk operation was queued.",
+        "examples": ["8b726e606741012ffc2d782bcb7848fe", "V3-64ae44cd39d96f74210d24c9375ba104"],
+        "human_parameter_description": "The unique job status ID to check. This ID is returned when a bulk operation (like ticket updates, imports, or exports) is initially queued.",
+        "human_parameter_name": "Job Status ID",
+        "title": "Job Status Id",
+        "type": "string"
+      }
+    },
+    "required": ["job_status_id"],
+    "title": "GetJobStatuses2Request",
+    "type": "object"
+  },
+  "name": "get_job_statuses2",
+  "outputSchema": {
+    "$defs": {
+      "GetJobStatuses2Response": {
+        "description": "Response containing a single job status.",
+        "properties": {
+          "job_status": {
+            "$ref": "#/$defs/JobStatus",
+            "description": "The job status object",
+            "title": "Job Status"
+          }
+        },
+        "required": ["job_status"],
+        "title": "GetJobStatuses2Response",
+        "type": "object"
+      },
+      "JobStatus": {
+        "description": "A job status object representing the status of a background job.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the job status",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_type": {
+            "description": "Type of the job (e.g., 'create', 'update', 'delete')",
+            "title": "Job Type",
+            "type": "string"
+          },
+          "message": {
+            "description": "Human-readable message describing the job status or result",
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "description": "Number of tasks completed so far",
+            "title": "Progress",
+            "type": "integer"
+          },
+          "results": {
+            "description": "List of individual task results from the job",
+            "items": {
+              "$ref": "#/$defs/JobStatusResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "status": {
+            "description": "Current status of the job (e.g., 'queued', 'working', 'completed', 'failed')",
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "description": "Total number of tasks in the job",
+            "title": "Total",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL to access the full job status details",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "JobStatus",
+        "type": "object"
+      },
+      "JobStatusResult": {
+        "description": "Result item from a job status.",
+        "properties": {
+          "action": {
+            "description": "The action performed (e.g., 'update', 'create')",
+            "title": "Action",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the affected record",
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The status of the action (e.g., 'Updated', 'Failed')",
+            "title": "Status",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the action was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "JobStatusResult",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetJobStatuses2Response",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

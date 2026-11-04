@@ -1,0 +1,429 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a paginated list of Stripe invoice items. Use to filter by customer, invoice, creation date, or attachment status with cursor-based pagination.",
+  "inputSchema": {
+    "properties": {
+      "created": {
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "description": "Filter invoice items by creation date. Use keys like 'gt' (greater than), 'gte' (greater than or equal to), 'lt' (less than), 'lte' (less than or equal to) with Unix timestamp values to specify a range.",
+        "examples": [
+          {
+            "gte": 1609459200,
+            "lte": 1640995200
+          }
+        ],
+        "title": "Created",
+        "type": "object"
+      },
+      "customer": {
+        "description": "Filter by customer ID. Only return invoice items for the specified customer.",
+        "examples": ["cus_123ABC456def"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "customer_account": {
+        "description": "Filter by customer account ID. Only return invoice items for the specified customer account.",
+        "examples": ["ca_123ABC456def"],
+        "title": "Customer Account",
+        "type": "string"
+      },
+      "ending_before": {
+        "description": "Cursor for backward pagination. An invoice item ID that defines where to end fetching the previous page.",
+        "examples": ["ii_0987654321"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "invoice": {
+        "description": "Filter by invoice ID. Only return invoice items belonging to the specified invoice.",
+        "examples": ["in_1234567890"],
+        "title": "Invoice",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of invoice items to return (1-100). Defaults to 10 if not specified.",
+        "examples": [10, 25, 100],
+        "title": "Limit",
+        "type": "integer"
+      },
+      "pending": {
+        "description": "Filter by attachment status. Set to true to return only unattached invoice items, false to return only attached items, or omit to return all items.",
+        "examples": [true, false],
+        "title": "Pending",
+        "type": "boolean"
+      },
+      "starting_after": {
+        "description": "Cursor for forward pagination. An invoice item ID that defines where to start fetching the next page.",
+        "examples": ["ii_1234567890"],
+        "title": "Starting After",
+        "type": "string"
+      }
+    },
+    "title": "ListInvoiceitemsRequest",
+    "type": "object"
+  },
+  "name": "list_invoiceitems",
+  "outputSchema": {
+    "$defs": {
+      "DiscountAmount": {
+        "description": "Discount amount information.",
+        "properties": {
+          "amount": {
+            "description": "Amount of the discount in cents.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "discount": {
+            "description": "ID of the discount that was applied.",
+            "title": "Discount",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "discount"],
+        "title": "DiscountAmount",
+        "type": "object"
+      },
+      "InvoiceItem": {
+        "description": "Stripe Invoice Item object.",
+        "properties": {
+          "amount": {
+            "description": "Amount in smallest currency unit (unit_amount × quantity).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "customer": {
+            "description": "ID of the customer this invoice item belongs to.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "customer_account": {
+            "description": "ID of the customer account to bill instead of customer.",
+            "title": "Customer Account",
+            "type": "string"
+          },
+          "date": {
+            "description": "Time the invoice item was created (Unix timestamp).",
+            "title": "Date",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Arbitrary description for display purposes.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discountable": {
+            "description": "Whether discounts apply to this invoice item.",
+            "title": "Discountable",
+            "type": "boolean"
+          },
+          "discounts": {
+            "description": "Array of discount IDs applied to this invoice item.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the invoice item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "ID of the invoice this item is attached to.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "True for live mode, false for test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "net_amount": {
+            "description": "Amount after discounts but before taxes (in cents).",
+            "title": "Net Amount",
+            "type": "integer"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'invoiceitem'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "parent": {
+            "$ref": "#/$defs/Parent",
+            "description": "Details about the subscription that generated this item.",
+            "title": "Parent"
+          },
+          "period": {
+            "$ref": "#/$defs/Period",
+            "description": "Billing period for this invoice item.",
+            "title": "Period"
+          },
+          "pricing": {
+            "$ref": "#/$defs/Pricing",
+            "description": "Price and product information.",
+            "title": "Pricing"
+          },
+          "proration": {
+            "description": "Whether this was created as a proration adjustment.",
+            "title": "Proration",
+            "type": "boolean"
+          },
+          "proration_details": {
+            "$ref": "#/$defs/ProrationDetails",
+            "description": "Proration discount information.",
+            "title": "Proration Details"
+          },
+          "quantity": {
+            "description": "Quantity of units for this invoice item.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "tax_rates": {
+            "description": "Array of tax rate objects applied to this item.",
+            "items": {
+              "$ref": "#/$defs/TaxRate"
+            },
+            "title": "Tax Rates",
+            "type": "array"
+          },
+          "test_clock": {
+            "description": "ID of the test clock if in test mode.",
+            "title": "Test Clock",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "currency",
+          "customer",
+          "date",
+          "discountable",
+          "livemode",
+          "period",
+          "proration",
+          "quantity"
+        ],
+        "title": "InvoiceItem",
+        "type": "object"
+      },
+      "ListInvoiceitemsResponse": {
+        "description": "Response from listing Stripe invoice items.",
+        "properties": {
+          "data": {
+            "description": "Array of invoice item objects.",
+            "items": {
+              "$ref": "#/$defs/InvoiceItem"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether more results exist beyond this page.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'list'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL for accessing this list.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "ListInvoiceitemsResponse",
+        "type": "object"
+      },
+      "Parent": {
+        "description": "Details about the subscription that generated this invoice item.",
+        "properties": {
+          "subscription_details": {
+            "$ref": "#/$defs/SubscriptionDetails",
+            "description": "Subscription details if parent is a subscription.",
+            "title": "Subscription Details"
+          },
+          "type": {
+            "description": "Type of parent relationship.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "Parent",
+        "type": "object"
+      },
+      "Period": {
+        "description": "Billing period for an invoice item.",
+        "properties": {
+          "end": {
+            "description": "End of the period (Unix timestamp).",
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "description": "Start of the period (Unix timestamp).",
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": ["start", "end"],
+        "title": "Period",
+        "type": "object"
+      },
+      "PriceDetails": {
+        "description": "Price and product information.",
+        "properties": {
+          "price": {
+            "description": "ID of the price.",
+            "title": "Price",
+            "type": "string"
+          },
+          "product": {
+            "description": "ID of the product.",
+            "title": "Product",
+            "type": "string"
+          }
+        },
+        "title": "PriceDetails",
+        "type": "object"
+      },
+      "Pricing": {
+        "description": "Pricing information for the invoice item.",
+        "properties": {
+          "price_details": {
+            "$ref": "#/$defs/PriceDetails",
+            "description": "Price and product IDs.",
+            "title": "Price Details"
+          },
+          "type": {
+            "description": "Pricing type.",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount_decimal": {
+            "description": "Unit amount as a decimal string.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "Pricing",
+        "type": "object"
+      },
+      "ProrationDetails": {
+        "description": "Details about proration discounts.",
+        "properties": {
+          "discount_amounts": {
+            "description": "Array of discount amounts with discount IDs.",
+            "items": {
+              "$ref": "#/$defs/DiscountAmount"
+            },
+            "title": "Discount Amounts",
+            "type": "array"
+          }
+        },
+        "title": "ProrationDetails",
+        "type": "object"
+      },
+      "SubscriptionDetails": {
+        "description": "Subscription details for parent relationship.",
+        "properties": {
+          "subscription": {
+            "description": "ID of the subscription.",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "subscription_item": {
+            "description": "ID of the subscription item.",
+            "title": "Subscription Item",
+            "type": "string"
+          }
+        },
+        "title": "SubscriptionDetails",
+        "type": "object"
+      },
+      "TaxRate": {
+        "description": "Tax rate object.",
+        "properties": {
+          "active": {
+            "description": "Whether the tax rate is currently active.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2).",
+            "title": "Country",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "The display name of the tax rate.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the tax rate.",
+            "title": "Id",
+            "type": "string"
+          },
+          "inclusive": {
+            "description": "Whether the tax rate is inclusive or exclusive.",
+            "title": "Inclusive",
+            "type": "boolean"
+          },
+          "jurisdiction": {
+            "description": "The jurisdiction for the tax rate.",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'tax_rate'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percentage": {
+            "description": "The percentage rate.",
+            "title": "Percentage",
+            "type": "number"
+          }
+        },
+        "required": ["id", "object", "active", "display_name", "inclusive", "percentage"],
+        "title": "TaxRate",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListInvoiceitemsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently and irreversibly removes a Sentry release, including all its associated files, identified by its version from the specified organization.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteOrganizationRelease`",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization to which the release belongs.",
+        "examples": ["my-organization-slug", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "version": {
+        "description": "The version identifier of the release to be deleted. This could be a semantic version (e.g., '1.0.0', 'my-app@2.3.1') or a unique commit hash.",
+        "examples": ["1.0.0", "my-app@2.3.1", "abcdef1234567890abcdef1234567890"],
+        "title": "Version",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "version"],
+    "title": "DeleteOrganizationReleaseRequest",
+    "type": "object"
+  },
+  "name": "delete_organization_release",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationReleaseResponse": {
+        "description": "Output schema for delete operation. Returns 204 No Content on success with no response body.",
+        "properties": {},
+        "title": "DeleteOrganizationReleaseResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationReleaseResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

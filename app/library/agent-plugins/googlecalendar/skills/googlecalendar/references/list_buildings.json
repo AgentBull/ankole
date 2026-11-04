@@ -1,0 +1,202 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists a page of buildings for a Google Workspace customer, including available addresses, coordinates, and floor names. Use the continuation token for further pages; Directory API access and appropriate administrator privileges are required.",
+  "inputSchema": {
+    "properties": {
+      "customer": {
+        "default": "my_customer",
+        "description": "The unique ID for the customer's Google Workspace account. Use 'my_customer' alias to represent your account's customer ID. As an account administrator, this alias represents your account's customer ID.",
+        "examples": ["my_customer", "C01234567"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "maxResults": {
+        "default": 25,
+        "description": "Maximum number of buildings to return per page. Defaults to 25 for optimal performance.",
+        "examples": [25, 100],
+        "minimum": 1,
+        "title": "Max Results",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Token to specify the next page in the list. Obtained from nextPageToken in a previous response. Omit for the first page.",
+        "examples": ["next_page_token_value"],
+        "title": "Page Token",
+        "type": "string"
+      }
+    },
+    "title": "ListBuildingsRequest",
+    "type": "object"
+  },
+  "name": "list_buildings",
+  "outputSchema": {
+    "$defs": {
+      "Building": {
+        "description": "Represents a building resource in Google Workspace.",
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/BuildingAddress",
+            "description": "The postal address of the building.",
+            "title": "Address"
+          },
+          "buildingId": {
+            "description": "Unique identifier for the building. Maximum length is 100 characters.",
+            "examples": ["building-1", "hq-main"],
+            "title": "Building Id",
+            "type": "string"
+          },
+          "buildingName": {
+            "description": "The building name as seen by users in Calendar. Must be unique for the customer. Maximum length is 100 characters.",
+            "examples": ["Main Office", "Building A"],
+            "title": "Building Name",
+            "type": "string"
+          },
+          "coordinates": {
+            "$ref": "#/$defs/BuildingCoordinates",
+            "description": "Geographic center location of the building.",
+            "title": "Coordinates"
+          },
+          "description": {
+            "description": "A brief description of the building.",
+            "examples": ["Headquarters building with conference rooms"],
+            "title": "Description",
+            "type": "string"
+          },
+          "etags": {
+            "description": "ETag of the resource for concurrency control.",
+            "title": "Etags",
+            "type": "string"
+          },
+          "floorNames": {
+            "description": "The display names for all floors in this building, sorted in ascending order.",
+            "examples": [["Ground Floor", "First Floor", "Second Floor"]],
+            "items": {
+              "type": "string"
+            },
+            "title": "Floor Names",
+            "type": "array"
+          },
+          "kind": {
+            "description": "Resource type identifier, always 'admin#directory#resources#buildings#Building'.",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "Building",
+        "type": "object"
+      },
+      "BuildingAddress": {
+        "description": "Postal address of a building.",
+        "properties": {
+          "addressLines": {
+            "description": "Unstructured address lines containing street address and additional details.",
+            "examples": [["1600 Amphitheatre Parkway"]],
+            "items": {
+              "type": "string"
+            },
+            "title": "Address Lines",
+            "type": "array"
+          },
+          "administrativeArea": {
+            "description": "Highest administrative subdivision (e.g., state or province).",
+            "examples": ["California", "England"],
+            "title": "Administrative Area",
+            "type": "string"
+          },
+          "languageCode": {
+            "description": "BCP-47 language code of the address (e.g., 'en', 'es').",
+            "examples": ["en", "es"],
+            "title": "Language Code",
+            "type": "string"
+          },
+          "locality": {
+            "description": "City or town portion of the address.",
+            "examples": ["Mountain View", "London"],
+            "title": "Locality",
+            "type": "string"
+          },
+          "postalCode": {
+            "description": "Postal code of the address.",
+            "examples": ["94043", "SW1A 1AA"],
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "regionCode": {
+            "description": "CLDR region code of the country/region (e.g., 'US', 'GB').",
+            "examples": ["US", "GB"],
+            "title": "Region Code",
+            "type": "string"
+          },
+          "sublocality": {
+            "description": "Sublocality designation (e.g., neighborhood or district).",
+            "examples": ["Downtown", "Westminster"],
+            "title": "Sublocality",
+            "type": "string"
+          }
+        },
+        "title": "BuildingAddress",
+        "type": "object"
+      },
+      "BuildingCoordinates": {
+        "description": "Geographic coordinates of a building.",
+        "properties": {
+          "latitude": {
+            "description": "Latitude in decimal degrees.",
+            "title": "Latitude",
+            "type": "number"
+          },
+          "longitude": {
+            "description": "Longitude in decimal degrees.",
+            "title": "Longitude",
+            "type": "number"
+          }
+        },
+        "title": "BuildingCoordinates",
+        "type": "object"
+      },
+      "ListBuildingsResponse": {
+        "properties": {
+          "buildings": {
+            "description": "List of building resources in this page of results. May be empty if no buildings exist.",
+            "items": {
+              "$ref": "#/$defs/Building"
+            },
+            "title": "Buildings",
+            "type": "array"
+          },
+          "etag": {
+            "description": "ETag of the collection for cache validation.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind of resource this is, always 'admin#directory#resources#buildings#buildingsList'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "nextPageToken": {
+            "description": "Token used to access the next page of results. Absent when there are no more pages. Pass this value as pageToken in the next request to retrieve the next page.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "ListBuildingsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListBuildingsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

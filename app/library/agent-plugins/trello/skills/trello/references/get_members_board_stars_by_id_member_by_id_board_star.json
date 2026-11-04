@@ -1,0 +1,86 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information about a specific board star (a Trello board marked as a favorite) for a given Trello member.",
+  "inputSchema": {
+    "description": "Request schema for `GetMembersBoardStarsByIdMemberByIdBoardStar`",
+    "properties": {
+      "idBoardStar": {
+        "description": "The unique identifier of the board star. Each starred board has a unique ID, which is used to fetch its specific details.",
+        "examples": ["5f9b3b3b1c9d440000a1b2c3"],
+        "title": "Id Board Star",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID or username of the Trello member. This specifies whose board star information is being retrieved.",
+        "examples": ["60d5f2f19f8d8a004b8e1b9a", "johndoe"],
+        "title": "Id Member",
+        "type": "string"
+      }
+    },
+    "required": ["idMember", "idBoardStar"],
+    "title": "GetMembersBoardStarsByIdMemberByIdBoardStarRequest",
+    "type": "object"
+  },
+  "name": "get_members_board_stars_by_id_member_by_id_board_star",
+  "outputSchema": {
+    "$defs": {
+      "BoardStarData": {
+        "description": "Details of a specific board star.",
+        "properties": {
+          "id": {
+            "description": "The unique identifier of the board star.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board that has been starred.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "pos": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "The position of the board star, used to determine display order. Lower values appear first.",
+            "title": "Pos"
+          }
+        },
+        "required": ["id", "idBoard", "pos"],
+        "title": "BoardStarData",
+        "type": "object"
+      },
+      "GetMembersBoardStarsByIdMemberByIdBoardStarResponse": {
+        "description": "Response schema for `GetMembersBoardStarsByIdMemberByIdBoardStar`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/BoardStarData",
+            "description": "The board star details including its ID, the associated board ID, and the position.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetMembersBoardStarsByIdMemberByIdBoardStarResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMembersBoardStarsByIdMemberByIdBoardStarResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

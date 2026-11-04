@@ -1,0 +1,169 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves component usage analytics for a specified Figma library file (identified by `file_key`), with data groupable by 'component' or 'file'.",
+  "inputSchema": {
+    "description": "Parameters for retrieving component usage analytics for a Figma library.",
+    "properties": {
+      "cursor": {
+        "description": "Opaque string for pagination to fetch the next page of data, obtained from a previous response.",
+        "title": "Cursor",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "Unique identifier (key) of the Figma library file. Must be a published library file from an Enterprise plan organization.",
+        "examples": ["your_figma_file_key"],
+        "title": "File Key",
+        "type": "string"
+      },
+      "group_by": {
+        "description": "Dimension to group analytics data, affecting the response `rows` structure. Use 'component' to see per-component usage stats, or 'file' to see which files use the library.",
+        "enum": ["component", "file"],
+        "examples": ["component", "file"],
+        "title": "Group By",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "group_by"],
+    "title": "GetLibraryAnalyticsComponentUsageDataRequest",
+    "type": "object"
+  },
+  "name": "get_library_analytics_component_usage_data",
+  "outputSchema": {
+    "$defs": {
+      "GetLibraryAnalyticsComponentUsageDataResponse": {
+        "description": "Component usage analytics for a Figma library, including usage rows and pagination.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "The analytics results, including usage rows and pagination information.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetLibraryAnalyticsComponentUsageDataResponse",
+        "type": "object"
+      },
+      "Model": {
+        "description": "Container for the list of analytics data rows and pagination details.",
+        "properties": {
+          "cursor": {
+            "description": "Pagination cursor for the next page; present if `next_page` is true.",
+            "title": "Cursor",
+            "type": "string"
+          },
+          "next_page": {
+            "description": "Indicates if more analytics data is available on a subsequent page.",
+            "title": "Next Page",
+            "type": "boolean"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Row"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/Row1"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "Array of analytics data rows; objects are `Row` or `Row1` based on the request's `group_by` parameter.",
+            "title": "Rows"
+          }
+        },
+        "required": ["rows", "next_page"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Row": {
+        "description": "Analytics data for one item when results are grouped by 'component'.",
+        "properties": {
+          "component_key": {
+            "description": "Unique and stable identifier of the component.",
+            "title": "Component Key",
+            "type": "string"
+          },
+          "component_name": {
+            "description": "Display name of the component.",
+            "title": "Component Name",
+            "type": "string"
+          },
+          "component_set_key": {
+            "description": "Unique and stable identifier of the component set, if applicable.",
+            "title": "Component Set Key",
+            "type": "string"
+          },
+          "component_set_name": {
+            "description": "Name of the component set, if applicable.",
+            "title": "Component Set Name",
+            "type": "string"
+          },
+          "files_using": {
+            "description": "Number of distinct files where this component is used.",
+            "title": "Files Using",
+            "type": "number"
+          },
+          "teams_using": {
+            "description": "Number of distinct teams using this component.",
+            "title": "Teams Using",
+            "type": "number"
+          },
+          "usages": {
+            "description": "Total instances of this component used across the organization.",
+            "title": "Usages",
+            "type": "number"
+          }
+        },
+        "required": ["component_key", "component_name", "usages", "teams_using", "files_using"],
+        "title": "Row",
+        "type": "object"
+      },
+      "Row1": {
+        "description": "Analytics data for one item when results are grouped by 'file'.",
+        "properties": {
+          "file_name": {
+            "description": "Name of the file using components from the library.",
+            "title": "File Name",
+            "type": "string"
+          },
+          "team_name": {
+            "description": "Name of the team owning or accessing this file.",
+            "title": "Team Name",
+            "type": "string"
+          },
+          "usages": {
+            "description": "Total component instances from the library used within this file.",
+            "title": "Usages",
+            "type": "number"
+          },
+          "workspace_name": {
+            "description": "Name of the workspace this file belongs to, if applicable.",
+            "title": "Workspace Name",
+            "type": "string"
+          }
+        },
+        "required": ["file_name", "team_name", "usages"],
+        "title": "Row1",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetLibraryAnalyticsComponentUsageDataResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

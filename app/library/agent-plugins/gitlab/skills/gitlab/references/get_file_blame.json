@@ -1,0 +1,197 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Return commit attribution and lines for a GitLab repository file.",
+  "inputSchema": {
+    "properties": {
+      "file_path": {
+        "description": "Full path to the file in the repository. URL-encoding is handled automatically.",
+        "examples": ["README.md", "src/main.py"],
+        "title": "File Path",
+        "type": "string"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The numeric ID or namespace/project path of the project. URL-encoding is handled automatically.",
+        "examples": [5, "namespace/project-name"],
+        "title": "Project Id"
+      },
+      "range_end": {
+        "description": "Last 1-based line to include. Must be provided with range_start and be greater than or equal to it.",
+        "examples": [20],
+        "minimum": 1,
+        "title": "Range End",
+        "type": "integer"
+      },
+      "range_start": {
+        "description": "First 1-based line to include. Must be provided with range_end.",
+        "examples": [1],
+        "minimum": 1,
+        "title": "Range Start",
+        "type": "integer"
+      },
+      "ref": {
+        "description": "Branch, tag, or commit SHA containing the file.",
+        "examples": ["main", "v1.0.0"],
+        "title": "Ref",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "file_path", "ref"],
+    "title": "GetFileBlameRequest",
+    "type": "object"
+  },
+  "name": "get_file_blame",
+  "outputSchema": {
+    "$defs": {
+      "FileBlameCommit": {
+        "properties": {
+          "author_email": {
+            "description": "Commit author's email.",
+            "title": "Author Email",
+            "type": "string"
+          },
+          "author_name": {
+            "description": "Commit author's name.",
+            "title": "Author Name",
+            "type": "string"
+          },
+          "authored_date": {
+            "description": "Timestamp when the commit was authored.",
+            "title": "Authored Date",
+            "type": "string"
+          },
+          "committed_date": {
+            "description": "Timestamp when the commit was committed.",
+            "title": "Committed Date",
+            "type": "string"
+          },
+          "committer_email": {
+            "description": "Committer's email.",
+            "title": "Committer Email",
+            "type": "string"
+          },
+          "committer_name": {
+            "description": "Committer's name.",
+            "title": "Committer Name",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the commit was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "extended_trailers": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Parsed Git trailers with all values preserved.",
+            "title": "Extended Trailers",
+            "type": "object"
+          },
+          "id": {
+            "description": "Full commit SHA.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Full commit message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "parent_ids": {
+            "description": "SHAs of the commit's parents.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parent Ids",
+            "type": "array"
+          },
+          "short_id": {
+            "description": "Abbreviated commit SHA.",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Commit title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "trailers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Parsed Git trailers on the commit.",
+            "title": "Trailers",
+            "type": "object"
+          },
+          "web_url": {
+            "description": "URL of the commit in the GitLab web interface.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "title": "FileBlameCommit",
+        "type": "object"
+      },
+      "FileBlameRange": {
+        "properties": {
+          "commit": {
+            "$ref": "#/$defs/FileBlameCommit",
+            "description": "Commit responsible for the attributed lines.",
+            "title": "Commit"
+          },
+          "lines": {
+            "description": "File lines attributed to the commit.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": ["commit", "lines"],
+        "title": "FileBlameRange",
+        "type": "object"
+      },
+      "GetFileBlameResponse": {
+        "properties": {
+          "blame_ranges": {
+            "description": "Commit-attributed ranges of lines from the file.",
+            "items": {
+              "$ref": "#/$defs/FileBlameRange"
+            },
+            "title": "Blame Ranges",
+            "type": "array"
+          }
+        },
+        "required": ["blame_ranges"],
+        "title": "GetFileBlameResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetFileBlameResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

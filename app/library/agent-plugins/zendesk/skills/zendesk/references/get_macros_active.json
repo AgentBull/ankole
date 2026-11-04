@@ -1,0 +1,280 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List all active shared and personal macros in Zendesk. Use when you need to retrieve, audit, or review the macros configured in your Zendesk account. Macros are saved responses that agents can apply to tickets. This action supports filtering by access level, category, group, and sorting options. Note: This action only returns active macros. The sort_by parameter supports sorting by usage metrics (usage_1h, usage_24h, usage_7d, usage_30d) to identify the most frequently used macros.",
+  "inputSchema": {
+    "description": "Request parameters for listing active macros.",
+    "properties": {
+      "access": {
+        "description": "Filter macros by access level.",
+        "enum": ["personal", "agents", "shared", "account"],
+        "title": "Access",
+        "type": "string"
+      },
+      "category": {
+        "description": "Filter macros by category ID",
+        "examples": [25],
+        "title": "Category",
+        "type": "integer"
+      },
+      "group_id": {
+        "description": "Filter macros by group ID",
+        "examples": [25],
+        "title": "Group Id",
+        "type": "integer"
+      },
+      "include": {
+        "description": "A sideload to include in the response. See Zendesk API documentation for available sideloads.",
+        "examples": ["usage_7d"],
+        "title": "Include",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number for offset pagination. Zendesk returns up to 100 records per page.",
+        "title": "Page",
+        "type": "integer"
+      },
+      "page_after": {
+        "description": "Cursor for forward cursor pagination (sent as page[after]).",
+        "title": "Page After",
+        "type": "string"
+      },
+      "page_before": {
+        "description": "Cursor for backward cursor pagination (sent as page[before]).",
+        "title": "Page Before",
+        "type": "string"
+      },
+      "page_size": {
+        "description": "Records per page for cursor pagination (sent as page[size], max 100).",
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of macros per page for offset pagination (max 100).",
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort_by": {
+        "description": "Possible values for sorting macros.",
+        "enum": ["alphabetical", "created_at", "updated_at", "usage_1h", "usage_24h", "usage_7d", "usage_30d"],
+        "title": "SortBy",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort order for macro listing.",
+        "enum": ["asc", "desc"],
+        "title": "SortOrder",
+        "type": "string"
+      }
+    },
+    "title": "GetMacrosActiveRequest",
+    "type": "object"
+  },
+  "name": "get_macros_active",
+  "outputSchema": {
+    "$defs": {
+      "GetMacrosActiveResponse": {
+        "description": "Response containing list of active Zendesk macros.",
+        "properties": {
+          "count": {
+            "description": "Total number of macros",
+            "title": "Count",
+            "type": "integer"
+          },
+          "macros": {
+            "description": "List of active macros",
+            "items": {
+              "$ref": "#/$defs/Macro"
+            },
+            "title": "Macros",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["macros", "count"],
+        "title": "GetMacrosActiveResponse",
+        "type": "object"
+      },
+      "Macro": {
+        "description": "Individual Zendesk macro object.",
+        "properties": {
+          "actions": {
+            "description": "Actions performed by the macro",
+            "items": {
+              "$ref": "#/$defs/MacroAction"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
+          "active": {
+            "description": "Whether the macro is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "conditions": {
+            "$ref": "#/$defs/MacroCondition",
+            "description": "Conditions that trigger the macro",
+            "title": "Conditions"
+          },
+          "created_at": {
+            "description": "Creation timestamp",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether the macro is a default macro",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Description of the macro",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique macro ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "position": {
+            "description": "Position in the list",
+            "title": "Position",
+            "type": "integer"
+          },
+          "raw_title": {
+            "description": "Raw title without formatting",
+            "title": "Raw Title",
+            "type": "string"
+          },
+          "restriction": {
+            "$ref": "#/$defs/MacroRestriction",
+            "description": "Access restrictions",
+            "title": "Restriction"
+          },
+          "title": {
+            "description": "Macro title",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the macro",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "Macro",
+        "type": "object"
+      },
+      "MacroAction": {
+        "description": "Action performed by a macro.",
+        "properties": {
+          "field": {
+            "description": "The field to modify",
+            "title": "Field",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "description": "The value to set",
+            "title": "Value"
+          }
+        },
+        "title": "MacroAction",
+        "type": "object"
+      },
+      "MacroCondition": {
+        "description": "Condition for a macro.",
+        "properties": {
+          "all": {
+            "description": "Conditions that must all be true",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "All",
+            "type": "array"
+          },
+          "any": {
+            "description": "Conditions where any one must be true",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Any",
+            "type": "array"
+          }
+        },
+        "title": "MacroCondition",
+        "type": "object"
+      },
+      "MacroRestriction": {
+        "description": "Access restrictions for a macro.",
+        "properties": {
+          "id": {
+            "description": "ID of the restricted resource",
+            "title": "Id",
+            "type": "integer"
+          },
+          "ids": {
+            "description": "IDs of restricted resources",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ids",
+            "type": "array"
+          },
+          "type": {
+            "description": "Type of restriction",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "MacroRestriction",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetMacrosActiveResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

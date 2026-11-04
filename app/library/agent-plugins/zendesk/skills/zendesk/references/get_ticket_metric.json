@@ -1,0 +1,338 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve a specific ticket metric from Zendesk by its ID. Use this action when you have a ticket_metric_id and need to fetch the detailed metrics for that ticket, including resolution times, wait times, reply times, and SLA breaches. This action is read-only and idempotent — fetching the same metric multiple times has no side effects.",
+  "inputSchema": {
+    "description": "Request parameters for retrieving a specific ticket metric.",
+    "properties": {
+      "ticket_metric_id": {
+        "description": "The numeric ID of the ticket metric to retrieve. This is the metric ID associated with a ticket, found in ticket_metric responses or ticket data.",
+        "examples": [26943300862108],
+        "human_parameter_description": "The unique identifier of the ticket metric you want to retrieve. You can find this ID from ticket data or from a list of ticket metrics.",
+        "human_parameter_name": "Ticket Metric ID",
+        "title": "Ticket Metric Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_metric_id"],
+    "title": "GetTicketMetricRequest",
+    "type": "object"
+  },
+  "name": "get_ticket_metric",
+  "outputSchema": {
+    "$defs": {
+      "GetTicketMetricResponse": {
+        "description": "Response containing a single ticket metric.",
+        "properties": {
+          "ticket_metric": {
+            "$ref": "#/$defs/TicketMetric",
+            "description": "The ticket metric object containing all metric data",
+            "title": "Ticket Metric"
+          }
+        },
+        "required": ["ticket_metric"],
+        "title": "GetTicketMetricResponse",
+        "type": "object"
+      },
+      "ReplyTimeInSeconds": {
+        "description": "Reply time measured in seconds.",
+        "properties": {
+          "calendar": {
+            "description": "Reply time in calendar seconds",
+            "title": "Calendar",
+            "type": "integer"
+          }
+        },
+        "title": "ReplyTimeInSeconds",
+        "type": "object"
+      },
+      "TicketMetric": {
+        "description": "Individual ticket metric data.",
+        "properties": {
+          "initially_assigned_at": {
+            "description": "Timestamp when the ticket was first assigned (accounting for reassignments)",
+            "title": "Initially Assigned At",
+            "type": "string"
+          },
+          "first_reply_time_in_business_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time to first agent reply within business hours, measured in minutes",
+            "title": "First Reply Time In Business Minutes"
+          },
+          "url": {
+            "description": "API URL to access this ticket metric",
+            "title": "Url",
+            "type": "string"
+          },
+          "channel_updated_at": {
+            "description": "Timestamp when the ticket channel was last changed",
+            "title": "Channel Updated At",
+            "type": "string"
+          },
+          "latest_comment_is_public": {
+            "description": "Whether the latest comment is public",
+            "title": "Latest Comment Is Public",
+            "type": "boolean"
+          },
+          "escalated_at": {
+            "description": "Timestamp when the ticket was escalated",
+            "title": "Escalated At",
+            "type": "string"
+          },
+          "priority_updated_at": {
+            "description": "Timestamp when the ticket priority was last changed",
+            "title": "Priority Updated At",
+            "type": "string"
+          },
+          "first_reply_to_customer": {
+            "description": "Timestamp of the first reply to a customer",
+            "title": "First Reply To Customer",
+            "type": "string"
+          },
+          "first_reply_to_agent": {
+            "description": "Timestamp of the first reply to an agent",
+            "title": "First Reply To Agent",
+            "type": "string"
+          },
+          "first_reply_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time to first agent reply, measured in minutes",
+            "title": "First Reply Time In Minutes"
+          },
+          "unassigned_at": {
+            "description": "Timestamp when the ticket was last unassigned",
+            "title": "Unassigned At",
+            "type": "string"
+          },
+          "filename_updated_at": {
+            "description": "Timestamp when attachments were last added or removed",
+            "title": "Filename Updated At",
+            "type": "string"
+          },
+          "latest_comment_id": {
+            "description": "ID of the most recent comment",
+            "title": "Latest Comment Id",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "Timestamp when the metric was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "full_breach_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time until full SLA breach, measured in minutes",
+            "title": "Full Breach Time In Minutes"
+          },
+          "current_hold_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Current time the ticket has been on hold, measured in minutes",
+            "title": "Current Hold Time In Minutes"
+          },
+          "reply_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time to first reply after the ticket was assigned, measured in minutes",
+            "title": "Reply Time In Minutes"
+          },
+          "requester_updated_at": {
+            "description": "Timestamp when the ticket requester was last changed",
+            "title": "Requester Updated At",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the metric was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "ticket_id": {
+            "description": "The ID of the ticket this metric belongs to",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "next_reply_time_in_business_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time to second reply within business hours, measured in minutes",
+            "title": "Next Reply Time In Business Minutes"
+          },
+          "agent_wait_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time agent spent waiting for responses, measured in minutes",
+            "title": "Agent Wait Time In Minutes"
+          },
+          "agent_replies": {
+            "description": "Number of replies from agents",
+            "title": "Agent Replies",
+            "type": "integer"
+          },
+          "first_resolution_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time to first resolution (within first assignment), measured in minutes",
+            "title": "First Resolution Time In Minutes"
+          },
+          "reply_time_in_seconds": {
+            "$ref": "#/$defs/ReplyTimeInSeconds",
+            "description": "Reply time measured in seconds for detailed tracking",
+            "title": "Reply Time In Seconds"
+          },
+          "assignee_updated_at": {
+            "description": "Timestamp when the ticket's assignee was last changed",
+            "title": "Assignee Updated At",
+            "type": "string"
+          },
+          "resolved_at": {
+            "description": "Timestamp when the ticket was resolved",
+            "title": "Resolved At",
+            "type": "string"
+          },
+          "on_hold_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Total time the ticket was on hold, measured in minutes",
+            "title": "On Hold Time In Minutes"
+          },
+          "cki": {
+            "description": "Channel-key identifier for tracking the communication channel",
+            "title": "Cki",
+            "type": "string"
+          },
+          "custom_status_updated_at": {
+            "description": "Timestamp when custom status was last updated",
+            "title": "Custom Status Updated At",
+            "type": "string"
+          },
+          "tags_updated_at": {
+            "description": "Timestamp when ticket tags were last modified",
+            "title": "Tags Updated At",
+            "type": "string"
+          },
+          "status_updated_at": {
+            "description": "Timestamp when the ticket status was last updated",
+            "title": "Status Updated At",
+            "type": "string"
+          },
+          "first_breach_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time until first SLA breach, measured in minutes",
+            "title": "First Breach Time In Minutes"
+          },
+          "description_updated_at": {
+            "description": "Timestamp when the ticket description was last edited",
+            "title": "Description Updated At",
+            "type": "string"
+          },
+          "requester_wait_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time requester spent waiting for responses, measured in minutes",
+            "title": "Requester Wait Time In Minutes"
+          },
+          "latest_comment_added_at": {
+            "description": "Timestamp when the latest comment was added",
+            "title": "Latest Comment Added At",
+            "type": "string"
+          },
+          "next_reply_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time to second reply, measured in minutes",
+            "title": "Next Reply Time In Minutes"
+          },
+          "last_reply_at": {
+            "description": "Timestamp of the most recent public reply",
+            "title": "Last Reply At",
+            "type": "string"
+          },
+          "assignee_stations": {
+            "description": "Number of agents who have been assigned the ticket",
+            "title": "Assignee Stations",
+            "type": "integer"
+          },
+          "reopens": {
+            "description": "Number of times the ticket was reopened",
+            "title": "Reopens",
+            "type": "integer"
+          },
+          "type_updated_at": {
+            "description": "Timestamp when the ticket type was last changed",
+            "title": "Type Updated At",
+            "type": "string"
+          },
+          "custom_status_id": {
+            "description": "ID of the custom status",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier of the ticket metric",
+            "title": "Id",
+            "type": "integer"
+          },
+          "solved_at": {
+            "description": "Timestamp when the ticket was solved/resolved",
+            "title": "Solved At",
+            "type": "string"
+          },
+          "replies": {
+            "description": "Number of agent replies in the ticket",
+            "title": "Replies",
+            "type": "integer"
+          },
+          "full_resolution_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Time to full resolution (until ticket status becomes solved/closed), measured in minutes",
+            "title": "Full Resolution Time In Minutes"
+          },
+          "assigned_at": {
+            "description": "Timestamp when the ticket was first assigned to an agent",
+            "title": "Assigned At",
+            "type": "string"
+          },
+          "group_stations": {
+            "description": "Number of groups the ticket has been routed through",
+            "title": "Group Stations",
+            "type": "integer"
+          },
+          "first_reply": {
+            "description": "Timestamp of the first agent reply",
+            "title": "First Reply",
+            "type": "string"
+          },
+          "agent_work_time_in_minutes": {
+            "$ref": "#/$defs/TimeInMinutes",
+            "description": "Total time agents spent working on the ticket, measured in minutes",
+            "title": "Agent Work Time In Minutes"
+          }
+        },
+        "title": "TicketMetric",
+        "type": "object"
+      },
+      "TimeInMinutes": {
+        "description": "Time measurement in minutes with business and calendar values.",
+        "properties": {
+          "business": {
+            "description": "Time in business hours (minutes)",
+            "title": "Business",
+            "type": "integer"
+          },
+          "calendar": {
+            "description": "Time in calendar hours (minutes)",
+            "title": "Calendar",
+            "type": "integer"
+          }
+        },
+        "title": "TimeInMinutes",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTicketMetricResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

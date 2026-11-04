@@ -1,0 +1,198 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve a specific Zendesk ticket audit by ticket ID and audit ID. Returns its events and selected audit details and metadata.",
+  "inputSchema": {
+    "description": "Request parameters for retrieving a specific ticket audit by ID.",
+    "properties": {
+      "ticket_audit_id": {
+        "description": "The ID of the ticket audit",
+        "examples": [26943293434908],
+        "human_parameter_description": "The numeric ID of the specific audit record you want to view.",
+        "human_parameter_name": "Audit ID",
+        "minimum": 1,
+        "title": "Ticket Audit Id",
+        "type": "integer"
+      },
+      "ticket_id": {
+        "description": "The ID of the ticket",
+        "examples": [123456],
+        "human_parameter_description": "The numeric ID of the Zendesk ticket containing the audit you want to retrieve.",
+        "human_parameter_name": "Ticket ID",
+        "minimum": 1,
+        "title": "Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["ticket_id", "ticket_audit_id"],
+    "title": "GetTicketAuditByIdRequest",
+    "type": "object"
+  },
+  "name": "get_ticket_audit_by_id",
+  "outputSchema": {
+    "$defs": {
+      "AuditEvent": {
+        "description": "Event object within a ticket audit.",
+        "properties": {
+          "body": {
+            "description": "Body content of the event",
+            "title": "Body",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the event",
+            "title": "Id",
+            "type": "integer"
+          },
+          "public": {
+            "description": "Whether the event is public",
+            "title": "Public",
+            "type": "boolean"
+          },
+          "subject": {
+            "description": "Subject of the event (for Notification type)",
+            "title": "Subject",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the event (e.g., Comment, Notification)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "AuditEvent",
+        "type": "object"
+      },
+      "AuditMetadata": {
+        "description": "Metadata object for a ticket audit.",
+        "properties": {
+          "custom": {
+            "$ref": "#/$defs/AuditMetadataCustom",
+            "description": "Custom metadata fields",
+            "title": "Custom"
+          },
+          "system": {
+            "$ref": "#/$defs/AuditMetadataSystem",
+            "description": "System-generated metadata",
+            "title": "System"
+          }
+        },
+        "title": "AuditMetadata",
+        "type": "object"
+      },
+      "AuditMetadataCustom": {
+        "description": "Custom metadata for an audit.",
+        "properties": {
+          "time_spent": {
+            "description": "Time spent on the ticket (e.g., '3m22s')",
+            "title": "Time Spent",
+            "type": "string"
+          }
+        },
+        "title": "AuditMetadataCustom",
+        "type": "object"
+      },
+      "AuditMetadataSystem": {
+        "description": "System metadata for an audit.",
+        "properties": {
+          "ip_address": {
+            "description": "IP address of the client",
+            "title": "Ip Address",
+            "type": "string"
+          }
+        },
+        "title": "AuditMetadataSystem",
+        "type": "object"
+      },
+      "AuditViaChannel": {
+        "description": "Via channel object.",
+        "properties": {
+          "channel": {
+            "description": "How the audit was created (e.g., web, email, api)",
+            "title": "Channel",
+            "type": "string"
+          },
+          "source": {
+            "additionalProperties": true,
+            "description": "Additional source information",
+            "title": "Source",
+            "type": "object"
+          }
+        },
+        "title": "AuditViaChannel",
+        "type": "object"
+      },
+      "GetTicketAuditByIdResponse": {
+        "description": "Response containing a single ticket audit.",
+        "properties": {
+          "audit": {
+            "$ref": "#/$defs/TicketAudit",
+            "description": "The ticket audit record",
+            "title": "Audit"
+          }
+        },
+        "required": ["audit"],
+        "title": "GetTicketAuditByIdResponse",
+        "type": "object"
+      },
+      "TicketAudit": {
+        "description": "Ticket audit object containing the audit record and its events.",
+        "properties": {
+          "author_id": {
+            "description": "ID of the user who created the audit",
+            "title": "Author Id",
+            "type": "integer"
+          },
+          "created_at": {
+            "description": "Timestamp when the audit was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "events": {
+            "description": "List of events in this audit",
+            "items": {
+              "$ref": "#/$defs/AuditEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier of the audit",
+            "title": "Id",
+            "type": "integer"
+          },
+          "metadata": {
+            "$ref": "#/$defs/AuditMetadata",
+            "description": "Metadata associated with the audit",
+            "title": "Metadata"
+          },
+          "ticket_id": {
+            "description": "ID of the ticket this audit belongs to",
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "via": {
+            "$ref": "#/$defs/AuditViaChannel",
+            "description": "How the audit was created",
+            "title": "Via"
+          }
+        },
+        "title": "TicketAudit",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTicketAuditByIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,338 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a commit in a GitLab project with multiple file operations, including creating, updating, deleting, moving, and changing permissions. An optional force setting can overwrite the target branch with a new commit history.",
+  "inputSchema": {
+    "properties": {
+      "actions": {
+        "description": "List of file operations to perform in this commit. Each action represents a file change (create, update, delete, move, or chmod).",
+        "examples": [
+          [
+            {
+              "action": "create",
+              "content": "print('Hello')",
+              "file_path": "app/main.py"
+            }
+          ]
+        ],
+        "items": {
+          "description": "Represents a single file operation within a commit.",
+          "properties": {
+            "action": {
+              "description": "The type of action to perform on the file.",
+              "enum": ["create", "delete", "move", "update", "chmod"],
+              "examples": ["create", "update"],
+              "title": "Action",
+              "type": "string"
+            },
+            "content": {
+              "description": "File content. Required for 'create' and 'update' actions. Optional for 'move' action (preserves existing content if omitted).",
+              "examples": ["print('Hello World')"],
+              "title": "Content",
+              "type": "string"
+            },
+            "encoding": {
+              "description": "Content encoding type. Use 'base64' for binary files. Defaults to 'text'.",
+              "enum": ["text", "base64"],
+              "examples": ["text", "base64"],
+              "title": "Encoding",
+              "type": "string"
+            },
+            "execute_filemode": {
+              "description": "Set file execute permissions. Required when action is 'chmod'.",
+              "examples": [true, false],
+              "title": "Execute Filemode",
+              "type": "boolean"
+            },
+            "file_path": {
+              "description": "Full path to the file being modified.",
+              "examples": ["lib/class.rb", "README.md"],
+              "title": "File Path",
+              "type": "string"
+            },
+            "last_commit_id": {
+              "description": "Last known commit ID for this file. Used to detect conflicts for 'update', 'move', and 'delete' actions.",
+              "examples": ["a1b2c3d4e5f6g7h8i9j0"],
+              "title": "Last Commit Id",
+              "type": "string"
+            },
+            "previous_path": {
+              "description": "Original file path. Required when action is 'move'.",
+              "examples": ["old/path/file.rb"],
+              "title": "Previous Path",
+              "type": "string"
+            }
+          },
+          "required": ["action", "file_path"],
+          "title": "CommitAction",
+          "type": "object"
+        },
+        "title": "Actions",
+        "type": "array"
+      },
+      "author_email": {
+        "description": "Author email address for the commit. Defaults to the authenticated user's email.",
+        "examples": ["user@example.com"],
+        "title": "Author Email",
+        "type": "string"
+      },
+      "author_name": {
+        "description": "Author name for the commit. Defaults to the authenticated user's name.",
+        "examples": ["John Doe"],
+        "title": "Author Name",
+        "type": "string"
+      },
+      "branch": {
+        "description": "Target branch name where the commit will be created.",
+        "examples": ["main", "feature-branch"],
+        "title": "Branch",
+        "type": "string"
+      },
+      "commit_message": {
+        "description": "The commit message describing the changes.",
+        "examples": ["Add new feature", "Fix bug in authentication"],
+        "title": "Commit Message",
+        "type": "string"
+      },
+      "force": {
+        "description": "When true, overwrites the target branch with a new commit history. Use with caution as this rewrites Git history.",
+        "examples": [false],
+        "title": "Force",
+        "type": "boolean"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["5", "namespace/project-name"],
+        "title": "Project Id"
+      },
+      "start_branch": {
+        "description": "Name of the branch to start the new commit from. If not provided, uses the target branch.",
+        "examples": ["develop", "main"],
+        "title": "Start Branch",
+        "type": "string"
+      },
+      "start_project": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or URL-encoded path of the source project for the parent commit. Used when creating commits from another project's branch.",
+        "examples": ["10", "namespace/other-project"],
+        "title": "Start Project"
+      },
+      "start_sha": {
+        "description": "SHA of the commit to start the new commit from. Must be a 40-character SHA-1 hash.",
+        "examples": ["a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0"],
+        "title": "Start Sha",
+        "type": "string"
+      },
+      "stats": {
+        "description": "Include commit statistics (additions, deletions, total) in the response. Defaults to true.",
+        "examples": [true, false],
+        "title": "Stats",
+        "type": "boolean"
+      }
+    },
+    "required": ["project_id", "branch", "commit_message", "actions"],
+    "title": "CreateCommitRequest",
+    "type": "object"
+  },
+  "name": "create_commit",
+  "outputSchema": {
+    "$defs": {
+      "CommitStats": {
+        "description": "Statistics about the changes in a commit.",
+        "properties": {
+          "additions": {
+            "description": "Number of lines added.",
+            "title": "Additions",
+            "type": "integer"
+          },
+          "deletions": {
+            "description": "Number of lines deleted.",
+            "title": "Deletions",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total number of lines changed.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": ["additions", "deletions", "total"],
+        "title": "CommitStats",
+        "type": "object"
+      },
+      "CreateCommitResponse": {
+        "properties": {
+          "author_email": {
+            "description": "The commit author's email.",
+            "title": "Author Email",
+            "type": "string"
+          },
+          "author_name": {
+            "description": "The commit author's name.",
+            "title": "Author Name",
+            "type": "string"
+          },
+          "authored_date": {
+            "description": "The date when the commit was authored in ISO 8601 format.",
+            "title": "Authored Date",
+            "type": "string"
+          },
+          "committed_date": {
+            "description": "The date when the commit was committed in ISO 8601 format.",
+            "title": "Committed Date",
+            "type": "string"
+          },
+          "committer_email": {
+            "description": "The committer's email.",
+            "title": "Committer Email",
+            "type": "string"
+          },
+          "committer_name": {
+            "description": "The committer's name.",
+            "title": "Committer Name",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "The date when the commit was created in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The full SHA of the commit.",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_pipeline": {
+            "$ref": "#/$defs/LastPipeline",
+            "description": "Information about the last pipeline associated with this commit.",
+            "title": "Last Pipeline"
+          },
+          "message": {
+            "description": "The full commit message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "parent_ids": {
+            "description": "List of parent commit SHAs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parent Ids",
+            "type": "array"
+          },
+          "project_id": {
+            "description": "The ID of the project this commit belongs to.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "short_id": {
+            "description": "The short SHA of the commit.",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/$defs/CommitStats",
+            "description": "Commit statistics (additions, deletions, total).",
+            "title": "Stats"
+          },
+          "status": {
+            "description": "The status of the commit (e.g., 'success', 'failed', 'pending').",
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "description": "The commit title (first line of commit message).",
+            "title": "Title",
+            "type": "string"
+          },
+          "trailers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Git trailers parsed from the commit message.",
+            "title": "Trailers",
+            "type": "object"
+          },
+          "web_url": {
+            "description": "The URL to view the commit in the GitLab web interface.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "short_id",
+          "title",
+          "message",
+          "author_name",
+          "author_email",
+          "authored_date",
+          "committer_name",
+          "committer_email",
+          "committed_date",
+          "created_at",
+          "parent_ids",
+          "web_url"
+        ],
+        "title": "CreateCommitResponse",
+        "type": "object"
+      },
+      "LastPipeline": {
+        "description": "Information about the last pipeline associated with a commit.",
+        "properties": {
+          "id": {
+            "description": "Pipeline identifier.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "ref": {
+            "description": "Reference (branch or tag) name.",
+            "title": "Ref",
+            "type": "string"
+          },
+          "sha": {
+            "description": "Commit SHA.",
+            "title": "Sha",
+            "type": "string"
+          },
+          "status": {
+            "description": "Pipeline execution status (e.g., 'success', 'failed', 'running').",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["id", "ref", "sha", "status"],
+        "title": "LastPipeline",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateCommitResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

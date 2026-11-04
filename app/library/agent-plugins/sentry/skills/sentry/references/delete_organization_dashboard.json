@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a custom dashboard or tombstones (marks as deleted) a pre-built dashboard within a Sentry organization.",
+  "inputSchema": {
+    "description": "Request schema for deleting an organization's dashboard.",
+    "properties": {
+      "dashboard_id": {
+        "description": "Numerical ID of the dashboard to delete.",
+        "examples": ["101", "42"],
+        "title": "Dashboard Id",
+        "type": "integer"
+      },
+      "organization_id_or_slug": {
+        "description": "Identifier (ID) or human-readable slug of the Sentry organization.",
+        "examples": ["the-acme-corp", "acme-inc"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "dashboard_id"],
+    "title": "DeleteOrganizationDashboardRequest",
+    "type": "object"
+  },
+  "name": "delete_organization_dashboard",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationDashboardResponse": {
+        "description": "Response schema for successful dashboard deletion.\n\nReturns HTTP 204 No Content on successful deletion, indicating the dashboard\nwas successfully deleted or tombstoned (for pre-built dashboards). No response\nbody is included.",
+        "properties": {},
+        "title": "DeleteOrganizationDashboardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationDashboardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,366 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Reorder a project issue for manually sorted issue lists. Position references use global issue IDs, not project-local IIDs. Supply at least one reference. Each name identifies the neighbor that should be before or after the reordered issue, not a move-command direction.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Global project ID or unencoded namespaced project path.",
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "Project-local IID of the issue to reorder.",
+        "title": "Issue Iid",
+        "type": "integer"
+      },
+      "move_after_id": {
+        "description": "Global ID of a project's issue that should be placed after this issue.",
+        "title": "Move After Id",
+        "type": "integer"
+      },
+      "move_before_id": {
+        "description": "Global ID of a project's issue that should be placed before this issue.",
+        "title": "Move Before Id",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid"],
+    "title": "ReorderIssueRequest",
+    "type": "object"
+  },
+  "name": "reorder_issue",
+  "outputSchema": {
+    "$defs": {
+      "IssueMilestone": {
+        "additionalProperties": true,
+        "properties": {
+          "closed_at": {
+            "description": "Closure timestamp, if closed.",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Milestone description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Milestone due date.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "id": {
+            "description": "Milestone ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Milestone internal ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "project_id": {
+            "description": "Milestone project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Milestone state.",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Milestone title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "IssueMilestone",
+        "type": "object"
+      },
+      "IssueTimeStats": {
+        "additionalProperties": true,
+        "properties": {
+          "human_time_estimate": {
+            "description": "Readable estimate.",
+            "title": "Human Time Estimate",
+            "type": "string"
+          },
+          "human_total_time_spent": {
+            "description": "Readable time spent.",
+            "title": "Human Total Time Spent",
+            "type": "string"
+          },
+          "time_estimate": {
+            "description": "Estimated time in seconds.",
+            "title": "Time Estimate",
+            "type": "integer"
+          },
+          "total_time_spent": {
+            "description": "Recorded time in seconds.",
+            "title": "Total Time Spent",
+            "type": "integer"
+          }
+        },
+        "required": ["time_estimate", "total_time_spent"],
+        "title": "IssueTimeStats",
+        "type": "object"
+      },
+      "IssueUser": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Avatar URL, if available.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "User profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "IssueUser",
+        "type": "object"
+      },
+      "ReorderIssueResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "closed_by": {
+            "$ref": "#/$defs/IssueUser",
+            "description": "User who closed the issue.",
+            "title": "Closed By"
+          },
+          "service_desk_reply_to": {
+            "description": "Service Desk reply address.",
+            "title": "Service Desk Reply To",
+            "type": "string"
+          },
+          "user_notes_count": {
+            "description": "User note count.",
+            "title": "User Notes Count",
+            "type": "integer"
+          },
+          "weight": {
+            "description": "Issue weight on Premium or Ultimate.",
+            "title": "Weight",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "downvotes": {
+            "description": "Downvote count.",
+            "title": "Downvotes",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Issue description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "issue_type": {
+            "description": "Issue type, such as issue or incident.",
+            "title": "Issue Type",
+            "type": "string"
+          },
+          "closed_at": {
+            "description": "Closure timestamp.",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "relative_position": {
+            "description": "Relative position used for manual issue sorting, if returned.",
+            "title": "Relative Position",
+            "type": "integer"
+          },
+          "time_stats": {
+            "$ref": "#/$defs/IssueTimeStats",
+            "description": "Time tracking statistics.",
+            "title": "Time Stats"
+          },
+          "assignee": {
+            "$ref": "#/$defs/IssueUser",
+            "description": "Deprecated single assignee; prefer assignees.",
+            "title": "Assignee"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "merge_requests_count": {
+            "description": "Related merge request count.",
+            "title": "Merge Requests Count",
+            "type": "integer"
+          },
+          "imported_from": {
+            "description": "Import source.",
+            "title": "Imported From",
+            "type": "string"
+          },
+          "severity": {
+            "description": "Issue severity.",
+            "title": "Severity",
+            "type": "string"
+          },
+          "subscribed": {
+            "description": "Whether the caller is subscribed.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "imported": {
+            "description": "Whether the issue was imported.",
+            "title": "Imported",
+            "type": "boolean"
+          },
+          "assignees": {
+            "description": "Assigned users.",
+            "items": {
+              "$ref": "#/$defs/IssueUser"
+            },
+            "title": "Assignees",
+            "type": "array"
+          },
+          "iid": {
+            "description": "Project-local issue IID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "web_url": {
+            "description": "Issue web URL.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "description": "Whether discussion is locked.",
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "author": {
+            "$ref": "#/$defs/IssueUser",
+            "description": "Issue author.",
+            "title": "Author"
+          },
+          "milestone": {
+            "$ref": "#/$defs/IssueMilestone",
+            "description": "Assigned milestone.",
+            "title": "Milestone"
+          },
+          "confidential": {
+            "description": "Whether the issue is confidential.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "project_id": {
+            "description": "Project ID, when returned.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "health_status": {
+            "description": "Issue health status on Ultimate.",
+            "title": "Health Status",
+            "type": "string"
+          },
+          "upvotes": {
+            "description": "Upvote count.",
+            "title": "Upvotes",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Issue label names.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "state": {
+            "description": "Issue state, such as opened or closed.",
+            "title": "State",
+            "type": "string"
+          },
+          "id": {
+            "description": "Global issue ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Issue title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Issue due date.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "moved_to_id": {
+            "description": "Destination ID for a moved issue.",
+            "title": "Moved To Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "iid", "title", "state"],
+        "title": "ReorderIssueResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ReorderIssueResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

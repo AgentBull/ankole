@@ -1,0 +1,69 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves IDs of sObject records updated within a specified timeframe, along with the latest date covered. Use it to track changes or synchronize records of a specified object type.",
+  "inputSchema": {
+    "properties": {
+      "end": {
+        "description": "End of the timeframe for which to retrieve updated records. Must be in ISO 8601 format (e.g., 2025-12-23T23:59:59Z). The date range between start and end cannot exceed 30 days.",
+        "examples": ["2025-12-23T23:59:59Z", "2025-12-31T23:59:59Z"],
+        "title": "End",
+        "type": "string"
+      },
+      "sobject": {
+        "description": "The API name of the sObject type to query for updated records (e.g., Account, Contact, CustomObject__c).",
+        "examples": ["Account", "Contact", "Opportunity", "Lead"],
+        "title": "Sobject",
+        "type": "string"
+      },
+      "start": {
+        "description": "Start of the timeframe for which to retrieve updated records. Must be in ISO 8601 format (e.g., 2025-12-23T10:22:26Z). Cannot be more than 30 days ago from the current date.",
+        "examples": ["2025-12-23T10:22:26Z", "2025-12-01T00:00:00Z"],
+        "title": "Start",
+        "type": "string"
+      }
+    },
+    "required": ["sobject", "start", "end"],
+    "title": "GetSObjectsUpdatedRequest",
+    "type": "object"
+  },
+  "name": "get_s_objects_updated",
+  "outputSchema": {
+    "$defs": {
+      "GetSObjectsUpdatedResponse": {
+        "description": "Response containing IDs of records that were created or modified during the specified time range.",
+        "properties": {
+          "ids": {
+            "description": "An array of record IDs (18-character Salesforce IDs) that were created or modified during the specified time range. Maximum of 600,000 IDs can be returned.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Ids",
+            "type": "array"
+          },
+          "latestDateCovered": {
+            "description": "The latest date covered by the query in ISO 8601 format. This timestamp guarantees that all updated records before this time have been returned. Use this as the new start parameter in subsequent calls for pagination.",
+            "title": "Latest Date Covered",
+            "type": "string"
+          }
+        },
+        "required": ["ids", "latestDateCovered"],
+        "title": "GetSObjectsUpdatedResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetSObjectsUpdatedResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

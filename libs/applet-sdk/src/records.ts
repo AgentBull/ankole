@@ -1,4 +1,4 @@
-import type { RecordWrite } from './types'
+import type { BaseRecord, RecordWrite } from './types'
 
 /** Assign each create its UUIDv7 once, so a retried request keeps the same identity. */
 export function withRecordIDs(changes: RecordWrite): RecordWrite {
@@ -16,4 +16,22 @@ export function withRecordIDs(changes: RecordWrite): RecordWrite {
     row.id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
   }
   return changes
+}
+
+/** Keep the loaded record list while no write is changing it. */
+export function previewRecordList(records: readonly BaseRecord[], pending: readonly RecordWrite[]): BaseRecord[] {
+  if (pending.length === 0) return records as BaseRecord[]
+  let changed = false
+  const next = records.map(record => {
+    let data = record.data
+    for (const changes of pending) {
+      const update = changes.updates?.find(item => item.id === record.id)
+      if (!update) continue
+      data = { ...data, ...update.data }
+    }
+    if (data === record.data) return record
+    changed = true
+    return { ...record, data }
+  })
+  return changed ? next : (records as BaseRecord[])
 }

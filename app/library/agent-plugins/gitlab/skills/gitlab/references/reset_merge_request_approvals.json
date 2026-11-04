@@ -1,0 +1,61 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Reset all approvals for a specified merge request. Available only to bot users with a valid project or group token. Human users receive 401 Unauthorized, even with an otherwise valid personal access token. See https://docs.gitlab.com/api/merge_request_approvals/#reset-approvals-for-a-merge-request.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Project-local internal ID (IID) of the merge request.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid"],
+    "title": "ResetMergeRequestApprovalsRequest",
+    "type": "object"
+  },
+  "name": "reset_merge_request_approvals",
+  "outputSchema": {
+    "$defs": {
+      "ResetMergeRequestApprovalsResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "success": {
+            "description": "Local acknowledgment of a successful empty GitLab response.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "ResetMergeRequestApprovalsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ResetMergeRequestApprovalsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

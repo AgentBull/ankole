@@ -1,0 +1,470 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a new Event Invitee with standard notifications, calendar invites, reschedules, and workflows. Use when programmatically scheduling meetings via API. Requires paid Calendly plan (Standard+).",
+  "inputSchema": {
+    "description": "Request model for creating a new event invitee.",
+    "properties": {
+      "event_guests": {
+        "description": "List of email addresses for additional invitee guests (max 10)",
+        "examples": [["janedoe@calendly.com"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Event Guests",
+        "type": "array"
+      },
+      "event_type": {
+        "description": "URI reference to the event type being scheduled (e.g., 'https://api.calendly.com/event_types/AAAAAAAAAAAAAAAA')",
+        "examples": ["https://api.calendly.com/event_types/73ec12fc-6c7b-4869-b927-6141c9e716e9"],
+        "title": "Event Type",
+        "type": "string"
+      },
+      "invitee": {
+        "additionalProperties": false,
+        "description": "Details of the invitee being scheduled",
+        "properties": {
+          "email": {
+            "description": "Email address of the invitee",
+            "examples": ["testuser@example.com"],
+            "title": "Email",
+            "type": "string"
+          },
+          "first_name": {
+            "description": "First name of the invitee. Required if name is not provided",
+            "examples": ["Test"],
+            "title": "First Name",
+            "type": "string"
+          },
+          "last_name": {
+            "description": "Last name of the invitee (optional)",
+            "examples": ["User"],
+            "title": "Last Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name of the invitee. Required if first_name is not provided",
+            "examples": ["Test User"],
+            "title": "Name",
+            "type": "string"
+          },
+          "text_reminder_number": {
+            "description": "Phone number for SMS reminders in E.164 format (e.g., '+14155551234')",
+            "examples": ["+14155551234"],
+            "title": "Text Reminder Number",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "IANA timezone identifier for the invitee (e.g., 'America/New_York', 'Europe/London', 'Asia/Tokyo')",
+            "examples": ["America/New_York"],
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": ["email", "timezone"],
+        "title": "Invitee",
+        "type": "object"
+      },
+      "location": {
+        "additionalProperties": false,
+        "description": "Meeting location configuration.",
+        "properties": {
+          "additional_info": {
+            "description": "Supplementary location details or instructions",
+            "examples": ["Please use the main entrance"],
+            "title": "Additional Info",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Kind of location (e.g., 'physical', 'inbound_call', 'zoom_conference', 'google_conference')",
+            "examples": ["physical", "inbound_call"],
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "description": "Venue or location description (required for certain location types)",
+            "examples": ["123 Main St, San Francisco, CA"],
+            "title": "Location",
+            "type": "string"
+          },
+          "phone_number": {
+            "description": "Phone number for call-based locations",
+            "examples": ["+14155551234"],
+            "title": "Phone Number",
+            "type": "string"
+          }
+        },
+        "required": ["kind"],
+        "title": "LocationInfo",
+        "type": "object"
+      },
+      "questions_and_answers": {
+        "description": "Custom question responses from the booking form",
+        "items": {
+          "description": "Custom question and answer pair from the booking form.",
+          "properties": {
+            "answer": {
+              "description": "The respondent's answer",
+              "examples": ["Product demo"],
+              "title": "Answer",
+              "type": "string"
+            },
+            "position": {
+              "description": "Question sequence order (0-indexed)",
+              "examples": [0],
+              "title": "Position",
+              "type": "integer"
+            },
+            "question": {
+              "description": "The survey question text",
+              "examples": ["What would you like to discuss?"],
+              "title": "Question",
+              "type": "string"
+            }
+          },
+          "required": ["question", "answer", "position"],
+          "title": "QuestionAndAnswer",
+          "type": "object"
+        },
+        "title": "Questions And Answers",
+        "type": "array"
+      },
+      "start_time": {
+        "description": "Start time of the scheduled event in ISO 8601 UTC format (e.g., '2025-12-16T10:00:00Z')",
+        "examples": ["2025-12-16T10:00:00Z"],
+        "title": "Start Time",
+        "type": "string"
+      },
+      "tracking": {
+        "additionalProperties": false,
+        "description": "UTM and tracking parameters for marketing attribution.",
+        "properties": {
+          "salesforce_uuid": {
+            "description": "Salesforce UUID for CRM integration",
+            "title": "Salesforce Uuid",
+            "type": "string"
+          },
+          "utm_campaign": {
+            "description": "UTM campaign parameter",
+            "examples": ["spring_2025"],
+            "title": "Utm Campaign",
+            "type": "string"
+          },
+          "utm_content": {
+            "description": "UTM content parameter",
+            "title": "Utm Content",
+            "type": "string"
+          },
+          "utm_medium": {
+            "description": "UTM medium parameter",
+            "examples": ["email"],
+            "title": "Utm Medium",
+            "type": "string"
+          },
+          "utm_source": {
+            "description": "UTM source parameter",
+            "examples": ["website"],
+            "title": "Utm Source",
+            "type": "string"
+          },
+          "utm_term": {
+            "description": "UTM term parameter",
+            "title": "Utm Term",
+            "type": "string"
+          }
+        },
+        "title": "TrackingInfo",
+        "type": "object"
+      }
+    },
+    "required": ["invitee", "event_type", "start_time"],
+    "title": "PostInviteeRequest",
+    "type": "object"
+  },
+  "name": "post_invitee",
+  "outputSchema": {
+    "$defs": {
+      "PaymentInfo": {
+        "description": "Payment information for the scheduled event.",
+        "properties": {
+          "amount": {
+            "description": "Payment amount",
+            "title": "Amount",
+            "type": "number"
+          },
+          "currency": {
+            "description": "Currency code (e.g., 'USD')",
+            "title": "Currency",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External payment ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "provider": {
+            "description": "Payment provider (e.g., 'stripe')",
+            "title": "Provider",
+            "type": "string"
+          },
+          "successful": {
+            "description": "Payment success status",
+            "title": "Successful",
+            "type": "boolean"
+          },
+          "terms": {
+            "description": "Payment terms",
+            "title": "Terms",
+            "type": "string"
+          }
+        },
+        "required": ["external_id", "provider", "amount", "currency", "terms", "successful"],
+        "title": "PaymentInfo",
+        "type": "object"
+      },
+      "PostInviteeResponse": {
+        "description": "Response model containing the created invitee details.",
+        "properties": {
+          "cancel_url": {
+            "description": "URL link to cancel the scheduled event",
+            "title": "Cancel Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "ISO 8601 timestamp when the invitee was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address of the invitee",
+            "title": "Email",
+            "type": "string"
+          },
+          "event": {
+            "description": "URI reference to the scheduled event",
+            "title": "Event",
+            "type": "string"
+          },
+          "first_name": {
+            "description": "First name of the invitee",
+            "title": "First Name",
+            "type": "string"
+          },
+          "invitee_scheduled_by": {
+            "description": "Information about who scheduled the invitee",
+            "title": "Invitee Scheduled By",
+            "type": "string"
+          },
+          "last_name": {
+            "description": "Last name of the invitee",
+            "title": "Last Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name of the invitee",
+            "title": "Name",
+            "type": "string"
+          },
+          "no_show": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "No-show information if applicable",
+            "title": "No Show",
+            "type": "object"
+          },
+          "payment": {
+            "$ref": "#/$defs/PaymentInfo",
+            "description": "Payment information if payment was required",
+            "title": "Payment"
+          },
+          "questions_and_answers": {
+            "description": "Custom question responses",
+            "items": {
+              "$ref": "#/$defs/QuestionAndAnswer"
+            },
+            "title": "Questions And Answers",
+            "type": "array"
+          },
+          "reconfirmation": {
+            "$ref": "#/$defs/ReconfirmationInfo",
+            "description": "Reconfirmation details if applicable",
+            "title": "Reconfirmation"
+          },
+          "reschedule_url": {
+            "description": "URL link to reschedule the event",
+            "title": "Reschedule Url",
+            "type": "string"
+          },
+          "rescheduled": {
+            "description": "Whether this event was rescheduled",
+            "title": "Rescheduled",
+            "type": "boolean"
+          },
+          "routing_form_submission": {
+            "description": "URI reference to routing form submission if applicable",
+            "title": "Routing Form Submission",
+            "type": "string"
+          },
+          "scheduling_method": {
+            "description": "Method used for scheduling",
+            "title": "Scheduling Method",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the invitee (e.g., 'active', 'canceled')",
+            "title": "Status",
+            "type": "string"
+          },
+          "text_reminder_number": {
+            "description": "Phone number for SMS reminders",
+            "title": "Text Reminder Number",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "IANA timezone of the invitee",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "tracking": {
+            "$ref": "#/$defs/TrackingInfo",
+            "description": "UTM and tracking parameters",
+            "title": "Tracking"
+          },
+          "updated_at": {
+            "description": "ISO 8601 timestamp when the invitee was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference URI for this invitee",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cancel_url",
+          "created_at",
+          "email",
+          "event",
+          "name",
+          "reschedule_url",
+          "rescheduled",
+          "status",
+          "timezone",
+          "updated_at",
+          "uri"
+        ],
+        "title": "PostInviteeResponse",
+        "type": "object"
+      },
+      "QuestionAndAnswer": {
+        "description": "Custom question and answer pair from the booking form.",
+        "properties": {
+          "answer": {
+            "description": "The respondent's answer",
+            "examples": ["Product demo"],
+            "title": "Answer",
+            "type": "string"
+          },
+          "position": {
+            "description": "Question sequence order (0-indexed)",
+            "examples": [0],
+            "title": "Position",
+            "type": "integer"
+          },
+          "question": {
+            "description": "The survey question text",
+            "examples": ["What would you like to discuss?"],
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": ["question", "answer", "position"],
+        "title": "QuestionAndAnswer",
+        "type": "object"
+      },
+      "ReconfirmationInfo": {
+        "description": "Reconfirmation details for the event.",
+        "properties": {
+          "confirmed_at": {
+            "description": "Timestamp when reconfirmation was confirmed",
+            "title": "Confirmed At",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when reconfirmation was created",
+            "title": "Created At",
+            "type": "string"
+          }
+        },
+        "required": ["created_at", "confirmed_at"],
+        "title": "ReconfirmationInfo",
+        "type": "object"
+      },
+      "TrackingInfo": {
+        "description": "UTM and tracking parameters for marketing attribution.",
+        "properties": {
+          "salesforce_uuid": {
+            "description": "Salesforce UUID for CRM integration",
+            "title": "Salesforce Uuid",
+            "type": "string"
+          },
+          "utm_campaign": {
+            "description": "UTM campaign parameter",
+            "examples": ["spring_2025"],
+            "title": "Utm Campaign",
+            "type": "string"
+          },
+          "utm_content": {
+            "description": "UTM content parameter",
+            "title": "Utm Content",
+            "type": "string"
+          },
+          "utm_medium": {
+            "description": "UTM medium parameter",
+            "examples": ["email"],
+            "title": "Utm Medium",
+            "type": "string"
+          },
+          "utm_source": {
+            "description": "UTM source parameter",
+            "examples": ["website"],
+            "title": "Utm Source",
+            "type": "string"
+          },
+          "utm_term": {
+            "description": "UTM term parameter",
+            "title": "Utm Term",
+            "type": "string"
+          }
+        },
+        "title": "TrackingInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/PostInviteeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

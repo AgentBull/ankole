@@ -1,0 +1,41 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get information about the owner account in Typeform.",
+  "inputSchema": {
+    "properties": {},
+    "title": "GetAboutMeRequest",
+    "type": "object"
+  },
+  "name": "get_about_me",
+  "outputSchema": {
+    "$defs": {
+      "GetAboutMeResponse": {
+        "properties": {
+          "owner_info": {
+            "additionalProperties": true,
+            "description": "Information about the owner account",
+            "title": "Owner Info",
+            "type": "object"
+          }
+        },
+        "required": ["owner_info"],
+        "title": "GetAboutMeResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetAboutMeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

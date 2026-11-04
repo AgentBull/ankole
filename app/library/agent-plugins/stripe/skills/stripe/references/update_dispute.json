@@ -1,0 +1,670 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to update a Stripe dispute by submitting evidence or updating metadata. Use when responding to payment disputes to provide documentation countering the dispute claim.",
+  "inputSchema": {
+    "description": "Request model for updating a Stripe dispute.",
+    "properties": {
+      "dispute": {
+        "description": "The ID of the dispute to update.",
+        "examples": ["du_1ShRXCQvM72TjFrbDgp87FQx"],
+        "title": "Dispute",
+        "type": "string"
+      },
+      "evidence": {
+        "additionalProperties": false,
+        "description": "Documentation to counter the dispute.",
+        "properties": {
+          "access_activity_log": {
+            "description": "Server/activity logs with IP addresses and timestamps proving customer accessed digital product (max 20,000 chars).",
+            "title": "Access Activity Log",
+            "type": "string"
+          },
+          "billing_address": {
+            "description": "Customer's billing address.",
+            "title": "Billing Address",
+            "type": "string"
+          },
+          "cancellation_policy": {
+            "description": "File ID of subscription cancellation policy shown to customer.",
+            "title": "Cancellation Policy",
+            "type": "string"
+          },
+          "cancellation_policy_disclosure": {
+            "description": "When/how cancellation policy was disclosed (max 20,000 chars).",
+            "title": "Cancellation Policy Disclosure",
+            "type": "string"
+          },
+          "cancellation_rebuttal": {
+            "description": "Justification for subscription non-cancellation (max 20,000 chars).",
+            "title": "Cancellation Rebuttal",
+            "type": "string"
+          },
+          "customer_communication": {
+            "description": "File ID of emails or messages proving product delivery/satisfaction.",
+            "title": "Customer Communication",
+            "type": "string"
+          },
+          "customer_email_address": {
+            "description": "Customer's email address.",
+            "title": "Customer Email Address",
+            "type": "string"
+          },
+          "customer_name": {
+            "description": "Customer's full name.",
+            "title": "Customer Name",
+            "type": "string"
+          },
+          "customer_purchase_ip": {
+            "description": "IP address used during purchase.",
+            "title": "Customer Purchase Ip",
+            "type": "string"
+          },
+          "customer_signature": {
+            "description": "File ID of contract or document with customer signature.",
+            "title": "Customer Signature",
+            "type": "string"
+          },
+          "duplicate_charge_documentation": {
+            "description": "File ID of receipt or label identifying prior charge.",
+            "title": "Duplicate Charge Documentation",
+            "type": "string"
+          },
+          "duplicate_charge_explanation": {
+            "description": "Explanation of charge differences (max 20,000 chars).",
+            "title": "Duplicate Charge Explanation",
+            "type": "string"
+          },
+          "duplicate_charge_id": {
+            "description": "Stripe ID of alleged duplicate charge.",
+            "title": "Duplicate Charge Id",
+            "type": "string"
+          },
+          "enhanced_evidence": {
+            "additionalProperties": false,
+            "description": "Advanced evidence for Visa Compelling Evidence 3.0 and compliance submissions.",
+            "properties": {
+              "visa_compelling_evidence_3": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Evidence for Visa Compelling Evidence 3.0 program. Must include exactly two prior undisputed transactions.",
+                "title": "Visa Compelling Evidence 3",
+                "type": "object"
+              }
+            },
+            "title": "EnhancedEvidence",
+            "type": "object"
+          },
+          "product_description": {
+            "description": "Description of sold product/service (max 20,000 chars).",
+            "title": "Product Description",
+            "type": "string"
+          },
+          "receipt": {
+            "description": "File ID of receipt or charge notification sent to customer.",
+            "title": "Receipt",
+            "type": "string"
+          },
+          "refund_policy": {
+            "description": "File ID of refund policy as shown to customer.",
+            "title": "Refund Policy",
+            "type": "string"
+          },
+          "refund_policy_disclosure": {
+            "description": "Documentation demonstrating customer was shown refund policy prior to purchase (max 20,000 chars).",
+            "title": "Refund Policy Disclosure",
+            "type": "string"
+          },
+          "refund_refusal_explanation": {
+            "description": "Why customer isn't entitled to refund (max 20,000 chars).",
+            "title": "Refund Refusal Explanation",
+            "type": "string"
+          },
+          "service_date": {
+            "description": "When service was received/began.",
+            "title": "Service Date",
+            "type": "string"
+          },
+          "service_documentation": {
+            "description": "File ID of contract, work order, or written agreement.",
+            "title": "Service Documentation",
+            "type": "string"
+          },
+          "shipping_address": {
+            "description": "Physical product destination address.",
+            "title": "Shipping Address",
+            "type": "string"
+          },
+          "shipping_carrier": {
+            "description": "Delivery service (FedEx, UPS, USPS, etc.).",
+            "title": "Shipping Carrier",
+            "type": "string"
+          },
+          "shipping_date": {
+            "description": "When product shipped in human-readable format.",
+            "title": "Shipping Date",
+            "type": "string"
+          },
+          "shipping_documentation": {
+            "description": "File ID of shipment receipt or shipping label.",
+            "title": "Shipping Documentation",
+            "type": "string"
+          },
+          "shipping_tracking_number": {
+            "description": "Tracking number from delivery service.",
+            "title": "Shipping Tracking Number",
+            "type": "string"
+          },
+          "uncategorized_file": {
+            "description": "File ID of additional evidence or statements.",
+            "title": "Uncategorized File",
+            "type": "string"
+          },
+          "uncategorized_text": {
+            "description": "Additional text evidence (max 20,000 chars).",
+            "title": "Uncategorized Text",
+            "type": "string"
+          }
+        },
+        "title": "Evidence",
+        "type": "object"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Custom key-value pairs for storing structured data about the dispute. Individual keys can be unset by posting an empty value.",
+        "title": "Metadata",
+        "type": "object"
+      },
+      "submit": {
+        "description": "When true, submits evidence immediately to the bank; when false, stages evidence for later submission. Default: true.",
+        "title": "Submit",
+        "type": "boolean"
+      }
+    },
+    "required": ["dispute"],
+    "title": "UpdateDisputeRequest",
+    "type": "object"
+  },
+  "name": "update_dispute",
+  "outputSchema": {
+    "$defs": {
+      "BalanceTransaction": {
+        "description": "Transaction object showing fund movements.",
+        "properties": {
+          "amount": {
+            "description": "Gross amount of the transaction, in cents.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "available_on": {
+            "description": "The date the balance transaction's net funds will become available in the Stripe balance.",
+            "title": "Available On",
+            "type": "integer"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the object.",
+            "title": "Description",
+            "type": "string"
+          },
+          "fee": {
+            "description": "Fees (in cents) paid for this transaction.",
+            "title": "Fee",
+            "type": "integer"
+          },
+          "fee_details": {
+            "description": "Detailed breakdown of fees (in cents) paid for this transaction.",
+            "items": {
+              "$ref": "#/$defs/FeeDetail"
+            },
+            "title": "Fee Details",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the balance transaction.",
+            "title": "Id",
+            "type": "string"
+          },
+          "net": {
+            "description": "Net amount of the transaction, in cents.",
+            "title": "Net",
+            "type": "integer"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'balance_transaction'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "reporting_category": {
+            "description": "The Stripe reporting category for this transaction.",
+            "title": "Reporting Category",
+            "type": "string"
+          },
+          "source": {
+            "description": "The Stripe object to which this transaction is related.",
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the transaction (available or pending).",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "description": "Transaction type.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "available_on",
+          "created",
+          "currency",
+          "fee",
+          "fee_details",
+          "net",
+          "reporting_category",
+          "source",
+          "status",
+          "type"
+        ],
+        "title": "BalanceTransaction",
+        "type": "object"
+      },
+      "EvidenceDetails": {
+        "description": "Submission deadline and status details.",
+        "properties": {
+          "due_by": {
+            "description": "Evidence submission deadline (Unix timestamp).",
+            "title": "Due By",
+            "type": "integer"
+          },
+          "enhanced_eligibility": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Eligibility for enhanced evidence programs.",
+            "title": "Enhanced Eligibility",
+            "type": "object"
+          },
+          "has_evidence": {
+            "description": "Whether evidence was submitted.",
+            "title": "Has Evidence",
+            "type": "boolean"
+          },
+          "past_due": {
+            "description": "Whether deadline has passed.",
+            "title": "Past Due",
+            "type": "boolean"
+          },
+          "submission_count": {
+            "description": "Number of evidence submissions.",
+            "title": "Submission Count",
+            "type": "integer"
+          }
+        },
+        "required": ["has_evidence", "past_due", "submission_count"],
+        "title": "EvidenceDetails",
+        "type": "object"
+      },
+      "EvidenceResponse": {
+        "description": "Submitted evidence fields.",
+        "properties": {
+          "access_activity_log": {
+            "description": "Server/activity logs with IP addresses.",
+            "title": "Access Activity Log",
+            "type": "string"
+          },
+          "billing_address": {
+            "description": "Customer's billing address.",
+            "title": "Billing Address",
+            "type": "string"
+          },
+          "cancellation_policy": {
+            "description": "File ID of cancellation policy.",
+            "title": "Cancellation Policy",
+            "type": "string"
+          },
+          "cancellation_policy_disclosure": {
+            "description": "Cancellation policy disclosure details.",
+            "title": "Cancellation Policy Disclosure",
+            "type": "string"
+          },
+          "cancellation_rebuttal": {
+            "description": "Justification for non-cancellation.",
+            "title": "Cancellation Rebuttal",
+            "type": "string"
+          },
+          "customer_communication": {
+            "description": "File ID of customer communication.",
+            "title": "Customer Communication",
+            "type": "string"
+          },
+          "customer_email_address": {
+            "description": "Customer's email address.",
+            "title": "Customer Email Address",
+            "type": "string"
+          },
+          "customer_name": {
+            "description": "Customer's full name.",
+            "title": "Customer Name",
+            "type": "string"
+          },
+          "customer_purchase_ip": {
+            "description": "IP address used during purchase.",
+            "title": "Customer Purchase Ip",
+            "type": "string"
+          },
+          "customer_signature": {
+            "description": "File ID of customer signature.",
+            "title": "Customer Signature",
+            "type": "string"
+          },
+          "duplicate_charge_documentation": {
+            "description": "File ID of duplicate charge documentation.",
+            "title": "Duplicate Charge Documentation",
+            "type": "string"
+          },
+          "duplicate_charge_explanation": {
+            "description": "Explanation of charge differences.",
+            "title": "Duplicate Charge Explanation",
+            "type": "string"
+          },
+          "duplicate_charge_id": {
+            "description": "Stripe ID of duplicate charge.",
+            "title": "Duplicate Charge Id",
+            "type": "string"
+          },
+          "product_description": {
+            "description": "Description of product/service.",
+            "title": "Product Description",
+            "type": "string"
+          },
+          "receipt": {
+            "description": "File ID of receipt.",
+            "title": "Receipt",
+            "type": "string"
+          },
+          "refund_policy": {
+            "description": "File ID of refund policy.",
+            "title": "Refund Policy",
+            "type": "string"
+          },
+          "refund_policy_disclosure": {
+            "description": "Refund policy disclosure details.",
+            "title": "Refund Policy Disclosure",
+            "type": "string"
+          },
+          "refund_refusal_explanation": {
+            "description": "Why customer isn't entitled to refund.",
+            "title": "Refund Refusal Explanation",
+            "type": "string"
+          },
+          "service_date": {
+            "description": "When service was received/began.",
+            "title": "Service Date",
+            "type": "string"
+          },
+          "service_documentation": {
+            "description": "File ID of service documentation.",
+            "title": "Service Documentation",
+            "type": "string"
+          },
+          "shipping_address": {
+            "description": "Shipping address.",
+            "title": "Shipping Address",
+            "type": "string"
+          },
+          "shipping_carrier": {
+            "description": "Delivery service.",
+            "title": "Shipping Carrier",
+            "type": "string"
+          },
+          "shipping_date": {
+            "description": "When product shipped.",
+            "title": "Shipping Date",
+            "type": "string"
+          },
+          "shipping_documentation": {
+            "description": "File ID of shipping documentation.",
+            "title": "Shipping Documentation",
+            "type": "string"
+          },
+          "shipping_tracking_number": {
+            "description": "Tracking number.",
+            "title": "Shipping Tracking Number",
+            "type": "string"
+          },
+          "uncategorized_file": {
+            "description": "File ID of additional evidence.",
+            "title": "Uncategorized File",
+            "type": "string"
+          },
+          "uncategorized_text": {
+            "description": "Additional text evidence.",
+            "title": "Uncategorized Text",
+            "type": "string"
+          }
+        },
+        "title": "EvidenceResponse",
+        "type": "object"
+      },
+      "FeeDetail": {
+        "description": "Fee detail object.",
+        "properties": {
+          "amount": {
+            "description": "Amount of the fee in cents.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "application": {
+            "description": "Application ID if applicable.",
+            "title": "Application",
+            "type": "string"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the fee.",
+            "title": "Description",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the fee.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "currency", "type"],
+        "title": "FeeDetail",
+        "type": "object"
+      },
+      "UpdateDisputeResponse": {
+        "description": "Response model containing the updated Stripe dispute object.",
+        "properties": {
+          "amount": {
+            "description": "Disputed amount in cents.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "balance_transactions": {
+            "description": "Zero to two transaction objects showing fund movements.",
+            "items": {
+              "$ref": "#/$defs/BalanceTransaction"
+            },
+            "title": "Balance Transactions",
+            "type": "array"
+          },
+          "charge": {
+            "description": "Associated charge ID.",
+            "title": "Charge",
+            "type": "string"
+          },
+          "created": {
+            "description": "Creation timestamp (Unix).",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "ISO 4217 currency code (e.g., 'usd').",
+            "title": "Currency",
+            "type": "string"
+          },
+          "evidence": {
+            "$ref": "#/$defs/EvidenceResponse",
+            "title": "Evidence"
+          },
+          "evidence_details": {
+            "$ref": "#/$defs/EvidenceDetails",
+            "title": "Evidence Details"
+          },
+          "id": {
+            "description": "Unique dispute identifier.",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_charge_refundable": {
+            "description": "Whether charge can be refunded.",
+            "title": "Is Charge Refundable",
+            "type": "boolean"
+          },
+          "livemode": {
+            "description": "Whether in live mode (production vs test).",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Custom key-value pairs attached to dispute.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'dispute'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "payment_intent": {
+            "description": "Associated payment intent ID (if applicable).",
+            "title": "Payment Intent",
+            "type": "string"
+          },
+          "payment_method_details": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "Payment-specific dispute information.",
+            "title": "Payment Method Details",
+            "type": "object"
+          },
+          "reason": {
+            "description": "Dispute reason/category.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current dispute status.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "balance_transactions",
+          "charge",
+          "created",
+          "currency",
+          "evidence",
+          "evidence_details",
+          "is_charge_refundable",
+          "livemode",
+          "metadata",
+          "reason",
+          "status"
+        ],
+        "title": "UpdateDisputeResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateDisputeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

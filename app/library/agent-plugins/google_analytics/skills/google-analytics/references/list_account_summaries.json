@@ -1,0 +1,132 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve summaries of all Google Analytics accounts accessible by the caller. Use when you need a high-level overview of accounts and their properties without fetching full account details.",
+  "inputSchema": {
+    "description": "Request model for listing Account Summaries.",
+    "properties": {
+      "pageSize": {
+        "description": "Maximum number of account summaries to return. The service may return fewer than this value. If unspecified, at most 50 resources will be returned. Maximum value is 200; higher values will be coerced to the maximum.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Page token received from a previous ListAccountSummaries call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided to ListAccountSummaries must match the call that provided the page token.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      }
+    },
+    "title": "ListAccountSummariesRequest",
+    "type": "object"
+  },
+  "name": "list_account_summaries",
+  "outputSchema": {
+    "$defs": {
+      "AccountSummary": {
+        "description": "Summary of a Google Analytics account with its properties.",
+        "properties": {
+          "account": {
+            "description": "Resource name of the account. Format: accounts/{account_id}.",
+            "title": "Account",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "Human-readable display name for the account.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name of this account summary. Format: accountSummaries/{account_id}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "propertySummaries": {
+            "description": "List of summaries for child properties under this account.",
+            "items": {
+              "$ref": "#/$defs/PropertySummary"
+            },
+            "title": "Property Summaries",
+            "type": "array"
+          }
+        },
+        "title": "AccountSummary",
+        "type": "object"
+      },
+      "ListAccountSummariesResponse": {
+        "description": "Response model for listing Account Summaries.",
+        "properties": {
+          "accountSummaries": {
+            "description": "Account summaries of all accounts the caller has access to.",
+            "items": {
+              "$ref": "#/$defs/AccountSummary"
+            },
+            "title": "Account Summaries",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "Token to retrieve the next page of results. If this field is omitted, there are no subsequent pages.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "ListAccountSummariesResponse",
+        "type": "object"
+      },
+      "PropertySummary": {
+        "description": "Summary of a Google Analytics property.",
+        "properties": {
+          "displayName": {
+            "description": "Human-readable display name for the property.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "parent": {
+            "description": "Resource name of the property's parent account or property.",
+            "title": "Parent",
+            "type": "string"
+          },
+          "property": {
+            "description": "Resource name of the property. Format: properties/{property_id}.",
+            "title": "Property",
+            "type": "string"
+          },
+          "propertyType": {
+            "$ref": "#/$defs/PropertyType",
+            "description": "The property's property type.",
+            "title": "Property Type"
+          }
+        },
+        "title": "PropertySummary",
+        "type": "object"
+      },
+      "PropertyType": {
+        "description": "Property type enumeration.",
+        "enum": [
+          "PROPERTY_TYPE_UNSPECIFIED",
+          "PROPERTY_TYPE_ORDINARY",
+          "PROPERTY_TYPE_SUBPROPERTY",
+          "PROPERTY_TYPE_ROLLUP"
+        ],
+        "title": "PropertyType",
+        "type": "string"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListAccountSummariesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

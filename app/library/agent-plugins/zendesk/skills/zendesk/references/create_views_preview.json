@@ -1,0 +1,656 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Preview a Zendesk view by constructing conditions and execution settings to see which tickets match. Use when you need to test or validate view conditions before saving, or to retrieve a live preview of tickets matching specific filter criteria without creating a permanent view. This action is useful for verifying view logic, testing conditions, and previewing results before committing to a saved view.",
+  "inputSchema": {
+    "description": "Request parameters for previewing a Zendesk view.",
+    "properties": {
+      "columns": {
+        "description": "Optional list of column definitions to override or extend the view's columns in the output",
+        "examples": [
+          [
+            {
+              "id": "status",
+              "title": "Status"
+            },
+            {
+              "id": "updated",
+              "title": "Updated"
+            }
+          ]
+        ],
+        "human_parameter_description": "Optional column definitions to control which ticket fields appear in the preview results.",
+        "human_parameter_name": "Columns",
+        "items": {
+          "description": "Column definition in the view preview response.",
+          "properties": {
+            "id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "description": "The column identifier",
+              "title": "Id"
+            },
+            "title": {
+              "description": "The column display title",
+              "title": "Title",
+              "type": "string"
+            },
+            "type": {
+              "description": "The column type",
+              "title": "Type",
+              "type": "string"
+            },
+            "url": {
+              "description": "API URL for the column if it's a custom field",
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          "title": "ColumnOutput",
+          "type": "object"
+        },
+        "title": "Columns",
+        "type": "array"
+      },
+      "exclude": {
+        "description": "A comma-separated list of sideloads to exclude from the response.",
+        "examples": ["users"],
+        "human_parameter_description": "Optional comma-separated list of related resources to exclude from the response.",
+        "human_parameter_name": "Exclude",
+        "title": "Exclude",
+        "type": "string"
+      },
+      "include": {
+        "description": "A comma-separated list of sideloads to include in the response.",
+        "examples": ["users"],
+        "human_parameter_description": "Optional comma-separated list of related resources to include, such as users or groups.",
+        "human_parameter_name": "Include",
+        "title": "Include",
+        "type": "string"
+      },
+      "page": {
+        "description": "Pagination parameter. Supports both traditional offset and cursor-based pagination: Traditional: `?page=2` (integer page number). Cursor: `?page[size]=50&page[after]=cursor` (deepObject with size, after, before). These are mutually exclusive - use one format or the other, not both.",
+        "examples": ["2"],
+        "human_parameter_description": "For large result sets, specify the page number or cursor for pagination.",
+        "human_parameter_name": "Page",
+        "title": "Page",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Number of records to return per page. Default and maximum values vary by endpoint.",
+        "examples": [50],
+        "human_parameter_description": "How many tickets to return per page. Lower values may be needed for views with many columns.",
+        "human_parameter_name": "Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "view": {
+        "additionalProperties": false,
+        "description": "The view object containing title, conditions, and execution settings to preview",
+        "human_parameter_description": "Define the view to preview by specifying the title, conditions (all/any), and optionally execution settings (columns, sorting).",
+        "human_parameter_name": "View Definition",
+        "properties": {
+          "conditions": {
+            "additionalProperties": false,
+            "description": "The conditions that define which tickets match this view",
+            "human_parameter_description": "Define the filtering logic using 'all' (AND) and 'any' (OR) conditions. Each condition needs 'field', 'operator', and 'value'.",
+            "human_parameter_name": "Conditions",
+            "properties": {
+              "all": {
+                "description": "Conditions that must ALL be true for the view to match tickets. Each condition has 'field', 'operator', and 'value' properties.",
+                "examples": [
+                  [
+                    {
+                      "field": "status",
+                      "operator": "is",
+                      "value": "open"
+                    }
+                  ]
+                ],
+                "human_parameter_description": "A list of conditions where ALL must be satisfied. Each condition is an object with 'field' (e.g., status), 'operator' (e.g., is, is_not, contains), and 'value'.",
+                "human_parameter_name": "All Conditions",
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "All",
+                "type": "array"
+              },
+              "any": {
+                "description": "Conditions where ANY one being true results in the view matching tickets.",
+                "examples": [
+                  [
+                    {
+                      "field": "priority",
+                      "operator": "is",
+                      "value": "high"
+                    }
+                  ]
+                ],
+                "human_parameter_description": "A list of conditions where ANY one being true is sufficient. Useful for OR logic across different fields.",
+                "human_parameter_name": "Any Conditions",
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Any",
+                "type": "array"
+              }
+            },
+            "title": "Conditions",
+            "type": "object"
+          },
+          "description": {
+            "description": "An optional description explaining the purpose of the view",
+            "examples": ["View for recent tickets", "All open high-priority tickets"],
+            "human_parameter_description": "An optional description that explains what this view is for.",
+            "human_parameter_name": "Description",
+            "title": "Description",
+            "type": "string"
+          },
+          "execution": {
+            "additionalProperties": false,
+            "description": "Execution configuration for view display settings.",
+            "human_parameter_description": "Optional settings for how the view should display results - columns to show, grouping, and sorting.",
+            "human_parameter_name": "Execution Settings",
+            "properties": {
+              "columns": {
+                "description": "List of columns to include in the view output",
+                "examples": [
+                  [
+                    {
+                      "id": "status",
+                      "title": "Status"
+                    },
+                    {
+                      "id": "updated",
+                      "title": "Updated"
+                    }
+                  ]
+                ],
+                "human_parameter_description": "Define which ticket fields should appear as columns in the view results.",
+                "human_parameter_name": "Execution Columns",
+                "items": {
+                  "description": "Column definition for view display settings.",
+                  "properties": {
+                    "id": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "integer"
+                        }
+                      ],
+                      "description": "The column identifier - use system field names (e.g., 'status', 'subject', 'updated') or custom field IDs",
+                      "examples": ["status", "subject", 5],
+                      "human_parameter_description": "The ID or name of the field to display as a column. Use system field names like 'status', 'subject', 'requester_name' or custom field IDs.",
+                      "human_parameter_name": "Column ID",
+                      "title": "Id"
+                    },
+                    "title": {
+                      "description": "The display title for this column in the view",
+                      "examples": ["Status", "Subject", "Updated At"],
+                      "human_parameter_description": "The human-readable title shown for this column in the view interface.",
+                      "human_parameter_name": "Column Title",
+                      "title": "Title",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id"],
+                  "title": "ViewColumnInput",
+                  "type": "object"
+                },
+                "title": "Columns",
+                "type": "array"
+              },
+              "group": {
+                "additionalProperties": true,
+                "description": "Grouping configuration with 'id' (field name) and 'order' (asc/desc)",
+                "examples": [
+                  {
+                    "id": "status",
+                    "order": "desc"
+                  }
+                ],
+                "human_parameter_description": "Optional grouping of results by a specific field. Includes 'id' (field name) and 'order' (asc/desc).",
+                "human_parameter_name": "Group By",
+                "title": "Group",
+                "type": "object"
+              },
+              "sort": {
+                "additionalProperties": false,
+                "description": "Sort configuration for view execution.",
+                "examples": [
+                  {
+                    "id": "updated",
+                    "order": "desc"
+                  }
+                ],
+                "human_parameter_description": "Define how results should be sorted. Specify the 'id' (field name) and 'order' (asc/desc).",
+                "human_parameter_name": "Sort By",
+                "properties": {
+                  "id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "integer"
+                      }
+                    ],
+                    "description": "The field to sort by - use system field names or custom field IDs",
+                    "examples": ["updated", "created_at", "priority"],
+                    "human_parameter_description": "The field name or ID used for sorting the view results.",
+                    "human_parameter_name": "Sort Field",
+                    "title": "Id"
+                  },
+                  "order": {
+                    "default": "desc",
+                    "description": "Sort order direction",
+                    "enum": ["asc", "desc"],
+                    "examples": ["desc"],
+                    "human_parameter_description": "The direction to sort: 'asc' for ascending (oldest/lowest first) or 'desc' for descending (newest/highest first).",
+                    "human_parameter_name": "Sort Order",
+                    "title": "Order",
+                    "type": "string"
+                  }
+                },
+                "required": ["id"],
+                "title": "ViewSortInput",
+                "type": "object"
+              }
+            },
+            "title": "ViewExecutionInput",
+            "type": "object"
+          },
+          "restriction": {
+            "additionalProperties": true,
+            "description": "Access restriction - who can see this view. Set with 'id' (user/group ID) and 'type' ('User' or 'Group')",
+            "examples": [
+              {
+                "id": 4,
+                "type": "User"
+              }
+            ],
+            "human_parameter_description": "Optional access control. Include 'id' (the user or group ID) and 'type' ('User' or 'Group') to limit visibility.",
+            "human_parameter_name": "Restriction",
+            "title": "Restriction",
+            "type": "object"
+          },
+          "title": {
+            "description": "The title of the view",
+            "examples": ["Open Tickets", "High Priority Issues", "Unassigned Tickets"],
+            "human_parameter_description": "A descriptive name for the view that helps identify its purpose.",
+            "human_parameter_name": "Title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["title", "conditions"],
+        "title": "View",
+        "type": "object"
+      }
+    },
+    "required": ["view"],
+    "title": "CreateViewsPreviewRequest",
+    "type": "object"
+  },
+  "name": "create_views_preview",
+  "outputSchema": {
+    "$defs": {
+      "ColumnOutput": {
+        "description": "Column definition in the view preview response.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The column identifier",
+            "title": "Id"
+          },
+          "title": {
+            "description": "The column display title",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "The column type",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL for the column if it's a custom field",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "ColumnOutput",
+        "type": "object"
+      },
+      "CreateViewsPreviewResponse": {
+        "description": "Response containing the preview of a Zendesk view.",
+        "properties": {
+          "columns": {
+            "description": "List of column definitions in the preview",
+            "items": {
+              "$ref": "#/$defs/ColumnOutput"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "groups": {
+            "description": "Grouped results if grouping is configured",
+            "items": {
+              "$ref": "#/$defs/GroupOutput"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "rows": {
+            "description": "Ticket data rows matching the view conditions",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "view": {
+            "$ref": "#/$defs/ViewOutput",
+            "description": "The view object with any server-assigned fields",
+            "title": "View"
+          }
+        },
+        "required": ["columns"],
+        "title": "CreateViewsPreviewResponse",
+        "type": "object"
+      },
+      "GroupOutput": {
+        "description": "Group object in the view preview response.",
+        "properties": {
+          "count": {
+            "description": "Number of tickets in this group",
+            "title": "Count",
+            "type": "integer"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The group identifier",
+            "title": "Id"
+          },
+          "title": {
+            "description": "The group display title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "GroupOutput",
+        "type": "object"
+      },
+      "ViewColumnInput": {
+        "description": "Column definition for view display settings.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "The column identifier - use system field names (e.g., 'status', 'subject', 'updated') or custom field IDs",
+            "examples": ["status", "subject", 5],
+            "human_parameter_description": "The ID or name of the field to display as a column. Use system field names like 'status', 'subject', 'requester_name' or custom field IDs.",
+            "human_parameter_name": "Column ID",
+            "title": "Id"
+          },
+          "title": {
+            "description": "The display title for this column in the view",
+            "examples": ["Status", "Subject", "Updated At"],
+            "human_parameter_description": "The human-readable title shown for this column in the view interface.",
+            "human_parameter_name": "Column Title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "ViewColumnInput",
+        "type": "object"
+      },
+      "ViewConditionInput": {
+        "description": "Condition object for view rules - defines filtering logic.",
+        "properties": {
+          "all": {
+            "description": "Conditions that must ALL be true for the view to match tickets. Each condition has 'field', 'operator', and 'value' properties.",
+            "examples": [
+              [
+                {
+                  "field": "status",
+                  "operator": "is",
+                  "value": "open"
+                }
+              ]
+            ],
+            "human_parameter_description": "A list of conditions where ALL must be satisfied. Each condition is an object with 'field' (e.g., status), 'operator' (e.g., is, is_not, contains), and 'value'.",
+            "human_parameter_name": "All Conditions",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "All",
+            "type": "array"
+          },
+          "any": {
+            "description": "Conditions where ANY one being true results in the view matching tickets.",
+            "examples": [
+              [
+                {
+                  "field": "priority",
+                  "operator": "is",
+                  "value": "high"
+                }
+              ]
+            ],
+            "human_parameter_description": "A list of conditions where ANY one being true is sufficient. Useful for OR logic across different fields.",
+            "human_parameter_name": "Any Conditions",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Any",
+            "type": "array"
+          }
+        },
+        "title": "ViewConditionInput",
+        "type": "object"
+      },
+      "ViewExecutionInput": {
+        "description": "Execution configuration for view display settings.",
+        "properties": {
+          "columns": {
+            "description": "List of columns to include in the view output",
+            "examples": [
+              [
+                {
+                  "id": "status",
+                  "title": "Status"
+                },
+                {
+                  "id": "updated",
+                  "title": "Updated"
+                }
+              ]
+            ],
+            "human_parameter_description": "Define which ticket fields should appear as columns in the view results.",
+            "human_parameter_name": "Execution Columns",
+            "items": {
+              "$ref": "#/$defs/ViewColumnInput"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "group": {
+            "additionalProperties": true,
+            "description": "Grouping configuration with 'id' (field name) and 'order' (asc/desc)",
+            "examples": [
+              {
+                "id": "status",
+                "order": "desc"
+              }
+            ],
+            "human_parameter_description": "Optional grouping of results by a specific field. Includes 'id' (field name) and 'order' (asc/desc).",
+            "human_parameter_name": "Group By",
+            "title": "Group",
+            "type": "object"
+          },
+          "sort": {
+            "$ref": "#/$defs/ViewSortInput",
+            "description": "Sort configuration for ordering results",
+            "examples": [
+              {
+                "id": "updated",
+                "order": "desc"
+              }
+            ],
+            "human_parameter_description": "Define how results should be sorted. Specify the 'id' (field name) and 'order' (asc/desc).",
+            "human_parameter_name": "Sort By",
+            "title": "Sort"
+          }
+        },
+        "title": "ViewExecutionInput",
+        "type": "object"
+      },
+      "ViewOutput": {
+        "description": "View object in the preview response.",
+        "properties": {
+          "active": {
+            "description": "Whether the view is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "conditions": {
+            "$ref": "#/$defs/ViewConditionInput",
+            "description": "Conditions that define the view",
+            "title": "Conditions"
+          },
+          "created_at": {
+            "description": "When the view was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether the view is a default view",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "View description",
+            "title": "Description",
+            "type": "string"
+          },
+          "execution": {
+            "$ref": "#/$defs/ViewExecutionInput",
+            "description": "Display and execution settings",
+            "title": "Execution"
+          },
+          "id": {
+            "description": "Unique view ID (assigned after preview)",
+            "title": "Id",
+            "type": "integer"
+          },
+          "position": {
+            "description": "Position in the view order",
+            "title": "Position",
+            "type": "integer"
+          },
+          "restriction": {
+            "additionalProperties": true,
+            "description": "Access restrictions",
+            "title": "Restriction",
+            "type": "object"
+          },
+          "title": {
+            "description": "View title",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When the view was last updated",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "title": "ViewOutput",
+        "type": "object"
+      },
+      "ViewSortInput": {
+        "description": "Sort configuration for view execution.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "The field to sort by - use system field names or custom field IDs",
+            "examples": ["updated", "created_at", "priority"],
+            "human_parameter_description": "The field name or ID used for sorting the view results.",
+            "human_parameter_name": "Sort Field",
+            "title": "Id"
+          },
+          "order": {
+            "default": "desc",
+            "description": "Sort order direction",
+            "enum": ["asc", "desc"],
+            "examples": ["desc"],
+            "human_parameter_description": "The direction to sort: 'asc' for ascending (oldest/lowest first) or 'desc' for descending (newest/highest first).",
+            "human_parameter_name": "Sort Order",
+            "title": "Order",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "ViewSortInput",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateViewsPreviewResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

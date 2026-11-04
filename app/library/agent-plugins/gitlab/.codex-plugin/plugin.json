@@ -1,0 +1,6 @@
+{
+  "name": "gitlab",
+  "version": "1.0.0",
+  "description": "Use gitlab tools and event subscriptions with Ankole connections.",
+  "skills": "./skills/"
+}

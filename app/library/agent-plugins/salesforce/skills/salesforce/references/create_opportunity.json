@@ -1,0 +1,221 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a Salesforce opportunity with the specified information. The contact ID parameter is ignored, and standard amount and probability values are sent only when positive.",
+  "inputSchema": {
+    "properties": {
+      "account_id": {
+        "default": "",
+        "description": "ID of the Account this opportunity is associated with. Omitting leaves the opportunity orphaned and excluded from account-based reports.",
+        "examples": ["001XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce Account this opportunity should be linked to. Provide the Account ID if you want to associate the deal with an existing customer; leave blank if not sure.",
+        "human_parameter_name": "Account ID",
+        "title": "Account Id",
+        "type": "string"
+      },
+      "amount": {
+        "default": 0,
+        "description": "Estimated total sale amount.",
+        "examples": [50000, 100000, 250000],
+        "human_parameter_description": "The estimated total value of the deal. Enter a number (no currency symbols) to help with pipeline forecasting.",
+        "human_parameter_name": "Amount",
+        "title": "Amount",
+        "type": "number"
+      },
+      "close_date": {
+        "description": "Expected close date in YYYY-MM-DD format (required field in Salesforce).",
+        "examples": ["2024-12-31", "2024-06-30", "2025-03-15"],
+        "human_parameter_description": "The date you expect the deal to close (YYYY-MM-DD). This helps with forecasting and scheduling follow-ups.",
+        "human_parameter_name": "Close Date",
+        "title": "Close Date",
+        "type": "string"
+      },
+      "contact_id": {
+        "default": "",
+        "description": "Deprecated: Salesforce Opportunity does not have a writable ContactId field. Contact-to-Opportunity associations must be managed through OpportunityContactRole. This parameter is accepted but ignored.",
+        "examples": ["003XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "Deprecated: Salesforce does not support setting ContactId directly on an Opportunity. Use OpportunityContactRole to associate contacts instead. This parameter is accepted but ignored.",
+        "human_parameter_name": "Contact ID",
+        "title": "Contact Id",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values. Custom field names typically end with '__c' (e.g., 'Custom_Field__c'). Values are subject to org-level validation rules; invalid values raise FIELD_CUSTOM_VALIDATION_EXCEPTION.",
+        "examples": [
+          {
+            "Custom_Score__c": 85,
+            "Level__c": "Primary"
+          }
+        ],
+        "human_parameter_description": "Pass any custom fields defined in your Salesforce org. Use the field's API name (ending in '__c') as the key and the desired value. Example: {'Level__c': 'Primary'}",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "description": {
+        "default": "",
+        "description": "Text description of the opportunity.",
+        "examples": [
+          "Large enterprise deal for cloud migration",
+          "Expanding existing contract to include new products"
+        ],
+        "human_parameter_description": "A brief summary of the opportunity. Include context or key details your team should know.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "lead_source": {
+        "default": "",
+        "description": "Source of the opportunity.",
+        "examples": ["Web", "Phone Inquiry", "Partner Referral", "Purchased List", "Trade Show", "Other"],
+        "human_parameter_description": "Where this opportunity came from (e.g., Web, Partner Referral). Helps track marketing and lead generation channels.",
+        "human_parameter_name": "Lead Source",
+        "title": "Lead Source",
+        "type": "string"
+      },
+      "name": {
+        "description": "Opportunity name (required field in Salesforce).",
+        "examples": ["New Enterprise Deal", "Q4 Expansion", "Product Upgrade 2024"],
+        "human_parameter_description": "The name of the deal as it should appear in Salesforce. Use something your team will immediately recognize; this is required.",
+        "human_parameter_name": "Opportunity Name",
+        "title": "Name",
+        "type": "string"
+      },
+      "next_step": {
+        "default": "",
+        "description": "Description of next step in sales process.",
+        "examples": ["Send proposal", "Schedule demo", "Await decision", "Contract negotiation"],
+        "human_parameter_description": "What you plan to do next to move the deal forward. Add a short action note to guide follow-ups.",
+        "human_parameter_name": "Next Step",
+        "title": "Next Step",
+        "type": "string"
+      },
+      "pricebook2_id": {
+        "default": "",
+        "description": "ID of the price book for this opportunity.",
+        "examples": ["01sXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "Which price book to use for this opportunity's products and pricing. Provide the Price Book ID if your org uses multiple price books; otherwise leave blank.",
+        "human_parameter_name": "Price Book ID",
+        "title": "Pricebook2 Id",
+        "type": "string"
+      },
+      "probability": {
+        "default": 0,
+        "description": "Percentage probability of closing (0-100).",
+        "examples": [10, 25, 50, 75, 90],
+        "human_parameter_description": "Your confidence level that the deal will close, as a percentage from 0 to 100. Use your best estimate to reflect deal likelihood.",
+        "human_parameter_name": "Probability",
+        "title": "Probability",
+        "type": "number"
+      },
+      "stage_name": {
+        "description": "Current stage of the opportunity (required field in Salesforce).",
+        "examples": [
+          "Prospecting",
+          "Qualification",
+          "Needs Analysis",
+          "Value Proposition",
+          "Id. Decision Makers",
+          "Perception Analysis",
+          "Proposal/Price Quote",
+          "Negotiation/Review",
+          "Closed Won",
+          "Closed Lost"
+        ],
+        "human_parameter_description": "The current sales stage for this deal (e.g., Qualification, Proposal). Choose the stage that best reflects where the deal is right now.",
+        "human_parameter_name": "Stage Name",
+        "title": "Stage Name",
+        "type": "string"
+      },
+      "type": {
+        "default": "",
+        "description": "Type of opportunity.",
+        "examples": [
+          "Existing Customer - Upgrade",
+          "Existing Customer - Replacement",
+          "Existing Customer - Downgrade",
+          "New Customer"
+        ],
+        "human_parameter_description": "How you’d categorize this opportunity (e.g., New Customer, Upgrade). This helps report on the type of business you’re pursuing.",
+        "human_parameter_name": "Opportunity Type",
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["name", "close_date", "stage_name"],
+    "title": "CreateOpportunityRequest",
+    "type": "object"
+  },
+  "name": "create_opportunity",
+  "outputSchema": {
+    "$defs": {
+      "CreateOpportunityError": {
+        "description": "Error details from Salesforce API.",
+        "properties": {
+          "errorCode": {
+            "description": "A standardized Salesforce error code identifying the type of error (e.g., MALFORMED_ID, FIELD_CUSTOM_VALIDATION_EXCEPTION, REQUIRED_FIELD_MISSING, INVALID_FIELD).",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Array of field API names where the error occurred. Present when the error is related to specific fields, such as validation rule violations. Can be an empty array if no specific field is assigned as the error location.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "A descriptive error message explaining what went wrong with the operation.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["message", "errorCode"],
+        "title": "CreateOpportunityError",
+        "type": "object"
+      },
+      "CreateOpportunityResponse": {
+        "description": "Response from creating an opportunity in Salesforce.",
+        "properties": {
+          "errors": {
+            "description": "Array of error objects. Empty array when the operation succeeds. Contains error details when the operation fails.",
+            "items": {
+              "$ref": "#/$defs/CreateOpportunityError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "default": "",
+            "description": "The unique 18-character Salesforce ID of the newly created Opportunity record. Empty string on failure.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the operation was successful. Returns true if the Opportunity was created successfully, false otherwise.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "CreateOpportunityResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateOpportunityResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

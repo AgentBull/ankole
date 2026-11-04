@@ -12,7 +12,8 @@ defmodule Ankole.Connectors.Jobs.RefreshAccounts do
     ConnectedAccount
     |> Ash.Query.for_read(:across_tenants)
     |> Ash.Query.filter(
-      status == "active" and not is_nil(refresh_expires_at) and refresh_expires_at < ^threshold
+      status == "active" and is_nil(upstream_connection_id) and not is_nil(refresh_expires_at) and
+        refresh_expires_at < ^threshold
     )
     |> Ankole.Ash.read_across_tenants!()
     |> Enum.each(fn account ->

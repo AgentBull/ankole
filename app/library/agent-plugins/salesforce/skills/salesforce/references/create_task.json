@@ -1,0 +1,195 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new task in Salesforce to track activities, to-dos, and follow-ups related to contacts, leads, or other records. Ensure who_id, what_id, and owner_id reference existing records before calling; invalid IDs cause silent linkage failures or validation errors.",
+  "inputSchema": {
+    "properties": {
+      "activity_date": {
+        "description": "Due date for the task in YYYY-MM-DD format. Do not use full datetimes or natural-language strings like 'yesterday'; only YYYY-MM-DD is accepted.",
+        "examples": ["2025-12-31", "2025-09-15"],
+        "human_parameter_description": "When the task should be completed, in YYYY-MM-DD format. Set a date to keep the task on schedule.",
+        "human_parameter_name": "Due Date",
+        "title": "Activity Date",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values. Custom field names typically end with '__c' (e.g., 'Priority_Level__c': 'Critical').",
+        "examples": [
+          {
+            "Custom_Priority__c": "Critical",
+            "Follow_Up_Required__c": true
+          },
+          {
+            "External_ID__c": "EXT-12345"
+          }
+        ],
+        "human_parameter_description": "Add any custom fields specific to your Salesforce org. Use the API name of each field (usually ending in '__c') as the key, and set its value.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "description": {
+        "default": "",
+        "description": "Detailed description or notes for the task.",
+        "examples": [
+          "Call to discuss renewal options",
+          "Follow up on pricing questions from last meeting",
+          "Send updated proposal with discount options"
+        ],
+        "human_parameter_description": "Any notes or details that explain what needs to be done. Include context or next steps to make the task clear.",
+        "human_parameter_name": "Task Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "is_reminder_set": {
+        "default": false,
+        "description": "Whether to set a reminder for this task.",
+        "human_parameter_description": "Turn this on if you want Salesforce to remind you about the task. You'll be prompted at the reminder time you set.",
+        "human_parameter_name": "Set Reminder",
+        "title": "Is Reminder Set",
+        "type": "boolean"
+      },
+      "owner_id": {
+        "default": "",
+        "description": "ID of the user who owns the task. Defaults to current user if not specified.",
+        "examples": ["005XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "Who should be responsible for this task. Leave blank to assign it to yourself, or enter another user's Salesforce ID.",
+        "human_parameter_name": "Task Owner ID",
+        "title": "Owner Id",
+        "type": "string"
+      },
+      "priority": {
+        "default": "Normal",
+        "description": "Priority level of the task.",
+        "examples": ["High", "Normal", "Low"],
+        "human_parameter_description": "How important the task is compared to other work. Use this to signal urgency.",
+        "human_parameter_name": "Task Priority",
+        "title": "Priority",
+        "type": "string"
+      },
+      "reminder_date_time": {
+        "description": "Date and time for the reminder in ISO format (YYYY-MM-DDTHH:MM:SS). Required if is_reminder_set is true. Interpreted according to org/user timezone, not UTC.",
+        "examples": ["2025-12-30T09:00:00", "2025-09-14T14:30:00"],
+        "human_parameter_description": "When the reminder should pop up, in YYYY-MM-DDTHH:MM:SS format. Required only if you enable reminders.",
+        "human_parameter_name": "Reminder Date/Time",
+        "title": "Reminder Date Time",
+        "type": "string"
+      },
+      "status": {
+        "default": "Not Started",
+        "description": "Status of the task. Must be a valid picklist value; arbitrary strings trigger validation errors.",
+        "examples": ["Not Started", "In Progress", "Completed", "Waiting on someone else", "Deferred"],
+        "human_parameter_description": "How far along the task is. Choose the current state so others know its progress.",
+        "human_parameter_name": "Task Status",
+        "title": "Status",
+        "type": "string"
+      },
+      "subject": {
+        "description": "Subject/title of the task.",
+        "examples": [
+          "Follow up on opportunity",
+          "Call customer",
+          "Send proposal",
+          "Schedule meeting",
+          "Review contract"
+        ],
+        "human_parameter_description": "The short title of the task you want to create. Make it clear so you can quickly recognize what needs to be done.",
+        "human_parameter_name": "Task Subject",
+        "title": "Subject",
+        "type": "string"
+      },
+      "what_id": {
+        "default": "",
+        "description": "ID of the related record (Account, Opportunity, Case, etc.) this task is associated with. Accepts Account IDs (prefix '001'), Opportunity IDs (prefix '006'), Case IDs (prefix '500'), and other business object IDs.",
+        "examples": ["001XXXXXXXXXXXXXXX", "006XXXXXXXXXXXXXXX", "500XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The related record you want to associate with this task, like an account, opportunity, or case. Linking it helps keep the task in the right context.",
+        "human_parameter_name": "Related Record ID",
+        "title": "What Id",
+        "type": "string"
+      },
+      "who_id": {
+        "default": "",
+        "description": "ID of the Contact or Lead this task is associated with. Only accepts Contact IDs (prefix '003') or Lead IDs (prefix '00Q'). Do NOT use Account/Opportunity/Case IDs here; use what_id for those. Swapping who_id and what_id creates orphaned tasks that won't appear on contact/lead timelines. Accepts only a single ID; create separate task records for multiple contacts.",
+        "examples": ["003XXXXXXXXXXXXXXX", "00QXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The contact or lead this task is about. Provide their Salesforce ID if you want the task tied to a specific person.",
+        "human_parameter_name": "Contact/Lead ID",
+        "title": "Who Id",
+        "type": "string"
+      }
+    },
+    "required": ["subject"],
+    "title": "CreateTaskRequest",
+    "type": "object"
+  },
+  "name": "create_task",
+  "outputSchema": {
+    "$defs": {
+      "CreateTaskResponse": {
+        "description": "Response from Salesforce REST API when creating a Task object.",
+        "properties": {
+          "errors": {
+            "description": "Array of error objects. Empty array when success is true. Contains one or more error objects when success is false.",
+            "items": {
+              "$ref": "#/$defs/TaskError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The unique Salesforce record ID of the newly created Task (15 or 18 character ID). Only present when success is true.",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the API call was successful. Returns true if the Task was created successfully, false otherwise.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success", "errors"],
+        "title": "CreateTaskResponse",
+        "type": "object"
+      },
+      "TaskError": {
+        "description": "Error object returned by Salesforce REST API when Task creation fails.",
+        "properties": {
+          "errorCode": {
+            "description": "Machine-readable error code identifying the type of error (e.g., REQUIRED_FIELD_MISSING, FIELD_CUSTOM_VALIDATION_EXCEPTION, MALFORMED_ID, INVALID_FIELD).",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Array of field API names that caused or are related to the error. Empty array or omitted if the error is not field-specific.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable error description explaining what went wrong.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": ["message", "errorCode"],
+        "title": "TaskError",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateTaskResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

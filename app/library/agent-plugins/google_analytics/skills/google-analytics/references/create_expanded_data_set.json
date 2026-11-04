@@ -1,0 +1,142 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create an expanded data set for a Google Analytics 360 property using specified dimensions and metrics.",
+  "inputSchema": {
+    "description": "Request model for creating an ExpandedDataSet.",
+    "properties": {
+      "expandedDataSet": {
+        "additionalProperties": false,
+        "description": "Definition of the ExpandedDataSet to create.",
+        "properties": {
+          "description": {
+            "description": "Optional. Description of the expanded data set.",
+            "title": "Description",
+            "type": "string"
+          },
+          "dimensionNames": {
+            "description": "Required. List of dimension names to include in the expanded data set.",
+            "examples": ["date", "region"],
+            "items": {
+              "type": "string"
+            },
+            "title": "Dimension Names",
+            "type": "array"
+          },
+          "displayName": {
+            "description": "Required. Human-readable display name for the expanded data set.",
+            "examples": ["Monthly_Region_Metrics"],
+            "title": "Display Name",
+            "type": "string"
+          },
+          "metricNames": {
+            "description": "Required. List of metric names to include in the expanded data set.",
+            "examples": ["sessions", "purchaseEvents"],
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Names",
+            "type": "array"
+          }
+        },
+        "required": ["displayName", "dimensionNames", "metricNames"],
+        "title": "Expanded Data Set",
+        "type": "object"
+      },
+      "parent": {
+        "description": "Parent property resource name. Format: properties/{propertyId}",
+        "examples": ["properties/123456789"],
+        "pattern": "^properties/\\d+$",
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent", "expandedDataSet"],
+    "title": "CreateExpandedDataSetRequest",
+    "type": "object"
+  },
+  "name": "create_expanded_data_set",
+  "outputSchema": {
+    "$defs": {
+      "CreateExpandedDataSetResponse": {
+        "description": "Response model containing the created ExpandedDataSet.",
+        "properties": {
+          "expandedDataSet": {
+            "$ref": "#/$defs/ExpandedDataSetResource",
+            "description": "The created ExpandedDataSet resource.",
+            "title": "Expanded Data Set"
+          }
+        },
+        "required": ["expandedDataSet"],
+        "title": "CreateExpandedDataSetResponse",
+        "type": "object"
+      },
+      "ExpandedDataSetResource": {
+        "description": "Resource model for the ExpandedDataSet returned by the API.",
+        "properties": {
+          "createTime": {
+            "description": "Output only. Time when this ExpandedDataSet was created.",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional. Description of the expanded data set.",
+            "title": "Description",
+            "type": "string"
+          },
+          "dimensionNames": {
+            "description": "Required. List of dimension names to include in the expanded data set.",
+            "examples": ["date", "region"],
+            "items": {
+              "type": "string"
+            },
+            "title": "Dimension Names",
+            "type": "array"
+          },
+          "displayName": {
+            "description": "Required. Human-readable display name for the expanded data set.",
+            "examples": ["Monthly_Region_Metrics"],
+            "title": "Display Name",
+            "type": "string"
+          },
+          "metricNames": {
+            "description": "Required. List of metric names to include in the expanded data set.",
+            "examples": ["sessions", "purchaseEvents"],
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Names",
+            "type": "array"
+          },
+          "name": {
+            "description": "Output only. Resource name of the ExpandedDataSet.",
+            "examples": ["properties/123456789/expandedDataSets/987654321"],
+            "title": "Name",
+            "type": "string"
+          },
+          "updateTime": {
+            "description": "Output only. Time when this ExpandedDataSet was last updated.",
+            "title": "Update Time",
+            "type": "string"
+          }
+        },
+        "required": ["displayName", "dimensionNames", "metricNames", "name"],
+        "title": "ExpandedDataSetResource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateExpandedDataSetResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

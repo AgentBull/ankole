@@ -1,0 +1,59 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve Google Signals configuration settings for a GA4 property. Use when you need to check whether Google Signals is enabled and the consent status for a property.",
+  "inputSchema": {
+    "description": "Request model for retrieving Google Signals settings for a property.",
+    "properties": {
+      "name": {
+        "description": "Required. The resource name of the Google Signals settings to retrieve. Must be in the exact format: properties/{property_id}/googleSignalsSettings where property_id is a numeric identifier. IMPORTANT: Must start with 'properties/' prefix, contain no forward slashes in the property_id, have no trailing slashes, and must end with '/googleSignalsSettings'. Valid example: 'properties/1000/googleSignalsSettings'. Invalid examples: '1000' (missing prefix), 'properties/1000' (missing suffix), 'properties/1000/googleSignalsSettings/' (trailing slash)",
+        "examples": ["properties/1000/googleSignalsSettings", "properties/489591273/googleSignalsSettings"],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "GetGoogleSignalsSettingsRequest",
+    "type": "object"
+  },
+  "name": "get_google_signals_settings",
+  "outputSchema": {
+    "$defs": {
+      "GetGoogleSignalsSettingsResponse": {
+        "description": "Response model for GetGoogleSignalsSettings action.",
+        "properties": {
+          "consent": {
+            "description": "Output only. Terms of Service acceptance status. Possible values: GOOGLE_SIGNALS_CONSENT_UNSPECIFIED (default, treated as not consented), GOOGLE_SIGNALS_CONSENT_CONSENTED (Terms of service have been accepted), GOOGLE_SIGNALS_CONSENT_NOT_CONSENTED (Terms of service have not been accepted).",
+            "title": "Consent",
+            "type": "string"
+          },
+          "name": {
+            "description": "Output only. Resource name of this setting. Format: properties/{property_id}/googleSignalsSettings.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "Indicates whether Google Signals functionality is activated. Possible values: GOOGLE_SIGNALS_STATE_UNSPECIFIED (user has not made explicit selection), GOOGLE_SIGNALS_ENABLED (Google Signals is active), GOOGLE_SIGNALS_DISABLED (Google Signals is inactive).",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "GetGoogleSignalsSettingsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetGoogleSignalsSettingsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

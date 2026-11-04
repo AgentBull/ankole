@@ -1,0 +1,356 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a specific saved Discover query (a predefined set of filters and conditions for exploring event data) for a Sentry organization.",
+  "inputSchema": {
+    "description": "Parameters for retrieving a saved Discover query for an organization.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the Sentry organization.",
+        "examples": ["sentry-org", "my-company-slug"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "query_id": {
+        "description": "The ID of the saved Discover query to retrieve.",
+        "examples": [1, 123, 456],
+        "title": "Query Id",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id_or_slug", "query_id"],
+    "title": "RetrieveSavedDiscoverQueryForOrganizationRequest",
+    "type": "object"
+  },
+  "name": "retrieve_saved_discover_query_for_organization",
+  "outputSchema": {
+    "$defs": {
+      "Avatar": {
+        "description": "User avatar information.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar')",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of uploaded avatar, null if none",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "title": "Avatar",
+        "type": "object"
+      },
+      "CreatedByUser": {
+        "description": "User who created the query with full profile details.",
+        "properties": {
+          "avatar": {
+            "$ref": "#/$defs/Avatar",
+            "description": "User avatar information",
+            "title": "Avatar"
+          },
+          "avatarUrl": {
+            "description": "URL to user's avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "dateJoined": {
+            "description": "User account creation timestamp in ISO 8601 format",
+            "title": "Date Joined",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "emails": {
+            "description": "List of user's email addresses",
+            "items": {
+              "$ref": "#/$defs/EmailAddress"
+            },
+            "title": "Emails",
+            "type": "array"
+          },
+          "experiments": {
+            "additionalProperties": true,
+            "description": "User experiment flags",
+            "title": "Experiments",
+            "type": "object"
+          },
+          "has2fa": {
+            "description": "Whether two-factor authentication is enabled",
+            "title": "Has2Fa",
+            "type": "boolean"
+          },
+          "hasPasswordAuth": {
+            "description": "Whether the user has password authentication enabled",
+            "title": "Has Password Auth",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "isActive": {
+            "description": "Whether the user account is active",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "isManaged": {
+            "description": "Whether the user is managed by external system",
+            "title": "Is Managed",
+            "type": "boolean"
+          },
+          "isStaff": {
+            "description": "Whether the user is staff member",
+            "title": "Is Staff",
+            "type": "boolean"
+          },
+          "isSuperuser": {
+            "description": "Whether the user has superuser privileges",
+            "title": "Is Superuser",
+            "type": "boolean"
+          },
+          "lastActive": {
+            "description": "Last activity timestamp in ISO 8601 format",
+            "title": "Last Active",
+            "type": "string"
+          },
+          "lastLogin": {
+            "description": "Last login timestamp in ISO 8601 format",
+            "title": "Last Login",
+            "type": "string"
+          },
+          "name": {
+            "description": "User's display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "CreatedByUser",
+        "type": "object"
+      },
+      "EmailAddress": {
+        "description": "User email address information.",
+        "properties": {
+          "email": {
+            "description": "Email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Email record ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_verified": {
+            "description": "Whether the email is verified",
+            "title": "Is Verified",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "email", "is_verified"],
+        "title": "EmailAddress",
+        "type": "object"
+      },
+      "RetrieveSavedDiscoverQueryForOrganizationResponse": {
+        "description": "Details of the retrieved saved Discover query.",
+        "properties": {
+          "aggregations": {
+            "description": "Aggregation functions applied",
+            "items": {
+              "type": "string"
+            },
+            "title": "Aggregations",
+            "type": "array"
+          },
+          "conditions": {
+            "description": "Query filter conditions",
+            "items": {
+              "type": "string"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "createdBy": {
+            "$ref": "#/$defs/CreatedByUser",
+            "description": "User who created the query with full profile details",
+            "title": "Created By"
+          },
+          "datasetSource": {
+            "description": "Source indicator (e.g., 'unknown')",
+            "title": "Dataset Source",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "Creation timestamp in ISO 8601 format",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateUpdated": {
+            "description": "Last modification timestamp in ISO 8601 format",
+            "title": "Date Updated",
+            "type": "string"
+          },
+          "display": {
+            "description": "Chart display type",
+            "title": "Display",
+            "type": "string"
+          },
+          "end": {
+            "description": "Absolute end timestamp",
+            "title": "End",
+            "type": "string"
+          },
+          "environment": {
+            "description": "Environment filters",
+            "items": {
+              "type": "string"
+            },
+            "title": "Environment",
+            "type": "array"
+          },
+          "expired": {
+            "description": "Deprecation status indicating if the query is expired",
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "exploreQuery": {
+            "additionalProperties": true,
+            "description": "Additional exploration parameters",
+            "title": "Explore Query",
+            "type": "object"
+          },
+          "fields": {
+            "description": "Columns to display in results (e.g., 'transaction', 'count()', 'avg(transaction.duration)')",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the saved query",
+            "title": "Id",
+            "type": "string"
+          },
+          "interval": {
+            "description": "Time interval grouping",
+            "title": "Interval",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Result limit",
+            "title": "Limit",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the query",
+            "title": "Name",
+            "type": "string"
+          },
+          "orderby": {
+            "description": "Sort specification (e.g., '-count' for descending count)",
+            "title": "Orderby",
+            "type": "string"
+          },
+          "projects": {
+            "description": "Associated project IDs",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "query": {
+            "description": "The query string (e.g., 'transaction:/api/foo')",
+            "title": "Query",
+            "type": "string"
+          },
+          "queryDataset": {
+            "description": "Dataset type (e.g., 'transaction-like')",
+            "title": "Query Dataset",
+            "type": "string"
+          },
+          "range": {
+            "description": "Relative time range (e.g., '24h')",
+            "title": "Range",
+            "type": "string"
+          },
+          "start": {
+            "description": "Absolute start timestamp",
+            "title": "Start",
+            "type": "string"
+          },
+          "topEvents": {
+            "description": "Number of top events to display",
+            "title": "Top Events",
+            "type": "integer"
+          },
+          "version": {
+            "description": "Schema version",
+            "title": "Version",
+            "type": "integer"
+          },
+          "widths": {
+            "description": "Column width settings",
+            "items": {
+              "type": "string"
+            },
+            "title": "Widths",
+            "type": "array"
+          },
+          "yAxis": {
+            "description": "Y-axis metrics for visualization (e.g., ['count()'])",
+            "items": {
+              "type": "string"
+            },
+            "title": "Y Axis",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "queryDataset",
+          "datasetSource",
+          "projects",
+          "version",
+          "expired",
+          "dateCreated",
+          "dateUpdated",
+          "createdBy"
+        ],
+        "title": "RetrieveSavedDiscoverQueryForOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveSavedDiscoverQueryForOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

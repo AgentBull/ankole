@@ -5,6 +5,120 @@ import { pageRoute } from './routes'
 
 test.use({ actionTimeout: 15_000 })
 
+test('administrator retries credential verification without creating another connection', async ({ browser }) => {
+  const provider = createServer((req, res) => {
+    if (req.url !== '/api/0/organizations/') {
+      res.writeHead(404).end()
+      return
+    }
+    const accepted = req.headers.authorization === 'Bearer accepted-browser-token'
+    res
+      .writeHead(accepted ? 200 : 401, { 'content-type': 'application/json' })
+      .end(
+        JSON.stringify(accepted ? [{ id: 'browser-org', name: 'Browser organization' }] : { detail: 'Invalid token' })
+      )
+  })
+  await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve))
+  const address = provider.address() as { port: number }
+  const context = await browser.newContext()
+  const page = await context.newPage()
+  const slug = `sentry-retry-${Date.now()}`
+  try {
+    await context.addCookies(state.owner.cookies)
+    await page.goto(`${state.base_url}/connectors`)
+    await page.getByRole('button', { name: '添加连接', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('combobox', { name: '平台', exact: true }).click()
+    await page.getByRole('option', { name: 'Sentry', exact: true }).click()
+    await dialog.getByLabel('显示名称', { exact: true }).fill('Retry Sentry credentials')
+    await dialog.getByLabel('连接名称', { exact: true }).fill(slug)
+    await dialog.getByLabel('Platform URL', { exact: false }).fill(`http://127.0.0.1:${address.port}`)
+    const token = dialog.getByLabel('Access token', { exact: false })
+    await token.fill('rejected-browser-token')
+    const rejected = page.waitForResponse(response => response.url().endsWith('/connectors/accounts/connect-team'))
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    expect((await rejected).ok()).toBe(false)
+    await expect(dialog).toBeVisible()
+    await expect(token).toHaveValue('rejected-browser-token')
+    await expect(dialog.getByLabel('连接名称', { exact: true })).toHaveValue(slug)
+    const saved = await request<{ connections: { id: string; slug: string }[] }>(page, '/connectors/auth-configs')
+    const original = saved.connections.find(connection => connection.slug === slug)!
+    expect(original.id).toBeTruthy()
+    await token.fill('accepted-browser-token')
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    const retried = await request<{ connections: { id: string; slug: string }[] }>(page, '/connectors/auth-configs')
+    expect(retried.connections.filter(connection => connection.slug === slug).map(connection => connection.id)).toEqual(
+      [original.id]
+    )
+
+    await page.goto(`${state.base_url}/connectors?connection=${slug}&auth_mode=team_credentials`)
+    const bindingToken = dialog.getByLabel('Access token', { exact: false })
+    await bindingToken.fill('another-rejected-token')
+    const bindRejected = page.waitForResponse(response => response.url().endsWith('/connectors/accounts/connect-team'))
+    await dialog.getByRole('button', { name: '验证并绑定', exact: true }).click()
+    expect((await bindRejected).ok()).toBe(false)
+    await expect(bindingToken).toHaveValue('another-rejected-token')
+    await bindingToken.fill('accepted-browser-token')
+    await dialog.getByRole('button', { name: '验证并绑定', exact: true }).click()
+    await expect(dialog).toBeHidden()
+  } finally {
+    await context.close()
+    await new Promise<void>((resolve, reject) => provider.close(error => (error ? reject(error) : resolve())))
+  }
+})
+
+test('personal and team credential forms retain typed values through rerenders and blur', async ({ browser }) => {
+  const adminContext = await browser.newContext()
+  const memberContext = await browser.newContext()
+  const admin = await adminContext.newPage()
+  const member = await memberContext.newPage()
+  const suffix = Date.now()
+  try {
+    await adminContext.addCookies(state.owner.cookies)
+    await memberContext.addCookies(state.member.cookies)
+    await admin.goto(`${state.base_url}/connectors`)
+    await expect(admin.getByRole('button', { name: '添加连接', exact: true })).toBeVisible()
+    for (const [plugin, scheme] of [
+      ['figma', 'personal_token'],
+      ['zendesk', 'api_token']
+    ]) {
+      await request(admin, '/connectors/auth-configs', 'POST', {
+        plugin_id: plugin,
+        slug: `${plugin}-input-${suffix}`,
+        display_name: `${plugin} input`,
+        auth_scheme: scheme,
+        secret: {}
+      })
+    }
+
+    await member.goto(`${state.base_url}/connectors?connection=figma-input-${suffix}&auth_mode=personal_credentials`)
+    const personalToken = member.getByRole('dialog').getByLabel('个人访问令牌', { exact: false })
+    await personalToken.fill('not-a-real-figma-token')
+    await personalToken.press('Tab')
+    await expect(personalToken).toHaveValue('not-a-real-figma-token')
+    expect(await personalToken.evaluate((input: HTMLInputElement) => input.checkValidity())).toBe(true)
+
+    await admin.goto(`${state.base_url}/connectors?connection=zendesk-input-${suffix}&auth_mode=team_credentials`)
+    const dialog = admin.getByRole('dialog')
+    const entries = [
+      ['Zendesk subdomain', 'example-team'],
+      ['Administrator email', 'admin@example.com'],
+      ['API token', 'not-a-real-zendesk-token']
+    ] as const
+    for (const [name, value] of entries) await dialog.getByLabel(name, { exact: false }).fill(value)
+    await admin.keyboard.press('Tab')
+    for (const [name, value] of entries) {
+      const input = dialog.getByLabel(name, { exact: false })
+      await expect(input).toHaveValue(value)
+      expect(await input.evaluate((element: HTMLInputElement) => element.checkValidity())).toBe(true)
+    }
+  } finally {
+    await adminContext.close()
+    await memberContext.close()
+  }
+})
+
 test('administrator configures a connection and member can retry the same progressive consent after cancellation', async ({
   browser
 }) => {
@@ -89,14 +203,16 @@ test('administrator configures a connection and member can retry the same progre
     await member.goto(intent.href)
     await login(member, state.member)
     await expect(member.getByRole('button', { name: '添加连接', exact: true })).toHaveCount(0)
-    const personal = member.locator('[data-slot="card"]').filter({ has: member.getByText(slug, { exact: true }) })
+    const personal = member.locator(`#connector-human-${slug}`)
     await expect(personal.getByRole('button', { name: '编辑凭证', exact: true })).toHaveCount(0)
     for (let attempt = 1; attempt <= 2; attempt++) {
-      const callback = member.waitForResponse(
-        response => new URL(response.url()).pathname === '/oauth/connectors/callback'
-      )
-      await personal.getByRole('button', { name: '连接个人账户', exact: true }).click()
-      await callback
+      if (attempt > 1) {
+        const callback = member.waitForResponse(
+          response => new URL(response.url()).pathname === '/oauth/connectors/callback'
+        )
+        await personal.getByRole('button', { name: '连接个人账户', exact: true }).click()
+        await callback
+      }
       await member.waitForURL(
         url =>
           url.origin === new URL(state.base_url).origin &&
@@ -114,7 +230,6 @@ test('administrator configures a connection and member can retry the same progre
     intent.searchParams.set('subject_kind', 'app')
     intent.searchParams.set('scopes', 'repo read:org')
     await admin.goto(intent.href)
-    await card.getByRole('button', { name: '授权应用账户', exact: true }).click()
     await admin.waitForURL(url => url.searchParams.get('connector_error') === 'oauth_authorization_cancelled')
     expect(new URL(admin.url()).searchParams.get('subject_kind')).toBe('app')
     expect(new URL(admin.url()).searchParams.get('scopes')).toBe('repo read:org')
@@ -321,7 +436,7 @@ test('member starts a personal calendar subscription, cancels then completes con
     await member.getByRole('option', { name: jobName, exact: true }).click()
     await member.getByRole('link', { name: '打开外部连接', exact: true }).click()
     expect(new URL(member.url()).searchParams.get('automation_job')).toBe(String(jobID))
-    const card = member.locator('[data-slot="card"]').filter({ has: member.getByText(slug, { exact: true }) })
+    const card = member.locator(`#connector-human-${slug}`)
     await card.getByRole('button', { name: '添加事件订阅', exact: true }).click()
     const dialog = member.getByRole('dialog')
     await dialog.getByRole('combobox', { name: '事件类型', exact: true }).click()

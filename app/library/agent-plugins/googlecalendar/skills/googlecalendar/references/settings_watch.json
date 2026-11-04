@@ -1,0 +1,141 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Watch for changes to Settings resources.",
+  "inputSchema": {
+    "properties": {
+      "address": {
+        "description": "The address where notifications are delivered for this channel.",
+        "examples": ["https://example.com/notifications"],
+        "human_parameter_description": "The URL where notifications should be sent. Provide your publicly reachable webhook endpoint.",
+        "human_parameter_name": "Notification Address",
+        "title": "Address",
+        "type": "string"
+      },
+      "expiration": {
+        "description": "Unix timestamp in milliseconds specifying when the API should stop sending notifications for this channel.",
+        "examples": [1426325213000],
+        "human_parameter_description": "Optional timestamp (in milliseconds) when this notification channel should expire and stop sending updates.",
+        "human_parameter_name": "Channel Expiration",
+        "title": "Expiration",
+        "type": "integer"
+      },
+      "id": {
+        "description": "A UUID or similar unique string that identifies this channel.",
+        "examples": ["channel-ID-1"],
+        "human_parameter_description": "A unique identifier you assign to this notification channel. Choose any string that helps you recognize or manage it later.",
+        "human_parameter_name": "Channel ID",
+        "title": "Id",
+        "type": "string"
+      },
+      "params": {
+        "additionalProperties": false,
+        "description": "Additional parameters controlling delivery channel behavior.",
+        "human_parameter_description": "Optional settings that control how the channel behaves, such as how long it should stay active.",
+        "properties": {
+          "ttl": {
+            "description": "The time-to-live in seconds for the notification channel. Default is 604800 seconds.",
+            "examples": ["3600"],
+            "title": "Ttl",
+            "type": "string"
+          }
+        },
+        "title": "SettingsWatchRequestParams",
+        "type": "object"
+      },
+      "token": {
+        "description": "An arbitrary string delivered to the target address with each notification delivered over this channel.",
+        "examples": ["token-string"],
+        "human_parameter_description": "An optional secret string included with each notification so you can verify the requests came from this channel.",
+        "human_parameter_name": "Notification Token",
+        "title": "Token",
+        "type": "string"
+      },
+      "type": {
+        "const": "web_hook",
+        "description": "The type of delivery mechanism used for this channel. Must be \"web_hook\".",
+        "examples": ["web_hook"],
+        "human_parameter_description": "How you want to receive notifications. Must be 'web_hook' to get HTTP callbacks to your endpoint.",
+        "human_parameter_name": "Delivery Type",
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["id", "type", "address"],
+    "title": "SettingsWatchRequest",
+    "type": "object"
+  },
+  "name": "settings_watch",
+  "outputSchema": {
+    "$defs": {
+      "SettingsWatchResponse": {
+        "properties": {
+          "display_url": {
+            "description": "URL to view this resource in the Google Calendar web interface. Notification channels have no web UI, so this is always None.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "expiration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "Optional. Date and time of notification channel expiration, expressed as a Unix timestamp in milliseconds. Some responses may return a 13-digit string.",
+            "examples": [1426325213000, "1426325213000"],
+            "title": "Expiration"
+          },
+          "id": {
+            "description": "A client-defined unique identifier (UUID or similar) that identifies this channel.",
+            "examples": ["channel-ID-1"],
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "api#channel",
+            "description": "Identifies this as a notification channel used to watch for changes to a resource. Always \"api#channel\".",
+            "title": "Kind",
+            "type": "string"
+          },
+          "resourceId": {
+            "description": "An opaque ID that identifies the resource being watched on this channel. Stable across different API versions.",
+            "examples": ["resource-ID-1"],
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "resourceUri": {
+            "description": "A version-specific identifier (canonical URI) for the watched resource.",
+            "examples": ["https://www.googleapis.com/calendar/v3/users/me/settings?alt=json"],
+            "title": "Resource Uri",
+            "type": "string"
+          },
+          "token": {
+            "description": "Optional. An arbitrary string delivered to the target address with each notification delivered over this channel. Commonly used to verify notifications by matching it to a value stored by the application.",
+            "examples": ["token-string"],
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "id", "resourceId", "resourceUri"],
+        "title": "SettingsWatchResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SettingsWatchResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

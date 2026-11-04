@@ -1,0 +1,73 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes an access control rule from a Google Calendar. Use when you need to remove sharing permissions for a user, group, or domain.",
+  "inputSchema": {
+    "properties": {
+      "calendar_id": {
+        "description": "Calendar identifier. To retrieve calendar IDs call the calendarList.list method. If you want to access the primary calendar of the currently logged in user, use the \"primary\" keyword.",
+        "examples": ["primary", "user@example.com"],
+        "title": "Calendar Id",
+        "type": "string"
+      },
+      "rule_id": {
+        "description": "ACL rule identifier.",
+        "examples": ["user:test@example.com", "group:team@example.com", "default"],
+        "title": "Rule Id",
+        "type": "string"
+      }
+    },
+    "required": ["calendar_id", "rule_id"],
+    "title": "AclDeleteRequest",
+    "type": "object"
+  },
+  "name": "acl_delete",
+  "outputSchema": {
+    "$defs": {
+      "AclDeleteResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "display_url": {
+            "description": "URL to view the resource in Google Calendar web UI. None for ACL delete operations as there is no direct URL for individual ACL rules.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "response_data": {
+            "$ref": "#/$defs/ResponseData",
+            "description": "Optional convenience wrapper returned to indicate the outcome of the delete operation. Not part of the official Google Calendar HTTP response.",
+            "title": "Response Data"
+          }
+        },
+        "title": "AclDeleteResponse",
+        "type": "object"
+      },
+      "ResponseData": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "const": "success",
+            "description": "Outcome of the delete operation. 'success' indicates the ACL rule was deleted successfully.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["status"],
+        "title": "ResponseData",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AclDeleteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes an existing Trello organization's custom logo, restoring its default and leaving other settings unchanged; if no custom logo exists, it succeeds without effect.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteOrganizationsLogoByIdOrg`",
+    "properties": {
+      "idOrg": {
+        "description": "The ID or custom URL name of the Trello organization whose logo is to be deleted. This can be the organization's short ID or its registered name.",
+        "examples": ["mytrelloorg", "60d5f1b3e24b8f0017b363f5"],
+        "title": "Id Org",
+        "type": "string"
+      }
+    },
+    "required": ["idOrg"],
+    "title": "DeleteOrganizationsLogoByIdOrgRequest",
+    "type": "object"
+  },
+  "name": "delete_organizations_logo_by_id_org",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationsLogoByIdOrgResponse": {
+        "description": "Response for DELETE /1/organizations/{id}/logo endpoint. Returns HTTP 200 OK status with an empty response body when the organization logo is successfully deleted.",
+        "properties": {},
+        "title": "DeleteOrganizationsLogoByIdOrgResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationsLogoByIdOrgResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

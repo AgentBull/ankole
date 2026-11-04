@@ -1,0 +1,84 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new label on an existing Trello board.",
+  "inputSchema": {
+    "description": "Request schema for `CreateBoardLabel`",
+    "properties": {
+      "color": {
+        "description": "The color for the new label. Provide a valid Trello label color name or null for no color. If not provided, Trello may assign a default color or no color.",
+        "examples": ["green", "yellow", "blue", "red", "purple", "orange", "black", "sky", "pink", "lime", "null"],
+        "title": "Color",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The ID of the board to which the new label will be added.",
+        "title": "Id Board",
+        "type": "string"
+      },
+      "name": {
+        "description": "The name for the new label. Must be a string with a length from 0 to 16384 characters. An empty string is allowed.",
+        "examples": ["Urgent", "Feature Request", ""],
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard"],
+    "title": "CreateBoardLabelRequest",
+    "type": "object"
+  },
+  "name": "create_board_label",
+  "outputSchema": {
+    "$defs": {
+      "CreateBoardLabelResponse": {
+        "description": "Response schema for `CreateBoardLabel`",
+        "properties": {
+          "color": {
+            "description": "The color of the label. Null means no color and the label will not be shown on the front of Cards.",
+            "enum": ["yellow", "purple", "blue", "red", "green", "orange", "black", "sky", "pink", "lime"],
+            "title": "Color",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the label.",
+            "examples": ["5abbe4b7ddc1b351ef961414"],
+            "pattern": "^[0-9a-fA-F]{24}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board the label is on.",
+            "examples": ["5abbe4b7ddc1b351ef961414"],
+            "pattern": "^[0-9a-fA-F]{24}$",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name displayed for the label.",
+            "examples": ["Overdue"],
+            "maxLength": 16384,
+            "minLength": 0,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idBoard"],
+        "title": "CreateBoardLabelResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateBoardLabelResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

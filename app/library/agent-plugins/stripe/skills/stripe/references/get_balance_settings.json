@@ -1,0 +1,136 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve balance settings for a Stripe account. Use when you need to fetch configuration options for customizing account balances and payout settings for a connected account or the authenticated account.",
+  "inputSchema": {
+    "properties": {
+      "stripe_account": {
+        "description": "The connected account ID for which to retrieve balance settings. If not provided, retrieves settings for the authenticated account.",
+        "examples": ["acct_1234567890"],
+        "title": "Stripe Account",
+        "type": "string"
+      }
+    },
+    "title": "GetBalanceSettingsRequest",
+    "type": "object"
+  },
+  "name": "get_balance_settings",
+  "outputSchema": {
+    "$defs": {
+      "GetBalanceSettingsResponse": {
+        "properties": {
+          "debit_negative_balances": {
+            "description": "A Boolean indicating if Stripe should try to reclaim negative balances from an attached bank account.",
+            "title": "Debit Negative Balances",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'balance_settings' for balance settings objects.",
+            "title": "Object",
+            "type": "string"
+          },
+          "payouts": {
+            "$ref": "#/$defs/Payouts",
+            "description": "Payout configuration settings.",
+            "title": "Payouts"
+          },
+          "settlement_timing": {
+            "$ref": "#/$defs/SettlementTiming",
+            "description": "Settlement timing configuration.",
+            "title": "Settlement Timing"
+          }
+        },
+        "required": ["object", "settlement_timing"],
+        "title": "GetBalanceSettingsResponse",
+        "type": "object"
+      },
+      "PayoutSchedule": {
+        "properties": {
+          "interval": {
+            "description": "Payout frequency. Possible values: 'daily', 'weekly', 'monthly', 'manual'.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "monthly_payout_days": {
+            "description": "Payout day(s) of month (1-31). Values 29-31 resolve to month-end. Visible only when interval is 'monthly'.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Monthly Payout Days",
+            "type": "array"
+          },
+          "weekly_payout_days": {
+            "description": "Days of week for payouts. Possible values: 'monday', 'tuesday', 'wednesday', 'thursday', 'friday'. Visible only when interval is 'weekly'.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Weekly Payout Days",
+            "type": "array"
+          }
+        },
+        "title": "PayoutSchedule",
+        "type": "object"
+      },
+      "Payouts": {
+        "properties": {
+          "minimum_balance_by_currency": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Currency-keyed object specifying minimum retained balances before automatic payouts trigger. Example: {'usd': 1500, 'cad': 8000}.",
+            "title": "Minimum Balance By Currency",
+            "type": "object"
+          },
+          "schedule": {
+            "$ref": "#/$defs/PayoutSchedule",
+            "description": "Payout schedule configuration.",
+            "title": "Schedule"
+          },
+          "statement_descriptor": {
+            "description": "Bank statement text for payouts.",
+            "title": "Statement Descriptor",
+            "type": "string"
+          },
+          "status": {
+            "description": "Payout enablement status. Possible values: 'enabled', 'disabled'.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": ["status"],
+        "title": "Payouts",
+        "type": "object"
+      },
+      "SettlementTiming": {
+        "properties": {
+          "delay_days": {
+            "description": "Number of days before funds become available.",
+            "title": "Delay Days",
+            "type": "integer"
+          },
+          "delay_days_override": {
+            "description": "Overrides default delay if present.",
+            "title": "Delay Days Override",
+            "type": "integer"
+          }
+        },
+        "required": ["delay_days"],
+        "title": "SettlementTiming",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBalanceSettingsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

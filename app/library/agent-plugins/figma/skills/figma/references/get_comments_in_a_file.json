@@ -1,0 +1,320 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves all comments from an existing Figma file, identified by a valid `file_key`, returning details like content, author, position, and reactions, with an option for Markdown formatted content.",
+  "inputSchema": {
+    "description": "Request schema for `GetCommentsInAFile` action. Specifies the file and formatting options for retrieving comments.",
+    "properties": {
+      "as_md": {
+        "description": "If true, comment content will be returned in Markdown format where applicable (e.g., for links, bold text). Defaults to false, returning rich text structure.",
+        "examples": ["true", "false"],
+        "title": "As Md",
+        "type": "boolean"
+      },
+      "file_key": {
+        "description": "Identifier for the Figma file from which to retrieve comments. This can be a file key (a unique string identifying a file) or a branch key. To obtain a branch key, use the `GET /v1/files/:key` endpoint with the `branch_data` query parameter.",
+        "examples": ["jV2jZ7r9H6F1kY8LwQ3n", "sFp4Y7dX9aB2oM0cK1eL"],
+        "title": "File Key",
+        "type": "string"
+      }
+    },
+    "required": ["file_key"],
+    "title": "GetCommentsInAFileRequest",
+    "type": "object"
+  },
+  "name": "get_comments_in_a_file",
+  "outputSchema": {
+    "$defs": {
+      "ClientMeta": {
+        "properties": {
+          "x": {
+            "description": "The X coordinate of a vector, typically representing an absolute position on the Figma canvas.",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "The Y coordinate of a vector, typically representing an absolute position on the Figma canvas.",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": ["x", "y"],
+        "title": "ClientMeta",
+        "type": "object"
+      },
+      "ClientMeta1": {
+        "properties": {
+          "node_id": {
+            "description": "Unique identifier of the Figma node (e.g., frame, component) to which the comment is anchored.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "node_offset": {
+            "$ref": "#/$defs/NodeOffset",
+            "description": "A 2D vector representing the offset of the comment pin from the top-left corner of the anchored `node_id`.",
+            "title": "Node Offset"
+          },
+          "stable_path": {
+            "description": "Array of node IDs representing the path from the root to the comment's node. Used for stable comment positioning.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Stable Path",
+            "type": "array"
+          }
+        },
+        "required": ["node_id", "node_offset"],
+        "title": "ClientMeta1",
+        "type": "object"
+      },
+      "ClientMeta2": {
+        "properties": {
+          "comment_pin_corner": {
+            "$ref": "#/$defs/CommentPinCorner",
+            "description": "Defines which corner of the rectangular comment region is located at the absolute canvas coordinates (`x`, `y`). For example, if 'top-left', then (`x`,`y`) are the top-left coordinates of the region.",
+            "title": "Comment Pin Corner"
+          },
+          "region_height": {
+            "description": "Height of the comment's rectangular region on the canvas. Must be a positive value.",
+            "title": "Region Height",
+            "type": "number"
+          },
+          "region_width": {
+            "description": "Width of the comment's rectangular region on the canvas. Must be a positive value.",
+            "title": "Region Width",
+            "type": "number"
+          },
+          "x": {
+            "description": "Absolute X coordinate of the comment region's anchor corner on the Figma canvas.",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Absolute Y coordinate of the comment region's anchor corner on the Figma canvas.",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": ["x", "y", "region_height", "region_width"],
+        "title": "ClientMeta2",
+        "type": "object"
+      },
+      "ClientMeta3": {
+        "properties": {
+          "comment_pin_corner": {
+            "$ref": "#/$defs/CommentPinCorner",
+            "description": "Defines which corner of the comment region is pinned at the `node_offset` position relative to the `node_id`.",
+            "title": "Comment Pin Corner"
+          },
+          "node_id": {
+            "description": "Unique identifier of the Figma node to which the comment region is anchored.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "node_offset": {
+            "$ref": "#/$defs/NodeOffset",
+            "description": "A 2D vector representing the offset of the comment region's anchor corner from the top-left of the `node_id`.",
+            "title": "Node Offset"
+          },
+          "region_height": {
+            "description": "Height of the comment's rectangular region, anchored to a node. Must be a positive value.",
+            "title": "Region Height",
+            "type": "number"
+          },
+          "region_width": {
+            "description": "Width of the comment's rectangular region, anchored to a node. Must be a positive value.",
+            "title": "Region Width",
+            "type": "number"
+          },
+          "stable_path": {
+            "description": "Array of node IDs representing the path from the root to the comment's node. Used for stable comment positioning.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Stable Path",
+            "type": "array"
+          }
+        },
+        "required": ["node_id", "node_offset", "region_height", "region_width"],
+        "title": "ClientMeta3",
+        "type": "object"
+      },
+      "Comment": {
+        "properties": {
+          "client_meta": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ClientMeta"
+              },
+              {
+                "$ref": "#/$defs/ClientMeta1"
+              },
+              {
+                "$ref": "#/$defs/ClientMeta2"
+              },
+              {
+                "$ref": "#/$defs/ClientMeta3"
+              }
+            ],
+            "description": "Positioning data for the comment, detailing its location and type (point or region) on the canvas. The structure of this field varies based on how the comment is placed:\n- `ClientMeta`: Absolute canvas coordinates (x, y) for a point comment.\n- `ClientMeta1`: Node-relative offset (`node_id`, `node_offset`) for a point comment.\n- `ClientMeta2`: Absolute canvas coordinates (`x`, `y` for an anchor corner), region dimensions (`region_width`, `region_height`), and `comment_pin_corner` for a region comment.\n- `ClientMeta3`: Node-relative offset (`node_id`, `node_offset` for an anchor corner), region dimensions, and `comment_pin_corner` for a region comment.\nCan be null for comments without specific positioning metadata.",
+            "title": "Client Meta"
+          },
+          "created_at": {
+            "description": "Timestamp in UTC ISO 8601 format indicating when the comment was created.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "Identifier of the Figma file containing this comment.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the comment.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "The text content of the comment. May include mentions or rich text elements if `as_md` is false, or Markdown content if `as_md` is true.",
+            "title": "Message",
+            "type": "string"
+          },
+          "order_id": {
+            "description": "A string representing the numerical identifier (e.g., '1', '2') displayed with the comment in the Figma UI. This is typically present only for top-level comments and reflects their visible ordering.",
+            "title": "Order Id",
+            "type": "string"
+          },
+          "parent_id": {
+            "description": "Identifier of the parent comment if this comment is a reply. Null or absent for top-level comments.",
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "reactions": {
+            "description": "A list of all reactions made to this comment.",
+            "items": {
+              "$ref": "#/$defs/Reaction"
+            },
+            "title": "Reactions",
+            "type": "array"
+          },
+          "resolved_at": {
+            "description": "Timestamp in UTC ISO 8601 format indicating when the comment was resolved. Null or absent if the comment is not resolved.",
+            "format": "date-time",
+            "title": "Resolved At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Details of the user who created the comment.",
+            "title": "User"
+          },
+          "uuid": {
+            "description": "A UUID that uniquely identifies the comment. This can be used for stable referencing of comments.",
+            "title": "Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["id", "file_key", "user", "created_at", "message", "reactions"],
+        "title": "Comment",
+        "type": "object"
+      },
+      "CommentPinCorner": {
+        "enum": ["top-left", "top-right", "bottom-left", "bottom-right"],
+        "title": "CommentPinCorner",
+        "type": "string"
+      },
+      "GetCommentsInAFileResponse": {
+        "description": "Response schema for `GetCommentsInAFile` action. Contains the retrieved comments.",
+        "properties": {
+          "comments": {
+            "description": "A list of comment objects retrieved from the Figma file.",
+            "items": {
+              "$ref": "#/$defs/Comment"
+            },
+            "title": "Comments",
+            "type": "array"
+          }
+        },
+        "required": ["comments"],
+        "title": "GetCommentsInAFileResponse",
+        "type": "object"
+      },
+      "NodeOffset": {
+        "properties": {
+          "x": {
+            "description": "The X coordinate of an offset vector, relative to a node's origin.",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "The Y coordinate of an offset vector, relative to a node's origin.",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": ["x", "y"],
+        "title": "NodeOffset",
+        "type": "object"
+      },
+      "Reaction": {
+        "properties": {
+          "created_at": {
+            "description": "Timestamp in UTC ISO 8601 format indicating when the reaction was added.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "emoji": {
+            "description": "The emoji reaction, represented as a shortcode (e.g., `:heart:`, `:+1::skin-tone-2:`). For a list of accepted emoji shortcodes and information on skin tone modifiers, refer to the linked resource: [emoji list](https://raw.githubusercontent.com/missive/emoji-mart/main/packages/emoji-mart-data/sets/14/native.json).",
+            "title": "Emoji",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Details of the user who added the reaction.",
+            "title": "User"
+          }
+        },
+        "required": ["user", "emoji", "created_at"],
+        "title": "Reaction",
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "handle": {
+            "description": "Display name or handle of the Figma user.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique and stable identifier for the Figma user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "img_url": {
+            "description": "URL of the user's profile image.",
+            "title": "Img Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "handle", "img_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCommentsInAFileResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

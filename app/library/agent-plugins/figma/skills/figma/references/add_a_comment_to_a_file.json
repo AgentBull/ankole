@@ -1,0 +1,320 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Posts a new comment to a Figma file or branch, optionally replying to an existing root comment (replies cannot be nested); `region_height` and `region_width` in `client_meta` must be positive if defining a comment region.",
+  "inputSchema": {
+    "description": "Request schema for `AddACommentToAFile`",
+    "properties": {
+      "client_meta": {
+        "additionalProperties": true,
+        "description": "Dictionary specifying the comment's position. Valid formats: 1) Absolute coordinates: {x, y} 2) Node-relative: {node_id, node_offset: {x, y}} (when node_id is used, coordinates MUST be inside node_offset) 3) Absolute region: {x, y, region_height, region_width, comment_pin_corner?} 4) Node-relative region: {node_id, node_offset: {x, y}, region_height, region_width, comment_pin_corner?}. While technically optional, providing this parameter is strongly recommended to properly position the comment in the file.",
+        "examples": [
+          "{\"x\": 100, \"y\": 200}",
+          "{\"x\": -500, \"y\": 300}",
+          "{\"node_id\": \"1:2\", \"node_offset\": {\"x\": 10, \"y\": 5}}",
+          "{\"x\": 50, \"y\": 75, \"region_height\": 30, \"region_width\": 60, \"comment_pin_corner\": \"top-left\"}",
+          "{\"node_id\": \"0:1\", \"node_offset\": {\"x\": 10, \"y\": 5}, \"region_height\": 50, \"region_width\": 100, \"comment_pin_corner\": \"top-right\"}"
+        ],
+        "title": "Client Meta",
+        "type": "object"
+      },
+      "comment_id": {
+        "description": "ID of an existing root comment to reply to. Replies cannot be made to other replies.",
+        "examples": ["12345", "987:654"],
+        "title": "Comment Id",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "Figma file key or branch key. Extract from the file URL: https://www.figma.com/design/FILE_KEY/... or https://www.figma.com/file/FILE_KEY/... The FILE_KEY is the alphanumeric string between 'design/' or 'file/' and the next slash. You must have access to the file (editor or commenter permissions required to add comments). For branch keys, use GET /v1/files/:key with branch_data parameter.",
+        "examples": ["sFHgQh9dL6369o5wrZHmdR", "ABC123xyz789FileKey", "branch_key-0"],
+        "title": "File Key",
+        "type": "string"
+      },
+      "message": {
+        "description": "Text content of the comment.",
+        "examples": ["Great work on this design!", "Can we update the color here?"],
+        "title": "Message",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "message"],
+    "title": "AddACommentToAFileRequest",
+    "type": "object"
+  },
+  "name": "add_a_comment_to_a_file",
+  "outputSchema": {
+    "$defs": {
+      "AddACommentToAFileResponse": {
+        "description": "Response schema for `AddACommentToAFile`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Full details of the successfully posted comment.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "AddACommentToAFileResponse",
+        "type": "object"
+      },
+      "ClientMeta": {
+        "properties": {
+          "x": {
+            "description": "X-coordinate for absolute canvas positioning. Accepts numeric values (integers or floats); floats are converted to integers for API compatibility.",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Y-coordinate for absolute canvas positioning. Accepts numeric values (integers or floats); floats are converted to integers for API compatibility.",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": ["x", "y"],
+        "title": "ClientMeta",
+        "type": "object"
+      },
+      "ClientMeta1": {
+        "properties": {
+          "node_id": {
+            "description": "Identifier of the node to which the comment's position is relative.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "node_offset": {
+            "$ref": "#/$defs/NodeOffset",
+            "description": "The 2D offset vector from the top-left corner of the specified node.",
+            "title": "Node Offset"
+          }
+        },
+        "required": ["node_id", "node_offset"],
+        "title": "ClientMeta1",
+        "type": "object"
+      },
+      "ClientMeta2": {
+        "properties": {
+          "comment_pin_corner": {
+            "$ref": "#/$defs/CommentPinCorner",
+            "description": "Optional. Anchor corner for the comment region's absolute `x` and `y` coordinates. Defaults to `top-left` for regions.",
+            "title": "Comment Pin Corner"
+          },
+          "region_height": {
+            "description": "Height of the comment region in pixels (must be positive). Accepts numeric values; floats are converted to integers for API compatibility.",
+            "title": "Region Height",
+            "type": "number"
+          },
+          "region_width": {
+            "description": "Width of the comment region in pixels (must be positive). Accepts numeric values; floats are converted to integers for API compatibility.",
+            "title": "Region Width",
+            "type": "number"
+          },
+          "x": {
+            "description": "Absolute X-coordinate for the region's top-left corner. Accepts numeric values; floats are converted to integers for API compatibility.",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Absolute Y-coordinate for the region's top-left corner. Accepts numeric values; floats are converted to integers for API compatibility.",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": ["x", "y", "region_height", "region_width"],
+        "title": "ClientMeta2",
+        "type": "object"
+      },
+      "ClientMeta3": {
+        "properties": {
+          "comment_pin_corner": {
+            "$ref": "#/$defs/CommentPinCorner",
+            "description": "Optional. Corner of the comment region pinned relative to the `node_offset` from the specified `node_id`. Defaults to `top-left` for regions.",
+            "title": "Comment Pin Corner"
+          },
+          "node_id": {
+            "description": "Identifier of the node to which the comment region is relative.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "node_offset": {
+            "$ref": "#/$defs/NodeOffset",
+            "description": "The 2D offset vector from the top-left of the specified `node_id` to the top-left of the comment region.",
+            "title": "Node Offset"
+          },
+          "region_height": {
+            "description": "Height of the comment region in pixels (must be positive). Accepts numeric values; floats are converted to integers for API compatibility.",
+            "title": "Region Height",
+            "type": "number"
+          },
+          "region_width": {
+            "description": "Width of the comment region in pixels (must be positive). Accepts numeric values; floats are converted to integers for API compatibility.",
+            "title": "Region Width",
+            "type": "number"
+          }
+        },
+        "required": ["node_id", "node_offset", "region_height", "region_width"],
+        "title": "ClientMeta3",
+        "type": "object"
+      },
+      "CommentPinCorner": {
+        "enum": ["top-left", "top-right", "bottom-left", "bottom-right"],
+        "title": "CommentPinCorner",
+        "type": "string"
+      },
+      "Model": {
+        "properties": {
+          "client_meta": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ClientMeta"
+              },
+              {
+                "$ref": "#/$defs/ClientMeta1"
+              },
+              {
+                "$ref": "#/$defs/ClientMeta2"
+              },
+              {
+                "$ref": "#/$defs/ClientMeta3"
+              }
+            ],
+            "description": "Positioning information of the comment (absolute, relative to node, or region).",
+            "title": "Client Meta"
+          },
+          "created_at": {
+            "description": "Timestamp (UTC ISO 8601) when the comment was created.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "file_key": {
+            "description": "Identifier of the file where the comment was posted.",
+            "title": "File Key",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the created comment.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "The text content of the comment.",
+            "title": "Message",
+            "type": "string"
+          },
+          "order_id": {
+            "description": "Numerically sortable string for UI comment order; present only for top-level comments.",
+            "title": "Order Id",
+            "type": "string"
+          },
+          "parent_id": {
+            "description": "Identifier of the parent comment if this is a reply; null for top-level comments.",
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "reactions": {
+            "description": "List of reactions made to this comment.",
+            "items": {
+              "$ref": "#/$defs/Reaction"
+            },
+            "title": "Reactions",
+            "type": "array"
+          },
+          "resolved_at": {
+            "description": "Timestamp (UTC ISO 8601) when the comment was resolved; null if not resolved.",
+            "format": "date-time",
+            "title": "Resolved At",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Details of the user who posted the comment.",
+            "title": "User"
+          },
+          "uuid": {
+            "description": "Unique UUID for the comment; may be null.",
+            "title": "Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["id", "client_meta", "file_key", "user", "created_at", "message", "reactions"],
+        "title": "Model",
+        "type": "object"
+      },
+      "NodeOffset": {
+        "properties": {
+          "x": {
+            "description": "X-coordinate of the offset vector relative to the node's top-left corner. Accepts numeric values; floats are converted to integers for API compatibility.",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Y-coordinate of the offset vector relative to the node's top-left corner. Accepts numeric values; floats are converted to integers for API compatibility.",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": ["x", "y"],
+        "title": "NodeOffset",
+        "type": "object"
+      },
+      "Reaction": {
+        "properties": {
+          "created_at": {
+            "description": "Timestamp (UTC ISO 8601) when the reaction was added.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "emoji": {
+            "description": "Emoji shortcode for the reaction (e.g., `:heart:`, `:+1::skin-tone-2:`). Refer to Figma documentation for a list of supported shortcodes.",
+            "title": "Emoji",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Details of the user who left the reaction.",
+            "title": "User"
+          }
+        },
+        "required": ["user", "emoji", "created_at"],
+        "title": "Reaction",
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "handle": {
+            "description": "Display name or handle of the user.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "img_url": {
+            "description": "URL of the user's profile image.",
+            "title": "Img Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "handle", "img_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddACommentToAFileResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

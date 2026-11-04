@@ -1,0 +1,75 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Changes a member's role within a Sentry team, ensuring the member is already part of the team and that any organization-level role restrictions are respected.",
+  "inputSchema": {
+    "description": "Parameters to switch a member's role within a Sentry team.",
+    "properties": {
+      "member_id": {
+        "description": "Identifier for the organization member.",
+        "examples": ["1234567", "member-abcdef0"],
+        "title": "Member Id",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "Identifier (ID or slug) for the Sentry organization.",
+        "examples": ["my-organization-slug", "org-12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "teamRole": {
+        "default": "contributor",
+        "description": "Details for available team roles: `contributor` allows viewing/acting on events and most team project data; `admin` grants team administration privileges like managing projects and memberships.",
+        "enum": ["contributor", "admin"],
+        "examples": ["contributor", "admin"],
+        "title": "Team Role",
+        "type": "string"
+      },
+      "team_id_or_slug": {
+        "description": "Identifier (ID or slug) for the Sentry team.",
+        "examples": ["backend-developers", "team-78901"],
+        "title": "Team Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "member_id", "team_id_or_slug"],
+    "title": "SwitchTeamRoleForMemberRequest",
+    "type": "object"
+  },
+  "name": "switch_team_role_for_member",
+  "outputSchema": {
+    "$defs": {
+      "SwitchTeamRoleForMemberResponse": {
+        "description": "Response with the member's updated team information after a successful role change.",
+        "properties": {
+          "isActive": {
+            "description": "Indicates whether the member is currently active in the team.",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "teamRole": {
+            "description": "The updated team role for the member. Returns `null` if the member's organization-level role (owner/manager/admin) overrides the team role, as they automatically receive minimum admin privileges on all teams.",
+            "title": "Team Role",
+            "type": "string"
+          }
+        },
+        "required": ["isActive"],
+        "title": "SwitchTeamRoleForMemberResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SwitchTeamRoleForMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

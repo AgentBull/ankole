@@ -1,0 +1,341 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information for an existing Stripe product using its unique product ID. Use when you need to fetch details about a specific product.",
+  "inputSchema": {
+    "description": "Request parameters for retrieving a specific product by ID.",
+    "properties": {
+      "expand": {
+        "description": "Specifies which fields in the response should be expanded. Supports nested expansions using dot notation (e.g., 'default_price'). Maximum depth of four levels.",
+        "examples": [["default_price"], ["default_price", "tax_code"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Expand",
+        "type": "array"
+      },
+      "id": {
+        "description": "The unique identifier of the product to retrieve. This ID typically starts with 'prod_'.",
+        "examples": ["prod_TepFbB27x4Q39a", "prod_NWjs8kKbJWmuuc"],
+        "title": "Id",
+        "type": "string"
+      }
+    },
+    "required": ["id"],
+    "title": "GetProductsIdRequest",
+    "type": "object"
+  },
+  "name": "get_products_id",
+  "outputSchema": {
+    "$defs": {
+      "GetProductsIdResponse": {
+        "description": "Response model representing a Stripe Product object.",
+        "properties": {
+          "active": {
+            "description": "Whether the product can currently be purchased.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "created": {
+            "description": "Time at which the object was created, measured in seconds since Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "default_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/Price"
+              }
+            ],
+            "description": "References the standard pricing tier for this product (Price ID). Can be expanded to a full Price object.",
+            "title": "Default Price"
+          },
+          "description": {
+            "description": "The product's description, meant to be displayable to the customer.",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "images": {
+            "description": "A list of up to 8 URLs of images for this product.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Images",
+            "type": "array"
+          },
+          "livemode": {
+            "description": "Indicates production versus test environment status.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "marketing_features": {
+            "description": "A list of up to 15 marketing features.",
+            "items": {
+              "$ref": "#/$defs/MarketingFeature"
+            },
+            "title": "Marketing Features",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for storing additional information about the product.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "The product's name, meant to be displayable to the customer.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type, always 'product'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "package_dimensions": {
+            "$ref": "#/$defs/PackageDimensions",
+            "description": "Physical shipping specifications.",
+            "title": "Package Dimensions"
+          },
+          "shippable": {
+            "description": "Indicates if product involves physical goods shipment.",
+            "title": "Shippable",
+            "type": "boolean"
+          },
+          "statement_descriptor": {
+            "description": "Text appearing on customer credit card statements.",
+            "title": "Statement Descriptor",
+            "type": "string"
+          },
+          "tax_code": {
+            "description": "Classification for tax calculation purposes.",
+            "title": "Tax Code",
+            "type": "string"
+          },
+          "unit_label": {
+            "description": "Measurement unit label appearing on receipts and invoices.",
+            "title": "Unit Label",
+            "type": "string"
+          },
+          "updated": {
+            "description": "Time at which the object was last updated, measured in seconds since Unix epoch.",
+            "title": "Updated",
+            "type": "integer"
+          },
+          "url": {
+            "description": "Public webpage reference for the product.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "active",
+          "created",
+          "images",
+          "livemode",
+          "marketing_features",
+          "metadata",
+          "name",
+          "updated"
+        ],
+        "title": "GetProductsIdResponse",
+        "type": "object"
+      },
+      "MarketingFeature": {
+        "description": "Marketing feature entry for the product.",
+        "properties": {
+          "name": {
+            "description": "Feature name, maximum 80 characters.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "MarketingFeature",
+        "type": "object"
+      },
+      "PackageDimensions": {
+        "description": "Physical shipping dimensions for the product.",
+        "properties": {
+          "height": {
+            "description": "Height in inches.",
+            "title": "Height",
+            "type": "number"
+          },
+          "length": {
+            "description": "Length in inches.",
+            "title": "Length",
+            "type": "number"
+          },
+          "weight": {
+            "description": "Weight in ounces.",
+            "title": "Weight",
+            "type": "number"
+          },
+          "width": {
+            "description": "Width in inches.",
+            "title": "Width",
+            "type": "number"
+          }
+        },
+        "required": ["height", "length", "weight", "width"],
+        "title": "PackageDimensions",
+        "type": "object"
+      },
+      "Price": {
+        "description": "Expanded price object when default_price is expanded.",
+        "properties": {
+          "active": {
+            "description": "Whether the price can be used for new purchases.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "billing_scheme": {
+            "description": "Describes how to compute the price per period.",
+            "title": "Billing Scheme",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the price.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "nickname": {
+            "description": "A brief description of the price.",
+            "title": "Nickname",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type, always 'price'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "product": {
+            "description": "The ID of the product this price is associated with.",
+            "title": "Product",
+            "type": "string"
+          },
+          "recurring": {
+            "$ref": "#/$defs/Recurring",
+            "description": "The recurring components of a price (for recurring prices).",
+            "title": "Recurring"
+          },
+          "type": {
+            "description": "One of one_time or recurring.",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "The unit amount in cents.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "The unit amount as a decimal string.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "active",
+          "billing_scheme",
+          "created",
+          "currency",
+          "livemode",
+          "metadata",
+          "product",
+          "type"
+        ],
+        "title": "Price",
+        "type": "object"
+      },
+      "Recurring": {
+        "description": "Recurring billing configuration for a price.",
+        "properties": {
+          "aggregate_usage": {
+            "description": "Specifies a usage aggregation strategy for prices of usage_type=metered.",
+            "title": "Aggregate Usage",
+            "type": "string"
+          },
+          "interval": {
+            "description": "The frequency at which a subscription is billed. One of day, week, month or year.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "interval_count": {
+            "description": "The number of intervals between subscription billings.",
+            "title": "Interval Count",
+            "type": "integer"
+          },
+          "meter": {
+            "description": "The meter tracking the usage of a metered price.",
+            "title": "Meter",
+            "type": "string"
+          },
+          "trial_period_days": {
+            "description": "Default number of trial days when subscribing.",
+            "title": "Trial Period Days",
+            "type": "integer"
+          },
+          "usage_type": {
+            "description": "Configures how the quantity per period should be determined. One of licensed or metered.",
+            "title": "Usage Type",
+            "type": "string"
+          }
+        },
+        "required": ["interval", "interval_count", "usage_type"],
+        "title": "Recurring",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetProductsIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

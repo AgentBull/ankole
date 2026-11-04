@@ -1,0 +1,186 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve a paginated list of Typeform themes and their styling configurations, including public and private themes. The tool declares the images:write scope.",
+  "inputSchema": {
+    "properties": {
+      "page": {
+        "description": "Page number to retrieve (default: 1)",
+        "examples": [1, 2, 3],
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "page_size": {
+        "description": "Number of results per page, maximum 200 (default: 10)",
+        "examples": [10, 50, 200],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      }
+    },
+    "title": "TypeformListThemesRequest",
+    "type": "object"
+  },
+  "name": "list_themes",
+  "outputSchema": {
+    "$defs": {
+      "ThemeColors": {
+        "properties": {
+          "answer": {
+            "description": "Answer text color",
+            "title": "Answer",
+            "type": "string"
+          },
+          "background": {
+            "description": "Background color",
+            "title": "Background",
+            "type": "string"
+          },
+          "button": {
+            "description": "Button color",
+            "title": "Button",
+            "type": "string"
+          },
+          "question": {
+            "description": "Question text color",
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "title": "ThemeColors",
+        "type": "object"
+      },
+      "ThemeItem": {
+        "properties": {
+          "background": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "description": "Background configuration",
+            "title": "Background",
+            "type": "object"
+          },
+          "colors": {
+            "$ref": "#/$defs/ThemeColors",
+            "description": "Color scheme for the theme",
+            "title": "Colors"
+          },
+          "fields": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "description": "Field-specific styling",
+            "title": "Fields",
+            "type": "object"
+          },
+          "font": {
+            "description": "Font family used in the theme",
+            "title": "Font",
+            "type": "string"
+          },
+          "has_transparent_button": {
+            "description": "Whether buttons are transparent",
+            "title": "Has Transparent Button",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique theme identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Theme name",
+            "title": "Name",
+            "type": "string"
+          },
+          "rounded_corners": {
+            "description": "Border radius setting",
+            "title": "Rounded Corners",
+            "type": "string"
+          },
+          "screens": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "description": "Screen-specific styling",
+            "title": "Screens",
+            "type": "object"
+          },
+          "visibility": {
+            "description": "Theme visibility: public or private",
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "title": "ThemeItem",
+        "type": "object"
+      },
+      "TypeformListThemesResponse": {
+        "properties": {
+          "items": {
+            "description": "List of theme objects",
+            "items": {
+              "$ref": "#/$defs/ThemeItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page_count": {
+            "description": "Total number of pages available",
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "total_items": {
+            "description": "Total number of themes in the collection",
+            "title": "Total Items",
+            "type": "integer"
+          }
+        },
+        "title": "TypeformListThemesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/TypeformListThemesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

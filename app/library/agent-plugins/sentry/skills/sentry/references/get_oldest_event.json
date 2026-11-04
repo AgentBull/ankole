@@ -1,0 +1,639 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves the oldest (first) event associated with a Sentry issue within an organization. Use this action when you need to investigate the original occurrence of an issue to understand its root cause or initial context. This is particularly useful for debugging issues from their first appearance, analyzing initial error conditions, or determining when a problem first started occurring.",
+  "inputSchema": {
+    "description": "Request schema for retrieving the oldest event associated with a Sentry issue.",
+    "properties": {
+      "environment": {
+        "description": "Filter by environment names; if omitted, events from all environments are considered.",
+        "examples": [["production"], ["staging", "development"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "issue_id": {
+        "description": "The unique numerical ID of the Sentry issue for which to retrieve the oldest event.",
+        "examples": [123456789, 987654321],
+        "title": "Issue Id",
+        "type": "integer"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the issue belongs to.",
+        "examples": ["my-organization", "example", "1234567890"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "issue_id"],
+    "title": "GetOldestEventRequest",
+    "type": "object"
+  },
+  "name": "get_oldest_event",
+  "outputSchema": {
+    "$defs": {
+      "EventEntry": {
+        "description": "Structured event entry containing exceptions, breadcrumbs, requests, and other interfaces.",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "description": "Entry-specific data structure",
+            "title": "Data",
+            "type": "object"
+          },
+          "type": {
+            "description": "Entry type (exception, breadcrumbs, request, message, etc.)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "data"],
+        "title": "EventEntry",
+        "type": "object"
+      },
+      "EventError": {
+        "description": "Processing error encountered while handling the event.",
+        "properties": {
+          "name": {
+            "description": "Error name",
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "description": "Error type",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "Error value or message",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "EventError",
+        "type": "object"
+      },
+      "EventMetadata": {
+        "additionalProperties": true,
+        "description": "Event-specific metadata containing additional context.",
+        "properties": {
+          "filename": {
+            "description": "Source file where error occurred",
+            "title": "Filename",
+            "type": "string"
+          },
+          "function": {
+            "description": "Function where error occurred",
+            "title": "Function",
+            "type": "string"
+          },
+          "in_app_frame_mix": {
+            "description": "Frame classification mix",
+            "title": "In App Frame Mix",
+            "type": "string"
+          },
+          "initial_priority": {
+            "description": "Initial priority score",
+            "title": "Initial Priority",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Event title for non-exception events",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Error or exception type",
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "Error message or value",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "title": "EventMetadata",
+        "type": "object"
+      },
+      "EventTag": {
+        "description": "Key-value tag pair.",
+        "properties": {
+          "key": {
+            "description": "Tag key",
+            "title": "Key",
+            "type": "string"
+          },
+          "value": {
+            "description": "Tag value",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["key", "value"],
+        "title": "EventTag",
+        "type": "object"
+      },
+      "EventUser": {
+        "description": "User information associated with the event.",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "description": "Additional custom user data",
+            "title": "Data",
+            "type": "object"
+          },
+          "email": {
+            "description": "User email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "geo": {
+            "$ref": "#/$defs/UserGeo",
+            "description": "Geographical location information",
+            "title": "Geo"
+          },
+          "id": {
+            "description": "Application-specific internal user identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "ip_address": {
+            "description": "User IP address",
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "name": {
+            "description": "User display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username identifier",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "EventUser",
+        "type": "object"
+      },
+      "GetOldestEventResponse": {
+        "description": "Detailed information of the oldest event associated with the issue.",
+        "properties": {
+          "entries": {
+            "description": "Structured event entries containing exceptions, breadcrumbs, requests, and other interfaces",
+            "items": {
+              "$ref": "#/$defs/EventEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "fingerprints": {
+            "description": "Array of fingerprint hash strings used for event grouping",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fingerprints",
+            "type": "array"
+          },
+          "release": {
+            "$ref": "#/$defs/ReleaseInfo",
+            "description": "Release information",
+            "title": "Release"
+          },
+          "location": {
+            "description": "Source code location where error occurred",
+            "title": "Location",
+            "type": "string"
+          },
+          "crashFile": {
+            "description": "Path to crash dump file if available",
+            "title": "Crash File",
+            "type": "string"
+          },
+          "groupingConfig": {
+            "$ref": "#/$defs/GroupingConfig",
+            "description": "Configuration object controlling event grouping behavior",
+            "title": "Grouping Config"
+          },
+          "culprit": {
+            "description": "Error source location or culprit reference",
+            "title": "Culprit",
+            "type": "string"
+          },
+          "projectID": {
+            "description": "Project identifier",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "errors": {
+            "description": "Array of processing errors encountered while handling the event",
+            "items": {
+              "$ref": "#/$defs/EventError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "dateCreated": {
+            "description": "Creation timestamp in ISO 8601 format",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "size": {
+            "description": "Event payload size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "message": {
+            "description": "Event message or transaction name",
+            "title": "Message",
+            "type": "string"
+          },
+          "tags": {
+            "description": "Array of key-value tag pairs",
+            "items": {
+              "$ref": "#/$defs/EventTag"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "sdkUpdates": {
+            "description": "Available SDK updates and recommendations",
+            "items": {},
+            "title": "Sdk Updates",
+            "type": "array"
+          },
+          "resolvedWith": {
+            "description": "Array of resolution details",
+            "items": {},
+            "title": "Resolved With",
+            "type": "array"
+          },
+          "type": {
+            "description": "Event type (e.g., error, transaction, default)",
+            "title": "Type",
+            "type": "string"
+          },
+          "previousEventID": {
+            "description": "Identifier of the previous event in the issue",
+            "title": "Previous Event Id",
+            "type": "string"
+          },
+          "sdk": {
+            "$ref": "#/$defs/SdkInfo",
+            "description": "SDK information used to capture the event",
+            "title": "Sdk"
+          },
+          "dist": {
+            "description": "Distribution identifier for build or deployment variant",
+            "title": "Dist",
+            "type": "string"
+          },
+          "contexts": {
+            "additionalProperties": true,
+            "description": "Additional context data (device, os, runtime, browser, gpu, trace, app, culture, etc.)",
+            "title": "Contexts",
+            "type": "object"
+          },
+          "packages": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Module names mapped to version strings",
+            "title": "Packages",
+            "type": "object"
+          },
+          "userReport": {
+            "$ref": "#/$defs/UserReport",
+            "description": "User-submitted feedback or crash report",
+            "title": "User Report"
+          },
+          "platform": {
+            "description": "Platform identifier (e.g., python, javascript)",
+            "title": "Platform",
+            "type": "string"
+          },
+          "nextEventID": {
+            "description": "Identifier of the next event in the issue",
+            "title": "Next Event Id",
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/$defs/EventMetadata",
+            "description": "Event-specific metadata containing additional context",
+            "title": "Metadata"
+          },
+          "eventID": {
+            "description": "Event ID in hexadecimal UUID format",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "id": {
+            "description": "Event identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "_meta": {
+            "additionalProperties": true,
+            "description": "Metadata annotations for data scrubbing and processing",
+            "title": " Meta",
+            "type": "object"
+          },
+          "groupID": {
+            "description": "Associated issue group identifier",
+            "title": "Group Id",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/EventUser",
+            "description": "User information associated with the event",
+            "title": "User"
+          },
+          "title": {
+            "description": "Event title",
+            "title": "Title",
+            "type": "string"
+          },
+          "context": {
+            "additionalProperties": true,
+            "description": "Legacy context field (deprecated, use contexts instead)",
+            "title": "Context",
+            "type": "object"
+          },
+          "dateReceived": {
+            "description": "Receipt timestamp in ISO 8601 format",
+            "title": "Date Received",
+            "type": "string"
+          }
+        },
+        "required": ["id", "eventID", "projectID", "title", "platform", "type", "tags", "dateCreated", "entries"],
+        "title": "GetOldestEventResponse",
+        "type": "object"
+      },
+      "GroupingConfig": {
+        "description": "Configuration object controlling event grouping behavior.",
+        "properties": {
+          "enhancements": {
+            "description": "Base64-encoded grouping enhancements",
+            "title": "Enhancements",
+            "type": "string"
+          },
+          "id": {
+            "description": "Grouping configuration identifier",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": ["id", "enhancements"],
+        "title": "GroupingConfig",
+        "type": "object"
+      },
+      "ReleaseInfo": {
+        "description": "Release information.",
+        "properties": {
+          "authors": {
+            "description": "List of commit authors",
+            "items": {},
+            "title": "Authors",
+            "type": "array"
+          },
+          "commitCount": {
+            "description": "Number of commits in the release",
+            "title": "Commit Count",
+            "type": "integer"
+          },
+          "dateCreated": {
+            "description": "Release creation timestamp",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateReleased": {
+            "description": "Release deployment timestamp",
+            "title": "Date Released",
+            "type": "string"
+          },
+          "lastCommit": {
+            "additionalProperties": true,
+            "description": "Information about the last commit",
+            "title": "Last Commit",
+            "type": "object"
+          },
+          "newGroups": {
+            "description": "Number of new issue groups in this release",
+            "title": "New Groups",
+            "type": "integer"
+          },
+          "version": {
+            "description": "Release version string",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["version"],
+        "title": "ReleaseInfo",
+        "type": "object"
+      },
+      "SdkInfo": {
+        "description": "SDK information used to capture the event.",
+        "properties": {
+          "features": {
+            "description": "List of enabled SDK feature names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "integrations": {
+            "description": "List of enabled integration names",
+            "items": {
+              "type": "string"
+            },
+            "title": "Integrations",
+            "type": "array"
+          },
+          "name": {
+            "description": "SDK name in format entity.ecosystem (e.g., sentry.javascript.browser)",
+            "title": "Name",
+            "type": "string"
+          },
+          "packages": {
+            "description": "List of installed packages",
+            "items": {
+              "$ref": "#/$defs/SdkPackage"
+            },
+            "title": "Packages",
+            "type": "array"
+          },
+          "version": {
+            "description": "SDK version in semantic versioning format",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["name", "version"],
+        "title": "SdkInfo",
+        "type": "object"
+      },
+      "SdkPackage": {
+        "description": "SDK package information.",
+        "properties": {
+          "name": {
+            "description": "Package name in format source:identifier",
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "description": "Package version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["name", "version"],
+        "title": "SdkPackage",
+        "type": "object"
+      },
+      "UserGeo": {
+        "description": "Geographical location information.",
+        "properties": {
+          "city": {
+            "description": "City name",
+            "title": "City",
+            "type": "string"
+          },
+          "country_code": {
+            "description": "Two-letter ISO 3166-1 alpha-2 country code",
+            "title": "Country Code",
+            "type": "string"
+          },
+          "region": {
+            "description": "Region name or code",
+            "title": "Region",
+            "type": "string"
+          }
+        },
+        "title": "UserGeo",
+        "type": "object"
+      },
+      "UserReport": {
+        "description": "User-submitted feedback or crash report.",
+        "properties": {
+          "comments": {
+            "description": "User feedback comments",
+            "title": "Comments",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "Report creation timestamp",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "email": {
+            "description": "Reporter email",
+            "title": "Email",
+            "type": "string"
+          },
+          "event": {
+            "$ref": "#/$defs/UserReportEvent",
+            "description": "Event information",
+            "title": "Event"
+          },
+          "eventID": {
+            "description": "Associated event ID",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "id": {
+            "description": "User report identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Reporter name",
+            "title": "Name",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/UserReportUser",
+            "description": "User information",
+            "title": "User"
+          }
+        },
+        "required": ["id", "eventID", "comments", "dateCreated", "event"],
+        "title": "UserReport",
+        "type": "object"
+      },
+      "UserReportEvent": {
+        "description": "Event information in user report.",
+        "properties": {
+          "eventID": {
+            "description": "Event ID",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "id": {
+            "description": "Event identifier",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": ["id", "eventID"],
+        "title": "UserReportEvent",
+        "type": "object"
+      },
+      "UserReportUser": {
+        "description": "User information in user report.",
+        "properties": {
+          "avatarUrl": {
+            "description": "Avatar URL",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "User identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "ipAddress": {
+            "description": "IP address",
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "UserReportUser",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOldestEventResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

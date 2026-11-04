@@ -1,0 +1,456 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information about a specific Trello action by its ID.",
+  "inputSchema": {
+    "description": "Request schema for `GetActionsByIdAction`",
+    "properties": {
+      "display": {
+        "description": "Determines whether to include display-related information.",
+        "examples": ["true", "false"],
+        "title": "Display",
+        "type": "string"
+      },
+      "entities": {
+        "description": "Determines whether to include related entities in the response.",
+        "examples": ["true", "false"],
+        "title": "Entities",
+        "type": "string"
+      },
+      "fields": {
+        "default": "all",
+        "description": "Specifies which fields to include in the response. Use 'all' or a comma-separated list of: 'data', 'date', 'idMemberCreator', or 'type'.",
+        "examples": ["data,date", "all"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idAction": {
+        "description": "The ID of the action to retrieve.",
+        "examples": ["55411885be2144d048477757"],
+        "title": "Id Action",
+        "type": "string"
+      },
+      "member": {
+        "description": "Determines whether to include member details.",
+        "examples": ["true", "false"],
+        "title": "Member",
+        "type": "string"
+      },
+      "memberCreator": {
+        "description": "Determines whether to include details of the member who created the action.",
+        "examples": ["true", "false"],
+        "title": "Member Creator",
+        "type": "string"
+      },
+      "memberCreator_fields": {
+        "default": "avatarHash,fullName,initials,username",
+        "description": "Specifies which fields of the member creator to include. Use 'all' or a comma-separated list of: 'avatarHash', 'bio', 'bioData', 'confirmed', 'fullName', 'idPremOrgsAdmin', 'initials', 'memberType', 'products', 'status', 'url', or 'username'.",
+        "examples": ["fullName,initials", "all"],
+        "title": "Member Creator Fields",
+        "type": "string"
+      },
+      "member_fields": {
+        "default": "avatarHash,fullName,initials,username",
+        "description": "Specifies which member fields to include. Use 'all' or a comma-separated list of: 'avatarHash', 'bio', 'bioData', 'confirmed', 'fullName', 'idPremOrgsAdmin', 'initials', 'memberType', 'products', 'status', 'url', or 'username'.",
+        "examples": ["fullName,username", "all"],
+        "title": "Member Fields",
+        "type": "string"
+      }
+    },
+    "required": ["idAction"],
+    "title": "GetActionsByIdActionRequest",
+    "type": "object"
+  },
+  "name": "get_actions_by_id_action",
+  "outputSchema": {
+    "$defs": {
+      "ActionData": {
+        "description": "Context-specific information about the action, structure varies by action type.",
+        "properties": {
+          "board": {
+            "$ref": "#/$defs/BoardInfo",
+            "description": "Board information related to the action",
+            "title": "Board"
+          },
+          "card": {
+            "$ref": "#/$defs/CardInfo",
+            "description": "Card information related to the action",
+            "title": "Card"
+          },
+          "list": {
+            "$ref": "#/$defs/ListInfo",
+            "description": "List information related to the action",
+            "title": "List"
+          },
+          "listAfter": {
+            "$ref": "#/$defs/ListInfo",
+            "description": "New list state after move action",
+            "title": "List After"
+          },
+          "listBefore": {
+            "$ref": "#/$defs/ListInfo",
+            "description": "Previous list state before move action",
+            "title": "List Before"
+          },
+          "old": {
+            "additionalProperties": true,
+            "description": "Previous values before an update action (structure varies by what was updated)",
+            "title": "Old",
+            "type": "object"
+          },
+          "text": {
+            "description": "Text content for comment actions",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "title": "ActionData",
+        "type": "object"
+      },
+      "ActionDisplay": {
+        "description": "Localized display information for rendering the action.",
+        "properties": {
+          "entities": {
+            "$ref": "#/$defs/DisplayEntities",
+            "description": "Structured references for rendering action context",
+            "title": "Entities"
+          },
+          "translationKey": {
+            "description": "Key for translating the action display text (e.g., 'action_comment_on_card')",
+            "title": "Translation Key",
+            "type": "string"
+          }
+        },
+        "title": "ActionDisplay",
+        "type": "object"
+      },
+      "ActionLimits": {
+        "description": "Rate limit information for reactions on this action.",
+        "properties": {
+          "reactions": {
+            "$ref": "#/$defs/ReactionLimits",
+            "description": "Reaction limits for this action",
+            "title": "Reactions"
+          }
+        },
+        "title": "ActionLimits",
+        "type": "object"
+      },
+      "AppCreator": {
+        "description": "Information about the application that created the action (null if action wasn't created by an app).",
+        "properties": {
+          "icon": {
+            "$ref": "#/$defs/AppCreatorIcon",
+            "description": "Application icon information",
+            "title": "Icon"
+          },
+          "id": {
+            "description": "Application ID (always set for all applications)",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Application name (currently only populated for Butler)",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "AppCreator",
+        "type": "object"
+      },
+      "AppCreatorIcon": {
+        "description": "Application icon information.",
+        "properties": {
+          "url": {
+            "description": "URL to the application icon (set if developer configured it)",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "AppCreatorIcon",
+        "type": "object"
+      },
+      "BoardInfo": {
+        "description": "Board information related to the action.",
+        "properties": {
+          "id": {
+            "description": "Board ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Board name",
+            "title": "Name",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "Short link identifier",
+            "title": "Short Link",
+            "type": "string"
+          }
+        },
+        "title": "BoardInfo",
+        "type": "object"
+      },
+      "CardInfo": {
+        "description": "Card information related to the action.",
+        "properties": {
+          "id": {
+            "description": "Card ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "idList": {
+            "description": "ID of the list containing the card",
+            "title": "Id List",
+            "type": "string"
+          },
+          "idShort": {
+            "description": "Short numeric card ID",
+            "title": "Id Short",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Card name",
+            "title": "Name",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "Short link identifier",
+            "title": "Short Link",
+            "type": "string"
+          }
+        },
+        "title": "CardInfo",
+        "type": "object"
+      },
+      "DisplayContextOn": {
+        "description": "Context display information.",
+        "properties": {
+          "hideIfContext": {
+            "description": "Whether to hide if in context",
+            "title": "Hide If Context",
+            "type": "boolean"
+          },
+          "translationKey": {
+            "description": "Translation key for context",
+            "title": "Translation Key",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type (e.g., 'translatable')",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "DisplayContextOn",
+        "type": "object"
+      },
+      "DisplayEntities": {
+        "description": "Structured references for rendering action context.",
+        "properties": {
+          "card": {
+            "additionalProperties": true,
+            "description": "Card entity reference with id, type, text",
+            "title": "Card",
+            "type": "object"
+          },
+          "comment": {
+            "additionalProperties": true,
+            "description": "Comment entity reference with text",
+            "title": "Comment",
+            "type": "object"
+          },
+          "contextOn": {
+            "$ref": "#/$defs/DisplayContextOn",
+            "description": "Context display information",
+            "title": "Context On"
+          },
+          "date": {
+            "additionalProperties": true,
+            "description": "Date entity reference",
+            "title": "Date",
+            "type": "object"
+          },
+          "memberCreator": {
+            "additionalProperties": true,
+            "description": "Member creator entity reference with id, type, username, text",
+            "title": "Member Creator",
+            "type": "object"
+          }
+        },
+        "title": "DisplayEntities",
+        "type": "object"
+      },
+      "GetActionsByIdActionResponse": {
+        "description": "Complete Trello Action object returned by the API.",
+        "properties": {
+          "appCreator": {
+            "$ref": "#/$defs/AppCreator",
+            "description": "Information about the application that created the action (null if action wasn't created by an app)",
+            "title": "App Creator"
+          },
+          "data": {
+            "$ref": "#/$defs/ActionData",
+            "description": "Context-specific information about the action, structure varies by action type",
+            "title": "Data"
+          },
+          "date": {
+            "description": "ISO 8601 timestamp of when the action occurred",
+            "title": "Date",
+            "type": "string"
+          },
+          "display": {
+            "$ref": "#/$defs/ActionDisplay",
+            "description": "Localized display information for rendering the action",
+            "title": "Display"
+          },
+          "id": {
+            "description": "The unique identifier of the action (24-character hex string)",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "The ID of the member who created/triggered the action",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/$defs/ActionLimits",
+            "description": "Rate limit information for reactions on this action",
+            "title": "Limits"
+          },
+          "memberCreator": {
+            "$ref": "#/$defs/MemberCreator",
+            "description": "Full member object of the action creator (included when memberCreator parameter is true)",
+            "title": "Member Creator"
+          },
+          "type": {
+            "description": "The type of action performed (e.g., 'commentCard', 'updateCard', 'createCard')",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idMemberCreator", "type", "date", "data"],
+        "title": "GetActionsByIdActionResponse",
+        "type": "object"
+      },
+      "ListInfo": {
+        "description": "List information related to the action.",
+        "properties": {
+          "id": {
+            "description": "List ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "List name",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "ListInfo",
+        "type": "object"
+      },
+      "MemberCreator": {
+        "description": "Full member object of the action creator (included when memberCreator parameter is true).",
+        "properties": {
+          "activityBlocked": {
+            "description": "Whether the member's activity is blocked",
+            "title": "Activity Blocked",
+            "type": "boolean"
+          },
+          "avatarHash": {
+            "description": "Avatar hash for constructing avatar URLs",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "Direct URL to avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Full display name",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Member ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberReferrer": {
+            "description": "ID of the member who referred this member (nullable)",
+            "title": "Id Member Referrer",
+            "type": "string"
+          },
+          "initials": {
+            "description": "Member initials",
+            "title": "Initials",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "MemberCreator",
+        "type": "object"
+      },
+      "ReactionLimitDetail": {
+        "description": "Reaction limit details.",
+        "properties": {
+          "disableAt": {
+            "description": "Number at which reactions are disabled",
+            "title": "Disable At",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Limit status (e.g., 'ok', 'warning')",
+            "title": "Status",
+            "type": "string"
+          },
+          "warnAt": {
+            "description": "Number at which warning is triggered",
+            "title": "Warn At",
+            "type": "integer"
+          }
+        },
+        "title": "ReactionLimitDetail",
+        "type": "object"
+      },
+      "ReactionLimits": {
+        "description": "Reaction limits for this action.",
+        "properties": {
+          "perAction": {
+            "$ref": "#/$defs/ReactionLimitDetail",
+            "description": "Total reactions per action limits",
+            "title": "Per Action"
+          },
+          "uniquePerAction": {
+            "$ref": "#/$defs/ReactionLimitDetail",
+            "description": "Unique reactions per action limits",
+            "title": "Unique Per Action"
+          }
+        },
+        "title": "ReactionLimits",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetActionsByIdActionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

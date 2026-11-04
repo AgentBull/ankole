@@ -1,0 +1,108 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetches members who voted on a Trello card; requires an existing card ID, the Voting Power-Up to be active on the board, and members to have voted; returns member details, not vote counts.",
+  "inputSchema": {
+    "description": "Request schema for `GetCardsMembersVotedByIdCard`",
+    "properties": {
+      "fields": {
+        "default": "avatarHash,fullName,initials,username",
+        "description": "Comma-separated list of member fields to return, or 'all'. Valid fields: `avatarHash`, `bio`, `bioData`, `confirmed`, `fullName`, `idPremOrgsAdmin`, `initials`, `memberType`, `products`, `status`, `url`, `username`.",
+        "examples": ["avatarHash,fullName,username", "all", "initials,status,bio"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "The ID or short link of the Trello card.",
+        "examples": ["5abbe4b7ddc1b351ef961414", "mF9k0sL3"],
+        "title": "Id Card",
+        "type": "string"
+      }
+    },
+    "required": ["idCard"],
+    "title": "GetCardsMembersVotedByIdCardRequest",
+    "type": "object"
+  },
+  "name": "get_cards_members_voted_by_id_card",
+  "outputSchema": {
+    "$defs": {
+      "GetCardsMembersVotedByIdCardResponse": {
+        "description": "Response schema for `GetCardsMembersVotedByIdCard`",
+        "properties": {
+          "members": {
+            "description": "List of members who voted on the card.",
+            "items": {
+              "$ref": "#/$defs/Member"
+            },
+            "title": "Members",
+            "type": "array"
+          }
+        },
+        "required": ["members"],
+        "title": "GetCardsMembersVotedByIdCardResponse",
+        "type": "object"
+      },
+      "Member": {
+        "description": "Represents a Trello member who voted on a card",
+        "properties": {
+          "activityBlocked": {
+            "description": "Indicates whether the member's activity is blocked.",
+            "title": "Activity Blocked",
+            "type": "boolean"
+          },
+          "avatarHash": {
+            "description": "Hash identifier for the member's avatar image.",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "Full URL to the member's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Full display name of the member.",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the member (TrelloID, 24 character hexadecimal string).",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberReferrer": {
+            "description": "TrelloID of the member who referred this member, or null if not referred.",
+            "title": "Id Member Referrer",
+            "type": "string"
+          },
+          "initials": {
+            "description": "Initials derived from the member's name.",
+            "title": "Initials",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the member on Trello.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id", "activityBlocked", "avatarHash", "avatarUrl", "fullName", "initials", "username"],
+        "title": "Member",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCardsMembersVotedByIdCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,287 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a list of event type hosts (memberships) for a specific event type. Use when you need to see which users are configured as hosts for an event type.",
+  "inputSchema": {
+    "description": "Request model for listing event type memberships (hosts).",
+    "properties": {
+      "count": {
+        "description": "Number of results to return per page. Must be a positive integer.",
+        "examples": [10, 20, 50],
+        "title": "Count",
+        "type": "integer"
+      },
+      "event_type": {
+        "description": "URI of the event type to retrieve memberships for. Format: 'https://api.calendly.com/event_types/{uuid}'. Pass the complete URI, not just the UUID.",
+        "examples": ["https://api.calendly.com/event_types/73ec12fc-6c7b-4869-b927-6141c9e716e9"],
+        "title": "Event Type",
+        "type": "string"
+      },
+      "page_token": {
+        "description": "Pagination token to retrieve a specific page of results. Use the 'next_page_token' from a previous response to get the next page.",
+        "title": "Page Token",
+        "type": "string"
+      }
+    },
+    "required": ["event_type"],
+    "title": "ListEventTypeMembershipsRequest",
+    "type": "object"
+  },
+  "name": "list_event_type_memberships",
+  "outputSchema": {
+    "$defs": {
+      "EventTypeInfo": {
+        "description": "Event type information for the membership.",
+        "properties": {
+          "active": {
+            "description": "Indicates if the event type is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "color": {
+            "description": "Hex color code for the event type",
+            "title": "Color",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the event type was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "duration": {
+            "description": "Length of the event type in minutes",
+            "title": "Duration",
+            "type": "integer"
+          },
+          "kind": {
+            "description": "Indicates if the event type is 'solo' or 'group'",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "description": "The event type name",
+            "title": "Name",
+            "type": "string"
+          },
+          "scheduling_url": {
+            "description": "The public URL invitees use to schedule this event type",
+            "title": "Scheduling Url",
+            "type": "string"
+          },
+          "slug": {
+            "description": "The URL slug for the event type",
+            "title": "Slug",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of event (e.g., 'StandardEventType')",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the event type was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the event type",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri",
+          "name",
+          "active",
+          "scheduling_url",
+          "duration",
+          "kind",
+          "type",
+          "color",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "EventTypeInfo",
+        "type": "object"
+      },
+      "EventTypeMembership": {
+        "description": "Represents a single event type membership (host).",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the membership was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_type": {
+            "$ref": "#/$defs/EventTypeInfo",
+            "description": "Event type information this membership belongs to",
+            "title": "Event Type"
+          },
+          "member": {
+            "$ref": "#/$defs/Member",
+            "description": "User information for the member who is a host for this event type",
+            "title": "Member"
+          },
+          "updated_at": {
+            "description": "Timestamp when the membership was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the event type membership",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "member", "event_type", "created_at", "updated_at"],
+        "title": "EventTypeMembership",
+        "type": "object"
+      },
+      "ListEventTypeMembershipsResponse": {
+        "description": "Response model containing the collection of event type memberships and pagination details.",
+        "properties": {
+          "collection": {
+            "description": "Array of event type membership objects",
+            "items": {
+              "$ref": "#/$defs/EventTypeMembership"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "description": "Pagination information for navigating through multiple pages of results",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection", "pagination"],
+        "title": "ListEventTypeMembershipsResponse",
+        "type": "object"
+      },
+      "Member": {
+        "description": "User information for the event type member.",
+        "properties": {
+          "avatar_url": {
+            "description": "The URL of the user's avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp when the user account was created (ISO 8601 format)",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "The user's email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "locale": {
+            "description": "The user's locale/language preference",
+            "title": "Locale",
+            "type": "string"
+          },
+          "name": {
+            "description": "The user's full name",
+            "title": "Name",
+            "type": "string"
+          },
+          "resource_type": {
+            "description": "The type of resource, always 'User' for user objects",
+            "title": "Resource Type",
+            "type": "string"
+          },
+          "scheduling_url": {
+            "description": "The URL of the user's public scheduling page",
+            "title": "Scheduling Url",
+            "type": "string"
+          },
+          "slug": {
+            "description": "The user's URL slug",
+            "title": "Slug",
+            "type": "string"
+          },
+          "time_notation": {
+            "description": "The user's time format preference ('12h' or '24h')",
+            "title": "Time Notation",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "The user's preferred timezone",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the user account was last updated (ISO 8601 format)",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the user",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri",
+          "name",
+          "email",
+          "slug",
+          "scheduling_url",
+          "timezone",
+          "created_at",
+          "updated_at",
+          "resource_type"
+        ],
+        "title": "Member",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination information for navigating through multiple pages of results.",
+        "properties": {
+          "count": {
+            "description": "Number of items returned in the current page",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "Full URL to retrieve the next page of results. Null if there are no more pages.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "next_page_token": {
+            "description": "Token to use for retrieving the next page of results",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "Full URL to retrieve the previous page of results. Null if on the first page.",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "previous_page_token": {
+            "description": "Token to use for retrieving the previous page of results",
+            "title": "Previous Page Token",
+            "type": "string"
+          }
+        },
+        "required": ["count"],
+        "title": "Pagination",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListEventTypeMembershipsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

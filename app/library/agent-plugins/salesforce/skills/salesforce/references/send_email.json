@@ -1,0 +1,259 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Sends an email through Salesforce with options for recipients, attachments, and activity logging. Check the returned action success status and errors to determine whether Salesforce accepted the request.",
+  "inputSchema": {
+    "properties": {
+      "attachment_ids": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "IDs of files to attach. Provide ContentVersion (068...), Document (015...) Ids, or ContentDocument (069...) IdsCan be a comma-delimited string or a list.",
+        "examples": [["068XXXXXXXXXXXXXXX", "015YYYYYYYYYYYYYYY"], "069XXXXXXXXXXXXXXX,015YYYYYYYYYYYYYYY"],
+        "human_parameter_description": "Files you want to attach to the email, referenced by their Salesforce IDs. You can provide one or more IDs (068..., 015..., or 069...) as a comma-separated string or a list.",
+        "human_parameter_name": "Attachment IDs",
+        "title": "Attachment Ids"
+      },
+      "bcc_addresses": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "BCC email addresses. Can be a comma-delimited string or a list.",
+        "examples": ["archive@company.com", ["legal@company.com", "compliance@company.com"]],
+        "human_parameter_description": "Recipients who get a private copy of the email. Other recipients won't see these addresses; enter one or more or a comma-separated list.",
+        "human_parameter_name": "BCC Addresses",
+        "title": "Bcc Addresses"
+      },
+      "body": {
+        "description": "Body content of the email.",
+        "examples": [
+          "Hi John,\n\nJust a reminder about our meeting tomorrow at 2 PM.",
+          "Thank you for your time today. Attached is the proposal we discussed."
+        ],
+        "human_parameter_description": "The main content of your email. Write your message here; include line breaks or HTML if needed.",
+        "human_parameter_name": "Email Body",
+        "title": "Body",
+        "type": "string"
+      },
+      "cc_addresses": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "CC email addresses. Can be a comma-delimited string or a list.",
+        "examples": ["manager@company.com", ["team@company.com", "support@company.com"]],
+        "human_parameter_description": "People you want to keep in the loop. They will receive a copy of the email; enter one or more addresses or a comma-separated list.",
+        "human_parameter_name": "CC Addresses",
+        "title": "Cc Addresses"
+      },
+      "is_html": {
+        "default": false,
+        "description": "Whether the email body is HTML formatted.",
+        "human_parameter_description": "Turn this on if your email body contains HTML formatting (like bold text, links, or paragraphs). Leave it off for plain-text messages.",
+        "human_parameter_name": "Is HTML",
+        "title": "Is Html",
+        "type": "boolean"
+      },
+      "log_email": {
+        "default": false,
+        "description": "Whether to log the email on the recipient's activity timeline. Requires correct recipient_id and related_record_id values; incorrect IDs silently log the activity against the wrong records.",
+        "human_parameter_description": "Choose whether to automatically log this email to the recipient's activity timeline. Turn this on to keep a record in Salesforce.",
+        "human_parameter_name": "Log Email",
+        "title": "Log Email",
+        "type": "boolean"
+      },
+      "org_wide_email_address_id": {
+        "description": "Org-Wide Email Address Id to use when sender_type is OrgWideEmailAddress.",
+        "examples": ["0D2XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "If sending from a shared company address, provide its Salesforce Org-Wide Email Address ID. This ensures the email comes from that approved address.",
+        "human_parameter_name": "Org-Wide Email Address Id",
+        "title": "Org Wide Email Address Id",
+        "type": "string"
+      },
+      "recipient_id": {
+        "default": "",
+        "description": "ID of a lead, contact, or person account to send the email to. Used for logging and merge fields.",
+        "examples": ["003XXXXXXXXXXXXXXX", "00QXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce ID of the person you are emailing (Lead, Contact, or Person Account). This helps log the email and lets merge fields pull in their details.",
+        "human_parameter_name": "Recipient ID",
+        "title": "Recipient Id",
+        "type": "string"
+      },
+      "related_record_id": {
+        "default": "",
+        "description": "ID of a related record (e.g., Account, Opportunity, Case) for logging and merge fields.",
+        "examples": ["001XXXXXXXXXXXXXXX", "006XXXXXXXXXXXXXXX", "500XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The Salesforce ID of the record you want to relate this email to (such as an Account, Opportunity, or Case). Use this to have the email appear on that record's timeline and enable related merge fields.",
+        "human_parameter_name": "Related Record ID",
+        "title": "Related Record Id",
+        "type": "string"
+      },
+      "sender_address": {
+        "default": "",
+        "description": "Organization-wide email address. Required only when sender_type is OrgWideEmailAddress.",
+        "examples": ["noreply@company.com", "support@company.com"],
+        "human_parameter_description": "If you don't know the ID, enter the actual org-wide email address (for example, noreply@company.com). We'll try to look up the correct ID for you.",
+        "human_parameter_name": "Sender Address",
+        "title": "Sender Address",
+        "type": "string"
+      },
+      "sender_type": {
+        "default": "CurrentUser",
+        "description": "Type of sender.",
+        "enum": ["CurrentUser", "OrgWideEmailAddress"],
+        "examples": ["CurrentUser", "OrgWideEmailAddress"],
+        "human_parameter_description": "Choose who the email is sent from. Use 'CurrentUser' to send as yourself or 'OrgWideEmailAddress' to send from a shared company address.",
+        "human_parameter_name": "Sender Type",
+        "title": "Sender Type",
+        "type": "string"
+      },
+      "subject": {
+        "description": "Subject line of the email.",
+        "examples": ["Meeting Reminder", "Follow-up on our discussion", "Important: Contract Update"],
+        "human_parameter_description": "What the email is about. Keep it clear so recipients quickly understand your message.",
+        "human_parameter_name": "Email Subject",
+        "title": "Subject",
+        "type": "string"
+      },
+      "to_addresses": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        ],
+        "description": "Email addresses of recipients. Can be a comma-delimited string or a list. Recipients with null email fields generate per-recipient errors without failing the entire call; filter out null-email records beforehand.",
+        "examples": [
+          "john@example.com",
+          "jane@company.com,bob@company.com",
+          ["alice@example.com", "charlie@example.com"]
+        ],
+        "human_parameter_description": "Who you want to email. Enter one or more email addresses; you can provide a single address, a comma-separated list, or a list of addresses.",
+        "human_parameter_name": "To Addresses",
+        "title": "To Addresses"
+      }
+    },
+    "required": ["to_addresses", "subject", "body"],
+    "title": "SendEmailRequest",
+    "type": "object"
+  },
+  "name": "send_email",
+  "outputSchema": {
+    "$defs": {
+      "EmailError": {
+        "description": "Error details from a failed email send action.",
+        "properties": {
+          "fields": {
+            "description": "Array of field names that caused or are related to the error. Empty array if no specific fields are involved.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable error message describing what went wrong.",
+            "title": "Message",
+            "type": "string"
+          },
+          "statusCode": {
+            "description": "Error status code identifying the type of error (e.g., 'UNKNOWN_EXCEPTION', 'INVALID_TYPE_ON_FIELD_IN_RECORD').",
+            "title": "Status Code",
+            "type": "string"
+          }
+        },
+        "required": ["statusCode", "message", "fields"],
+        "title": "EmailError",
+        "type": "object"
+      },
+      "SendEmailResponse": {
+        "description": "Response from the Salesforce emailSimple action.",
+        "properties": {
+          "actionName": {
+            "description": "The name of the action that was invoked. Returns 'emailSimple' for the send email action.",
+            "title": "Action Name",
+            "type": "string"
+          },
+          "errors": {
+            "description": "Array of error objects containing details about any failures. Null when the action succeeds.",
+            "items": {
+              "$ref": "#/$defs/EmailError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "invocationId": {
+            "description": "Identifier for tracking this specific action invocation. May be null.",
+            "title": "Invocation Id",
+            "type": "string"
+          },
+          "isSuccess": {
+            "description": "Indicates whether the email was successfully accepted for sending. True means Salesforce accepted the request; false indicates failure.",
+            "title": "Is Success",
+            "type": "boolean"
+          },
+          "outputValues": {
+            "additionalProperties": true,
+            "description": "Contains output values from the action. Typically null or empty for emailSimple as it doesn't return specific data. Null when the action fails.",
+            "title": "Output Values",
+            "type": "object"
+          },
+          "sortOrder": {
+            "description": "Used for ordering multiple action responses in batch operations.",
+            "title": "Sort Order",
+            "type": "integer"
+          },
+          "version": {
+            "description": "Version number of the action response format.",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": ["actionName", "isSuccess"],
+        "title": "SendEmailResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SendEmailResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

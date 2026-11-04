@@ -298,17 +298,22 @@ inside their own tenant, they act as the direct writer so group and
 private-claim checks apply; cross-tenant administrative writes use the system
 writer paired with full operator attribution.
 
-Ankole serves the site administration Console at
+`AnkoleWeb.SiteAdminConsole` owns the Console origin, mount path, and login
+return URL. SaaS serves the Console at `site-admin-console.<domain>/`; its
+`console.<domain>` host serves Ankole Cloud OAuth callbacks and incoming
+connector webhooks. Single-domain FOSS deployments serve the Console at
 `ANKOLE_SITE_ADMIN_CONSOLE_PATH` (default `/site-admin-console`), failing
-startup if the path is invalid or collides with another route. Rather than
-embedding that path in public frontend bundles, the server discloses it only in
+startup if the path is invalid or collides with another route. The authenticated
+shell supplies its mount path through `ankole-site-admin-console-path` metadata
+(`/` on the dedicated SaaS host). The server discloses the Console URL only in
 authenticated siteadmin responses: signing in without a return URL opens `/` on
 the canonical Pod host, and if the signed-in Human belongs to `siteadmin` in the
 privileged tenant, the Pod session payload includes the Console URL so the Pod
 sidebar renders a Console link that opens the Console directly under the
 browser's proven `siteadmin` authentication. Direct unauthenticated visits to
 the Console path seal a short-lived `console_return` ticket and redirect to
-sign-in on the privileged Pod.
+the privileged Pod’s sign-in flow. SaaS performs that sign-in on the accounts
+host and returns to the dedicated Console origin.
 
 Console `/api/v2` endpoints and native Agent file transfers honor the
 `x-ankole-tenant` header—defaulting to the operator's own tenant when

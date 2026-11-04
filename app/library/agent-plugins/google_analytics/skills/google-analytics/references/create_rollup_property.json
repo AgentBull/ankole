@@ -1,0 +1,156 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a roll-up property. Use when consolidating multiple GA4 properties into one aggregated view.",
+  "inputSchema": {
+    "description": "Request model for creating a GA4 Roll-up Property using properties.createRollupProperty.",
+    "properties": {
+      "account": {
+        "description": "Required. Parent account resource. Format: accounts/{account_id}",
+        "pattern": "^accounts/[^/]+$",
+        "title": "Account",
+        "type": "string"
+      },
+      "displayName": {
+        "description": "Required. Display name for the roll-up property.",
+        "title": "Display Name",
+        "type": "string"
+      },
+      "sourceProperties": {
+        "description": "Optional. List of source property resource names to link. Format: properties/{property_id}.",
+        "items": {
+          "pattern": "^properties/[^/]+$",
+          "type": "string"
+        },
+        "title": "Source Properties",
+        "type": "array"
+      },
+      "timeZone": {
+        "description": "Required. IANA time zone for the roll-up property.",
+        "title": "Time Zone",
+        "type": "string"
+      }
+    },
+    "required": ["account", "displayName", "timeZone"],
+    "title": "CreateRollupPropertyRequest",
+    "type": "object"
+  },
+  "name": "create_rollup_property",
+  "outputSchema": {
+    "$defs": {
+      "CreateRollupPropertyResponse": {
+        "description": "Response model for properties.createRollupProperty.",
+        "properties": {
+          "rollupProperty": {
+            "$ref": "#/$defs/RollupProperty",
+            "description": "The created roll-up Property resource.",
+            "title": "Rollup Property"
+          },
+          "rollupPropertySourceLinks": {
+            "description": "The created roll-up property source links (if any).",
+            "items": {
+              "$ref": "#/$defs/RollupPropertySourceLink"
+            },
+            "title": "Rollup Property Source Links",
+            "type": "array"
+          }
+        },
+        "required": ["rollupProperty"],
+        "title": "CreateRollupPropertyResponse",
+        "type": "object"
+      },
+      "RollupProperty": {
+        "description": "Schema for a GA4 Property resource returned by createRollupProperty.",
+        "properties": {
+          "account": {
+            "title": "Account",
+            "type": "string"
+          },
+          "createTime": {
+            "title": "Create Time",
+            "type": "string"
+          },
+          "currencyCode": {
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "deleteTime": {
+            "title": "Delete Time",
+            "type": "string"
+          },
+          "displayName": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "expireTime": {
+            "title": "Expire Time",
+            "type": "string"
+          },
+          "industryCategory": {
+            "title": "Industry Category",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name of this property. Format: properties/{property_id}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "parent": {
+            "title": "Parent",
+            "type": "string"
+          },
+          "propertyType": {
+            "title": "Property Type",
+            "type": "string"
+          },
+          "serviceLevel": {
+            "title": "Service Level",
+            "type": "string"
+          },
+          "timeZone": {
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updateTime": {
+            "title": "Update Time",
+            "type": "string"
+          }
+        },
+        "required": ["name"],
+        "title": "RollupProperty",
+        "type": "object"
+      },
+      "RollupPropertySourceLink": {
+        "description": "Schema for a roll-up property source link resource.",
+        "properties": {
+          "name": {
+            "description": "Resource name of this link. Format: properties/{property_id}/rollupPropertySourceLinks/{link_id}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "sourceProperty": {
+            "description": "Immutable. Resource name of the source property. Format: properties/{property_id}.",
+            "title": "Source Property",
+            "type": "string"
+          }
+        },
+        "required": ["name", "sourceProperty"],
+        "title": "RollupPropertySourceLink",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateRollupPropertyResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

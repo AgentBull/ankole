@@ -1,0 +1,198 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Bulk update multiple Zendesk organizations in a single request. Use when you need to update organization details such as name, notes, details, domain names, or tags for multiple organizations at once. The action is queued as a background job - use the job_status URL to poll for completion. Maximum 100 organizations per request. Note: Agents without permission restrictions can only update 'notes' on organizations.",
+  "inputSchema": {
+    "description": "Request to update multiple organizations in Zendesk.",
+    "properties": {
+      "external_ids": {
+        "description": "Comma-separated list of external organization IDs to update (max 100). Required if ids is not provided.",
+        "examples": ["ext1,ext2,ext3"],
+        "human_parameter_description": "A comma-separated list of external organization IDs to update. Maximum 100 IDs allowed. Required if ids is not provided.",
+        "human_parameter_name": "External IDs",
+        "title": "External Ids",
+        "type": "string"
+      },
+      "ids": {
+        "description": "Comma-separated list of organization IDs to update (max 100). Required if external_ids is not provided.",
+        "examples": ["1,2,3"],
+        "human_parameter_description": "A comma-separated list of Zendesk organization IDs to update (e.g., 1,2,3). Maximum 100 IDs allowed. Required if external_ids is not provided.",
+        "human_parameter_name": "Organization IDs",
+        "title": "Ids",
+        "type": "string"
+      },
+      "organizations": {
+        "description": "List of organizations to update. Each organization must include an 'id' and can optionally include 'name', 'notes', 'details', 'external_id', 'domain_names', and 'tags'. Agents without permission restrictions can only update 'notes'.",
+        "examples": [
+          [
+            {
+              "id": 1,
+              "name": "Test Organization 1",
+              "notes": "Updated notes"
+            },
+            {
+              "id": 2,
+              "name": "Test Organization 2"
+            }
+          ]
+        ],
+        "human_parameter_description": "An array of organization update objects. Each object requires an 'id' field and can optionally include 'name', 'notes', 'details', 'external_id', 'domain_names', and 'tags'.",
+        "human_parameter_name": "Organizations",
+        "items": {
+          "description": "Individual organization update item for bulk update.",
+          "properties": {
+            "details": {
+              "description": "Updated details for the organization",
+              "examples": ["Updated organization details"],
+              "human_parameter_description": "Update the details field for the organization.",
+              "human_parameter_name": "Details",
+              "title": "Details",
+              "type": "string"
+            },
+            "domain_names": {
+              "description": "Updated domain names for the organization (full replacement)",
+              "examples": [["example.com", "newdomain.com"]],
+              "human_parameter_description": "Set the domain names for the organization. This is a full replacement, so include existing domains along with new ones to avoid removing them.",
+              "human_parameter_name": "Domain Names",
+              "items": {
+                "type": "string"
+              },
+              "title": "Domain Names",
+              "type": "array"
+            },
+            "external_id": {
+              "description": "Updated external ID for the organization",
+              "examples": ["ext_12345"],
+              "human_parameter_description": "Set or update the external ID for the organization.",
+              "human_parameter_name": "External ID",
+              "title": "External Id",
+              "type": "string"
+            },
+            "id": {
+              "description": "The ID of the organization to update",
+              "examples": [123],
+              "human_parameter_description": "The unique numeric ID of the Zendesk organization you want to update. You can find organization IDs from the List Organizations action.",
+              "human_parameter_name": "Organization ID",
+              "title": "Id",
+              "type": "integer"
+            },
+            "name": {
+              "description": "Updated name for the organization",
+              "examples": ["Updated Organization Name"],
+              "human_parameter_description": "Set a new name for the organization.",
+              "human_parameter_name": "Name",
+              "title": "Name",
+              "type": "string"
+            },
+            "notes": {
+              "description": "Updated internal notes for the organization",
+              "examples": ["Updated organization notes"],
+              "human_parameter_description": "Update the internal notes field for the organization.",
+              "human_parameter_name": "Notes",
+              "title": "Notes",
+              "type": "string"
+            },
+            "tags": {
+              "description": "Updated tags for the organization",
+              "examples": [["enterprise", "premium"]],
+              "human_parameter_description": "Update the tags for the organization.",
+              "human_parameter_name": "Tags",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tags",
+              "type": "array"
+            }
+          },
+          "required": ["id"],
+          "title": "OrganizationUpdateItem",
+          "type": "object"
+        },
+        "title": "Organizations",
+        "type": "array"
+      }
+    },
+    "required": ["organizations"],
+    "title": "UpdateManyOrganizationsRequest",
+    "type": "object"
+  },
+  "name": "update_many_organizations",
+  "outputSchema": {
+    "$defs": {
+      "JobStatus": {
+        "description": "Background job status for bulk organization update.",
+        "properties": {
+          "current_action": {
+            "description": "Description of the action currently being performed",
+            "title": "Current Action",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the background job",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Status or error message from the job",
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "description": "Number of tasks completed so far",
+            "title": "Progress",
+            "type": "integer"
+          },
+          "result": {
+            "description": "Result of the job processing",
+            "title": "Result",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether all tasks completed successfully",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "total": {
+            "description": "Total number of tasks in the job",
+            "title": "Total",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL for retrieving updated job status",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "JobStatus",
+        "type": "object"
+      },
+      "UpdateManyOrganizationsResponse": {
+        "description": "Response from updating multiple organizations.",
+        "properties": {
+          "job_status": {
+            "$ref": "#/$defs/JobStatus",
+            "description": "Background job status for the bulk update operation",
+            "title": "Job Status"
+          }
+        },
+        "required": ["job_status"],
+        "title": "UpdateManyOrganizationsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateManyOrganizationsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

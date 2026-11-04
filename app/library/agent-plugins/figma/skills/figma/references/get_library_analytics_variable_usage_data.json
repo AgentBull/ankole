@@ -1,0 +1,181 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves paginated analytics data on variable usage from a specified Figma library, grouped by 'file' or 'variable', for libraries with enabled analytics.",
+  "inputSchema": {
+    "description": "Request schema for `GetLibraryAnalyticsVariableUsageData`",
+    "properties": {
+      "cursor": {
+        "description": "Opaque cursor for pagination, from a previous response's `cursor` field if `next_page` was true. Omit for the first page.",
+        "examples": ["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."],
+        "title": "Cursor",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "Key of the Figma library file (from its URL) for which to retrieve variable usage analytics. Must be a published library from an Enterprise plan organization.",
+        "examples": ["sFglL9l62Z1c4qjX2LmyxK", "Abc123Xyz789"],
+        "title": "File Key",
+        "type": "string"
+      },
+      "group_by": {
+        "description": "Dimension for grouping analytics data, determining the structure of `rows` in the response ('file' or 'variable').",
+        "enum": ["file", "variable"],
+        "examples": ["file", "variable"],
+        "title": "Group By",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "group_by"],
+    "title": "GetLibraryAnalyticsVariableUsageDataRequest",
+    "type": "object"
+  },
+  "name": "get_library_analytics_variable_usage_data",
+  "outputSchema": {
+    "$defs": {
+      "GetLibraryAnalyticsVariableUsageDataResponse": {
+        "description": "Response schema for `GetLibraryAnalyticsVariableUsageData`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Paginated analytics data for variable usage from the specified library.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetLibraryAnalyticsVariableUsageDataResponse",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "cursor": {
+            "description": "Opaque cursor for the next page; present if `next_page` is true.",
+            "title": "Cursor",
+            "type": "string"
+          },
+          "next_page": {
+            "description": "Indicates if more data is available. If true, `cursor` is provided for the next page.",
+            "title": "Next Page",
+            "type": "boolean"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Row"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/Row1"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "Array of analytics data: `Row` objects if `group_by` was 'variable', or `Row1` objects if `group_by` was 'file'.",
+            "title": "Rows"
+          }
+        },
+        "required": ["rows", "next_page"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Row": {
+        "properties": {
+          "collection_key": {
+            "description": "Unique and stable key of the variable's collection.",
+            "title": "Collection Key",
+            "type": "string"
+          },
+          "collection_name": {
+            "description": "Name of the variable's collection.",
+            "title": "Collection Name",
+            "type": "string"
+          },
+          "files_using": {
+            "description": "Total distinct files in the organization using this variable.",
+            "title": "Files Using",
+            "type": "number"
+          },
+          "teams_using": {
+            "description": "Total distinct teams in the organization using this variable.",
+            "title": "Teams Using",
+            "type": "number"
+          },
+          "usages": {
+            "description": "Total times this variable is used across the organization.",
+            "title": "Usages",
+            "type": "number"
+          },
+          "variable_key": {
+            "description": "Unique and stable key of the variable.",
+            "title": "Variable Key",
+            "type": "string"
+          },
+          "variable_name": {
+            "description": "Display name of the variable.",
+            "title": "Variable Name",
+            "type": "string"
+          },
+          "variable_type": {
+            "description": "Type of the variable (e.g., 'BOOLEAN', 'COLOR', 'FLOAT', 'STRING').",
+            "title": "Variable Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variable_key",
+          "variable_name",
+          "variable_type",
+          "collection_key",
+          "collection_name",
+          "usages",
+          "teams_using",
+          "files_using"
+        ],
+        "title": "Row",
+        "type": "object"
+      },
+      "Row1": {
+        "properties": {
+          "file_name": {
+            "description": "Name of the file using variables from the library.",
+            "title": "File Name",
+            "type": "string"
+          },
+          "team_name": {
+            "description": "Name of the team owning the file that uses library variables.",
+            "title": "Team Name",
+            "type": "string"
+          },
+          "usages": {
+            "description": "Total times variables from the specified library are used in this file.",
+            "title": "Usages",
+            "type": "number"
+          },
+          "workspace_name": {
+            "description": "Name of the workspace for the file using library variables; may be null.",
+            "title": "Workspace Name",
+            "type": "string"
+          }
+        },
+        "required": ["file_name", "team_name", "usages"],
+        "title": "Row1",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetLibraryAnalyticsVariableUsageDataResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -36,6 +36,7 @@
     "control-plane:test:stale": "bun run --filter @ankole/control-plane test:stale",
     "control-plane:test:plugins": "bun run --filter @ankole/control-plane test:plugins",
     "control-plane:routes": "bun run --filter @ankole/control-plane routes",
+    "connectors:sync-catalog": "bun plugins/cloud_connectors_adapter/sync-catalog.ts",
     "webapps": "bun run --filter @ankole/webapps",
     "webapps:dev": "bun run --filter @ankole/webapps dev",
     "webapps:build": "bun run --filter @ankole/webapps build",

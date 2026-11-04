@@ -1,0 +1,168 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve details of a specific Stripe invoice payment by ID. Use when you need to get information about an existing invoice payment.",
+  "inputSchema": {
+    "description": "Request parameters for retrieving an invoice payment.",
+    "properties": {
+      "id": {
+        "description": "The unique identifier for the invoice payment to retrieve. This ID typically starts with 'inpay_'.",
+        "examples": ["inpay_1T1KGkP3BKO35fWy15y4ZqUM", "inpay_1MoC3ULkdIwHu7ixZjtGpVl2"],
+        "title": "Id",
+        "type": "string"
+      }
+    },
+    "required": ["id"],
+    "title": "GetInvoicePaymentsIdRequest",
+    "type": "object"
+  },
+  "name": "get_invoice_payments_id",
+  "outputSchema": {
+    "$defs": {
+      "GetInvoicePaymentsIdResponse": {
+        "description": "Response containing detailed information about the invoice payment.",
+        "properties": {
+          "amount_paid": {
+            "description": "Sum actually paid in the smallest currency unit (e.g., cents for USD). Remains null until status becomes 'paid'. May be less than amount_requested.",
+            "title": "Amount Paid",
+            "type": "integer"
+          },
+          "amount_requested": {
+            "description": "Amount intended to be paid toward this invoice in the smallest currency unit (e.g., cents for USD).",
+            "title": "Amount Requested",
+            "type": "integer"
+          },
+          "created": {
+            "description": "Unix timestamp indicating when the object was created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase (e.g., 'usd').",
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the invoice payment object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice": {
+            "description": "Reference to the associated invoice identifier.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "is_default": {
+            "description": "Indicates if auto-created by system when invoice finalizes. Default payment cannot be directly modified.",
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'invoice_payment'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "payment": {
+            "$ref": "#/$defs/Payment",
+            "description": "Payment details container with information about the payment method used.",
+            "title": "Payment"
+          },
+          "status": {
+            "description": "Current status of the invoice payment. Possible values: 'open', 'paid', 'canceled'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "status_transitions": {
+            "$ref": "#/$defs/StatusTransitions",
+            "description": "Timestamp records for status changes (canceled_at, paid_at).",
+            "title": "Status Transitions"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount_requested",
+          "created",
+          "currency",
+          "invoice",
+          "is_default",
+          "livemode",
+          "payment",
+          "status",
+          "status_transitions"
+        ],
+        "title": "GetInvoicePaymentsIdResponse",
+        "type": "object"
+      },
+      "Payment": {
+        "description": "Payment details for the invoice payment.",
+        "properties": {
+          "charge": {
+            "description": "Charge ID when type is 'charge' (only if not linked to PaymentIntent).",
+            "title": "Charge",
+            "type": "string"
+          },
+          "payment_intent": {
+            "description": "PaymentIntent ID when type is 'payment_intent'. Populated for invoices finalized after March 15, 2019.",
+            "title": "Payment Intent",
+            "type": "string"
+          },
+          "payment_record": {
+            "description": "PaymentRecord ID when type is 'payment_record'.",
+            "title": "Payment Record",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/$defs/PaymentType",
+            "description": "Type of payment. One of: 'charge', 'payment_intent', or 'payment_record'.",
+            "title": "Type"
+          }
+        },
+        "required": ["type"],
+        "title": "Payment",
+        "type": "object"
+      },
+      "PaymentType": {
+        "description": "Payment type enum for invoice payments.",
+        "enum": ["charge", "payment_intent", "payment_record"],
+        "title": "PaymentType",
+        "type": "string"
+      },
+      "StatusTransitions": {
+        "description": "Timestamp records for status changes.",
+        "properties": {
+          "canceled_at": {
+            "description": "Unix timestamp indicating when the payment was canceled.",
+            "title": "Canceled At",
+            "type": "integer"
+          },
+          "paid_at": {
+            "description": "Unix timestamp indicating when the payment succeeded.",
+            "title": "Paid At",
+            "type": "integer"
+          }
+        },
+        "title": "StatusTransitions",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetInvoicePaymentsIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,513 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Bulk update multiple Zendesk users in a single request. Use when you need to apply the same or different updates to up to 100 users at once. Provide either a single `user` object to apply identical changes to all specified users, or an array of `users` objects for individual updates per user. The operation is asynchronous and returns a job_status that you can poll to track completion. This action is idempotent — re-running with the same parameters will apply the same updates again.",
+  "inputSchema": {
+    "description": "Request to bulk update multiple Zendesk users.",
+    "properties": {
+      "external_ids": {
+        "description": "Comma-separated list of external user IDs to update (max 100). Use this when you have external IDs assigned to users. Required if ids is not provided.",
+        "examples": ["ext123,ext456,ext789"],
+        "human_parameter_description": "A comma-separated list of external user IDs to update (e.g., 'ext123,ext456,ext789'). Max 100 IDs allowed. Use either this or User IDs.",
+        "human_parameter_name": "External IDs",
+        "title": "External Ids",
+        "type": "string"
+      },
+      "ids": {
+        "description": "Comma-separated list of Zendesk user IDs to update (max 100). Use this when you have the numeric user IDs. Required if external_ids is not provided.",
+        "examples": ["35436,35437,35438"],
+        "human_parameter_description": "A comma-separated list of Zendesk user numeric IDs to update (e.g., '35436,35437,35438'). Max 100 IDs allowed. Use either this or External IDs.",
+        "human_parameter_name": "User IDs",
+        "title": "Ids",
+        "type": "string"
+      },
+      "user": {
+        "additionalProperties": false,
+        "description": "Individual user fields to update for bulk operation.",
+        "human_parameter_description": "User object containing fields to update on all specified users. Common fields: name, email, role, active, phone, tags.",
+        "human_parameter_name": "Update Data",
+        "properties": {
+          "active": {
+            "description": "Whether the user is active",
+            "examples": [true],
+            "human_parameter_description": "Set to false to deactivate the user.",
+            "human_parameter_name": "Active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "alias": {
+            "description": "Alias displayed to end users",
+            "human_parameter_description": "Optional alias shown to end users.",
+            "human_parameter_name": "Alias",
+            "title": "Alias",
+            "type": "string"
+          },
+          "custom_role_id": {
+            "description": "Agent-only: ID of a custom agent role",
+            "examples": [123],
+            "human_parameter_description": "Custom agent role ID when role is 'agent'.",
+            "human_parameter_name": "Custom Role ID",
+            "title": "Custom Role Id",
+            "type": "integer"
+          },
+          "default_group_id": {
+            "description": "ID of the user's default group",
+            "examples": [100],
+            "human_parameter_description": "Numeric ID of the default group.",
+            "human_parameter_name": "Default Group ID",
+            "title": "Default Group Id",
+            "type": "integer"
+          },
+          "details": {
+            "description": "Free-form details about the user",
+            "human_parameter_description": "Optional free-form details.",
+            "human_parameter_name": "Details",
+            "title": "Details",
+            "type": "string"
+          },
+          "email": {
+            "description": "Primary email address of the user",
+            "examples": ["john.doe@example.com"],
+            "human_parameter_description": "Email address to set on the users.",
+            "human_parameter_name": "Email",
+            "title": "Email",
+            "type": "string"
+          },
+          "locale": {
+            "description": "User's locale (BCP-47 format)",
+            "examples": ["en-US"],
+            "human_parameter_description": "Locale tag for the user (e.g., en-US).",
+            "human_parameter_name": "Locale",
+            "title": "Locale",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "User's locale ID",
+            "examples": [1],
+            "human_parameter_description": "Numeric locale ID.",
+            "human_parameter_name": "Locale ID",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "moderator": {
+            "description": "Whether the user is a moderator",
+            "examples": [false],
+            "human_parameter_description": "Set to true to make the user a moderator.",
+            "human_parameter_name": "Moderator",
+            "title": "Moderator",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Full name for the user",
+            "examples": ["John Doe"],
+            "human_parameter_description": "Full name to set on the users.",
+            "human_parameter_name": "Name",
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Notes about the user",
+            "human_parameter_description": "Optional notes about the user.",
+            "human_parameter_name": "Notes",
+            "title": "Notes",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "ID of the user's default organization",
+            "examples": [12345],
+            "human_parameter_description": "Numeric ID of the default organization.",
+            "human_parameter_name": "Organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "phone": {
+            "description": "Phone number of the user in E.164 format",
+            "examples": ["+14155551234"],
+            "human_parameter_description": "Phone number in international format.",
+            "human_parameter_name": "Phone",
+            "title": "Phone",
+            "type": "string"
+          },
+          "role": {
+            "description": "User role. Allowed values: end-user, agent, admin.",
+            "enum": ["end-user", "agent", "admin"],
+            "examples": ["agent"],
+            "human_parameter_description": "Role to assign: end-user, agent, or admin.",
+            "human_parameter_name": "Role",
+            "title": "Role",
+            "type": "string"
+          },
+          "signature": {
+            "description": "Agent or admin's signature",
+            "human_parameter_description": "Agent or admin signature.",
+            "human_parameter_name": "Signature",
+            "title": "Signature",
+            "type": "string"
+          },
+          "suspended": {
+            "description": "Whether the user is suspended",
+            "examples": [false],
+            "human_parameter_description": "Set to true to suspend the user.",
+            "human_parameter_name": "Suspended",
+            "title": "Suspended",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "Array of tags for the user",
+            "examples": [["vip", "beta"]],
+            "human_parameter_description": "Tags to assign to the users.",
+            "human_parameter_name": "Tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "ticket_restriction": {
+            "description": "User's ticket visibility restriction",
+            "enum": ["organization", "groups", "assigned", "requested"],
+            "human_parameter_description": "Ticket access restriction setting.",
+            "human_parameter_name": "Ticket Restriction",
+            "title": "Ticket Restriction",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User's time zone",
+            "examples": ["Pacific Time (US & Canada)"],
+            "human_parameter_description": "User's time zone.",
+            "human_parameter_name": "Time Zone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "user_fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value map of custom user fields",
+            "human_parameter_description": "Custom user field values.",
+            "human_parameter_name": "User Fields",
+            "title": "User Fields",
+            "type": "object"
+          },
+          "verified": {
+            "description": "Whether the user's email has been verified",
+            "examples": [true],
+            "human_parameter_description": "Set to true if the user's email is verified.",
+            "human_parameter_name": "Verified",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "title": "UserUpdateItem",
+        "type": "object"
+      },
+      "users": {
+        "description": "Array of user objects to update each user individually. Use this when you need to apply different updates to different users. The number of user objects should match the number of IDs provided.",
+        "human_parameter_description": "Array of user objects for individual updates. Use when each user needs different field values.",
+        "human_parameter_name": "Individual Updates",
+        "items": {
+          "description": "Individual user fields to update for bulk operation.",
+          "properties": {
+            "active": {
+              "description": "Whether the user is active",
+              "examples": [true],
+              "human_parameter_description": "Set to false to deactivate the user.",
+              "human_parameter_name": "Active",
+              "title": "Active",
+              "type": "boolean"
+            },
+            "alias": {
+              "description": "Alias displayed to end users",
+              "human_parameter_description": "Optional alias shown to end users.",
+              "human_parameter_name": "Alias",
+              "title": "Alias",
+              "type": "string"
+            },
+            "custom_role_id": {
+              "description": "Agent-only: ID of a custom agent role",
+              "examples": [123],
+              "human_parameter_description": "Custom agent role ID when role is 'agent'.",
+              "human_parameter_name": "Custom Role ID",
+              "title": "Custom Role Id",
+              "type": "integer"
+            },
+            "default_group_id": {
+              "description": "ID of the user's default group",
+              "examples": [100],
+              "human_parameter_description": "Numeric ID of the default group.",
+              "human_parameter_name": "Default Group ID",
+              "title": "Default Group Id",
+              "type": "integer"
+            },
+            "details": {
+              "description": "Free-form details about the user",
+              "human_parameter_description": "Optional free-form details.",
+              "human_parameter_name": "Details",
+              "title": "Details",
+              "type": "string"
+            },
+            "email": {
+              "description": "Primary email address of the user",
+              "examples": ["john.doe@example.com"],
+              "human_parameter_description": "Email address to set on the users.",
+              "human_parameter_name": "Email",
+              "title": "Email",
+              "type": "string"
+            },
+            "locale": {
+              "description": "User's locale (BCP-47 format)",
+              "examples": ["en-US"],
+              "human_parameter_description": "Locale tag for the user (e.g., en-US).",
+              "human_parameter_name": "Locale",
+              "title": "Locale",
+              "type": "string"
+            },
+            "locale_id": {
+              "description": "User's locale ID",
+              "examples": [1],
+              "human_parameter_description": "Numeric locale ID.",
+              "human_parameter_name": "Locale ID",
+              "title": "Locale Id",
+              "type": "integer"
+            },
+            "moderator": {
+              "description": "Whether the user is a moderator",
+              "examples": [false],
+              "human_parameter_description": "Set to true to make the user a moderator.",
+              "human_parameter_name": "Moderator",
+              "title": "Moderator",
+              "type": "boolean"
+            },
+            "name": {
+              "description": "Full name for the user",
+              "examples": ["John Doe"],
+              "human_parameter_description": "Full name to set on the users.",
+              "human_parameter_name": "Name",
+              "title": "Name",
+              "type": "string"
+            },
+            "notes": {
+              "description": "Notes about the user",
+              "human_parameter_description": "Optional notes about the user.",
+              "human_parameter_name": "Notes",
+              "title": "Notes",
+              "type": "string"
+            },
+            "organization_id": {
+              "description": "ID of the user's default organization",
+              "examples": [12345],
+              "human_parameter_description": "Numeric ID of the default organization.",
+              "human_parameter_name": "Organization ID",
+              "title": "Organization Id",
+              "type": "integer"
+            },
+            "phone": {
+              "description": "Phone number of the user in E.164 format",
+              "examples": ["+14155551234"],
+              "human_parameter_description": "Phone number in international format.",
+              "human_parameter_name": "Phone",
+              "title": "Phone",
+              "type": "string"
+            },
+            "role": {
+              "description": "User role. Allowed values: end-user, agent, admin.",
+              "enum": ["end-user", "agent", "admin"],
+              "examples": ["agent"],
+              "human_parameter_description": "Role to assign: end-user, agent, or admin.",
+              "human_parameter_name": "Role",
+              "title": "Role",
+              "type": "string"
+            },
+            "signature": {
+              "description": "Agent or admin's signature",
+              "human_parameter_description": "Agent or admin signature.",
+              "human_parameter_name": "Signature",
+              "title": "Signature",
+              "type": "string"
+            },
+            "suspended": {
+              "description": "Whether the user is suspended",
+              "examples": [false],
+              "human_parameter_description": "Set to true to suspend the user.",
+              "human_parameter_name": "Suspended",
+              "title": "Suspended",
+              "type": "boolean"
+            },
+            "tags": {
+              "description": "Array of tags for the user",
+              "examples": [["vip", "beta"]],
+              "human_parameter_description": "Tags to assign to the users.",
+              "human_parameter_name": "Tags",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tags",
+              "type": "array"
+            },
+            "ticket_restriction": {
+              "description": "User's ticket visibility restriction",
+              "enum": ["organization", "groups", "assigned", "requested"],
+              "human_parameter_description": "Ticket access restriction setting.",
+              "human_parameter_name": "Ticket Restriction",
+              "title": "Ticket Restriction",
+              "type": "string"
+            },
+            "time_zone": {
+              "description": "User's time zone",
+              "examples": ["Pacific Time (US & Canada)"],
+              "human_parameter_description": "User's time zone.",
+              "human_parameter_name": "Time Zone",
+              "title": "Time Zone",
+              "type": "string"
+            },
+            "user_fields": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Key-value map of custom user fields",
+              "human_parameter_description": "Custom user field values.",
+              "human_parameter_name": "User Fields",
+              "title": "User Fields",
+              "type": "object"
+            },
+            "verified": {
+              "description": "Whether the user's email has been verified",
+              "examples": [true],
+              "human_parameter_description": "Set to true if the user's email is verified.",
+              "human_parameter_name": "Verified",
+              "title": "Verified",
+              "type": "boolean"
+            }
+          },
+          "title": "UserUpdateItem",
+          "type": "object"
+        },
+        "title": "Users",
+        "type": "array"
+      }
+    },
+    "title": "UpdateManyUsersRequest",
+    "type": "object"
+  },
+  "name": "update_many_users",
+  "outputSchema": {
+    "$defs": {
+      "JobStatus": {
+        "description": "Background job status for bulk user operations.",
+        "properties": {
+          "id": {
+            "description": "Automatically assigned when the job is queued",
+            "examples": ["82de0b044094f0c67893ac9fe64f1a99"],
+            "title": "Id",
+            "type": "string"
+          },
+          "job_type": {
+            "description": "The type of the job",
+            "examples": ["user_update_many"],
+            "title": "Job Type",
+            "type": "string"
+          },
+          "message": {
+            "description": "Message from the job worker, if any",
+            "examples": ["Completed at 2018-03-08 10:07:04 +0000"],
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "description": "Number of tasks that have already been completed",
+            "examples": [2],
+            "title": "Progress",
+            "type": "integer"
+          },
+          "results": {
+            "description": "Result data from processed tasks. Contains details for each user update.",
+            "items": {
+              "$ref": "#/$defs/UserUpdateResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "status": {
+            "description": "Current status of the job: queued, working, failed, or completed",
+            "examples": ["completed"],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "description": "Total number of tasks this job is processing",
+            "examples": [3],
+            "title": "Total",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL to poll for status updates",
+            "examples": ["https://example-67894.zendesk.com/api/v2/job_statuses/82de0b0467893ac9fe64f1a99"],
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["status"],
+        "title": "JobStatus",
+        "type": "object"
+      },
+      "UpdateManyUsersResponse": {
+        "description": "Response from updating multiple users.",
+        "properties": {
+          "job_status": {
+            "$ref": "#/$defs/JobStatus",
+            "description": "Background job status object with results for each user update. Poll the 'url' to track progress.",
+            "title": "Job Status"
+          }
+        },
+        "required": ["job_status"],
+        "title": "UpdateManyUsersResponse",
+        "type": "object"
+      },
+      "UserUpdateResult": {
+        "description": "Result of a single user update within the job.",
+        "properties": {
+          "action": {
+            "description": "The action performed (e.g., 'update')",
+            "title": "Action",
+            "type": "string"
+          },
+          "error": {
+            "description": "Error message if the update failed",
+            "title": "Error",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the user that was updated",
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The status of the update (e.g., 'Updated')",
+            "title": "Status",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the update was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "UserUpdateResult",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateManyUsersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

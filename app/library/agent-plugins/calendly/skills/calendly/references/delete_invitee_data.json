@@ -1,0 +1,46 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently removes all invitee data associated with the provided emails from past organization events, for data privacy compliance (requires Enterprise subscription; deletion may take up to one week).",
+  "inputSchema": {
+    "description": "Specifies the emails of invitees whose data should be removed.",
+    "properties": {
+      "emails": {
+        "description": "Invitee email addresses for whom all associated data will be permanently removed.",
+        "examples": [["test_user1@example.com", "test_user2@example.com"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Emails",
+        "type": "array"
+      }
+    },
+    "required": ["emails"],
+    "title": "DeleteInviteeDataRequest",
+    "type": "object"
+  },
+  "name": "delete_invitee_data",
+  "outputSchema": {
+    "$defs": {
+      "DeleteInviteeDataResponse": {
+        "description": "Response from the Calendly Delete Invitee Data endpoint. This endpoint submits an asynchronous request to remove invitee data from all previously booked events in the organization. The API returns HTTP 202 Accepted with an empty response body, indicating the deletion request has been accepted for asynchronous processing. The actual deletion can take up to 7 days to complete. This endpoint is only available to Enterprise plan users.",
+        "properties": {},
+        "title": "DeleteInviteeDataResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteInviteeDataResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

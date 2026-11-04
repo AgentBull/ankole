@@ -1,0 +1,174 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves Sentry organization event statistics; specify time range with `statsPeriod` OR both `start`/`end`; note that grouping by `project` returns a sum not a time-series, and `interval` (if used) must be 1h-1d and cleanly divide 24 hours.",
+  "inputSchema": {
+    "description": "Request schema for `RetrieveOrganizationStatsV2`",
+    "properties": {
+      "category": {
+        "description": "Filter by data category (e.g., `error`, `transaction`). **IMPORTANT**: Either this parameter OR `category` in `groupBy` is required for the query to succeed. `attachment` and `profile_duration` categories affect interpretation of `sum(quantity)` in `field` (bytes and milliseconds respectively).",
+        "enum": ["error", "transaction", "attachment", "replay", "profile", "profile_duration", "monitor"],
+        "examples": ["error", "transaction", "attachment"],
+        "title": "CategoryEnm",
+        "type": "string"
+      },
+      "end": {
+        "description": "Inclusive end timestamp for the time series (ISO 8601 UTC or Unix epoch seconds). Use with `start`; alternative to `statsPeriod`.",
+        "examples": ["2023-01-31T23:59:59Z", "1675123199"],
+        "title": "End",
+        "type": "string"
+      },
+      "field": {
+        "description": "Metric to retrieve. `sum(quantity)` for event counts (or bytes if category is `attachment`, milliseconds if `profile_duration`). `sum(times_seen)` for unique event occurrences (or sessions/attachments).",
+        "enum": ["sum(quantity)", "sum(times_seen)"],
+        "examples": ["sum(quantity)", "sum(times_seen)"],
+        "title": "Field",
+        "type": "string"
+      },
+      "groupBy": {
+        "description": "Dimensions to group statistics by. **IMPORTANT**: The query must include `category` either in `groupBy` OR as a filter parameter. Grouping by `project` returns a sum over the entire period, not a time series; for many projects, consider filtering by projects individually or querying them one by one to avoid missing rows.",
+        "examples": [["outcome", "category"], ["project", "category"], ["category"]],
+        "items": {
+          "enum": ["outcome", "category", "reason", "project"],
+          "title": "GroupbyEnm",
+          "type": "string"
+        },
+        "title": "Group By",
+        "type": "array"
+      },
+      "interval": {
+        "description": "Time series data resolution (e.g., `1h`, `1d`). Must be between `1h` and `1d` (inclusive) and cleanly divide 24 hours (e.g., `1h`, `2h`, `6h`, `12h`, `24h`).",
+        "examples": ["1h", "6h", "1d"],
+        "title": "Interval",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "ID or slug of the Sentry organization.",
+        "examples": ["my-org-slug", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "outcome": {
+        "description": "Filter by event outcome status (e.g., `accepted`, `filtered`, `rate_limited`), indicating how Sentry processed the event.",
+        "enum": ["accepted", "filtered", "rate_limited", "invalid", "abuse", "client_discard", "cardinality_limited"],
+        "examples": [
+          "accepted",
+          "filtered",
+          "rate_limited",
+          "invalid",
+          "abuse",
+          "client_discard",
+          "cardinality_limited"
+        ],
+        "title": "OutcomeEnm",
+        "type": "string"
+      },
+      "project": {
+        "description": "Project IDs to filter statistics by. Use `[\"-1\"]` to include all accessible projects for the organization.",
+        "examples": [["123", "456"], ["-1"]],
+        "items": {},
+        "title": "Project",
+        "type": "array"
+      },
+      "reason": {
+        "description": "Reason an event was filtered/dropped by Sentry (e.g., `filters:release_version`, `spike_protection`). Often used with outcomes like `filtered` or `rate_limited`.",
+        "examples": ["filters:release_version", "spike_protection", "cardinality_limit"],
+        "title": "Reason",
+        "type": "string"
+      },
+      "start": {
+        "description": "Start timestamp for the time series (ISO 8601 UTC or Unix epoch seconds). Use with `end`; alternative to `statsPeriod`.",
+        "examples": ["2023-01-01T00:00:00Z", "1672531200"],
+        "title": "Start",
+        "type": "string"
+      },
+      "statsPeriod": {
+        "description": "Relative time range for statistics (e.g., `1d` for 1 day, `2w` for 2 weeks). Use `m` (minutes), `h` (hours), `d` (days), `w` (weeks). Provide this or both `start` and `end`.",
+        "examples": ["24h", "7d", "4w"],
+        "title": "Stats Period",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "groupBy", "field"],
+    "title": "RetrieveOrganizationStatsV2Request",
+    "type": "object"
+  },
+  "name": "retrieve_organization_stats_v2",
+  "outputSchema": {
+    "$defs": {
+      "GroupResult": {
+        "description": "Individual group result containing statistics organized by specified dimensions.",
+        "properties": {
+          "by": {
+            "additionalProperties": true,
+            "description": "Dimension filters applied to this group (dynamic keys based on groupBy parameter, e.g., outcome, category, project).",
+            "title": "By",
+            "type": "object"
+          },
+          "series": {
+            "additionalProperties": true,
+            "description": "Time-series data arrays for each metric, indexed by interval (dynamic keys based on field parameter, with array values corresponding to intervals).",
+            "title": "Series",
+            "type": "object"
+          },
+          "totals": {
+            "additionalProperties": true,
+            "description": "Aggregated values across the entire period (dynamic keys based on field parameter, e.g., sum(quantity), sum(times_seen)).",
+            "title": "Totals",
+            "type": "object"
+          }
+        },
+        "required": ["by", "series"],
+        "title": "GroupResult",
+        "type": "object"
+      },
+      "RetrieveOrganizationStatsV2Response": {
+        "description": "Response schema for `RetrieveOrganizationStatsV2`",
+        "properties": {
+          "end": {
+            "description": "Conclusion of the queried time range in ISO8601 format.",
+            "title": "End",
+            "type": "string"
+          },
+          "groups": {
+            "description": "Collection of grouped result objects containing statistics organized by specified dimensions.",
+            "items": {
+              "$ref": "#/$defs/GroupResult"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "intervals": {
+            "description": "Collection of ISO8601 datetime strings representing time buckets for the time series data.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Intervals",
+            "type": "array"
+          },
+          "start": {
+            "description": "Beginning of the queried time range in ISO8601 format.",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": ["start", "end", "intervals", "groups"],
+        "title": "RetrieveOrganizationStatsV2Response",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RetrieveOrganizationStatsV2Response",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

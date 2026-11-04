@@ -1,0 +1,140 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new checklist on a Trello card, either by name or by copying from `idChecklistSource`, targeting an `idCard` or `idBoard`; this action creates only the checklist structure, not its items.",
+  "inputSchema": {
+    "description": "Parameters to create a new Trello checklist, including target card/board, optional source for copying, name (if not copying), and position.",
+    "properties": {
+      "idBoard": {
+        "description": "The ID of the Trello board. If `idCard` is not specified, this board will be targeted, potentially for creating a new card to host the checklist. One of `idBoard` or `idCard` is required.",
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "The ID of the Trello card to which the checklist will be added. If provided, the checklist is added to this specific card. One of `idBoard` or `idCard` is required.",
+        "title": "Id Card",
+        "type": "string"
+      },
+      "idChecklistSource": {
+        "description": "The ID of an existing checklist to be copied. If provided, the `name` parameter is ignored, and the new checklist will be a duplicate of this source.",
+        "title": "Id Checklist Source",
+        "type": "string"
+      },
+      "name": {
+        "description": "The name for the new checklist. Required if `idChecklistSource` is not provided. Must be a string with length between 0 and 16384 characters.",
+        "title": "Name",
+        "type": "string"
+      },
+      "pos": {
+        "description": "The position of the new checklist on its card. Accepted values are 'top', 'bottom', or a positive number (integer or float).",
+        "examples": ["top", "bottom", "1", "2.5"],
+        "title": "Pos",
+        "type": "string"
+      }
+    },
+    "title": "AddChecklistsRequest",
+    "type": "object"
+  },
+  "name": "add_checklists",
+  "outputSchema": {
+    "$defs": {
+      "AddChecklistsResponse": {
+        "description": "Response containing the data of the newly created Trello checklist.",
+        "properties": {
+          "checkItems": {
+            "description": "Array of check items within the checklist.",
+            "items": {
+              "$ref": "#/$defs/CheckItem"
+            },
+            "title": "Check Items",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier of the checklist.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "Identifier of the board containing the checklist.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "idCard": {
+            "description": "Identifier of the card to which the checklist belongs.",
+            "title": "Id Card",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the checklist.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the checklist relative to other checklists on the card.",
+            "title": "Pos",
+            "type": "number"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "AddChecklistsResponse",
+        "type": "object"
+      },
+      "CheckItem": {
+        "description": "Represents a single check item within a checklist.",
+        "properties": {
+          "due": {
+            "description": "Due date for the check item in ISO 8601 format (YYYY-MM-DDTHH:mm:ss.000Z). Available in Premium workspaces.",
+            "title": "Due",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the check item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "Identifier of the parent checklist.",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "Identifier of the member assigned to the check item. Can be null. Available in Premium workspaces.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name or text content of the check item.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the check item within the checklist.",
+            "title": "Pos",
+            "type": "number"
+          },
+          "state": {
+            "description": "Completion state of the check item. Possible values: 'complete' or 'incomplete'.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "state"],
+        "title": "CheckItem",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddChecklistsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -58,7 +58,7 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
         code: code
       })
 
-    assert %{"returnTo" => "/site-admin-console"} = api_response(conn, 200)
+    assert api_response(conn, 200)["returnTo"] == console_url()
     assert {:ok, true} = Ankole.Setup.Config.completed?()
     assert %{"principal_uid" => uid} = WebSession.site_admin_session(conn)
 
@@ -226,7 +226,7 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
     assert AuthZ.site_admin_member?(disabled_admin.uid)
     refute AuthZ.site_admin?(disabled_admin.uid)
 
-    console_entry = conn |> init_test_session(%{}) |> get("/site-admin-console/settings")
+    console_entry = conn |> init_test_session(%{}) |> get(console_url("/settings"))
     redirect_url = redirected_to(console_entry)
     refute redirect_url =~ "/site-admin-console"
 
@@ -297,7 +297,7 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
         code: admin_code
       })
 
-    expected_console_url = AnkoleWeb.PodURL.site_origin(conn) <> "/site-admin-console/settings"
+    expected_console_url = console_url("/settings")
     assert api_response(admin_verified, 200)["returnTo"] == expected_console_url
     assert WebSession.site_admin_session(admin_verified)["principal_uid"] == primary_admin.uid
 
@@ -306,7 +306,7 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
       |> recycle()
       |> delete_req_header("accept")
       |> site_conn()
-      |> get("/site-admin-console/settings")
+      |> get(console_url("/settings"))
 
     assert html_response(admin_console, 200) =~
              ~s(<meta name="ankole-principal" content="#{primary_admin.uid}">)
@@ -346,7 +346,7 @@ defmodule AnkoleWeb.PasswordlessAuthenticationTest do
       |> recycle()
       |> delete_req_header("accept")
       |> site_conn()
-      |> get("/site-admin-console/settings")
+      |> get(console_url("/settings"))
 
     assert member_console.status == 403
     assert member_console.resp_body == "Site administrator access required"

@@ -1,0 +1,387 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List one page of issues that would close when a merge request is merged. These are not necessarily already closed. External trackers may return only an issue key and title. Follow next_page for additional results.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Project-local merge request IID.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid"],
+    "title": "ListMergeRequestClosedIssuesRequest",
+    "type": "object"
+  },
+  "name": "list_merge_request_closed_issues",
+  "outputSchema": {
+    "$defs": {
+      "ClosedIssueMilestone": {
+        "additionalProperties": true,
+        "properties": {
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Milestone description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "description": "Milestone due date, or null.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "id": {
+            "description": "Milestone ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Project-local milestone IID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "project_id": {
+            "description": "Milestone project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Milestone state.",
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "description": "Milestone title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "ClosedIssueMilestone",
+        "type": "object"
+      },
+      "ClosedIssueTaskCompletionStatus": {
+        "additionalProperties": true,
+        "properties": {
+          "completed_count": {
+            "description": "Completed task count.",
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "count": {
+            "description": "Total task count.",
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "title": "ClosedIssueTaskCompletionStatus",
+        "type": "object"
+      },
+      "ClosedIssueTimeStats": {
+        "additionalProperties": true,
+        "properties": {
+          "human_time_estimate": {
+            "description": "Human-readable estimate.",
+            "title": "Human Time Estimate",
+            "type": "string"
+          },
+          "human_total_time_spent": {
+            "description": "Human-readable time spent.",
+            "title": "Human Total Time Spent",
+            "type": "string"
+          },
+          "time_estimate": {
+            "description": "Estimated time in seconds.",
+            "title": "Time Estimate",
+            "type": "integer"
+          },
+          "total_time_spent": {
+            "description": "Time spent in seconds.",
+            "title": "Total Time Spent",
+            "type": "integer"
+          }
+        },
+        "title": "ClosedIssueTimeStats",
+        "type": "object"
+      },
+      "ClosedIssueUser": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Avatar URL, or null.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "locked": {
+            "description": "Whether the user is locked.",
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "User display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "User profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "ClosedIssueUser",
+        "type": "object"
+      },
+      "ListMergeRequestClosedIssuesResponse": {
+        "properties": {
+          "issues": {
+            "description": "One page of issues that would close when the merge request is merged.",
+            "items": {
+              "$ref": "#/$defs/MergeRequestClosedIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          }
+        },
+        "required": ["issues"],
+        "title": "ListMergeRequestClosedIssuesResponse",
+        "type": "object"
+      },
+      "MergeRequestClosedIssue": {
+        "additionalProperties": true,
+        "properties": {
+          "assignee": {
+            "$ref": "#/$defs/ClosedIssueUser",
+            "description": "First assigned user.",
+            "title": "Assignee"
+          },
+          "assignees": {
+            "description": "Assigned users.",
+            "items": {
+              "$ref": "#/$defs/ClosedIssueUser"
+            },
+            "title": "Assignees",
+            "type": "array"
+          },
+          "author": {
+            "$ref": "#/$defs/ClosedIssueUser",
+            "description": "Issue author.",
+            "title": "Author"
+          },
+          "blocking_issues_count": {
+            "description": "Count of issues this issue blocks.",
+            "title": "Blocking Issues Count",
+            "type": "integer"
+          },
+          "closed_at": {
+            "description": "Closure timestamp, or null.",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "closed_by": {
+            "$ref": "#/$defs/ClosedIssueUser",
+            "description": "User who closed the issue.",
+            "title": "Closed By"
+          },
+          "confidential": {
+            "description": "Whether the issue is confidential.",
+            "title": "Confidential",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Issue description, or null.",
+            "title": "Description",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "description": "Whether comments are locked to members.",
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "downvotes": {
+            "description": "Downvote count.",
+            "title": "Downvotes",
+            "type": "integer"
+          },
+          "due_date": {
+            "description": "Issue due date, or null.",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "GitLab issue ID or external tracker issue key.",
+            "title": "Id"
+          },
+          "iid": {
+            "description": "Project-local GitLab issue IID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "issue_type": {
+            "description": "Issue type, such as issue, incident, test_case, requirement, or task.",
+            "title": "Issue Type",
+            "type": "string"
+          },
+          "labels": {
+            "description": "Issue label names.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "merge_requests_count": {
+            "description": "Merge requests closing the issue.",
+            "title": "Merge Requests Count",
+            "type": "integer"
+          },
+          "milestone": {
+            "$ref": "#/$defs/ClosedIssueMilestone",
+            "description": "Issue milestone.",
+            "title": "Milestone"
+          },
+          "project_id": {
+            "description": "Issue project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Issue state, opened or closed.",
+            "title": "State",
+            "type": "string"
+          },
+          "task_completion_status": {
+            "$ref": "#/$defs/ClosedIssueTaskCompletionStatus",
+            "description": "Issue task completion counts.",
+            "title": "Task Completion Status"
+          },
+          "time_stats": {
+            "$ref": "#/$defs/ClosedIssueTimeStats",
+            "description": "Issue time statistics.",
+            "title": "Time Stats"
+          },
+          "title": {
+            "description": "Issue title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Uppercase issue type.",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "upvotes": {
+            "description": "Upvote count.",
+            "title": "Upvotes",
+            "type": "integer"
+          },
+          "user_notes_count": {
+            "description": "Number of user notes.",
+            "title": "User Notes Count",
+            "type": "integer"
+          },
+          "web_url": {
+            "description": "Issue web URL.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "weight": {
+            "description": "Issue weight, or null.",
+            "title": "Weight",
+            "type": "integer"
+          }
+        },
+        "required": ["id"],
+        "title": "MergeRequestClosedIssue",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListMergeRequestClosedIssuesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

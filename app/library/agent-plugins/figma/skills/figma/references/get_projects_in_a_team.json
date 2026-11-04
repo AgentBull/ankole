@@ -1,0 +1,87 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves projects (folders) visible to the authenticated user in a specified Figma team. On plans with nested folders enabled, results include only top-level folders.",
+  "inputSchema": {
+    "description": "Request schema for `GetProjectsInATeam`",
+    "properties": {
+      "team_id": {
+        "description": "Identifier of the Figma team from which to list projects. Note: The `team_id` cannot be programmatically obtained solely from a user token. To find a `team_id`, navigate to a team page you are a member of in Figma. The `team_id` will be present in the URL, typically formatted as `https://www.figma.com/files/team/YOUR_TEAM_ID/Your_Team_Name`.",
+        "examples": ["8765432109876543210"],
+        "title": "Team Id",
+        "type": "string"
+      }
+    },
+    "required": ["team_id"],
+    "title": "GetProjectsInATeamRequest",
+    "type": "object"
+  },
+  "name": "get_projects_in_a_team",
+  "outputSchema": {
+    "$defs": {
+      "GetProjectsInATeamResponse": {
+        "description": "Response schema for `GetProjectsInATeam`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Contains the team's name and its list of associated projects.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetProjectsInATeamResponse",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "name": {
+            "description": "The name of the team.",
+            "title": "Name",
+            "type": "string"
+          },
+          "projects": {
+            "description": "A list of projects associated with the team.",
+            "items": {
+              "$ref": "#/$defs/Project"
+            },
+            "title": "Projects",
+            "type": "array"
+          }
+        },
+        "required": ["name", "projects"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Project": {
+        "properties": {
+          "id": {
+            "description": "The unique identifier for the project.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the project.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "Project",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetProjectsInATeamResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,103 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get a specific group membership for a user by their IDs. Use when you have both a user ID and a group membership ID and need to retrieve details including the associated group, user, and timestamps. This action retrieves a single group membership record scoped to a specific user, unlike GetGroupMembership which retrieves by membership ID alone, and unlike ListUsersGroupMemberships which lists all memberships for a user.",
+  "inputSchema": {
+    "description": "Request parameters for getting a specific Zendesk group membership for a user.",
+    "properties": {
+      "group_membership_id": {
+        "description": "The numeric ID of the group membership to retrieve. This is the group membership ID, not a group ID.",
+        "examples": [4],
+        "human_parameter_description": "The unique ID of the group membership you want to retrieve for the specified user.",
+        "human_parameter_name": "Group Membership ID",
+        "title": "Group Membership Id",
+        "type": "integer"
+      },
+      "user_id": {
+        "description": "The numeric ID of the user. This is the user ID, not a membership ID.",
+        "examples": [35436],
+        "human_parameter_description": "The unique ID of the Zendesk user whose group membership you want to retrieve.",
+        "human_parameter_name": "User ID",
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id", "group_membership_id"],
+    "title": "GetUsersGroupMembershipsByIdRequest",
+    "type": "object"
+  },
+  "name": "get_users_group_memberships_by_id",
+  "outputSchema": {
+    "$defs": {
+      "GetUsersGroupMembershipsByIdResponse": {
+        "description": "Response containing a specific Zendesk group membership for a user.",
+        "properties": {
+          "group_membership": {
+            "$ref": "#/$defs/GroupMembership",
+            "description": "The group membership object",
+            "title": "Group Membership"
+          }
+        },
+        "required": ["group_membership"],
+        "title": "GetUsersGroupMembershipsByIdResponse",
+        "type": "object"
+      },
+      "GroupMembership": {
+        "description": "Zendesk group membership object.",
+        "properties": {
+          "created_at": {
+            "description": "The time the group membership was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "default": {
+            "description": "If true, tickets assigned directly to the agent will assume this membership's group",
+            "title": "Default",
+            "type": "boolean"
+          },
+          "group_id": {
+            "description": "The id of a group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Automatically assigned upon creation",
+            "title": "Id",
+            "type": "integer"
+          },
+          "updated_at": {
+            "description": "The time of the last update of the group membership",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "The API url of this record",
+            "title": "Url",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "The id of an agent",
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": ["group_id", "user_id"],
+        "title": "GroupMembership",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUsersGroupMembershipsByIdResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

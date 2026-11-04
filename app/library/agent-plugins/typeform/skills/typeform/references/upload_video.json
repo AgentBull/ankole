@@ -1,0 +1,70 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Initiate a video upload to Typeform by obtaining a signed upload URL. Use this action to prepare for uploading a video file to a specific form field. After receiving the upload_url, use it to upload the actual video file via a PUT request.",
+  "inputSchema": {
+    "properties": {
+      "field_id": {
+        "description": "Field ID where the video media belongs within the form",
+        "examples": ["test_field"],
+        "title": "Field Id",
+        "type": "string"
+      },
+      "form_id": {
+        "description": "Unique form identifier where the video will be attached",
+        "examples": ["Y78g1cmS"],
+        "title": "Form Id",
+        "type": "string"
+      },
+      "language": {
+        "description": "ISO 639-1 format language code for automatic transcription (e.g., 'en' for English, 'es' for Spanish)",
+        "examples": ["en", "es", "fr"],
+        "title": "Language",
+        "type": "string"
+      }
+    },
+    "required": ["form_id", "field_id", "language"],
+    "title": "TypeformUploadVideoRequest",
+    "type": "object"
+  },
+  "name": "upload_video",
+  "outputSchema": {
+    "$defs": {
+      "TypeformUploadVideoResponse": {
+        "properties": {
+          "id": {
+            "description": "Unique media file identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "transcode_status": {
+            "description": "Current transcoding status of the video",
+            "title": "Transcode Status",
+            "type": "string"
+          },
+          "upload_url": {
+            "description": "Temporary signed URL for uploading video file via PUT request",
+            "title": "Upload Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "upload_url", "transcode_status"],
+        "title": "TypeformUploadVideoResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/TypeformUploadVideoResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,5 +1,5 @@
 import { pageMetadata } from './state/page-metadata'
-import type { InfiniteData, QueryClient } from '@tanstack/react-query'
+import type { InfiniteData, QueryClient, QueryCacheNotifyEvent } from '@tanstack/react-query'
 import { authenticationRef, podID } from '../common/browser-context'
 import { createClientConfig } from '../common/internal-api-client'
 
@@ -408,8 +408,11 @@ export const pageCommentsQuery = (id: string, status: 'open' | 'resolved' | 'all
   retry: false
 })
 
-export function cachedPages(client: QueryClient): Page[] {
-  const pages = new Map<string, Page>()
+type PageIndex = { map: ReadonlyMap<string, Page>; list: readonly Page[] }
+const pageIndexes = new WeakMap<QueryClient, { value?: PageIndex }>()
+
+function collectPages(client: QueryClient): PageIndex {
+  const map = new Map<string, Page>()
   for (const [, data] of client.getQueriesData<{
     pages?: Page[] | { pages: Page[] }[]
     path?: Page[]
@@ -419,12 +422,54 @@ export function cachedPages(client: QueryClient): Page[] {
     queryKey: contentKeys.all
   })) {
     for (const item of data?.pages ?? []) {
-      for (const page of 'pages' in item ? item.pages : [item]) pages.set(page.id, page)
+      for (const page of 'pages' in item ? item.pages : [item]) map.set(page.id, page)
     }
-    for (const page of [...(data?.path ?? []), ...(data?.ancestors ?? [])]) pages.set(page.id, page)
-    if (data?.page) pages.set(data.page.id, data.page)
+    for (const page of [...(data?.path ?? []), ...(data?.ancestors ?? [])]) map.set(page.id, page)
+    if (data?.page) map.set(data.page.id, data.page)
   }
-  return [...pages.values()]
+  return { map, list: [...map.values()] }
+}
+
+function pageDataChanged(event: QueryCacheNotifyEvent): boolean {
+  if (event.query.queryKey[0] !== 'pod-content') return false
+  if (event.type === 'added') return event.query.state.data !== undefined
+  if (event.type === 'removed') return true
+  if (event.type !== 'updated') return false
+  return event.action.type === 'success' || event.action.type === 'setState'
+}
+
+function pageIndex(client: QueryClient): PageIndex {
+  let state = pageIndexes.get(client)
+  if (!state) {
+    state = {}
+    pageIndexes.set(client, state)
+    const index = state
+    client.getQueryCache().subscribe((event: QueryCacheNotifyEvent) => {
+      if (pageDataChanged(event)) index.value = undefined
+    })
+  }
+  return (state.value ??= collectPages(client))
+}
+
+/** Pages already read into this document, indexed once until that cache changes. */
+export function cachedPageMap(client: QueryClient): ReadonlyMap<string, Page> {
+  return pageIndex(client).map
+}
+
+export function cachedPages(client: QueryClient): readonly Page[] {
+  return pageIndex(client).list
+}
+
+/** Overlay a few fresher rows without copying the index when they are already current. */
+export function pagesByID(client: QueryClient, extra: readonly Page[] = []): ReadonlyMap<string, Page> {
+  const base = cachedPageMap(client)
+  let next: Map<string, Page> | undefined
+  for (const page of extra) {
+    if (base.get(page.id) === page) continue
+    next ??= new Map(base)
+    next.set(page.id, page)
+  }
+  return next ?? base
 }
 
 export function fileURL(id: string, path: string, sha256?: string): string {

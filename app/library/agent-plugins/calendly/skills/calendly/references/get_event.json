@@ -1,0 +1,336 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Use to retrieve a specific Calendly scheduled event by its UUID, provided the event exists in the user's Calendly account.",
+  "inputSchema": {
+    "description": "Input for retrieving a specific Calendly event.",
+    "properties": {
+      "uuid": {
+        "description": "Unique identifier (UUID) of the Calendly event.",
+        "examples": ["AAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBB"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "GetEventRequest",
+    "type": "object"
+  },
+  "name": "get_event",
+  "outputSchema": {
+    "$defs": {
+      "CalendarEvent": {
+        "description": "Information about the external calendar event.",
+        "properties": {
+          "external_id": {
+            "description": "The external calendar event ID.",
+            "title": "External Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "The type of external calendar (e.g., 'google', 'outlook').",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "title": "CalendarEvent",
+        "type": "object"
+      },
+      "Cancellation": {
+        "description": "Cancellation details if the event has been canceled.",
+        "properties": {
+          "canceled_by": {
+            "description": "The name of the person who canceled the event.",
+            "title": "Canceled By",
+            "type": "string"
+          },
+          "canceler_type": {
+            "description": "The type of canceler. Possible values: 'host', 'invitee'.",
+            "title": "Canceler Type",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "When the cancellation occurred in UTC (ISO 8601 format).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "reason": {
+            "description": "The reason provided for the cancellation.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "Cancellation",
+        "type": "object"
+      },
+      "EventGuest": {
+        "description": "Guest who has been added to the event.",
+        "properties": {
+          "created_at": {
+            "description": "When the guest was added in UTC (ISO 8601 format).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "The email address of the guest.",
+            "title": "Email",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "When the guest information was last updated in UTC (ISO 8601 format).",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "title": "EventGuest",
+        "type": "object"
+      },
+      "EventMembership": {
+        "description": "Event membership representing a host or organizer of the event.",
+        "properties": {
+          "buffered_end_time": {
+            "description": "The end time with buffer applied in UTC (ISO 8601 format).",
+            "title": "Buffered End Time",
+            "type": "string"
+          },
+          "buffered_start_time": {
+            "description": "The start time with buffer applied in UTC (ISO 8601 format).",
+            "title": "Buffered Start Time",
+            "type": "string"
+          },
+          "user": {
+            "description": "The URI of the user who is a member of this event.",
+            "title": "User",
+            "type": "string"
+          },
+          "user_email": {
+            "description": "The email address of the user.",
+            "title": "User Email",
+            "type": "string"
+          },
+          "user_name": {
+            "description": "The name of the user.",
+            "title": "User Name",
+            "type": "string"
+          }
+        },
+        "required": ["user"],
+        "title": "EventMembership",
+        "type": "object"
+      },
+      "EventResource": {
+        "description": "The scheduled event resource object.",
+        "properties": {
+          "calendar_event": {
+            "$ref": "#/$defs/CalendarEvent",
+            "description": "Information about the external calendar event associated with this scheduled event.",
+            "title": "Calendar Event"
+          },
+          "cancellation": {
+            "$ref": "#/$defs/Cancellation",
+            "description": "Cancellation details if the event has been canceled.",
+            "title": "Cancellation"
+          },
+          "created_at": {
+            "description": "The moment when the event was created in UTC (ISO 8601 format).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "end_time": {
+            "description": "The scheduled end time of the event in UTC (ISO 8601 format).",
+            "title": "End Time",
+            "type": "string"
+          },
+          "event_guests": {
+            "description": "An array of guest objects who have been added to the event.",
+            "items": {
+              "$ref": "#/$defs/EventGuest"
+            },
+            "title": "Event Guests",
+            "type": "array"
+          },
+          "event_memberships": {
+            "description": "An array of event membership objects representing the host(s) or organizer(s) of the event.",
+            "items": {
+              "$ref": "#/$defs/EventMembership"
+            },
+            "title": "Event Memberships",
+            "type": "array"
+          },
+          "event_type": {
+            "description": "Reference (URI) to the event type associated with this scheduled event.",
+            "title": "Event Type",
+            "type": "string"
+          },
+          "invitees_counter": {
+            "$ref": "#/$defs/InviteesCounter",
+            "title": "Invitees Counter"
+          },
+          "location": {
+            "$ref": "#/$defs/Location",
+            "description": "The location information for the scheduled event. Can represent various meeting types including physical locations, phone calls, or video conferences.",
+            "title": "Location"
+          },
+          "meeting_notes_html": {
+            "description": "Meeting notes in HTML format.",
+            "title": "Meeting Notes Html",
+            "type": "string"
+          },
+          "meeting_notes_plain": {
+            "description": "Meeting notes in plain text format.",
+            "title": "Meeting Notes Plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the scheduled event.",
+            "title": "Name",
+            "type": "string"
+          },
+          "start_time": {
+            "description": "The scheduled start time of the event in UTC (ISO 8601 format).",
+            "title": "Start Time",
+            "type": "string"
+          },
+          "status": {
+            "description": "Indicates if the event is active or canceled. Possible values: 'active', 'canceled'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "The moment when the event was last updated in UTC (ISO 8601 format).",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the scheduled event. The UUID is the alphanumeric string at the end of this URI.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri",
+          "name",
+          "status",
+          "start_time",
+          "end_time",
+          "event_type",
+          "invitees_counter",
+          "created_at",
+          "updated_at",
+          "event_memberships"
+        ],
+        "title": "EventResource",
+        "type": "object"
+      },
+      "GetEventResponse": {
+        "description": "Details of the retrieved Calendly event.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/EventResource",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "GetEventResponse",
+        "type": "object"
+      },
+      "InviteesCounter": {
+        "description": "Information about the invitees for this event.",
+        "properties": {
+          "active": {
+            "description": "The number of active invitees (not canceled).",
+            "title": "Active",
+            "type": "integer"
+          },
+          "limit": {
+            "description": "The maximum number of invitees allowed for this event.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "total": {
+            "description": "The total number of invitees.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": ["total", "active", "limit"],
+        "title": "InviteesCounter",
+        "type": "object"
+      },
+      "Location": {
+        "description": "Location information for the scheduled event.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/LocationData",
+            "description": "Additional location-specific data such as meeting IDs, passwords, and settings for video conferences.",
+            "title": "Data"
+          },
+          "joinUrl": {
+            "description": "The URL to join the meeting (for video conference locations).",
+            "title": "Join Url",
+            "type": "string"
+          },
+          "location": {
+            "description": "The location details (address for physical, phone number for calls, etc.).",
+            "title": "Location",
+            "type": "string"
+          },
+          "status": {
+            "description": "The status of the location (e.g., 'pushed' for video conferences that have been created).",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "description": "The type of location. Possible values include: 'physical', 'zoom', 'google_conference', 'gotomeeting', 'microsoft_teams', 'outbound_call', 'inbound_call', 'custom', 'invitee_specified', etc.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "Location",
+        "type": "object"
+      },
+      "LocationData": {
+        "description": "Additional location-specific data for video conferences.",
+        "properties": {
+          "extra": {
+            "additionalProperties": true,
+            "description": "Additional metadata for the meeting.",
+            "title": "Extra",
+            "type": "object"
+          },
+          "id": {
+            "description": "The meeting ID for video conferences.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "password": {
+            "description": "The meeting password for video conferences.",
+            "title": "Password",
+            "type": "string"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "description": "Meeting settings specific to the video conference platform.",
+            "title": "Settings",
+            "type": "object"
+          }
+        },
+        "title": "LocationData",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetEventResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

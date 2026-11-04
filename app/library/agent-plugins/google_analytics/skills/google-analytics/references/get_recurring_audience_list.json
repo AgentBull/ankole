@@ -1,0 +1,115 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to get configuration metadata about a specific recurring audience list. Use when you need to understand a recurring audience list's state after it has been created or to get the resource name of the most recent audience list instance.",
+  "inputSchema": {
+    "description": "Request model for retrieving a specific recurring audience list.",
+    "properties": {
+      "name": {
+        "description": "Required. The recurring audience list resource name. Format: properties/{property}/recurringAudienceLists/{recurring_audience_list}",
+        "examples": ["properties/489591273/recurringAudienceLists/16375634"],
+        "pattern": "^properties/[^/]+/recurringAudienceLists/[^/]+$",
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "GetRecurringAudienceListRequest",
+    "type": "object"
+  },
+  "name": "get_recurring_audience_list",
+  "outputSchema": {
+    "$defs": {
+      "AudienceDimension": {
+        "description": "Model for an audience dimension.",
+        "properties": {
+          "dimensionName": {
+            "description": "API name of the dimension (e.g., deviceId, userId, isAdsPersonalizationAllowed).",
+            "title": "Dimension Name",
+            "type": "string"
+          }
+        },
+        "title": "AudienceDimension",
+        "type": "object"
+      },
+      "GetRecurringAudienceListResponse": {
+        "description": "Response model for getting a recurring audience list.",
+        "properties": {
+          "activeDaysRemaining": {
+            "description": "The number of remaining days that a recurring audience export will produce an audience list instance. This counter decreases by one each day, and when it reaches zero, no new audience lists will be created. Recurring audience list request for Analytics 360 properties default to 180 days and have a maximum of 365 days. Requests for standard Analytics properties default to 14 days and have a maximum of 30 days. The minimum value allowed during creation is 1. Requests above their respective maximum will be coerced to their maximum.",
+            "title": "Active Days Remaining",
+            "type": "integer"
+          },
+          "audience": {
+            "description": "The audience resource name. This resource name identifies the audience being listed and is shared between the Analytics Data & Admin APIs. Format: properties/{property}/audiences/{audience}",
+            "title": "Audience",
+            "type": "string"
+          },
+          "audienceDisplayName": {
+            "description": "The descriptive display name for this audience. For example, 'Purchasers'.",
+            "title": "Audience Display Name",
+            "type": "string"
+          },
+          "audienceLists": {
+            "description": "Audience list resource names for audience list instances created for this recurring audience list. One audience list is created for each day, and the audience list will be listed here. This list is ordered with the most recently created audience list first.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Audience Lists",
+            "type": "array"
+          },
+          "dimensions": {
+            "description": "The dimensions requested and displayed in the audience list response.",
+            "items": {
+              "$ref": "#/$defs/AudienceDimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "name": {
+            "description": "Identifier. The recurring audience list resource name assigned during creation. Format: properties/{property}/recurringAudienceLists/{recurring_audience_list}",
+            "title": "Name",
+            "type": "string"
+          },
+          "webhookNotification": {
+            "$ref": "#/$defs/WebhookNotification",
+            "description": "Webhook notification configuration for recurring audience list state changes.",
+            "title": "Webhook Notification"
+          }
+        },
+        "title": "GetRecurringAudienceListResponse",
+        "type": "object"
+      },
+      "WebhookNotification": {
+        "description": "Configuration for receiving webhook notifications about recurring audience list status.",
+        "properties": {
+          "channelToken": {
+            "description": "Optional token for source verification, included in X-Goog-Channel-Token header. Max length: 64 characters.",
+            "title": "Channel Token",
+            "type": "string"
+          },
+          "uri": {
+            "description": "HTTPS endpoint URL to receive POST notifications. Must have valid SSL certificate and reply with HTTP 200 within 5 seconds. Max length: 128 characters.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "title": "WebhookNotification",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetRecurringAudienceListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

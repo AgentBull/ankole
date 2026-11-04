@@ -1,0 +1,70 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to return a single user setting for the authenticated user. Use when you need to retrieve a specific calendar setting value.",
+  "inputSchema": {
+    "properties": {
+      "setting": {
+        "description": "The identifier of the user setting to retrieve. Valid values include: autoAddHangouts, dateFieldOrder, defaultEventLength, format24HourTime, hideInvitations, hideWeekends, locale, remindOnRespondedEventsOnly, showDeclinedEvents, timezone, useKeyboardShortcuts, weekStart",
+        "examples": ["timezone", "format24HourTime", "weekStart", "locale", "dateFieldOrder"],
+        "title": "Setting",
+        "type": "string"
+      }
+    },
+    "required": ["setting"],
+    "title": "SettingsGetRequest",
+    "type": "object"
+  },
+  "name": "settings_get",
+  "outputSchema": {
+    "$defs": {
+      "SettingsGetResponse": {
+        "properties": {
+          "display_url": {
+            "default": "https://calendar.google.com/calendar/u/0/r/settings",
+            "description": "Web URL to view this setting in Google Calendar",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the resource",
+            "title": "Etag",
+            "type": "string"
+          },
+          "id": {
+            "description": "The id of the user setting",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "calendar#setting",
+            "description": "Type of the resource (always \"calendar#setting\")",
+            "title": "Kind",
+            "type": "string"
+          },
+          "value": {
+            "description": "Value of the user setting. The format depends on the ID. UTF-8 encoding, up to 1024 characters",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "etag", "id", "value"],
+        "title": "SettingsGetResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SettingsGetResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

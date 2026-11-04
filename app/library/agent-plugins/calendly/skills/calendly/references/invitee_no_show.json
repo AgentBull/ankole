@@ -1,0 +1,75 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to mark an invitee as a no-show for a scheduled event. Use when an invitee fails to attend their scheduled meeting and you need to record their absence in Calendly.",
+  "inputSchema": {
+    "description": "Request model for marking an invitee as a no-show.",
+    "properties": {
+      "invitee": {
+        "description": "URI of the Invitee to be marked as a no-show. This must be a valid URI referencing an existing invitee from a scheduled event (e.g., 'https://api.calendly.com/scheduled_events/GBGBDCAADAEDCRZ2/invitees/AAAAAAAAAAAAAAAA').",
+        "examples": [
+          "https://api.calendly.com/scheduled_events/GBGBDCAADAEDCRZ2/invitees/7c1dbe46-bd84-42e2-9b97-05e2fb379bfe"
+        ],
+        "title": "Invitee",
+        "type": "string"
+      }
+    },
+    "required": ["invitee"],
+    "title": "InviteeNoShowRequest",
+    "type": "object"
+  },
+  "name": "invitee_no_show",
+  "outputSchema": {
+    "$defs": {
+      "InviteeNoShowResource": {
+        "description": "The invitee no-show resource containing details of the no-show record.",
+        "properties": {
+          "created_at": {
+            "description": "ISO 8601 timestamp when the no show record was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "invitee": {
+            "description": "Canonical reference (unique identifier) for the associated Invitee who was marked as a no-show",
+            "title": "Invitee",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the no show record",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "invitee", "created_at"],
+        "title": "InviteeNoShowResource",
+        "type": "object"
+      },
+      "InviteeNoShowResponse": {
+        "description": "Response model containing the created no-show record details.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/InviteeNoShowResource",
+            "description": "The main container object for the invitee no-show record",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "InviteeNoShowResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/InviteeNoShowResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

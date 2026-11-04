@@ -1,0 +1,80 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Gets the current date and time, allowing for a specific timezone offset. Call this tool first before computing relative dates (e.g., 'tomorrow', 'next Monday') to avoid off-by-one-day errors across timezones.",
+  "inputSchema": {
+    "properties": {
+      "timezone": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "default": 0,
+        "description": "Timezone specification. Accepts: (1) IANA timezone identifier (e.g., 'America/New_York', 'Asia/Kolkata', 'Europe/London') - RECOMMENDED, (2) Common timezone abbreviations (e.g., 'PST', 'EST', 'CST', 'GMT', 'UTC') - will be auto-converted to IANA, or (3) Numeric UTC offset in hours (e.g., -5, 5.5). Use positive values for east of UTC, negative for west. Default 0 is UTC.",
+        "examples": [
+          "America/New_York",
+          "Asia/Kolkata",
+          "Europe/London",
+          "Asia/Tokyo",
+          "America/Los_Angeles",
+          "Australia/Sydney",
+          "PST",
+          "EST",
+          "GMT",
+          0,
+          5.5,
+          -5,
+          9
+        ],
+        "human_parameter_description": "Specify your timezone using an IANA timezone name (like 'America/New_York'), a common abbreviation (like 'PST', 'EST', 'GMT'), or a numeric UTC offset in hours (like -5 or 5.5).",
+        "title": "Timezone"
+      }
+    },
+    "title": "GetCurrentDateTimeRequest",
+    "type": "object"
+  },
+  "name": "get_current_date_time",
+  "outputSchema": {
+    "$defs": {
+      "GetCurrentDateTimeResponse": {
+        "properties": {
+          "current_datetime": {
+            "description": "Current date and time in ISO 8601 format including timezone offset and microseconds (e.g., 2025-10-10T07:00:09.073977+00:00).",
+            "title": "Current Datetime",
+            "type": "string"
+          },
+          "display_url": {
+            "description": "URL to view this resource in Google Calendar web UI. None for computed queries with no persistent UI.",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "yyyymmdd_datetime": {
+            "description": "Comma-separated components of the current timestamp: year, month, day, hour, minute, second (no leading zeros). Example: 2025,10,10,7,0,9.",
+            "title": "Yyyymmdd Datetime",
+            "type": "string"
+          }
+        },
+        "required": ["current_datetime", "yyyymmdd_datetime"],
+        "title": "GetCurrentDateTimeResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCurrentDateTimeResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

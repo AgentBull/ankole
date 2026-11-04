@@ -1,0 +1,95 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetches labels for a specified Trello board, aiding in its organization or label management; this action does not detail per-card label usage.",
+  "inputSchema": {
+    "description": "Request schema for retrieving labels from a specific Trello board.",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Determines which label fields to return. Use 'all' for all available fields, or a comma-separated list of specific fields from: color, idBoard, name, uses. Defaults to 'all'.",
+        "examples": ["all", "name,color", "idBoard,uses"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The unique 24-character hexadecimal identifier of the Trello board.",
+        "examples": ["5f9b3b7b4b7b3b7b4b7b3b7b"],
+        "title": "Id Board",
+        "type": "string"
+      },
+      "limit": {
+        "default": "50",
+        "description": "The maximum number of labels to be returned. Must be an integer between 0 and 1000, inclusive. Defaults to 50.",
+        "examples": ["50", "100", "250"],
+        "title": "Limit",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard"],
+    "title": "GetBoardsLabelsByIdBoardRequest",
+    "type": "object"
+  },
+  "name": "get_boards_labels_by_id_board",
+  "outputSchema": {
+    "$defs": {
+      "GetBoardsLabelsByIdBoardResponse": {
+        "description": "Response schema containing the list of labels for the specified Trello board.",
+        "properties": {
+          "labels": {
+            "description": "Array of label objects on the board.",
+            "items": {
+              "$ref": "#/$defs/Label"
+            },
+            "title": "Labels",
+            "type": "array"
+          }
+        },
+        "required": ["labels"],
+        "title": "GetBoardsLabelsByIdBoardResponse",
+        "type": "object"
+      },
+      "Label": {
+        "description": "Represents a label on a Trello board.",
+        "properties": {
+          "color": {
+            "description": "The color of the label. Null means no color and the label will not be shown on the front of Cards. Valid values: yellow, purple, blue, red, green, orange, black, sky, pink, lime, or null.",
+            "enum": ["yellow", "purple", "blue", "red", "green", "orange", "black", "sky", "pink", "lime"],
+            "title": "Color",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the label.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board the label is on.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name displayed for the label. Nullable, with a maximum length of 16384 characters.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "Label",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBoardsLabelsByIdBoardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

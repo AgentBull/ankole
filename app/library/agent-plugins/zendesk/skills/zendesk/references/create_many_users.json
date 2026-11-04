@@ -1,0 +1,290 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create many users in Zendesk in a single request. Accepts up to 100 user objects. The operation is handled asynchronously — a background job is queued and you receive a job_status payload with an initial status of 'queued' or 'working'. Poll the job_status URL or use zendesk.get_job_statuses2 to check for completion and view per-user results. Use when onboarding multiple users at once or seeding test data. Note: This action is idempotent — re-running with the same external_ids may update existing users depending on Zendesk configuration.",
+  "inputSchema": {
+    "description": "Request model for creating multiple Zendesk users in bulk.",
+    "properties": {
+      "skip_verify_email": {
+        "description": "If true, do not send verification emails to new users. Passed as a URL query parameter.",
+        "examples": [true],
+        "human_parameter_description": "If true, skip sending verification emails to new users",
+        "human_parameter_name": "Skip Verify Email",
+        "title": "Skip Verify Email",
+        "type": "boolean"
+      },
+      "users": {
+        "description": "Array of user objects to create (max 100). Each user requires a 'name' field.",
+        "human_parameter_description": "List of users to create in bulk",
+        "human_parameter_name": "Users",
+        "items": {
+          "description": "Single user object to create. Only 'name' is required.",
+          "properties": {
+            "alias": {
+              "description": "Alias displayed to end users",
+              "human_parameter_description": "Optional alias shown to end users",
+              "human_parameter_name": "Alias",
+              "title": "Alias",
+              "type": "string"
+            },
+            "custom_role_id": {
+              "description": "Agent-only: ID of a custom agent role",
+              "examples": [987654],
+              "human_parameter_description": "Custom agent role ID when role is 'agent'",
+              "human_parameter_name": "Custom Role ID",
+              "title": "Custom Role Id",
+              "type": "integer"
+            },
+            "default_group_id": {
+              "description": "Default group ID for the user",
+              "examples": [200],
+              "human_parameter_description": "Optional default group for the user",
+              "human_parameter_name": "Default Group ID",
+              "title": "Default Group Id",
+              "type": "integer"
+            },
+            "details": {
+              "description": "Free-form details about the user",
+              "human_parameter_description": "Optional free-form user details",
+              "human_parameter_name": "Details",
+              "title": "Details",
+              "type": "string"
+            },
+            "email": {
+              "description": "Primary email address for the user",
+              "examples": ["jane@example.com"],
+              "human_parameter_description": "Primary email address for the user (optional)",
+              "human_parameter_name": "Email",
+              "title": "Email",
+              "type": "string"
+            },
+            "external_id": {
+              "description": "External system ID (case-insensitive)",
+              "human_parameter_description": "Optional unique identifier from another system",
+              "human_parameter_name": "External ID",
+              "title": "External Id",
+              "type": "string"
+            },
+            "locale": {
+              "description": "BCP-47 locale; overrides locale_id",
+              "examples": ["en-US"],
+              "human_parameter_description": "Optional locale tag for the user",
+              "human_parameter_name": "Locale",
+              "title": "Locale",
+              "type": "string"
+            },
+            "locale_id": {
+              "description": "Language locale ID for user",
+              "examples": [1],
+              "human_parameter_description": "Optional numeric locale ID",
+              "human_parameter_name": "Locale ID",
+              "title": "Locale Id",
+              "type": "integer"
+            },
+            "name": {
+              "description": "Full name for the user",
+              "examples": ["Jane Doe"],
+              "human_parameter_description": "The full name of the user to create",
+              "human_parameter_name": "Name",
+              "title": "Name",
+              "type": "string"
+            },
+            "organization_id": {
+              "description": "ID of default organization",
+              "examples": [123456],
+              "human_parameter_description": "Default organization ID for the user",
+              "human_parameter_name": "Organization ID",
+              "title": "Organization Id",
+              "type": "integer"
+            },
+            "phone": {
+              "description": "Direct line phone number in E.164 format",
+              "examples": ["+14155551234"],
+              "human_parameter_description": "Optional phone number in international format",
+              "human_parameter_name": "Phone",
+              "title": "Phone",
+              "type": "string"
+            },
+            "role": {
+              "description": "User role; defaults to 'end-user' if omitted",
+              "enum": ["end-user", "agent", "admin"],
+              "examples": ["end-user"],
+              "human_parameter_description": "Role for the user: end-user, agent, or admin",
+              "human_parameter_name": "Role",
+              "title": "Role",
+              "type": "string"
+            },
+            "signature": {
+              "description": "Agent/Admin signature",
+              "human_parameter_description": "Optional agent/admin signature text",
+              "human_parameter_name": "Signature",
+              "title": "Signature",
+              "type": "string"
+            },
+            "suspended": {
+              "description": "True to suspend the account",
+              "examples": [false],
+              "human_parameter_description": "Set to true to suspend this user",
+              "human_parameter_name": "Suspended",
+              "title": "Suspended",
+              "type": "boolean"
+            },
+            "tags": {
+              "description": "List of user tags",
+              "human_parameter_description": "Optional tags to assign to the user",
+              "human_parameter_name": "Tags",
+              "items": {
+                "type": "string"
+              },
+              "title": "Tags",
+              "type": "array"
+            },
+            "ticket_restriction": {
+              "description": "Ticket access restriction; 'groups'/'assigned' only valid for agents",
+              "enum": ["organization", "groups", "assigned", "requested"],
+              "human_parameter_description": "Optional ticket access restriction setting",
+              "human_parameter_name": "Ticket Restriction",
+              "title": "Ticket Restriction",
+              "type": "string"
+            },
+            "time_zone": {
+              "description": "User's time zone",
+              "examples": ["Pacific Time (US & Canada)"],
+              "human_parameter_description": "Optional user time zone",
+              "human_parameter_name": "Time Zone",
+              "title": "Time Zone",
+              "type": "string"
+            },
+            "user_fields": {
+              "additionalProperties": true,
+              "description": "Key-value map of custom user fields",
+              "human_parameter_description": "Optional custom user field values",
+              "human_parameter_name": "User Fields",
+              "title": "User Fields",
+              "type": "object"
+            }
+          },
+          "required": ["name"],
+          "title": "UserInput",
+          "type": "object"
+        },
+        "title": "Users",
+        "type": "array"
+      }
+    },
+    "required": ["users"],
+    "title": "CreateManyUsersRequest",
+    "type": "object"
+  },
+  "name": "create_many_users",
+  "outputSchema": {
+    "$defs": {
+      "CreateManyUsersResponse": {
+        "description": "Response containing the background job status for bulk user creation.",
+        "properties": {
+          "job_status": {
+            "$ref": "#/$defs/JobStatus",
+            "description": "Background job status object",
+            "title": "Job Status"
+          }
+        },
+        "required": ["job_status"],
+        "title": "CreateManyUsersResponse",
+        "type": "object"
+      },
+      "JobResultItem": {
+        "description": "Result entry from the job worker for a single user.",
+        "properties": {
+          "action": {
+            "description": "Action performed (e.g., 'create')",
+            "title": "Action",
+            "type": "string"
+          },
+          "id": {
+            "description": "ID of the created/updated user",
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Status of the operation",
+            "title": "Status",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the operation succeeded",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "JobResultItem",
+        "type": "object"
+      },
+      "JobStatus": {
+        "description": "Background job status returned after bulk user creation.",
+        "properties": {
+          "id": {
+            "description": "Automatically assigned when the job is queued",
+            "title": "Id",
+            "type": "string"
+          },
+          "job_type": {
+            "description": "The type of the job",
+            "title": "Job Type",
+            "type": "string"
+          },
+          "message": {
+            "description": "Message from the job worker, if any",
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "description": "Number of tasks completed so far (null when queued)",
+            "title": "Progress",
+            "type": "integer"
+          },
+          "results": {
+            "description": "Result entries from processing each user. Null when job is still queued.",
+            "items": {
+              "$ref": "#/$defs/JobResultItem"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "status": {
+            "description": "Current status of the job",
+            "enum": ["queued", "working", "failed", "completed"],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "description": "Total number of users to process",
+            "title": "Total",
+            "type": "integer"
+          },
+          "url": {
+            "description": "URL to poll for updated job status",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "status", "url"],
+        "title": "JobStatus",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateManyUsersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

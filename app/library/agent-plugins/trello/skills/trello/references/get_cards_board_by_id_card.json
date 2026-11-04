@@ -1,0 +1,349 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Fetches detailed information about the Trello board to which a specific, existing, and accessible card belongs, using the card's ID or short link.",
+  "inputSchema": {
+    "description": "Request schema for retrieving the board associated with a specific Trello card.",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "Specifies the fields of the board to be returned. Use 'all' to retrieve all available fields, or provide a comma-separated list of specific fields. Allowed fields include: closed, dateLastActivity, dateLastView, desc, descData, idOrganization, invitations, invited, labelNames, memberships, name, pinned, powerUps, prefs, shortLink, shortUrl, starred, subscribed, and url.",
+        "examples": ["all", "name,desc,url", "idOrganization,prefs,closed"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idCard": {
+        "description": "The ID or short link of the Trello card for which to retrieve board information.",
+        "examples": ["60d21b4667d62c0008f91f17", "myCardShortLink"],
+        "title": "Id Card",
+        "type": "string"
+      }
+    },
+    "required": ["idCard"],
+    "title": "GetCardsBoardByIdCardRequest",
+    "type": "object"
+  },
+  "name": "get_cards_board_by_id_card",
+  "outputSchema": {
+    "$defs": {
+      "BoardLabelNames": {
+        "description": "Custom label color names for the board.",
+        "properties": {
+          "black": {
+            "description": "Label name for black.",
+            "title": "Black",
+            "type": "string"
+          },
+          "blue": {
+            "description": "Label name for blue.",
+            "title": "Blue",
+            "type": "string"
+          },
+          "green": {
+            "description": "Label name for green.",
+            "title": "Green",
+            "type": "string"
+          },
+          "lime": {
+            "description": "Label name for lime.",
+            "title": "Lime",
+            "type": "string"
+          },
+          "orange": {
+            "description": "Label name for orange.",
+            "title": "Orange",
+            "type": "string"
+          },
+          "pink": {
+            "description": "Label name for pink.",
+            "title": "Pink",
+            "type": "string"
+          },
+          "purple": {
+            "description": "Label name for purple.",
+            "title": "Purple",
+            "type": "string"
+          },
+          "red": {
+            "description": "Label name for red.",
+            "title": "Red",
+            "type": "string"
+          },
+          "sky": {
+            "description": "Label name for sky.",
+            "title": "Sky",
+            "type": "string"
+          },
+          "yellow": {
+            "description": "Label name for yellow.",
+            "title": "Yellow",
+            "type": "string"
+          }
+        },
+        "title": "BoardLabelNames",
+        "type": "object"
+      },
+      "BoardLimits": {
+        "description": "Resource limit information for the board.",
+        "properties": {
+          "attachments": {
+            "description": "Attachment limits for the board.",
+            "title": "Attachments"
+          },
+          "boards": {
+            "description": "Board limits.",
+            "title": "Boards"
+          },
+          "cards": {
+            "description": "Card limits for the board.",
+            "title": "Cards"
+          },
+          "checklists": {
+            "description": "Checklist limits for the board.",
+            "title": "Checklists"
+          },
+          "customFields": {
+            "description": "Custom field limits for the board.",
+            "title": "Custom Fields"
+          },
+          "labels": {
+            "description": "Label limits for the board.",
+            "title": "Labels"
+          },
+          "lists": {
+            "description": "List limits for the board.",
+            "title": "Lists"
+          }
+        },
+        "title": "BoardLimits",
+        "type": "object"
+      },
+      "BoardPrefs": {
+        "description": "Board preferences and settings.",
+        "properties": {
+          "background": {
+            "description": "Board background (standard name, custom ID, or hex code).",
+            "title": "Background",
+            "type": "string"
+          },
+          "backgroundImage": {
+            "description": "URL to the board background image.",
+            "title": "Background Image",
+            "type": "string"
+          },
+          "backgroundImageScaled": {
+            "description": "Scaled versions of the board background image.",
+            "items": {},
+            "title": "Background Image Scaled",
+            "type": "array"
+          },
+          "calendarFeedEnabled": {
+            "description": "Whether the calendar feed is enabled.",
+            "title": "Calendar Feed Enabled",
+            "type": "boolean"
+          },
+          "cardAging": {
+            "description": "Card aging style (e.g., 'pirate', 'regular').",
+            "title": "Card Aging",
+            "type": "string"
+          },
+          "cardCovers": {
+            "description": "Whether card covers are shown.",
+            "title": "Card Covers",
+            "type": "boolean"
+          },
+          "comments": {
+            "description": "Who can comment on cards (e.g., 'disabled', 'members', 'observers', 'org', 'public').",
+            "title": "Comments",
+            "type": "string"
+          },
+          "hideVotes": {
+            "description": "Whether votes are hidden on the board.",
+            "title": "Hide Votes",
+            "type": "boolean"
+          },
+          "isTemplate": {
+            "description": "Whether the board is a template.",
+            "title": "Is Template",
+            "type": "boolean"
+          },
+          "permissionLevel": {
+            "description": "Permission level for the board (e.g., 'org', 'private', 'public').",
+            "title": "Permission Level",
+            "type": "string"
+          },
+          "selfJoin": {
+            "description": "Whether workspace members can join the board themselves.",
+            "title": "Self Join",
+            "type": "boolean"
+          },
+          "voting": {
+            "description": "Who can vote on cards (e.g., 'disabled', 'members', 'observers', 'org', 'public').",
+            "title": "Voting",
+            "type": "string"
+          }
+        },
+        "title": "BoardPrefs",
+        "type": "object"
+      },
+      "GetCardsBoardByIdCardResponse": {
+        "description": "Response schema containing the details of the board associated with the specified Trello card.",
+        "properties": {
+          "closed": {
+            "description": "Whether the board is archived.",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "creationMethod": {
+            "description": "How the board was created.",
+            "title": "Creation Method",
+            "type": "string"
+          },
+          "dateLastActivity": {
+            "description": "Last activity timestamp.",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "dateLastView": {
+            "description": "Last viewed timestamp.",
+            "title": "Date Last View",
+            "type": "string"
+          },
+          "datePluginDisable": {
+            "description": "Plugin disable date.",
+            "title": "Date Plugin Disable",
+            "type": "string"
+          },
+          "desc": {
+            "description": "Board description.",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "description": "Description metadata.",
+            "title": "Desc Data",
+            "type": "string"
+          },
+          "enterpriseOwned": {
+            "description": "Enterprise ownership flag.",
+            "title": "Enterprise Owned",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the board.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "Creator's member ID.",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "idOrganization": {
+            "description": "Parent organization ID.",
+            "title": "Id Organization",
+            "type": "string"
+          },
+          "idTags": {
+            "description": "Associated tag IDs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Tags",
+            "type": "array"
+          },
+          "ixUpdate": {
+            "description": "Update index.",
+            "title": "Ix Update",
+            "type": "integer"
+          },
+          "labelNames": {
+            "$ref": "#/$defs/BoardLabelNames",
+            "description": "Custom label color names.",
+            "title": "Label Names"
+          },
+          "limits": {
+            "$ref": "#/$defs/BoardLimits",
+            "description": "Resource limit information.",
+            "title": "Limits"
+          },
+          "memberships": {
+            "description": "Board memberships data.",
+            "items": {},
+            "title": "Memberships",
+            "type": "array"
+          },
+          "name": {
+            "description": "The name of the board.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pinned": {
+            "description": "Whether the board is pinned.",
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "powerUps": {
+            "description": "Enabled Power-Ups.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Power Ups",
+            "type": "array"
+          },
+          "prefs": {
+            "$ref": "#/$defs/BoardPrefs",
+            "description": "Board preferences and settings.",
+            "title": "Prefs"
+          },
+          "shortLink": {
+            "description": "Short link identifier.",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "shortUrl": {
+            "description": "Shortened board URL.",
+            "title": "Short Url",
+            "type": "string"
+          },
+          "starred": {
+            "description": "Whether the board is starred by the user.",
+            "title": "Starred",
+            "type": "boolean"
+          },
+          "subscribed": {
+            "description": "User subscription status.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "templateGallery": {
+            "description": "Template gallery reference.",
+            "title": "Template Gallery",
+            "type": "string"
+          },
+          "url": {
+            "description": "Full board URL.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "GetCardsBoardByIdCardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCardsBoardByIdCardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

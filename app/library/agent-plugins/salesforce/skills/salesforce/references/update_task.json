@@ -1,0 +1,196 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing task in Salesforce with new information. Only provided fields will be updated.",
+  "inputSchema": {
+    "properties": {
+      "activity_date": {
+        "description": "Updated due date in YYYY-MM-DD format. Leave empty to keep unchanged.",
+        "examples": ["2025-12-31", "2025-09-15"],
+        "human_parameter_description": "Pick the new due date for the task in YYYY-MM-DD format. Leave blank to keep the current due date.",
+        "human_parameter_name": "Due Date",
+        "title": "Activity Date",
+        "type": "string"
+      },
+      "custom_fields": {
+        "additionalProperties": true,
+        "description": "Dictionary of custom field API names and their values. Custom field names typically end with '__c' (e.g., 'Priority_Level__c': 'High').",
+        "examples": [
+          {
+            "Custom_Field__c": "value"
+          },
+          {
+            "Notes__c": "Important task",
+            "Priority_Level__c": "High"
+          }
+        ],
+        "human_parameter_description": "A dictionary to update custom fields on the task. Use the API name of each custom field (ending in '__c') as the key and the new value as the value.",
+        "human_parameter_name": "Custom Fields",
+        "title": "Custom Fields",
+        "type": "object"
+      },
+      "description": {
+        "default": "",
+        "description": "Updated description or notes. Leave empty to keep unchanged.",
+        "examples": [
+          "Updated: Meeting scheduled for next week",
+          "Progress: Sent initial proposal, waiting for response"
+        ],
+        "human_parameter_description": "Add or update the task's notes or details. Leave blank to keep the current description.",
+        "human_parameter_name": "Description",
+        "title": "Description",
+        "type": "string"
+      },
+      "is_reminder_set": {
+        "description": "Whether to set/unset a reminder. Leave empty to keep unchanged.",
+        "human_parameter_description": "Turn the task's reminder on or off. If turning it on, also provide a Reminder Date/Time.",
+        "human_parameter_name": "Set Reminder",
+        "title": "Is Reminder Set",
+        "type": "boolean"
+      },
+      "priority": {
+        "default": "",
+        "description": "Updated priority level. Leave empty to keep unchanged.",
+        "examples": ["High", "Normal", "Low"],
+        "human_parameter_description": "Set how important the task is (High, Normal, or Low). Leave blank to keep the current priority.",
+        "human_parameter_name": "Priority",
+        "title": "Priority",
+        "type": "string"
+      },
+      "reminder_date_time": {
+        "description": "Updated reminder date/time in ISO format. Leave empty to keep unchanged.",
+        "examples": ["2025-12-30T09:00:00", "2025-09-14T14:30:00"],
+        "human_parameter_description": "When the reminder should alert you, in ISO format (e.g., 2025-09-14T14:30:00). Use this if you are enabling a reminder.",
+        "human_parameter_name": "Reminder Date/Time",
+        "title": "Reminder Date Time",
+        "type": "string"
+      },
+      "status": {
+        "default": "",
+        "description": "Updated status. Leave empty to keep unchanged.",
+        "examples": ["Not Started", "In Progress", "Completed", "Waiting on someone else", "Deferred"],
+        "human_parameter_description": "Choose the new status for the task (for example, Not Started, In Progress, or Completed). Leave blank to keep the current status.",
+        "human_parameter_name": "Status",
+        "title": "Status",
+        "type": "string"
+      },
+      "subject": {
+        "default": "",
+        "description": "Updated subject/title of the task. Leave empty to keep unchanged.",
+        "examples": ["Updated: Follow up on opportunity", "URGENT: Call customer today"],
+        "human_parameter_description": "The new title you want for the task. Leave blank to keep the current subject.",
+        "human_parameter_name": "Subject",
+        "title": "Subject",
+        "type": "string"
+      },
+      "task_id": {
+        "description": "The Salesforce ID of the task to update.",
+        "examples": ["00TXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique ID of the Salesforce task you want to update. You can get this from the task's URL or from a previous search/list.",
+        "human_parameter_name": "Task ID",
+        "title": "Task Id",
+        "type": "string"
+      },
+      "what_id": {
+        "default": "",
+        "description": "Updated related record ID. Leave empty to keep unchanged.",
+        "examples": ["001XXXXXXXXXXXXXXX", "006XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The record this task is related to (like an Account, Opportunity, or Case ID). Provide a new ID to change it, or leave blank to keep the current link.",
+        "human_parameter_name": "Related Record ID",
+        "title": "What Id",
+        "type": "string"
+      },
+      "who_id": {
+        "default": "",
+        "description": "Updated Contact or Lead ID. Leave empty to keep unchanged.",
+        "examples": ["003XXXXXXXXXXXXXXX", "00QXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The person this task is about (a Contact or Lead ID). Provide a new ID to change it, or leave blank to keep the current person.",
+        "human_parameter_name": "Contact or Lead ID",
+        "title": "Who Id",
+        "type": "string"
+      }
+    },
+    "required": ["task_id"],
+    "title": "UpdateTaskRequest",
+    "type": "object"
+  },
+  "name": "update_task",
+  "outputSchema": {
+    "$defs": {
+      "SalesforceError": {
+        "description": "Error object returned in success response (v46+) or standalone error response.",
+        "properties": {
+          "errorCode": {
+            "description": "Standardized error code identifier (e.g., MALFORMED_ID, FIELD_CUSTOM_VALIDATION_EXCEPTION, NOT_FOUND)",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Array of field names where the error occurred or that caused the error",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "message": {
+            "description": "Human-readable description of the error",
+            "title": "Message",
+            "type": "string"
+          },
+          "statusCode": {
+            "description": "Error code identifier for the type of error (only in success response errors array)",
+            "title": "Status Code",
+            "type": "string"
+          }
+        },
+        "required": ["message"],
+        "title": "SalesforceError",
+        "type": "object"
+      },
+      "UpdateTaskResponse": {
+        "description": "Response schema for Salesforce PATCH update operation on Task object.\n\nThe response varies based on API version:\n- API version 45 and earlier: HTTP 204 (No Content) with empty response body\n- API version 46 and later: HTTP 200 (OK) with response body containing id, success, errors, created\n\nFor failed operations (HTTP 4xx or 5xx), the response is an array of error objects.",
+        "properties": {
+          "created": {
+            "description": "Indicates whether a new record was created - false for PATCH updates (API v46+)",
+            "title": "Created",
+            "type": "boolean"
+          },
+          "errors": {
+            "description": "Array of error objects - empty array for successful operations (API v46+), or populated array for error responses",
+            "items": {
+              "$ref": "#/$defs/SalesforceError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "id": {
+            "description": "The Salesforce ID of the updated record (API v46+)",
+            "title": "Id",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the operation was successful (API v46+)",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "UpdateTaskResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateTaskResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

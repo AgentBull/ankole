@@ -1,0 +1,44 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently deletes a lead from Salesforce. This action cannot be undone.",
+  "inputSchema": {
+    "properties": {
+      "lead_id": {
+        "description": "The Salesforce ID of the lead to delete.",
+        "examples": ["00QWd000005V3RmMAK", "00QXXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique Salesforce ID of the lead you want to delete. You can copy it from the lead's URL or from a previous search or list operation.",
+        "human_parameter_name": "Lead ID",
+        "title": "Lead Id",
+        "type": "string"
+      }
+    },
+    "required": ["lead_id"],
+    "title": "DeleteLeadRequest",
+    "type": "object"
+  },
+  "name": "delete_lead",
+  "outputSchema": {
+    "$defs": {
+      "DeleteLeadResponse": {
+        "description": "Response schema for Salesforce DELETE Lead operation.\n\nOn success (HTTP 204), the response body is empty (no fields returned).\nOn error (4xx/5xx), Salesforce returns an array of error objects, but those\nare handled by raise_for_status() before reaching this schema.",
+        "properties": {},
+        "title": "DeleteLeadResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteLeadResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

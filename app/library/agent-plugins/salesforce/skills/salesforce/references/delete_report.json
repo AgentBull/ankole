@@ -1,0 +1,44 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Delete a saved Salesforce report by moving it to the Recycle Bin.",
+  "inputSchema": {
+    "properties": {
+      "report_id": {
+        "description": "Salesforce ID of the saved report to move to the Recycle Bin.",
+        "examples": ["00OD0000001cxIE"],
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9]{15}(?:[A-Za-z0-9]{3})?$",
+        "title": "Report Id",
+        "type": "string"
+      }
+    },
+    "required": ["report_id"],
+    "title": "DeleteReportRequest",
+    "type": "object"
+  },
+  "name": "delete_report",
+  "outputSchema": {
+    "$defs": {
+      "DeleteReportResponse": {
+        "description": "Successful deletion returns HTTP 204 with no response body.",
+        "properties": {},
+        "title": "DeleteReportResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteReportResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

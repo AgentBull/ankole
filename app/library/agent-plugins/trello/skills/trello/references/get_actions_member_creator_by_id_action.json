@@ -1,0 +1,240 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves details about the Trello member who created the action with the given `idAction`.",
+  "inputSchema": {
+    "description": "Request schema for `GetActionsMemberCreatorByIdAction`",
+    "properties": {
+      "fields": {
+        "default": "all",
+        "description": "A comma-separated list of member fields to retrieve, or 'all'. Valid fields include: avatarHash, avatarSource, bio, bioData, confirmed, email, fullName, gravatarHash, idBoards, idBoardsPinned, idOrganizations, idPremOrgsAdmin, initials, loginTypes, memberType, oneTimeMessagesDismissed, prefs, premiumFeatures, products, status, trophies, uploadedAvatarHash, url, username.",
+        "examples": ["all", "username,fullName,email", "avatarHash,bio"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "idAction": {
+        "description": "The ID of the Trello action.",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id Action",
+        "type": "string"
+      }
+    },
+    "required": ["idAction"],
+    "title": "GetActionsMemberCreatorByIdActionRequest",
+    "type": "object"
+  },
+  "name": "get_actions_member_creator_by_id_action",
+  "outputSchema": {
+    "$defs": {
+      "GetActionsMemberCreatorByIdActionResponse": {
+        "description": "Response schema for `GetActionsMemberCreatorByIdAction`",
+        "properties": {
+          "activityBlocked": {
+            "description": "Indicates whether the member's activity is blocked",
+            "title": "Activity Blocked",
+            "type": "boolean"
+          },
+          "avatarHash": {
+            "description": "Hash string used to construct the avatar URL",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarSource": {
+            "description": "Source of the avatar (e.g., upload, gravatar)",
+            "title": "Avatar Source",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "Full URL to the member's avatar image. Returns null if avatar privacy is not set to public",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "bio": {
+            "description": "Member's biography text",
+            "title": "Bio",
+            "type": "string"
+          },
+          "bioData": {
+            "additionalProperties": true,
+            "description": "Structured data containing emoji and other bio-related information",
+            "title": "Bio Data",
+            "type": "object"
+          },
+          "confirmed": {
+            "description": "Whether the member's account has been confirmed",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "email": {
+            "description": "Member's email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "Member's full name. Returns the same as username if fullName privacy is not set to public",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "gravatarHash": {
+            "description": "Hash for Gravatar avatar lookup",
+            "title": "Gravatar Hash",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "Array of board IDs the member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idBoardsPinned": {
+            "description": "Array of board IDs the member has pinned",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards Pinned",
+            "type": "array"
+          },
+          "idEnterprise": {
+            "description": "Identifier of the enterprise the member belongs to",
+            "title": "Id Enterprise",
+            "type": "string"
+          },
+          "idEnterprisesDeactivated": {
+            "description": "Array of enterprise IDs where the member has been deactivated",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Enterprises Deactivated",
+            "type": "array"
+          },
+          "idMemberReferrer": {
+            "description": "ID of the member who referred this member",
+            "title": "Id Member Referrer",
+            "type": "string"
+          },
+          "idOrganizations": {
+            "description": "Array of organization IDs the member belongs to",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Organizations",
+            "type": "array"
+          },
+          "idPremOrgsAdmin": {
+            "description": "Array of premium organization IDs where the member is an admin",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Prem Orgs Admin",
+            "type": "array"
+          },
+          "initials": {
+            "description": "Member's initials, typically derived from their name",
+            "title": "Initials",
+            "type": "string"
+          },
+          "loginTypes": {
+            "description": "Array of login methods available for the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Login Types",
+            "type": "array"
+          },
+          "memberType": {
+            "description": "Type of member (e.g., 'normal', 'ghost')",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "nonPublic": {
+            "additionalProperties": true,
+            "description": "Object containing private member information not visible to other users",
+            "title": "Non Public",
+            "type": "object"
+          },
+          "oneTimeMessagesDismissed": {
+            "description": "Array of one-time message IDs that have been dismissed by the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "One Time Messages Dismissed",
+            "type": "array"
+          },
+          "prefs": {
+            "additionalProperties": true,
+            "description": "Member's preferences and settings",
+            "title": "Prefs",
+            "type": "object"
+          },
+          "premiumFeatures": {
+            "description": "Array of premium features available to the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Premium Features",
+            "type": "array"
+          },
+          "products": {
+            "description": "Array of Trello products the member has access to",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "status": {
+            "description": "Current status of the member account",
+            "title": "Status",
+            "type": "string"
+          },
+          "trophies": {
+            "description": "Array of trophies or achievements earned by the member",
+            "items": {
+              "type": "string"
+            },
+            "title": "Trophies",
+            "type": "array"
+          },
+          "uploadedAvatarHash": {
+            "description": "Hash of the uploaded avatar image",
+            "title": "Uploaded Avatar Hash",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to the member's Trello profile",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "Member's Trello username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "GetActionsMemberCreatorByIdActionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetActionsMemberCreatorByIdActionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

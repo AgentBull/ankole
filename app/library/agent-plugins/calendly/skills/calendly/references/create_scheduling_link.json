@@ -1,0 +1,84 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create a single-use scheduling link. Creates a scheduling link that can be used to book an event. The link allows invitees to schedule up to the specified maximum number of events. Once the limit is reached, the link becomes inactive.",
+  "inputSchema": {
+    "description": "Request model for creating a single-use scheduling link.",
+    "properties": {
+      "max_event_count": {
+        "default": 1,
+        "description": "The max number of events that can be scheduled using this scheduling link. Must be exactly 1 for single-use scheduling links.",
+        "title": "Max Event Count",
+        "type": "integer"
+      },
+      "owner": {
+        "description": "Event type URI (e.g., 'https://api.calendly.com/event_types/...')",
+        "title": "Owner",
+        "type": "string"
+      },
+      "owner_type": {
+        "default": "EventType",
+        "description": "Type of owner, typically 'EventType'",
+        "title": "Owner Type",
+        "type": "string"
+      }
+    },
+    "required": ["owner"],
+    "title": "CreateSchedulingLinkRequest",
+    "type": "object"
+  },
+  "name": "create_scheduling_link",
+  "outputSchema": {
+    "$defs": {
+      "CreateSchedulingLinkResponse": {
+        "description": "Response model containing the created scheduling link.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/SchedulingLinkResource",
+            "description": "The main resource object containing scheduling link details",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "CreateSchedulingLinkResponse",
+        "type": "object"
+      },
+      "SchedulingLinkResource": {
+        "description": "The scheduling link resource details.",
+        "properties": {
+          "booking_url": {
+            "description": "The public Calendly booking link URL that can be shared with invitees to schedule meetings",
+            "title": "Booking Url",
+            "type": "string"
+          },
+          "owner": {
+            "description": "URI reference to the event type that owns this scheduling link (e.g., https://api.calendly.com/event_types/AAAAAAAAAAAAAAAA)",
+            "title": "Owner",
+            "type": "string"
+          },
+          "owner_type": {
+            "description": "Specifies the type of resource that owns this link, typically 'EventType'",
+            "title": "Owner Type",
+            "type": "string"
+          }
+        },
+        "required": ["booking_url", "owner", "owner_type"],
+        "title": "SchedulingLinkResource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateSchedulingLinkResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

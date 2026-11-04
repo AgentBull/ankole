@@ -1,0 +1,94 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list SubpropertySyncConfig resources for managing subproperty synchronization configurations. Use when you need to fetch subproperty sync configs for a GA4 property.",
+  "inputSchema": {
+    "description": "Request model for listing SubpropertySyncConfig resources.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. The maximum number of resources to return. May return fewer. If unspecified, at most 50 resources will be returned. Maximum value is 200.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous ListSubpropertySyncConfig call. Provide this to retrieve the subsequent page.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. Resource name of the property. Format: properties/{property_id}. Example: properties/123",
+        "examples": ["properties/123456789", "123456789"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListSubpropertySyncConfigsRequest",
+    "type": "object"
+  },
+  "name": "list_subproperty_sync_configs",
+  "outputSchema": {
+    "$defs": {
+      "ListSubpropertySyncConfigsResponse": {
+        "description": "Response model for listing SubpropertySyncConfig resources.",
+        "properties": {
+          "nextPageToken": {
+            "description": "A token which can be sent as pageToken to retrieve the next page. If this field is omitted, there are no subsequent pages.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "subpropertySyncConfigs": {
+            "description": "List of SubpropertySyncConfig resources associated with the property.",
+            "items": {
+              "$ref": "#/$defs/SubpropertySyncConfig"
+            },
+            "title": "Subproperty Sync Configs",
+            "type": "array"
+          }
+        },
+        "title": "ListSubpropertySyncConfigsResponse",
+        "type": "object"
+      },
+      "SubpropertySyncConfig": {
+        "description": "SubpropertySyncConfig resource model.",
+        "properties": {
+          "applyToProperty": {
+            "description": "Output only, immutable. Specifies the subproperty resource these settings apply to.",
+            "title": "Apply To Property",
+            "type": "string"
+          },
+          "customDimensionAndMetricSyncMode": {
+            "description": "Required. Controls custom dimension/metric synchronization behavior. ALL: entities synchronized from parent; NONE: entities not synchronized.",
+            "enum": ["SYNCHRONIZATION_MODE_UNSPECIFIED", "NONE", "ALL"],
+            "title": "Custom Dimension And Metric Sync Mode",
+            "type": "string"
+          },
+          "name": {
+            "description": "Output only, immutable identifier. Format: properties/{ordinary_property_id}/subpropertySyncConfigs/{subproperty_id}",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "SubpropertySyncConfig",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListSubpropertySyncConfigsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

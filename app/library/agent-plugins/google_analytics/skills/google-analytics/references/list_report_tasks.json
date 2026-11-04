@@ -1,0 +1,306 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List a page of report tasks for a Google Analytics property, including task definitions and execution status. A continuation token can be used to retrieve subsequent pages.",
+  "inputSchema": {
+    "description": "Request model for listing report tasks for a GA4 property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of report tasks to return per page. If unspecified, server determines page size.",
+        "examples": [50],
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. Pagination token from previous list response for retrieving next page of results. Omit for first page.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. Property identifier in format 'properties/{propertyId}'. The Google Analytics property whose report tasks should be listed.",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListReportTasksRequest",
+    "type": "object"
+  },
+  "name": "list_report_tasks",
+  "outputSchema": {
+    "$defs": {
+      "DateRange": {
+        "description": "Represents a date range for the report.",
+        "properties": {
+          "endDate": {
+            "description": "End date in YYYY-MM-DD format.",
+            "title": "End Date",
+            "type": "string"
+          },
+          "name": {
+            "description": "Optional name for this date range.",
+            "title": "Name",
+            "type": "string"
+          },
+          "startDate": {
+            "description": "Start date in YYYY-MM-DD format.",
+            "title": "Start Date",
+            "type": "string"
+          }
+        },
+        "title": "DateRange",
+        "type": "object"
+      },
+      "Dimension": {
+        "description": "Represents a dimension in the report definition.",
+        "properties": {
+          "dimensionExpression": {
+            "additionalProperties": true,
+            "description": "Dimension expression for custom dimensions.",
+            "title": "Dimension Expression",
+            "type": "object"
+          },
+          "name": {
+            "description": "Name of the dimension.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "Dimension",
+        "type": "object"
+      },
+      "ListReportTasksResponse": {
+        "description": "Response model for listing report tasks.",
+        "properties": {
+          "nextPageToken": {
+            "description": "Token for retrieving next page. Omitted if no more pages exist.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "reportTasks": {
+            "description": "Collection of report tasks for the property.",
+            "items": {
+              "$ref": "#/$defs/ReportTask"
+            },
+            "title": "Report Tasks",
+            "type": "array"
+          }
+        },
+        "title": "ListReportTasksResponse",
+        "type": "object"
+      },
+      "Metric": {
+        "description": "Represents a metric in the report definition.",
+        "properties": {
+          "expression": {
+            "description": "Expression for the metric calculation.",
+            "title": "Expression",
+            "type": "string"
+          },
+          "invisible": {
+            "description": "Whether the metric is invisible in the report.",
+            "title": "Invisible",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Name of the metric.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "Metric",
+        "type": "object"
+      },
+      "OrderBy": {
+        "description": "Sort specification for report results.",
+        "properties": {
+          "desc": {
+            "description": "Whether to sort in descending order.",
+            "title": "Desc",
+            "type": "boolean"
+          },
+          "dimension": {
+            "additionalProperties": true,
+            "description": "Dimension ordering specification.",
+            "title": "Dimension",
+            "type": "object"
+          },
+          "metric": {
+            "additionalProperties": true,
+            "description": "Metric ordering specification.",
+            "title": "Metric",
+            "type": "object"
+          }
+        },
+        "title": "OrderBy",
+        "type": "object"
+      },
+      "ReportDefinition": {
+        "description": "Defines how the report executes.",
+        "properties": {
+          "cohortSpec": {
+            "additionalProperties": true,
+            "description": "Cohort analysis configuration.",
+            "title": "Cohort Spec",
+            "type": "object"
+          },
+          "currencyCode": {
+            "description": "ISO 4217 currency code.",
+            "title": "Currency Code",
+            "type": "string"
+          },
+          "dateRanges": {
+            "description": "Date ranges (max 4) with startDate, endDate (YYYY-MM-DD), and optional name.",
+            "items": {
+              "$ref": "#/$defs/DateRange"
+            },
+            "title": "Date Ranges",
+            "type": "array"
+          },
+          "dimensionFilter": {
+            "additionalProperties": true,
+            "description": "Dimension filters (andGroup, orGroup, notExpression, or filter).",
+            "title": "Dimension Filter",
+            "type": "object"
+          },
+          "dimensions": {
+            "description": "Report dimensions with name and optional dimensionExpression.",
+            "items": {
+              "$ref": "#/$defs/Dimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "keepEmptyRows": {
+            "description": "Include empty rows flag.",
+            "title": "Keep Empty Rows",
+            "type": "boolean"
+          },
+          "limit": {
+            "description": "Max rows to return (default 10000, max 250000).",
+            "title": "Limit",
+            "type": "string"
+          },
+          "metricAggregations": {
+            "description": "Aggregations (TOTAL, MINIMUM, MAXIMUM, COUNT).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Aggregations",
+            "type": "array"
+          },
+          "metricFilter": {
+            "additionalProperties": true,
+            "description": "Metric filters.",
+            "title": "Metric Filter",
+            "type": "object"
+          },
+          "metrics": {
+            "description": "Report metrics with name, expression, and invisible flag.",
+            "items": {
+              "$ref": "#/$defs/Metric"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "offset": {
+            "description": "Row offset for pagination.",
+            "title": "Offset",
+            "type": "string"
+          },
+          "orderBys": {
+            "description": "Sort specifications with desc, metric, or dimension ordering.",
+            "items": {
+              "$ref": "#/$defs/OrderBy"
+            },
+            "title": "Order Bys",
+            "type": "array"
+          },
+          "samplingLevel": {
+            "description": "Sample size (LOW, MEDIUM, UNSAMPLED).",
+            "title": "Sampling Level",
+            "type": "string"
+          }
+        },
+        "title": "ReportDefinition",
+        "type": "object"
+      },
+      "ReportMetadata": {
+        "description": "Execution metadata for the report task.",
+        "properties": {
+          "beginCreatingTime": {
+            "description": "RFC3339 timestamp when creation started.",
+            "title": "Begin Creating Time",
+            "type": "string"
+          },
+          "creationQuotaTokensCharged": {
+            "description": "Quota tokens consumed during creation.",
+            "title": "Creation Quota Tokens Charged",
+            "type": "integer"
+          },
+          "errorMessage": {
+            "description": "Error message if task failed.",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "state": {
+            "description": "Task state (CREATING, ACTIVE, FAILED).",
+            "enum": ["STATE_UNSPECIFIED", "CREATING", "ACTIVE", "FAILED"],
+            "title": "State",
+            "type": "string"
+          },
+          "taskRowCount": {
+            "description": "Number of rows in task result.",
+            "title": "Task Row Count",
+            "type": "integer"
+          },
+          "totalRowCount": {
+            "description": "Total rows across all pages.",
+            "title": "Total Row Count",
+            "type": "integer"
+          }
+        },
+        "title": "ReportMetadata",
+        "type": "object"
+      },
+      "ReportTask": {
+        "description": "Schema for a ReportTask resource.",
+        "properties": {
+          "name": {
+            "description": "Resource name format 'properties/{property}/reportTasks/{reportTask}'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "reportDefinition": {
+            "$ref": "#/$defs/ReportDefinition",
+            "description": "Defines how the report executes.",
+            "title": "Report Definition"
+          },
+          "reportMetadata": {
+            "$ref": "#/$defs/ReportMetadata",
+            "description": "Execution metadata (output-only).",
+            "title": "Report Metadata"
+          }
+        },
+        "title": "ReportTask",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListReportTasksResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

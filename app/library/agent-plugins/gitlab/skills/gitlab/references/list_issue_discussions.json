@@ -1,0 +1,228 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List one page of an issue's discussions, including threaded and individual notes.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "The project-local IID of the issue.",
+        "title": "Issue Iid",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid"],
+    "title": "ListIssueDiscussionsRequest",
+    "type": "object"
+  },
+  "name": "list_issue_discussions",
+  "outputSchema": {
+    "$defs": {
+      "IssueDiscussion": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "description": "The discussion ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "individual_note": {
+            "description": "Whether the discussion represents an individual note.",
+            "title": "Individual Note",
+            "type": "boolean"
+          },
+          "notes": {
+            "description": "Notes in this discussion.",
+            "items": {
+              "$ref": "#/$defs/IssueDiscussionNote"
+            },
+            "title": "Notes",
+            "type": "array"
+          }
+        },
+        "required": ["id", "individual_note", "notes"],
+        "title": "IssueDiscussion",
+        "type": "object"
+      },
+      "IssueDiscussionAuthor": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "The author's avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "The author's user ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "The author's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "The author's account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "The author's username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "The author's profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "username", "state", "web_url"],
+        "title": "IssueDiscussionAuthor",
+        "type": "object"
+      },
+      "IssueDiscussionNote": {
+        "additionalProperties": true,
+        "properties": {
+          "attachment": {
+            "description": "Attachment URL, if present.",
+            "title": "Attachment",
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/$defs/IssueDiscussionAuthor",
+            "description": "The note's author.",
+            "title": "Author"
+          },
+          "body": {
+            "description": "The note content.",
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "ISO 8601 creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The note ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "noteable_id": {
+            "description": "Global numeric issue ID as a precision-preserving decimal string.",
+            "title": "Noteable Id",
+            "type": "string"
+          },
+          "noteable_iid": {
+            "description": "The noteable object's IID.",
+            "title": "Noteable Iid",
+            "type": "integer"
+          },
+          "noteable_type": {
+            "description": "The noteable object's type.",
+            "title": "Noteable Type",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "The project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "resolvable": {
+            "description": "Whether the note is resolvable.",
+            "title": "Resolvable",
+            "type": "boolean"
+          },
+          "system": {
+            "description": "Whether GitLab generated this note.",
+            "title": "System",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "DiscussionNote, or null for a note.",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "ISO 8601 last-update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "body",
+          "author",
+          "created_at",
+          "updated_at",
+          "system",
+          "noteable_id",
+          "noteable_type",
+          "project_id"
+        ],
+        "title": "IssueDiscussionNote",
+        "type": "object"
+      },
+      "ListIssueDiscussionsResponse": {
+        "properties": {
+          "discussions": {
+            "description": "Issue discussions on the requested page.",
+            "items": {
+              "$ref": "#/$defs/IssueDiscussion"
+            },
+            "title": "Discussions",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          }
+        },
+        "required": ["discussions"],
+        "title": "ListIssueDiscussionsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListIssueDiscussionsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

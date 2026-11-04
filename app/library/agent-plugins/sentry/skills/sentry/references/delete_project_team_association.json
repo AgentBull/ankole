@@ -1,0 +1,558 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Revokes a team's access to a Sentry project; this operation is idempotent.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteProjectTeamAssociation`",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry organization.",
+        "examples": ["the-acme-corp", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry project.",
+        "examples": ["internal-project", "platform-project", "67890"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      },
+      "team_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug of the Sentry team to be disassociated from the project.",
+        "examples": ["backend-developers", "frontend-team", "54321"],
+        "title": "Team Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug", "team_id_or_slug"],
+    "title": "DeleteProjectTeamAssociationRequest",
+    "type": "object"
+  },
+  "name": "delete_project_team_association",
+  "outputSchema": {
+    "$defs": {
+      "Avatar": {
+        "description": "Avatar configuration for the project",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar')",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL to the avatar image",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the avatar image",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "title": "Avatar",
+        "type": "object"
+      },
+      "DeleteProjectTeamAssociationResponse": {
+        "description": "Response schema for `DeleteProjectTeamAssociation`",
+        "properties": {
+          "dataScrubberDefaults": {
+            "description": "Whether default data scrubbing rules are applied",
+            "title": "Data Scrubber Defaults",
+            "type": "boolean"
+          },
+          "dataScrubber": {
+            "description": "Whether data scrubbing is enabled",
+            "title": "Data Scrubber",
+            "type": "boolean"
+          },
+          "autofixAutomationTuning": {
+            "description": "Configuration for autofix automation tuning",
+            "title": "Autofix Automation Tuning",
+            "type": "string"
+          },
+          "dynamicSamplingBiases": {
+            "description": "Configuration for dynamic sampling biases",
+            "items": {
+              "$ref": "#/$defs/DynamicSamplingBias"
+            },
+            "title": "Dynamic Sampling Biases",
+            "type": "array"
+          },
+          "storeCrashReports": {
+            "description": "Number of crash reports to store",
+            "title": "Store Crash Reports",
+            "type": "integer"
+          },
+          "sensitiveFields": {
+            "description": "List of fields that contain sensitive data",
+            "items": {
+              "type": "string"
+            },
+            "title": "Sensitive Fields",
+            "type": "array"
+          },
+          "hasSessions": {
+            "description": "Whether the project has session data",
+            "title": "Has Sessions",
+            "type": "boolean"
+          },
+          "access": {
+            "description": "List of access permissions the current user has for this project",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "groupingConfig": {
+            "description": "Configuration for error grouping",
+            "title": "Grouping Config",
+            "type": "string"
+          },
+          "firstTransactionEvent": {
+            "description": "Whether the project has recorded any transaction events",
+            "title": "First Transaction Event",
+            "type": "boolean"
+          },
+          "hasTraceMetrics": {
+            "description": "Whether the project has trace metrics",
+            "title": "Has Trace Metrics",
+            "type": "boolean"
+          },
+          "isBookmarked": {
+            "description": "Whether the current user has bookmarked this project",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "hasInsightsVitals": {
+            "description": "Whether the project has vitals insights data",
+            "title": "Has Insights Vitals",
+            "type": "boolean"
+          },
+          "dateCreated": {
+            "description": "Timestamp when the project was created",
+            "format": "date-time",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly project identifier",
+            "title": "Slug",
+            "type": "string"
+          },
+          "safeFields": {
+            "description": "List of fields that are safe from scrubbing",
+            "items": {
+              "type": "string"
+            },
+            "title": "Safe Fields",
+            "type": "array"
+          },
+          "highlightTags": {
+            "description": "Tags for highlighting",
+            "items": {
+              "type": "string"
+            },
+            "title": "Highlight Tags",
+            "type": "array"
+          },
+          "hasInsightsScreenLoad": {
+            "description": "Whether the project has screen load insights data",
+            "title": "Has Insights Screen Load",
+            "type": "boolean"
+          },
+          "plugins": {
+            "description": "List of installed plugins",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Plugins",
+            "type": "array"
+          },
+          "scrubIPAddresses": {
+            "description": "Whether IP addresses should be scrubbed",
+            "title": "Scrub Ip Addresses",
+            "type": "boolean"
+          },
+          "relayPiiConfig": {
+            "description": "PII configuration for relay",
+            "title": "Relay Pii Config",
+            "type": "string"
+          },
+          "avatar": {
+            "$ref": "#/$defs/Avatar",
+            "description": "Avatar configuration for the project",
+            "title": "Avatar"
+          },
+          "status": {
+            "description": "Current status of the project (e.g., 'active')",
+            "title": "Status",
+            "type": "string"
+          },
+          "processingIssues": {
+            "description": "Number of active processing issues",
+            "title": "Processing Issues",
+            "type": "integer"
+          },
+          "defaultEnvironment": {
+            "description": "Default environment name for the project",
+            "title": "Default Environment",
+            "type": "string"
+          },
+          "groupingEnhancements": {
+            "description": "Enhancements for error grouping",
+            "title": "Grouping Enhancements",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable project name",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization": {
+            "additionalProperties": true,
+            "description": "Organization that owns this project",
+            "title": "Organization",
+            "type": "object"
+          },
+          "scrapeJavaScript": {
+            "description": "Whether JavaScript scraping is enabled",
+            "title": "Scrape Java Script",
+            "type": "boolean"
+          },
+          "hasLogs": {
+            "description": "Whether the project has log data",
+            "title": "Has Logs",
+            "type": "boolean"
+          },
+          "isInternal": {
+            "description": "Whether this is an internal project",
+            "title": "Is Internal",
+            "type": "boolean"
+          },
+          "verifySSL": {
+            "description": "Whether SSL verification is enabled",
+            "title": "Verify Ssl",
+            "type": "boolean"
+          },
+          "color": {
+            "description": "Hex color code representing the project",
+            "title": "Color",
+            "type": "string"
+          },
+          "hasInsightsMCP": {
+            "description": "Whether the project has MCP insights data",
+            "title": "Has Insights Mcp",
+            "type": "boolean"
+          },
+          "highlightPreset": {
+            "additionalProperties": true,
+            "description": "Preset configuration for highlighting",
+            "title": "Highlight Preset",
+            "type": "object"
+          },
+          "hasFeedbacks": {
+            "description": "Whether the project has user feedback data",
+            "title": "Has Feedbacks",
+            "type": "boolean"
+          },
+          "platforms": {
+            "description": "List of all platforms used in the project",
+            "items": {
+              "type": "string"
+            },
+            "title": "Platforms",
+            "type": "array"
+          },
+          "hasInsightsDb": {
+            "description": "Whether the project has database insights data",
+            "title": "Has Insights Db",
+            "type": "boolean"
+          },
+          "allowedDomains": {
+            "description": "List of allowed domains",
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Domains",
+            "type": "array"
+          },
+          "isMember": {
+            "description": "Whether the current user is a member of this project",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "isPublic": {
+            "description": "Whether the project is publicly accessible",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "hasProfiles": {
+            "description": "Whether the project has profiling data",
+            "title": "Has Profiles",
+            "type": "boolean"
+          },
+          "hasMonitors": {
+            "description": "Whether the project has monitors configured",
+            "title": "Has Monitors",
+            "type": "boolean"
+          },
+          "firstEvent": {
+            "description": "Timestamp of the first event recorded in this project",
+            "format": "date-time",
+            "title": "First Event",
+            "type": "string"
+          },
+          "securityTokenHeader": {
+            "description": "Header name for the security token",
+            "title": "Security Token Header",
+            "type": "string"
+          },
+          "highlightContext": {
+            "additionalProperties": true,
+            "description": "Context data for highlighting",
+            "title": "Highlight Context",
+            "type": "object"
+          },
+          "digestsMinDelay": {
+            "description": "Minimum delay for digest emails in seconds",
+            "title": "Digests Min Delay",
+            "type": "integer"
+          },
+          "platform": {
+            "description": "Primary technology platform for the project",
+            "title": "Platform",
+            "type": "string"
+          },
+          "hasInsightsAppStart": {
+            "description": "Whether the project has app start insights data",
+            "title": "Has Insights App Start",
+            "type": "boolean"
+          },
+          "isDynamicallySampled": {
+            "description": "Whether dynamic sampling is enabled",
+            "title": "Is Dynamically Sampled",
+            "type": "boolean"
+          },
+          "hasInsightsAgentMonitoring": {
+            "description": "Whether the project has agent monitoring insights data",
+            "title": "Has Insights Agent Monitoring",
+            "type": "boolean"
+          },
+          "fingerprintingRules": {
+            "description": "Custom fingerprinting rules",
+            "title": "Fingerprinting Rules",
+            "type": "string"
+          },
+          "tempestFetchScreenshots": {
+            "description": "Whether screenshot fetching is enabled",
+            "title": "Tempest Fetch Screenshots",
+            "type": "boolean"
+          },
+          "hasFlags": {
+            "description": "Whether the project has feature flags",
+            "title": "Has Flags",
+            "type": "boolean"
+          },
+          "debugFilesRole": {
+            "description": "Role for debug files access",
+            "title": "Debug Files Role",
+            "type": "string"
+          },
+          "derivedGroupingEnhancements": {
+            "description": "Derived enhancements for error grouping",
+            "title": "Derived Grouping Enhancements",
+            "type": "string"
+          },
+          "builtinSymbolSources": {
+            "description": "List of built-in symbol sources (e.g., ios, android, chromium)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Builtin Symbol Sources",
+            "type": "array"
+          },
+          "subjectTemplate": {
+            "description": "Template for email subjects",
+            "title": "Subject Template",
+            "type": "string"
+          },
+          "latestRelease": {
+            "additionalProperties": true,
+            "description": "Information about the latest release",
+            "title": "Latest Release",
+            "type": "object"
+          },
+          "digestsMaxDelay": {
+            "description": "Maximum delay for digest emails in seconds",
+            "title": "Digests Max Delay",
+            "type": "integer"
+          },
+          "resolveAge": {
+            "description": "Time in hours after which issues are auto-resolved",
+            "title": "Resolve Age",
+            "type": "integer"
+          },
+          "teams": {
+            "description": "List of all teams associated with this project",
+            "items": {
+              "$ref": "#/$defs/Team"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
+          "securityToken": {
+            "description": "Security token for the project",
+            "title": "Security Token",
+            "type": "string"
+          },
+          "subjectPrefix": {
+            "description": "Prefix for email subjects",
+            "title": "Subject Prefix",
+            "type": "string"
+          },
+          "hasAccess": {
+            "description": "Whether the current user has access to this project",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "seerScannerAutomation": {
+            "description": "Whether Seer scanner automation is enabled",
+            "title": "Seer Scanner Automation",
+            "type": "boolean"
+          },
+          "hasInsightsAssets": {
+            "description": "Whether the project has asset insights data",
+            "title": "Has Insights Assets",
+            "type": "boolean"
+          },
+          "options": {
+            "additionalProperties": true,
+            "description": "Project configuration options",
+            "title": "Options",
+            "type": "object"
+          },
+          "symbolSources": {
+            "description": "Custom symbol sources configuration",
+            "title": "Symbol Sources",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the project",
+            "title": "Id",
+            "type": "string"
+          },
+          "secondaryGroupingConfig": {
+            "description": "Secondary configuration for error grouping",
+            "title": "Secondary Grouping Config",
+            "type": "string"
+          },
+          "hasNewFeedbacks": {
+            "description": "Whether the project has new user feedback data",
+            "title": "Has New Feedbacks",
+            "type": "boolean"
+          },
+          "hasInsightsQueues": {
+            "description": "Whether the project has queue insights data",
+            "title": "Has Insights Queues",
+            "type": "boolean"
+          },
+          "hasReplays": {
+            "description": "Whether the project has session replay data",
+            "title": "Has Replays",
+            "type": "boolean"
+          },
+          "secondaryGroupingExpiry": {
+            "description": "Expiration time for secondary grouping in seconds",
+            "title": "Secondary Grouping Expiry",
+            "type": "integer"
+          },
+          "hasInsightsCaches": {
+            "description": "Whether the project has cache insights data",
+            "title": "Has Insights Caches",
+            "type": "boolean"
+          },
+          "team": {
+            "$ref": "#/$defs/Team",
+            "description": "The primary team associated with this project",
+            "title": "Team"
+          },
+          "features": {
+            "description": "List of enabled features for the project",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "hasInsightsHttp": {
+            "description": "Whether the project has HTTP insights data",
+            "title": "Has Insights Http",
+            "type": "boolean"
+          },
+          "hasMinifiedStackTrace": {
+            "description": "Whether the project has minified stack traces",
+            "title": "Has Minified Stack Trace",
+            "type": "boolean"
+          }
+        },
+        "title": "DeleteProjectTeamAssociationResponse",
+        "type": "object"
+      },
+      "DynamicSamplingBias": {
+        "description": "Configuration for dynamic sampling biases",
+        "properties": {
+          "active": {
+            "description": "Whether this sampling bias is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Identifier for the sampling bias",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "title": "DynamicSamplingBias",
+        "type": "object"
+      },
+      "Team": {
+        "description": "Team information",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the team",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the team",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly team identifier",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "title": "Team",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteProjectTeamAssociationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

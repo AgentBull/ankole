@@ -1,0 +1,424 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List one page of merge requests blocked by the specified merge request. Returns dependency relationships with blocking and blocked merge request details. Follow next_page to retrieve additional results.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespaced project path.",
+        "title": "Id"
+      },
+      "merge_request_iid": {
+        "description": "Project-local internal ID of the blocking merge request.",
+        "title": "Merge Request Iid",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Page number, starting at 1.",
+        "minimum": 1,
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Results per page (maximum 100).",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "merge_request_iid"],
+    "title": "ListBlockedMergeRequestsRequest",
+    "type": "object"
+  },
+  "name": "list_blocked_merge_requests",
+  "outputSchema": {
+    "$defs": {
+      "CommitMergeRequestMilestone": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "description": "Milestone ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "Project-local milestone ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Milestone title.",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "CommitMergeRequestMilestone",
+        "type": "object"
+      },
+      "CommitMergeRequestTimeStats": {
+        "additionalProperties": true,
+        "properties": {
+          "human_time_estimate": {
+            "description": "Readable time estimate.",
+            "title": "Human Time Estimate",
+            "type": "string"
+          },
+          "human_total_time_spent": {
+            "description": "Readable time spent.",
+            "title": "Human Total Time Spent",
+            "type": "string"
+          },
+          "time_estimate": {
+            "description": "Estimated time in seconds.",
+            "title": "Time Estimate",
+            "type": "integer"
+          },
+          "total_time_spent": {
+            "description": "Time spent in seconds.",
+            "title": "Total Time Spent",
+            "type": "integer"
+          }
+        },
+        "title": "CommitMergeRequestTimeStats",
+        "type": "object"
+      },
+      "CommitMergeRequestUser": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "User avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "User account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "User profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "CommitMergeRequestUser",
+        "type": "object"
+      },
+      "DependencyMergeRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "closed_by": {
+            "$ref": "#/$defs/CommitMergeRequestUser",
+            "description": "User who closed the merge request.",
+            "title": "Closed By"
+          },
+          "target_project_id": {
+            "description": "Target project ID.",
+            "title": "Target Project Id",
+            "type": "integer"
+          },
+          "merged_at": {
+            "description": "Merge timestamp, or null.",
+            "title": "Merged At",
+            "type": "string"
+          },
+          "user_notes_count": {
+            "description": "User note count.",
+            "title": "User Notes Count",
+            "type": "integer"
+          },
+          "detailed_merge_status": {
+            "description": "Detailed mergeability status.",
+            "title": "Detailed Merge Status",
+            "type": "string"
+          },
+          "source_project_id": {
+            "description": "Source project ID.",
+            "title": "Source Project Id",
+            "type": "integer"
+          },
+          "merge_user": {
+            "$ref": "#/$defs/CommitMergeRequestUser",
+            "description": "User who merged the merge request.",
+            "title": "Merge User"
+          },
+          "merge_status": {
+            "description": "Merge status.",
+            "title": "Merge Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "draft": {
+            "description": "Whether the merge request is a draft.",
+            "title": "Draft",
+            "type": "boolean"
+          },
+          "blocking_discussions_resolved": {
+            "description": "Whether blocking discussions have been resolved.",
+            "title": "Blocking Discussions Resolved",
+            "type": "boolean"
+          },
+          "downvotes": {
+            "description": "Downvote count.",
+            "title": "Downvotes",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Merge request description.",
+            "title": "Description",
+            "type": "string"
+          },
+          "closed_at": {
+            "description": "Closure timestamp, or null.",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "time_stats": {
+            "$ref": "#/$defs/CommitMergeRequestTimeStats",
+            "description": "Time tracking statistics.",
+            "title": "Time Stats"
+          },
+          "assignee": {
+            "$ref": "#/$defs/CommitMergeRequestUser",
+            "description": "Assigned user.",
+            "title": "Assignee"
+          },
+          "created_at": {
+            "description": "Creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "should_remove_source_branch": {
+            "description": "Whether to remove the source branch after merging.",
+            "title": "Should Remove Source Branch",
+            "type": "boolean"
+          },
+          "reviewers": {
+            "description": "Users assigned to review the merge request.",
+            "items": {
+              "$ref": "#/$defs/CommitMergeRequestUser"
+            },
+            "title": "Reviewers",
+            "type": "array"
+          },
+          "squash_commit_sha": {
+            "description": "Squash commit SHA, or null.",
+            "title": "Squash Commit Sha",
+            "type": "string"
+          },
+          "assignees": {
+            "description": "Users assigned to the merge request.",
+            "items": {
+              "$ref": "#/$defs/CommitMergeRequestUser"
+            },
+            "title": "Assignees",
+            "type": "array"
+          },
+          "iid": {
+            "description": "Project-local merge request ID.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "merge_when_pipeline_succeeds": {
+            "description": "Whether to merge when the pipeline succeeds.",
+            "title": "Merge When Pipeline Succeeds",
+            "type": "boolean"
+          },
+          "merged_by": {
+            "$ref": "#/$defs/CommitMergeRequestUser",
+            "description": "User who merged the merge request (deprecated provider field).",
+            "title": "Merged By"
+          },
+          "target_branch": {
+            "description": "Target branch name.",
+            "title": "Target Branch",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Merge request web URL.",
+            "title": "Web Url",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "description": "Discussion lock flag.",
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "author": {
+            "$ref": "#/$defs/CommitMergeRequestUser",
+            "description": "Author.",
+            "title": "Author"
+          },
+          "milestone": {
+            "$ref": "#/$defs/CommitMergeRequestMilestone",
+            "description": "Milestone.",
+            "title": "Milestone"
+          },
+          "project_id": {
+            "description": "Project containing the merge request.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "merge_commit_sha": {
+            "description": "Merge commit SHA, or null.",
+            "title": "Merge Commit Sha",
+            "type": "string"
+          },
+          "upvotes": {
+            "description": "Upvote count.",
+            "title": "Upvotes",
+            "type": "integer"
+          },
+          "labels": {
+            "description": "Label names.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "sha": {
+            "description": "Merge request head SHA.",
+            "title": "Sha",
+            "type": "string"
+          },
+          "has_conflicts": {
+            "description": "Whether conflicts exist.",
+            "title": "Has Conflicts",
+            "type": "boolean"
+          },
+          "state": {
+            "description": "Merge request state.",
+            "title": "State",
+            "type": "string"
+          },
+          "id": {
+            "description": "Global merge request ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "merge_after": {
+            "description": "Earliest timestamp at which the merge request can merge.",
+            "title": "Merge After",
+            "type": "string"
+          },
+          "title": {
+            "description": "Merge request title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "work_in_progress": {
+            "description": "Work-in-progress flag.",
+            "title": "Work In Progress",
+            "type": "boolean"
+          },
+          "source_branch": {
+            "description": "Source branch name.",
+            "title": "Source Branch",
+            "type": "string"
+          },
+          "force_remove_source_branch": {
+            "description": "Whether source branch removal is forced.",
+            "title": "Force Remove Source Branch",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "iid", "project_id", "title", "state"],
+        "title": "DependencyMergeRequest",
+        "type": "object"
+      },
+      "ListBlockedMergeRequestsResponse": {
+        "properties": {
+          "blockees": {
+            "description": "One page of dependencies identifying blocked merge requests.",
+            "items": {
+              "$ref": "#/$defs/MergeRequestDependency"
+            },
+            "title": "Blockees",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number from GitLab, or null on the last page.",
+            "title": "Next Page",
+            "type": "integer"
+          }
+        },
+        "required": ["blockees"],
+        "title": "ListBlockedMergeRequestsResponse",
+        "type": "object"
+      },
+      "MergeRequestDependency": {
+        "additionalProperties": true,
+        "properties": {
+          "blocked_merge_request": {
+            "$ref": "#/$defs/DependencyMergeRequest",
+            "description": "Merge request blocked by this dependency.",
+            "title": "Blocked Merge Request"
+          },
+          "blocking_merge_request": {
+            "$ref": "#/$defs/DependencyMergeRequest",
+            "description": "Blocking merge request; omitted when the caller cannot access it.",
+            "title": "Blocking Merge Request"
+          },
+          "id": {
+            "description": "Dependency relationship ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "project_id": {
+            "description": "Project ID of the dependency.",
+            "title": "Project Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "blocked_merge_request"],
+        "title": "MergeRequestDependency",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListBlockedMergeRequestsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

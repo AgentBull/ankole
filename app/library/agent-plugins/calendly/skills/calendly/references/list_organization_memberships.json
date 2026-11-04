@@ -1,0 +1,225 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of organization memberships.",
+  "inputSchema": {
+    "description": "Request schema for listing organization memberships. At least one of 'organization' or 'user' must be provided.",
+    "properties": {
+      "count": {
+        "default": 20,
+        "description": "The number of membership records to return per page. Must be an integer between 1 and 100, inclusive.",
+        "examples": [10, 20, 50],
+        "title": "Count",
+        "type": "integer"
+      },
+      "email": {
+        "description": "Filter memberships by the email address of the user. Must be used with 'organization' or 'user'.",
+        "examples": ["test_user@example.com"],
+        "title": "Email",
+        "type": "string"
+      },
+      "organization": {
+        "description": "Filter memberships by the URI of the organization. At least one of 'organization' or 'user' is required.",
+        "examples": ["https://api.calendly.com/organizations/EBHAAFHDCAEQTSEZ"],
+        "title": "Organization",
+        "type": "string"
+      },
+      "page_token": {
+        "description": "The token to retrieve the next or previous page of results in a paginated collection.",
+        "examples": ["NEXT_PAGE_TOKEN", "PREVIOUS_PAGE_TOKEN"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "user": {
+        "description": "Filter memberships by the URI of the user. At least one of 'organization' or 'user' is required.",
+        "examples": ["https://api.calendly.com/users/AAABBBBCCCCDDDDEEEEE"],
+        "title": "User",
+        "type": "string"
+      }
+    },
+    "title": "ListOrganizationMembershipsRequest",
+    "type": "object"
+  },
+  "name": "list_organization_memberships",
+  "outputSchema": {
+    "$defs": {
+      "ListOrganizationMembershipsResponse": {
+        "description": "Response schema for `ListOrganizationMemberships`, containing organization membership data and pagination metadata.",
+        "properties": {
+          "collection": {
+            "description": "Array of organization membership objects representing all Calendly members in the organization.",
+            "items": {
+              "$ref": "#/$defs/OrganizationMembership"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection", "pagination"],
+        "title": "ListOrganizationMembershipsResponse",
+        "type": "object"
+      },
+      "OrganizationMembership": {
+        "description": "Represents a single organization membership object.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp in ISO 8601 format indicating when the membership was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "organization": {
+            "description": "URI reference to the organization resource.",
+            "title": "Organization",
+            "type": "string"
+          },
+          "role": {
+            "description": "The member's role within the organization. Possible values: 'owner', 'admin', 'user'.",
+            "title": "Role",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp in ISO 8601 format indicating when the membership was last updated.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical URI reference for the organization membership resource.",
+            "title": "Uri",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/User",
+            "description": "Detailed information about the user associated with this organization membership.",
+            "title": "User"
+          }
+        },
+        "required": ["uri", "role", "user", "organization", "updated_at", "created_at"],
+        "title": "OrganizationMembership",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination metadata for navigating through large result sets.",
+        "properties": {
+          "count": {
+            "description": "The number of results returned in the current page.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL to retrieve the next page of results. Null if there are no more pages available.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "next_page_token": {
+            "description": "Cursor token for retrieving the next page of results in cursor-based pagination.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL to retrieve the previous page of results. Null if on the first page.",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "previous_page_token": {
+            "description": "Cursor token for retrieving the previous page of results in cursor-based pagination.",
+            "title": "Previous Page Token",
+            "type": "string"
+          }
+        },
+        "required": ["count"],
+        "title": "Pagination",
+        "type": "object"
+      },
+      "User": {
+        "description": "Detailed information about the user associated with an organization membership.",
+        "properties": {
+          "avatar_url": {
+            "description": "URL to the user's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp in ISO 8601 format indicating when the user account was created.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_organization": {
+            "description": "URI of the user's current organization.",
+            "title": "Current Organization",
+            "type": "string"
+          },
+          "email": {
+            "description": "The user's email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "locale": {
+            "description": "The user's language locale preference.",
+            "title": "Locale",
+            "type": "string"
+          },
+          "name": {
+            "description": "The user's full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "resource_type": {
+            "description": "Resource type identifier, typically 'User'.",
+            "title": "Resource Type",
+            "type": "string"
+          },
+          "scheduling_url": {
+            "description": "The public Calendly scheduling page URL for this user.",
+            "title": "Scheduling Url",
+            "type": "string"
+          },
+          "slug": {
+            "description": "The user's unique URL slug identifier.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "time_notation": {
+            "description": "Time notation format preference (e.g., '12h' or '24h').",
+            "title": "Time Notation",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "The user's configured timezone.",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp in ISO 8601 format indicating when the user account was last updated.",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical URI reference for the user resource.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "name", "slug", "email", "scheduling_url", "timezone", "created_at", "updated_at"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListOrganizationMembershipsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

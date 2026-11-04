@@ -1,0 +1,183 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves the balance transaction with the given ID. Use when you need detailed information about a specific balance transaction including amounts, fees, availability dates, and transaction sources.",
+  "inputSchema": {
+    "description": "Request model for retrieving a balance transaction.",
+    "properties": {
+      "expand": {
+        "description": "Specifies which fields in the response should be expanded. For example, use ['source'] to expand the source field to retrieve full details of the Stripe object that triggered the balance transaction.",
+        "examples": [["source"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Expand",
+        "type": "array"
+      },
+      "id": {
+        "description": "The unique identifier for the balance transaction to retrieve. Balance transaction IDs typically start with 'txn_'.",
+        "examples": ["txn_3ShVc9QvM72TjFrb1cJmu9zh", "txn_1MiN3gLkdIwHu7ixxapQrznl"],
+        "title": "Id",
+        "type": "string"
+      }
+    },
+    "required": ["id"],
+    "title": "GetBalanceTransactionRequest",
+    "type": "object"
+  },
+  "name": "get_balance_transaction",
+  "outputSchema": {
+    "$defs": {
+      "FeeDetail": {
+        "description": "Individual fee component breakdown for a balance transaction.",
+        "properties": {
+          "amount": {
+            "description": "Amount of the fee in smallest currency unit (cents).",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "application": {
+            "description": "ID of the Connect application that earned the fee, if applicable.",
+            "title": "Application",
+            "type": "string"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code for the fee.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the fee.",
+            "title": "Description",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of the fee. Possible values: application_fee, payment_method_passthrough_fee, stripe_fee, tax.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "currency", "type"],
+        "title": "FeeDetail",
+        "type": "object"
+      },
+      "GetBalanceTransactionResponse": {
+        "description": "Response model containing detailed balance transaction information.",
+        "properties": {
+          "amount": {
+            "description": "Gross amount of the transaction in smallest currency unit (cents). Positive values indicate charges to customers, negative values indicate funds sent.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "available_on": {
+            "description": "Unix timestamp (in seconds) indicating when the transaction's net funds become available in the balance.",
+            "title": "Available On",
+            "type": "integer"
+          },
+          "balance_type": {
+            "description": "Which balance category this impacts. Possible values: issuing, payments, refund_and_dispute_prefunding.",
+            "title": "Balance Type",
+            "type": "string"
+          },
+          "created": {
+            "description": "Unix timestamp (in seconds) when the balance transaction was created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase (e.g., 'usd', 'eur').",
+            "title": "Currency",
+            "type": "string"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the object, often useful for displaying to users.",
+            "title": "Description",
+            "type": "string"
+          },
+          "exchange_rate": {
+            "description": "Exchange rate applied if the transaction involves multiple currencies. Multiply the amount by this to get the amount in the destination currency.",
+            "title": "Exchange Rate",
+            "type": "number"
+          },
+          "fee": {
+            "description": "Total fees charged for this transaction in smallest currency unit (cents).",
+            "title": "Fee",
+            "type": "integer"
+          },
+          "fee_details": {
+            "description": "Detailed breakdown of all fees paid for this transaction.",
+            "items": {
+              "$ref": "#/$defs/FeeDetail"
+            },
+            "title": "Fee Details",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the balance transaction object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "net": {
+            "description": "Net amount of the transaction in smallest currency unit (cents). This is the amount that is deposited into or withdrawn from your balance (calculated as amount minus fee).",
+            "title": "Net",
+            "type": "integer"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'balance_transaction' for balance transaction objects.",
+            "title": "Object",
+            "type": "string"
+          },
+          "reporting_category": {
+            "description": "The reporting category of the transaction for accounting purposes.",
+            "title": "Reporting Category",
+            "type": "string"
+          },
+          "source": {
+            "description": "The Stripe object ID to which this transaction relates. This can be a Charge, Refund, Transfer, Payout, or other object. Can be expanded to retrieve full object details using the expand parameter.",
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "description": "Current status of the transaction. Possible values: available, pending.",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "description": "Transaction type. Possible values include: adjustment, advance, advance_funding, anticipation_repayment, application_fee, application_fee_refund, charge, payment, payment_refund, payout, refund, transfer, and many others.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "available_on",
+          "created",
+          "currency",
+          "fee",
+          "fee_details",
+          "net",
+          "reporting_category",
+          "status",
+          "type"
+        ],
+        "title": "GetBalanceTransactionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBalanceTransactionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

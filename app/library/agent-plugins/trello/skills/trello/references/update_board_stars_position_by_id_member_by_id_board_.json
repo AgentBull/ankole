@@ -1,0 +1,70 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update board star position",
+  "inputSchema": {
+    "description": "Request schema for updating the position of a member's starred board.",
+    "properties": {
+      "idBoardStar": {
+        "description": "The unique identifier of the specific board star whose position is to be changed. Each board starred by a member has a unique `idBoardStar`.",
+        "title": "Id Board Star",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID or username of the Trello member. The special value 'me' can be used to refer to the currently authenticated user.",
+        "title": "Id Member",
+        "type": "string"
+      },
+      "value": {
+        "description": "The new position for the starred board. Valid inputs are the literal strings 'top', 'bottom', or a string representing a positive number (e.g., '1', '2.5', '10').",
+        "examples": ["top", "bottom", "1", "2.5", "10"],
+        "title": "Value",
+        "type": "string"
+      }
+    },
+    "required": ["idMember", "idBoardStar"],
+    "title": "UpdateBoardStarsPositionByIdMemberByIdBoardStarRequest",
+    "type": "object"
+  },
+  "name": "update_board_stars_position_by_id_member_by_id_board_",
+  "outputSchema": {
+    "$defs": {
+      "UpdateBoardStarsPositionByIdMemberByIdBoardStarResponse": {
+        "description": "Response schema after updating the position of a member's starred board.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier for the board star. TrelloID format: 24-character hexadecimal string.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board that is starred. TrelloID format: 24-character hexadecimal string.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position of the starred board in the user's starred boards list. Used for ordering starred boards.",
+            "title": "Pos",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "idBoard", "pos"],
+        "title": "UpdateBoardStarsPositionByIdMemberByIdBoardStarResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateBoardStarsPositionByIdMemberByIdBoardStarResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

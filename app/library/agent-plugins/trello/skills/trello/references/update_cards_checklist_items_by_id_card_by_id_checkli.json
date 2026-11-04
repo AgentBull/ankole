@@ -1,0 +1,142 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Update check item on card",
+  "inputSchema": {
+    "description": "Request schema for updating a check item on a Trello card.",
+    "properties": {
+      "due": {
+        "description": "A due date for the checkitem in ISO 8601 format (e.g., '2021-02-12T07:00:00.000Z')",
+        "title": "Due",
+        "type": "string"
+      },
+      "dueReminder": {
+        "description": "A dueReminder for the due date on the checkitem (number of seconds before due date)",
+        "title": "Due Reminder",
+        "type": "integer"
+      },
+      "id": {
+        "description": "The ID of the Card",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id",
+        "type": "string"
+      },
+      "idCheckItem": {
+        "description": "The ID of the checkitem",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id Check Item",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "The ID of the checklist this item is in",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id Checklist",
+        "type": "string"
+      },
+      "idMember": {
+        "description": "The ID of the member to assign to this check item",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id Member",
+        "type": "string"
+      },
+      "name": {
+        "description": "The new name for the checklist item",
+        "title": "Name",
+        "type": "string"
+      },
+      "pos": {
+        "description": "Position of the check item: 'top', 'bottom', or a positive float",
+        "examples": ["top", "bottom", "16384.0"],
+        "title": "Pos",
+        "type": "string"
+      },
+      "state": {
+        "description": "State of a check item.",
+        "enum": ["complete", "incomplete"],
+        "title": "CheckItemState",
+        "type": "string"
+      }
+    },
+    "required": ["id", "idCheckItem"],
+    "title": "UpdateCardsChecklistItemsByIdCardByIdChecklistByIdCheckItemRequest",
+    "type": "object"
+  },
+  "name": "update_cards_checklist_items_by_id_card_by_id_checkli",
+  "outputSchema": {
+    "$defs": {
+      "UpdateCardsChecklistItemsByIdCardByIdChecklistByIdCheckItemResponse": {
+        "description": "Response schema for updated check item.",
+        "properties": {
+          "due": {
+            "description": "The due date for the check item in ISO 8601 format. Requires Business Class or higher. May be null.",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "The number of seconds before the due date to send a reminder. Requires Business Class or higher. May be null.",
+            "title": "Due Reminder",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The unique identifier of the check item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "The ID of the parent checklist containing this check item.",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "The ID of the member assigned to this check item. Requires Business Class or higher. May be null.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "name": {
+            "description": "The text/title of the check item.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "description": "Additional data related to the check item name. Typically null.",
+            "title": "Name Data",
+            "type": "string"
+          },
+          "pos": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "The position of the check item within the checklist, used for ordering.",
+            "title": "Pos"
+          },
+          "state": {
+            "description": "The completion state of the check item. Can be 'complete' or 'incomplete'.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idChecklist", "name", "state", "pos"],
+        "title": "UpdateCardsChecklistItemsByIdCardByIdChecklistByIdCheckItemResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateCardsChecklistItemsByIdCardByIdChecklistByIdCheckItemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,264 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List ticket requests for a specific Zendesk user. Use when you need to retrieve all requests associated with a particular user ID. This is useful for viewing a user's request history or monitoring their open tickets. This action is read-only and idempotent.",
+  "inputSchema": {
+    "description": "Request parameters for listing Zendesk requests for a specific user.",
+    "properties": {
+      "sort_by": {
+        "description": "Sort field options for listing user requests.",
+        "enum": ["updated_at", "created_at"],
+        "examples": ["updated_at"],
+        "human_parameter_description": "Choose which field to sort the requests by: updated_at or created_at.",
+        "human_parameter_name": "Sort By",
+        "title": "GetUsersRequestsSortBy",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort order options for listing user requests.",
+        "enum": ["asc", "desc"],
+        "examples": ["asc"],
+        "human_parameter_description": "Choose ascending (asc) or descending (desc) sort order. Defaults to ascending.",
+        "human_parameter_name": "Sort Order",
+        "title": "GetUsersRequestsSortOrder",
+        "type": "string"
+      },
+      "user_id": {
+        "description": "The numeric ID of the user whose requests to retrieve.",
+        "examples": [35436],
+        "human_parameter_description": "The numeric ID of the user. This can be found in ticket payloads (requester_id, assignee_id, author_id) or from user listing results.",
+        "human_parameter_name": "User ID",
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id"],
+    "title": "GetUsersRequestsRequest",
+    "type": "object"
+  },
+  "name": "get_users_requests",
+  "outputSchema": {
+    "$defs": {
+      "GetUsersRequestsResponse": {
+        "description": "Response containing list of Zendesk requests for a specific user.",
+        "properties": {
+          "after_cursor": {
+            "description": "Cursor for next page (cursor pagination only)",
+            "title": "After Cursor",
+            "type": "string"
+          },
+          "before_cursor": {
+            "description": "Cursor for previous page (cursor pagination only)",
+            "title": "Before Cursor",
+            "type": "string"
+          },
+          "count": {
+            "description": "Total number of requests",
+            "title": "Count",
+            "type": "integer"
+          },
+          "has_more": {
+            "description": "Whether more results are available (cursor pagination only)",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "requests": {
+            "description": "List of ticket requests for the specified user",
+            "items": {
+              "$ref": "#/$defs/ZendeskRequest"
+            },
+            "title": "Requests",
+            "type": "array"
+          }
+        },
+        "required": ["requests"],
+        "title": "GetUsersRequestsResponse",
+        "type": "object"
+      },
+      "Via": {
+        "description": "Via object describing how the request was created.",
+        "properties": {
+          "channel": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The channel through which the request was created",
+            "title": "Channel"
+          }
+        },
+        "title": "Via",
+        "type": "object"
+      },
+      "ZendeskRequest": {
+        "description": "A single ticket request object.",
+        "properties": {
+          "assignee_id": {
+            "description": "ID of the assigned agent",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "can_be_solved_by_me": {
+            "description": "Whether the requester can mark as solved",
+            "title": "Can Be Solved By Me",
+            "type": "boolean"
+          },
+          "collaborator_ids": {
+            "description": "IDs of collaborators",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Request creation timestamp",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "Custom field values",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "custom_status_id": {
+            "description": "Custom status ID",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Request description",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "description": "Due date timestamp",
+            "title": "Due At",
+            "type": "string"
+          },
+          "email_cc_ids": {
+            "description": "Email CC IDs",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Email Cc Ids",
+            "type": "array"
+          },
+          "followup_source_id": {
+            "description": "Followup source ID",
+            "title": "Followup Source Id",
+            "type": "integer"
+          },
+          "group_id": {
+            "description": "ID of the assigned group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique request ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_public": {
+            "description": "Whether the request is public",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "organization_id": {
+            "description": "ID of the requester's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Request priority (e.g., 'normal', 'high', 'urgent', 'low')",
+            "title": "Priority",
+            "type": "string"
+          },
+          "recipient": {
+            "description": "Recipient email address",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "ID of the user who requested",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "solved": {
+            "description": "Whether the request is solved",
+            "title": "Solved",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "Request status (e.g., 'open', 'closed')",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Request subject",
+            "title": "Subject",
+            "type": "string"
+          },
+          "ticket_form_id": {
+            "description": "Ticket form ID",
+            "title": "Ticket Form Id",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Request type (e.g., 'problem', 'incident', 'question', 'task')",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Request last update timestamp",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the request",
+            "title": "Url",
+            "type": "string"
+          },
+          "via": {
+            "$ref": "#/$defs/Via",
+            "description": "How the request was created",
+            "title": "Via"
+          }
+        },
+        "title": "ZendeskRequest",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUsersRequestsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

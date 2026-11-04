@@ -1,0 +1,205 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves time series data for an organization's Sentry project release health sessions; note session duration data (e.g., using `avg(session.duration)`) may be incomplete after Jan 12, 2023, results are capped at 10,000 data points, `statsPeriod` overrides `start`/`end` timestamps, and the `interval` parameter (default/min '1h', max '1d', format like `statsPeriod`) dictates time series resolution and must cleanly divide one day.",
+  "inputSchema": {
+    "description": "Request schema for `GetOrganizationSessions`",
+    "properties": {
+      "end": {
+        "description": "End of the query period (ISO-8601 format). Ignored if `statsPeriod` is provided.",
+        "examples": ["2023-01-31T23:59:59Z", "2023-03-16T10:30:00.123Z"],
+        "title": "End",
+        "type": "string"
+      },
+      "environment": {
+        "description": "Environment names to filter sessions by (e.g., 'production', 'staging').",
+        "examples": ["production", "staging", "development"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "field": {
+        "description": "Fields for session statistics (e.g., `sum(session)`, `count_unique(user)`, `p99(session.duration)`, `crash_free_rate(user)`). Session duration aggregations may be incomplete for data after Jan 12, 2023.",
+        "examples": ["sum(session)", "count_unique(user)", "p95(session.duration)", "crash_free_rate(user)"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Field",
+        "type": "array"
+      },
+      "groupBy": {
+        "description": "Properties to group session data by (e.g., `project`, `release`, `environment`, `session.status`).",
+        "examples": ["project", "release", "environment", "session.status"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Group By",
+        "type": "array"
+      },
+      "includeSeries": {
+        "description": "Set to `0` to exclude, `1` (API default) to include time series data.",
+        "examples": ["0", "1"],
+        "title": "Include Series",
+        "type": "integer"
+      },
+      "includeTotals": {
+        "description": "Set to `0` to exclude, `1` (API default) to include totals.",
+        "examples": ["0", "1"],
+        "title": "Include Totals",
+        "type": "integer"
+      },
+      "interval": {
+        "description": "Time series data resolution (e.g., '1h', '1d'; format like `statsPeriod`). Minimum '1h', maximum '1d'. Must cleanly divide one day.",
+        "examples": ["1h", "6h", "1d"],
+        "title": "Interval",
+        "type": "string"
+      },
+      "orderBy": {
+        "description": "Field from `field` parameter to order results by. Prefix with '-' for descending (e.g., `-sum(session)`).",
+        "examples": ["sum(session)", "-count_unique(user)"],
+        "title": "Order By",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "Unique ID or human-readable slug of the Sentry organization.",
+        "examples": ["my-org-slug", "1234567"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Maximum number of groups (aggregated data points based on `groupBy`) per request.",
+        "examples": ["50", "100"],
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "project": {
+        "description": "Project IDs to filter sessions by. Use `[-1]` for all accessible projects.",
+        "examples": ["12345", "67890", "-1"],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Project",
+        "type": "array"
+      },
+      "query": {
+        "description": "Sentry search query to filter sessions (e.g., `(transaction:foo AND release:abc)`). See Sentry docs for syntax.",
+        "examples": ["transaction:foo AND release:abc", "environment:production AND user.email:*@example.com"],
+        "title": "Query",
+        "type": "string"
+      },
+      "start": {
+        "description": "Start of the query period (ISO-8601 format). Ignored if `statsPeriod` is provided.",
+        "examples": ["2023-01-01T00:00:00Z", "2023-03-15T10:30:00.123Z"],
+        "title": "Start",
+        "type": "string"
+      },
+      "statsPeriod": {
+        "description": "Relative query period (e.g., '24h', '7d'), overrides `start` and `end`. Uses 'd' (days), 'h' (hours), 'm' (minutes), 's' (seconds), or 'w' (weeks).",
+        "examples": ["24h", "7d", "30m", "1w"],
+        "title": "Stats Period",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "field"],
+    "title": "GetOrganizationSessionsRequest",
+    "type": "object"
+  },
+  "name": "get_organization_sessions",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationSessionsResponse": {
+        "description": "Response schema for `GetOrganizationSessions`",
+        "properties": {
+          "end": {
+            "description": "The end date/time of the data range in ISO 8601 format.",
+            "title": "End",
+            "type": "string"
+          },
+          "groups": {
+            "description": "Array of grouped session statistics. Each group contains aggregated data based on the specified groupBy dimensions (project, release, environment, session.status).",
+            "items": {
+              "$ref": "#/$defs/SessionGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "intervals": {
+            "description": "Array of timestamp intervals for the time series data matching the requested resolution.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Intervals",
+            "type": "array"
+          },
+          "query": {
+            "description": "The query filter applied to the results.",
+            "title": "Query",
+            "type": "string"
+          },
+          "start": {
+            "description": "The start date/time of the data range in ISO 8601 format.",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": ["start", "end", "intervals", "groups"],
+        "title": "GetOrganizationSessionsResponse",
+        "type": "object"
+      },
+      "SessionGroup": {
+        "description": "Grouped session statistics with aggregated data.",
+        "properties": {
+          "by": {
+            "$ref": "#/$defs/SessionGroupBy",
+            "description": "Grouping dimensions for the data. Common properties include 'project' (integer), 'release' (string), 'environment' (string), or 'session.status' (string with values: 'healthy', 'errored', 'crashed', 'abnormal').",
+            "title": "By"
+          },
+          "series": {
+            "additionalProperties": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "description": "Time series data with metric values as arrays of numbers corresponding to the intervals. Common metrics include 'sum(session)' arrays. Can be excluded by setting includeSeries=0 in the request.",
+            "title": "Series",
+            "type": "object"
+          },
+          "totals": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Aggregated totals for the metrics across the entire time period. Common metrics include 'sum(session)' for total session count. Can be excluded by setting includeTotals=0 in the request.",
+            "title": "Totals",
+            "type": "object"
+          }
+        },
+        "required": ["by"],
+        "title": "SessionGroup",
+        "type": "object"
+      },
+      "SessionGroupBy": {
+        "additionalProperties": true,
+        "description": "Grouping dimensions for session data.",
+        "properties": {},
+        "title": "SessionGroupBy",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationSessionsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

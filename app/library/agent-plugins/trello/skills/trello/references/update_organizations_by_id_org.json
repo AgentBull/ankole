@@ -1,0 +1,283 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates various attributes of an existing Trello organization, identified by `idOrg`.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateOrganizationsByIdOrg`",
+    "properties": {
+      "desc": {
+        "description": "New description for the organization (0-16384 characters).",
+        "title": "Desc",
+        "type": "string"
+      },
+      "displayName": {
+        "description": "New display name for the organization (length of at least 1, cannot begin or end with a space).",
+        "title": "Display Name",
+        "type": "string"
+      },
+      "idOrg": {
+        "description": "The ID or name of the organization to update.",
+        "title": "Id Org",
+        "type": "string"
+      },
+      "name": {
+        "description": "New name for the organization (0-16384 characters); typically lowercase, without spaces.",
+        "title": "Name",
+        "type": "string"
+      },
+      "prefs__associatedDomain": {
+        "description": "The Google Workspace domain to associate with the organization (e.g., 'example.com'). Clears the domain if an empty string is provided.",
+        "examples": ["example.com", "myteam.example.com"],
+        "title": "Prefs  Associated Domain",
+        "type": "string"
+      },
+      "prefs__boardVisibilityRestrict__org": {
+        "description": "Controls who can create organization-visible boards. Valid values: 'admin' (only admins), 'org' (any organization member), 'none' (disabled).",
+        "examples": ["admin", "org", "none"],
+        "title": "Prefs  Board Visibility Restrict  Org",
+        "type": "string"
+      },
+      "prefs__boardVisibilityRestrict__private": {
+        "description": "Controls who can create private boards. Valid values: 'admin' (only admins), 'org' (any organization member), 'none' (disabled).",
+        "examples": ["admin", "org", "none"],
+        "title": "Prefs  Board Visibility Restrict  Private",
+        "type": "string"
+      },
+      "prefs__boardVisibilityRestrict__public": {
+        "description": "Controls who can create public boards. Valid values: 'admin' (only admins), 'org' (any organization member), 'none' (disabled).",
+        "examples": ["admin", "org", "none"],
+        "title": "Prefs  Board Visibility Restrict  Public",
+        "type": "string"
+      },
+      "prefs__externalMembersDisabled": {
+        "description": "Set to 'true' to prevent external members (guests) from being added to boards within the organization. Set to 'false' to allow external members.",
+        "examples": ["true", "false"],
+        "title": "Prefs  External Members Disabled",
+        "type": "string"
+      },
+      "prefs__googleAppsVersion": {
+        "description": "The version of Google Workspace integration. Valid values are '1' or '2'.",
+        "examples": ["1", "2"],
+        "title": "Prefs  Google Apps Version",
+        "type": "string"
+      },
+      "prefs__orgInviteRestrict": {
+        "description": "Restricts organization membership invitations to email addresses from specified domains. Use a comma-separated list of domains (e.g., 'example.com,*.example.org'). An empty string removes restrictions.",
+        "examples": ["example.com,*.example.org", "mycompany.com"],
+        "title": "Prefs  Org Invite Restrict",
+        "type": "string"
+      },
+      "prefs__permissionLevel": {
+        "description": "Sets the default permission level for new boards created in the organization. Valid values: 'private' or 'public'.",
+        "examples": ["private", "public"],
+        "title": "Prefs  Permission Level",
+        "type": "string"
+      },
+      "website": {
+        "description": "The organization's website URL. Must start with 'http://' or 'https://'. Use the literal string 'null' or an empty string to remove the website.",
+        "examples": ["https://www.example.com", "http://myorg.org", "null", ""],
+        "title": "Website",
+        "type": "string"
+      }
+    },
+    "required": ["idOrg"],
+    "title": "UpdateOrganizationsByIdOrgRequest",
+    "type": "object"
+  },
+  "name": "update_organizations_by_id_org",
+  "outputSchema": {
+    "$defs": {
+      "OrganizationPrefs": {
+        "description": "Organization preferences including board visibility restrictions, permission levels, and attachment restrictions",
+        "properties": {
+          "associatedDomain": {
+            "description": "Associated domain for the organization",
+            "title": "Associated Domain",
+            "type": "string"
+          },
+          "attachmentRestrictions": {
+            "description": "Attachment restrictions for the organization (e.g., ['computer'])",
+            "items": {
+              "type": "string"
+            },
+            "title": "Attachment Restrictions",
+            "type": "array"
+          },
+          "boardDeleteRestrict": {
+            "additionalProperties": true,
+            "description": "Board deletion restriction settings",
+            "title": "Board Delete Restrict",
+            "type": "object"
+          },
+          "boardVisibilityRestrict": {
+            "additionalProperties": true,
+            "description": "Board visibility restriction settings",
+            "title": "Board Visibility Restrict",
+            "type": "object"
+          },
+          "externalMembersDisabled": {
+            "description": "Whether external members are disabled",
+            "title": "External Members Disabled",
+            "type": "boolean"
+          },
+          "googleAppsVersion": {
+            "description": "Google Apps version",
+            "title": "Google Apps Version",
+            "type": "integer"
+          },
+          "orgInviteRestrict": {
+            "description": "Organization invite restrictions",
+            "title": "Org Invite Restrict",
+            "type": "string"
+          },
+          "permissionLevel": {
+            "description": "Permission level for the organization (e.g., 'private', 'public')",
+            "title": "Permission Level",
+            "type": "string"
+          }
+        },
+        "title": "OrganizationPrefs",
+        "type": "object"
+      },
+      "UpdateOrganizationsByIdOrgResponse": {
+        "description": "Response schema for `UpdateOrganizationsByIdOrg`",
+        "properties": {
+          "billableMemberCount": {
+            "description": "The number of billable members in the organization",
+            "title": "Billable Member Count",
+            "type": "integer"
+          },
+          "dateLastActivity": {
+            "description": "The timestamp of the last activity in the organization in ISO 8601 format",
+            "title": "Date Last Activity",
+            "type": "string"
+          },
+          "desc": {
+            "description": "The description for the organization",
+            "title": "Desc",
+            "type": "string"
+          },
+          "descData": {
+            "description": "The description data for the organization",
+            "title": "Desc Data",
+            "type": "string"
+          },
+          "displayName": {
+            "description": "The display name for the organization. Must be a string with a length from 1 to 16384",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier for the organization",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoards": {
+            "description": "Array of board IDs that belong to the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Boards",
+            "type": "array"
+          },
+          "idEnterprise": {
+            "description": "The ID of the enterprise the organization belongs to, if applicable",
+            "title": "Id Enterprise",
+            "type": "string"
+          },
+          "invitations": {
+            "description": "Array of pending invitations to the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Invitations",
+            "type": "array"
+          },
+          "invited": {
+            "description": "Whether the organization has invited members",
+            "title": "Invited",
+            "type": "boolean"
+          },
+          "logoHash": {
+            "description": "The logo hash for the organization's logo",
+            "title": "Logo Hash",
+            "type": "string"
+          },
+          "memberships": {
+            "description": "Array of membership objects representing organization members",
+            "items": {
+              "type": "string"
+            },
+            "title": "Memberships",
+            "type": "array"
+          },
+          "name": {
+            "description": "The name of the organization. Must be a string of 3 to 100 lowercase alphanumeric characters, underscores, or hyphens",
+            "title": "Name",
+            "type": "string"
+          },
+          "offering": {
+            "description": "The offering type for the organization (e.g., 'trello.enterprise')",
+            "title": "Offering",
+            "type": "string"
+          },
+          "powerUps": {
+            "description": "Array of power-ups available to the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Power Ups",
+            "type": "array"
+          },
+          "prefs": {
+            "$ref": "#/$defs/OrganizationPrefs",
+            "description": "Organization preferences including board visibility restrictions, permission levels, and attachment restrictions",
+            "title": "Prefs"
+          },
+          "premiumFeatures": {
+            "description": "Array of premium features available to the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Premium Features",
+            "type": "array"
+          },
+          "products": {
+            "description": "Array of products associated with the organization",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "url": {
+            "description": "The URL to the organization workspace",
+            "title": "Url",
+            "type": "string"
+          },
+          "website": {
+            "description": "The website URL of the organization",
+            "title": "Website",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "UpdateOrganizationsByIdOrgResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateOrganizationsByIdOrgResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

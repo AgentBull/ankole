@@ -1,0 +1,52 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Delete a specified Zendesk view. Returns a success indicator for both a 204 deletion response and a 404 response indicating the view was not found.",
+  "inputSchema": {
+    "description": "Request parameters for deleting a Zendesk view.",
+    "properties": {
+      "view_id": {
+        "description": "The ID of the view to delete",
+        "examples": [26943712595868],
+        "human_parameter_description": "The numeric ID of the Zendesk view you want to delete. You can find this in the view's URL or from a list of views.",
+        "human_parameter_name": "View ID",
+        "title": "View Id",
+        "type": "integer"
+      }
+    },
+    "required": ["view_id"],
+    "title": "DeleteViewRequest",
+    "type": "object"
+  },
+  "name": "delete_view",
+  "outputSchema": {
+    "$defs": {
+      "DeleteViewResponse": {
+        "description": "Response returned after successfully deleting a view.",
+        "properties": {
+          "success": {
+            "description": "Indicates whether the view deletion was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["success"],
+        "title": "DeleteViewResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteViewResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

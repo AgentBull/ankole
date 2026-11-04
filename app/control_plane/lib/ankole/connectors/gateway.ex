@@ -78,6 +78,7 @@ defmodule Ankole.Connectors.Gateway do
          {:ok, result} <- validate_output(spec, result) do
       {:ok, result_content(int64_strings(result, spec.output_schema, spec.output_schema))}
     end
+    |> consent_return(context)
   end
 
   defp call({:skill, skill, server} = target, name, args, context, _options)
@@ -119,6 +120,33 @@ defmodule Ankole.Connectors.Gateway do
 
   defp call(_, _, _, _, _), do: {:error, :invalid_request}
 
+  defp consent_return({:error, %{code: "oauth_consent_required"} = error}, context) do
+    case return_path(context) do
+      nil ->
+        {:error, error}
+
+      path ->
+        url = URI.parse(error.authorization_url)
+        params = URI.decode_query(url.query || "") |> Map.put("intent", path)
+
+        {:error,
+         %{error | authorization_url: URI.to_string(%{url | query: URI.encode_query(params)})}}
+    end
+  end
+
+  defp consent_return(result, _context), do: result
+
+  defp return_path(%{return_to: path}) when is_binary(path), do: path
+
+  defp return_path(%{actor: %{turn_authority: {%Ankole.Sessions.RunRef{} = ref, _uid}}}) do
+    with {:conversation, id} <- Ankole.Sessions.Key.parse(ref.session_id),
+         {:ok, %{kind: :native}} <- Ankole.Conversations.get_conversation(id),
+         do: AnkoleWeb.PodURL.conversation_path(id),
+         else: (_ -> nil)
+  end
+
+  defp return_path(_context), do: nil
+
   @doc false
   def invoke_toolkit(adapter, spec, args, context) do
     case adapter.call(spec, args, context) do
@@ -152,7 +180,10 @@ defmodule Ankole.Connectors.Gateway do
         end
 
       {:error, :oauth_reauthorization_required} ->
-        OAuth.consent_required(context.auth_config.slug, spec.scopes, %{
+        scopes =
+          Enum.uniq(((context.account && context.account.granted_scopes) || []) ++ spec.scopes)
+
+        OAuth.consent_required(context.auth_config.slug, scopes, %{
           "toolkit" => spec.toolkit,
           "subject_kind" => (context.account && context.account.subject_kind) || "app"
         })

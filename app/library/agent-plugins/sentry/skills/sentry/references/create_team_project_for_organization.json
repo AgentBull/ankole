@@ -1,0 +1,256 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new Sentry project for an existing organization and team, allowing configuration of its name, slug, platform, and default alert rules.",
+  "inputSchema": {
+    "description": "Request schema for creating a new project associated with a specific team within a Sentry organization.",
+    "properties": {
+      "default_rules": {
+        "description": "Specifies whether to create default alert rules. If true (API default when parameter is omitted), an alert is triggered for every new issue. If false, no default alerts are created.",
+        "title": "Default Rules",
+        "type": "boolean"
+      },
+      "name": {
+        "description": "Display name for the new Sentry project.",
+        "examples": ["WebApp-Production", "Mobile-API-Gateway"],
+        "title": "Name",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "ID or slug of the Sentry organization where the project will be created.",
+        "examples": ["my-sentry-org", "acme-corp"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "platform": {
+        "description": "Primary platform or language (e.g., python, javascript, java) for SDK setup instructions and issue processing.",
+        "examples": ["python", "javascript-react", "node", "java-spring"],
+        "title": "Platform",
+        "type": "string"
+      },
+      "slug": {
+        "description": "Optional unique identifier for the project (e.g., for URLs), auto-generated from the name if omitted. Pattern: `^[a-z][a-z0-9_\\-]*$`.",
+        "examples": ["webapp-prod", "mobile-api-v2"],
+        "pattern": "^[a-z][a-z0-9_\\-]*$",
+        "title": "Slug",
+        "type": "string"
+      },
+      "team_id_or_slug": {
+        "description": "ID or slug of the Sentry team to associate with the project.",
+        "examples": ["frontend-team", "backend-ops"],
+        "title": "Team Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "team_id_or_slug", "name"],
+    "title": "CreateTeamProjectForOrganizationRequest",
+    "type": "object"
+  },
+  "name": "create_team_project_for_organization",
+  "outputSchema": {
+    "$defs": {
+      "CreateTeamProjectForOrganizationResponse": {
+        "description": "Response schema for `CreateTeamProjectForOrganization`, containing details of the newly created project.",
+        "properties": {
+          "access": {
+            "description": "List of access scopes/permissions the current user has for this project (e.g., 'project:read', 'project:write', 'event:admin').",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the project was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "environments": {
+            "description": "List of environment names configured for the project (e.g., 'production', 'staging').",
+            "items": {
+              "type": "string"
+            },
+            "title": "Environments",
+            "type": "array"
+          },
+          "features": {
+            "description": "List of enabled features for the project (e.g., 'similarity-indexing', 'alert-filters').",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "firstEvent": {
+            "description": "Timestamp of the first event received by the project, or null if no events yet.",
+            "title": "First Event",
+            "type": "string"
+          },
+          "firstTransactionEvent": {
+            "description": "Whether the project has received a transaction event.",
+            "title": "First Transaction Event",
+            "type": "boolean"
+          },
+          "hasAccess": {
+            "description": "Whether the current user has access to this project.",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "hasFeedbacks": {
+            "description": "Whether the project has user feedback data.",
+            "title": "Has Feedbacks",
+            "type": "boolean"
+          },
+          "hasFlags": {
+            "description": "Whether the project has feature flags data.",
+            "title": "Has Flags",
+            "type": "boolean"
+          },
+          "hasMonitors": {
+            "description": "Whether the project has monitoring/cron check-ins configured.",
+            "title": "Has Monitors",
+            "type": "boolean"
+          },
+          "hasProfiles": {
+            "description": "Whether the project has profiling data.",
+            "title": "Has Profiles",
+            "type": "boolean"
+          },
+          "hasReplays": {
+            "description": "Whether the project has session replay data.",
+            "title": "Has Replays",
+            "type": "boolean"
+          },
+          "hasSessions": {
+            "description": "Whether the project has session data.",
+            "title": "Has Sessions",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier of the newly created project.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isBookmarked": {
+            "description": "Whether the project is bookmarked by the current user.",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "isMember": {
+            "description": "Whether the current user is a member of this project.",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "latestDeploys": {
+            "additionalProperties": true,
+            "description": "Details of the latest deployments to this project, or null if no deployments.",
+            "title": "Latest Deploys",
+            "type": "object"
+          },
+          "latestRelease": {
+            "additionalProperties": true,
+            "description": "Details of the latest release deployed to this project, or null if no releases.",
+            "title": "Latest Release",
+            "type": "object"
+          },
+          "name": {
+            "description": "Display name of the project.",
+            "title": "Name",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Primary platform or language configured for the project (e.g., python, javascript-react).",
+            "title": "Platform",
+            "type": "string"
+          },
+          "platforms": {
+            "description": "List of all platforms detected in the project's events.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Platforms",
+            "type": "array"
+          },
+          "slug": {
+            "description": "URL-friendly identifier of the project.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "team": {
+            "$ref": "#/$defs/TeamInfo",
+            "description": "Primary team associated with the project.",
+            "title": "Team"
+          },
+          "teams": {
+            "description": "All teams associated with the project.",
+            "items": {
+              "$ref": "#/$defs/TeamInfo"
+            },
+            "title": "Teams",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "dateCreated",
+          "isBookmarked",
+          "isMember",
+          "hasAccess",
+          "team",
+          "teams",
+          "access",
+          "features",
+          "environments",
+          "firstTransactionEvent",
+          "hasSessions",
+          "hasProfiles",
+          "hasReplays",
+          "hasFeedbacks",
+          "hasMonitors",
+          "hasFlags",
+          "platforms"
+        ],
+        "title": "CreateTeamProjectForOrganizationResponse",
+        "type": "object"
+      },
+      "TeamInfo": {
+        "description": "Information about a team associated with the project.",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the team.",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the team.",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly identifier of the team.",
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": ["id", "slug", "name"],
+        "title": "TeamInfo",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateTeamProjectForOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

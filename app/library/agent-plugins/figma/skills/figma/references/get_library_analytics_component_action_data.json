@@ -1,0 +1,183 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves component insertion and detachment analytics for a specified Figma library, groupable by 'component' or 'team' and filterable by a date range (YYYY-MM-DD).",
+  "inputSchema": {
+    "description": "Request parameters to get library analytics component action data.",
+    "properties": {
+      "cursor": {
+        "description": "Opaque cursor for pagination, from a previous response's `cursor` field; omit for the first page.",
+        "title": "Cursor",
+        "type": "string"
+      },
+      "end_date": {
+        "description": "End date (YYYY-MM-DD) for analytics. Data includes up to end of this date's week. Defaults to latest computed week.",
+        "examples": ["2023-12-31"],
+        "title": "End Date",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "Unique identifier (key) of the Figma library file to retrieve analytics data from. Must be a published library file from an Enterprise plan organization.",
+        "examples": ["sFglL9l62Z1c4qjX2LmyxK", "12345AbcdeFGH67890"],
+        "title": "File Key",
+        "type": "string"
+      },
+      "group_by": {
+        "description": "Dimension to group analytics: 'component' or 'team'.",
+        "enum": ["component", "team"],
+        "examples": ["component", "team"],
+        "title": "Group By",
+        "type": "string"
+      },
+      "start_date": {
+        "description": "Start date (YYYY-MM-DD) for analytics. Data includes from start of this date's week. Defaults to one year prior.",
+        "examples": ["2023-01-01"],
+        "title": "Start Date",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "group_by"],
+    "title": "GetLibraryAnalyticsComponentActionDataRequest",
+    "type": "object"
+  },
+  "name": "get_library_analytics_component_action_data",
+  "outputSchema": {
+    "$defs": {
+      "GetLibraryAnalyticsComponentActionDataResponse": {
+        "description": "Response containing library analytics component action data.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "The structured library analytics data.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "GetLibraryAnalyticsComponentActionDataResponse",
+        "type": "object"
+      },
+      "Model": {
+        "properties": {
+          "cursor": {
+            "description": "The cursor to use to fetch the next page of data. This field is present only if `next_page` is true.",
+            "title": "Cursor",
+            "type": "string"
+          },
+          "next_page": {
+            "description": "A boolean indicating whether there is a subsequent page of data available to fetch.",
+            "title": "Next Page",
+            "type": "boolean"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Row"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "$ref": "#/$defs/Row1"
+                },
+                "type": "array"
+              }
+            ],
+            "description": "An array of analytics data entries. If `group_by` is 'component', entries will be of type `Row`. If `group_by` is 'team', entries will be of type `Row1`.",
+            "title": "Rows"
+          }
+        },
+        "required": ["rows", "next_page"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Row": {
+        "properties": {
+          "component_key": {
+            "description": "The unique and stable identifier of the component.",
+            "title": "Component Key",
+            "type": "string"
+          },
+          "component_name": {
+            "description": "The name of the component.",
+            "title": "Component Name",
+            "type": "string"
+          },
+          "component_set_key": {
+            "description": "The unique and stable identifier of the component set to which this component belongs, if applicable.",
+            "title": "Component Set Key",
+            "type": "string"
+          },
+          "component_set_name": {
+            "description": "The name of the component set to which this component belongs, if applicable.",
+            "title": "Component Set Name",
+            "type": "string"
+          },
+          "detachments": {
+            "description": "The total number of detach events for this component during the specified week.",
+            "title": "Detachments",
+            "type": "number"
+          },
+          "insertions": {
+            "description": "The total number of insertion events for this component during the specified week.",
+            "title": "Insertions",
+            "type": "number"
+          },
+          "week": {
+            "description": "The start date of the week for this data point, in ISO 8601 format (e.g., '2023-12-13').",
+            "title": "Week",
+            "type": "string"
+          }
+        },
+        "required": ["week", "component_key", "component_name", "detachments", "insertions"],
+        "title": "Row",
+        "type": "object"
+      },
+      "Row1": {
+        "properties": {
+          "detachments": {
+            "description": "The total number of detach events attributed to this team during the specified week.",
+            "title": "Detachments",
+            "type": "number"
+          },
+          "insertions": {
+            "description": "The total number of insertion events attributed to this team during the specified week.",
+            "title": "Insertions",
+            "type": "number"
+          },
+          "team_name": {
+            "description": "The name of the team that used the library.",
+            "title": "Team Name",
+            "type": "string"
+          },
+          "week": {
+            "description": "The start date of the week for this data point, in ISO 8601 format (e.g., '2023-12-13').",
+            "title": "Week",
+            "type": "string"
+          },
+          "workspace_name": {
+            "description": "The name of the workspace to which the team belongs, if applicable.",
+            "title": "Workspace Name",
+            "type": "string"
+          }
+        },
+        "required": ["week", "team_name", "detachments", "insertions"],
+        "title": "Row1",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetLibraryAnalyticsComponentActionDataResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

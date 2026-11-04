@@ -1,0 +1,123 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves users who have interacted with or are recognized within a specific Sentry project, optionally filtered by a query.",
+  "inputSchema": {
+    "description": "Request to list users for a Sentry project.",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug for the Sentry organization.",
+        "examples": ["my-organization-slug", "123456"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The unique identifier (ID) or human-readable slug for the Sentry project.",
+        "examples": ["my-project-slug", "789012"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      },
+      "query": {
+        "description": "An optional query string to filter the list of users. Use prefixes like `id:`, `email:`, `username:`, or `ip:` to target specific fields. For example, `email:foo@example.com` or `username:john.doe`.",
+        "examples": ["email:user@example.com", "username:test-user", "id:user_id_123", "ip:192.168.0.1"],
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "ListProjectUsersRequest",
+    "type": "object"
+  },
+  "name": "list_project_users",
+  "outputSchema": {
+    "$defs": {
+      "ListProjectUsersResponse": {
+        "description": "Response containing the list of users seen within a Sentry project.",
+        "properties": {
+          "data": {
+            "description": "List of Sentry user objects, each containing user details like id, username, email, name, and other metadata.",
+            "items": {
+              "$ref": "#/$defs/UserObject"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "ListProjectUsersResponse",
+        "type": "object"
+      },
+      "UserObject": {
+        "additionalProperties": true,
+        "description": "Represents a user in a Sentry project.",
+        "properties": {
+          "avatarUrl": {
+            "description": "The URL of the user's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "The date when the user was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "email": {
+            "description": "The email address of the user.",
+            "title": "Email",
+            "type": "string"
+          },
+          "hash": {
+            "description": "Hash value for the user.",
+            "title": "Hash",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "identifier": {
+            "description": "A unique identifier for the user.",
+            "title": "Identifier",
+            "type": "string"
+          },
+          "ipAddress": {
+            "description": "The IP address associated with the user.",
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "name": {
+            "description": "The full name of the user.",
+            "title": "Name",
+            "type": "string"
+          },
+          "tagValue": {
+            "description": "Tag value associated with the user.",
+            "title": "Tag Value",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of the user.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "UserObject",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListProjectUsersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

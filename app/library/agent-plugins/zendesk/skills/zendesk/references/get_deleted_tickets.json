@@ -1,0 +1,204 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Lists tickets that have been deleted from Zendesk, showing up to 100 deleted tickets per page with pagination. Use when you need to retrieve information about previously deleted tickets or audit ticket deletions. This action is read-only and idempotent.",
+  "inputSchema": {
+    "description": "Request parameters for listing deleted tickets.",
+    "properties": {
+      "page": {
+        "description": "Pagination parameter. Supports both traditional offset and cursor-based pagination: Traditional: ?page=2 (integer page number). Cursor: ?page[size]=50&page[after]=cursor (deepObject with size, after, before). These are mutually exclusive.",
+        "examples": ["2"],
+        "human_parameter_description": "Which page of results you want to view. Use traditional pagination (page number) or cursor-based pagination (page[size] and page[after]).",
+        "human_parameter_name": "Page",
+        "title": "Page",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Number of records to return per page (max 100). Default and maximum values vary by endpoint.",
+        "examples": [25],
+        "human_parameter_description": "How many deleted tickets to show on each page. You can choose up to 100; smaller numbers can make pages load faster.",
+        "human_parameter_name": "Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort_by": {
+        "description": "Sort field options for deleted tickets.",
+        "enum": [
+          "id",
+          "subject",
+          "deleted_at",
+          "created_at",
+          "updated_at",
+          "status",
+          "requester",
+          "requester.name",
+          "group",
+          "assignee",
+          "assignee.name"
+        ],
+        "examples": ["deleted_at"],
+        "human_parameter_description": "Choose which field to sort the deleted tickets by (e.g., when they were deleted, created, or their ID number).",
+        "human_parameter_name": "Sort By",
+        "title": "SortBy",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort order options.",
+        "enum": ["asc", "desc"],
+        "examples": ["desc"],
+        "human_parameter_description": "Choose the direction of sorting—ascending (asc) or descending (desc)—to control how the list is ordered.",
+        "human_parameter_name": "Sort Order",
+        "title": "SortOrder",
+        "type": "string"
+      },
+      "support_type_scope": {
+        "description": "Support type scope options.",
+        "enum": ["all", "agent", "ai_agent"],
+        "examples": ["agent"],
+        "human_parameter_description": "Filter by the type of support that handled the tickets: all tickets, just agent tickets, or just AI agent tickets.",
+        "human_parameter_name": "Support Type",
+        "title": "SupportTypeScope",
+        "type": "string"
+      }
+    },
+    "title": "GetDeletedTicketsRequest",
+    "type": "object"
+  },
+  "name": "get_deleted_tickets",
+  "outputSchema": {
+    "$defs": {
+      "DeletedTicket": {
+        "description": "Deleted Zendesk ticket object.",
+        "properties": {
+          "assignee_id": {
+            "description": "ID of the assigned agent",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "created_at": {
+            "description": "Ticket creation timestamp",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "description": "Timestamp when ticket was deleted",
+            "title": "Deleted At",
+            "type": "string"
+          },
+          "description": {
+            "description": "Ticket description",
+            "title": "Description",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "ID of the assigned group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique ticket ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "ID of the requester's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "previous_state": {
+            "description": "Ticket state before deletion",
+            "title": "Previous State",
+            "type": "string"
+          },
+          "priority": {
+            "description": "Ticket priority",
+            "title": "Priority",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "ID of the user who requested the ticket",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "subject": {
+            "description": "Ticket subject",
+            "title": "Subject",
+            "type": "string"
+          },
+          "tags": {
+            "description": "List of ticket tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "description": "Ticket type",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Ticket last update timestamp",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the ticket",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "DeletedTicket",
+        "type": "object"
+      },
+      "GetDeletedTicketsResponse": {
+        "description": "Response containing list of deleted Zendesk tickets with pagination info.",
+        "properties": {
+          "count": {
+            "description": "Total number of deleted tickets",
+            "title": "Count",
+            "type": "integer"
+          },
+          "deleted_tickets": {
+            "description": "List of deleted tickets",
+            "items": {
+              "$ref": "#/$defs/DeletedTicket"
+            },
+            "title": "Deleted Tickets",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          }
+        },
+        "required": ["deleted_tickets", "count"],
+        "title": "GetDeletedTicketsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetDeletedTicketsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

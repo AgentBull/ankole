@@ -1,0 +1,477 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves actions for a Trello list by ID, such as card movements or comments, newest first. Results are paginated, with a default limit of five actions per page.",
+  "inputSchema": {
+    "description": "Parameters to retrieve actions for a specific Trello list.",
+    "properties": {
+      "before": {
+        "description": "Return actions created before this date (ISO 8601 or Trello date string). Null or unspecified means no end date filter.",
+        "examples": ["2023-12-31T23:59:59Z"],
+        "title": "Before",
+        "type": "string"
+      },
+      "display": {
+        "description": "Whether to include displayable information (e.g., human-readable text) for actions. If None, Trello's default (typically false) is used.",
+        "examples": ["true", "false"],
+        "title": "Display",
+        "type": "string"
+      },
+      "entities": {
+        "description": "Whether to include related entities. If None, Trello's default (typically false) is used.",
+        "examples": ["true", "false"],
+        "title": "Entities",
+        "type": "string"
+      },
+      "fields": {
+        "default": "all",
+        "description": "Action fields to return. Use 'all' or a comma-separated list (e.g., data, date). Valid fields: data, date, idMemberCreator, or type.",
+        "examples": ["data,date", "all"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "filter": {
+        "default": "all",
+        "description": "Filters actions by type. Use 'all' or a comma-separated list of types (e.g., commentCard, createCard). Valid types: addAttachmentToCard, addChecklistToCard, addMemberToBoard, addMemberToCard, addMemberToOrganization, addToOrganizationBoard, commentCard, convertToCardFromCheckItem, copyBoard, copyCard, copyCommentCard, createBoard, createCard, createList, createOrganization, deleteAttachmentFromCard, deleteBoardInvitation, deleteCard, deleteOrganizationInvitation, disablePowerUp, emailCard, enablePowerUp, makeAdminOfBoard, makeNormalMemberOfBoard, makeNormalMemberOfOrganization, makeObserverOfBoard, memberJoinedTrello, moveCardFromBoard, moveCardToBoard, moveListFromBoard, moveListToBoard, removeChecklistFromCard, removeFromOrganizationBoard, removeMemberFromCard, unconfirmedBoardInvitation, unconfirmedOrganizationInvitation, updateBoard, updateCard, updateCard:closed, updateCard:desc, updateCard:idList, updateCard:name, updateCheckItemStateOnCard, updateChecklist, updateList, updateList:closed, updateList:name, updateMember, or updateOrganization.",
+        "examples": ["commentCard,createCard", "all"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "format": {
+        "default": "list",
+        "description": "Format of returned actions. Valid: 'count', 'list', 'minimal'.",
+        "examples": ["list", "count", "minimal"],
+        "title": "Format",
+        "type": "string"
+      },
+      "idList": {
+        "description": "The ID of the Trello list for which to retrieve actions.",
+        "examples": ["5abbe4b7ddc1b351ef961414"],
+        "title": "Id List",
+        "type": "string"
+      },
+      "idModels": {
+        "description": "Comma-separated model IDs (e.g., card IDs) to filter actions. If None, no model ID filter is applied.",
+        "examples": ["cardId1,cardId2", "mddgLkd9"],
+        "title": "Id Models",
+        "type": "string"
+      },
+      "limit": {
+        "default": "5",
+        "description": "Maximum actions per page (0-1000).",
+        "examples": ["50", "100"],
+        "title": "Limit",
+        "type": "string"
+      },
+      "member": {
+        "description": "Whether to include the member object (user who performed the action). If None, Trello's default applies.",
+        "examples": ["true", "false"],
+        "title": "Member",
+        "type": "string"
+      },
+      "memberCreator": {
+        "description": "Whether to include the memberCreator object (action creator). If None, Trello's default applies.",
+        "examples": ["true", "false"],
+        "title": "Member Creator",
+        "type": "string"
+      },
+      "memberCreator_fields": {
+        "default": "avatarHash,fullName,initials,username",
+        "description": "Fields for memberCreator object if 'memberCreator' is true. Use 'all' or a comma-separated list. Valid fields: avatarHash, bio, bioData, confirmed, fullName, idPremOrgsAdmin, initials, memberType, products, status, url, or username.",
+        "examples": ["fullName,initials", "all"],
+        "title": "Member Creator Fields",
+        "type": "string"
+      },
+      "member_fields": {
+        "default": "avatarHash,fullName,initials,username",
+        "description": "Fields for the member object if 'member' is true. Use 'all' or a comma-separated list. Valid fields: avatarHash, bio, bioData, confirmed, fullName, idPremOrgsAdmin, initials, memberType, products, status, url, or username.",
+        "examples": ["fullName,username", "all"],
+        "title": "Member Fields",
+        "type": "string"
+      },
+      "page": {
+        "default": "0",
+        "description": "Page number for pagination (0-indexed). Note: `page * limit` must be < 1000.",
+        "examples": ["0", "1", "2"],
+        "title": "Page",
+        "type": "string"
+      },
+      "since": {
+        "description": "Return actions created after this date (ISO 8601, Trello date string, or 'lastView'). Null or unspecified means no start date filter.",
+        "examples": ["2023-01-01T00:00:00Z", "lastView"],
+        "title": "Since",
+        "type": "string"
+      }
+    },
+    "required": ["idList"],
+    "title": "GetListsActionsByIdListRequest",
+    "type": "object"
+  },
+  "name": "get_lists_actions_by_id_list",
+  "outputSchema": {
+    "$defs": {
+      "Action": {
+        "description": "Action object representing an activity on the list.",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/ActionData",
+            "description": "Relevant information regarding the action",
+            "title": "Data"
+          },
+          "date": {
+            "description": "When the action occurred in ISO 8601 date-time format",
+            "title": "Date",
+            "type": "string"
+          },
+          "display": {
+            "$ref": "#/$defs/ActionDisplay",
+            "description": "Localized action display information with translation keys and entities for rendering",
+            "title": "Display"
+          },
+          "id": {
+            "description": "The ID of the action",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberCreator": {
+            "description": "The ID of the member who caused the action",
+            "title": "Id Member Creator",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/$defs/ActionLimits",
+            "description": "Reaction limitations for the action",
+            "title": "Limits"
+          },
+          "memberCreator": {
+            "$ref": "#/$defs/MemberCreator",
+            "description": "Full member details of the member who created the action",
+            "title": "Member Creator"
+          },
+          "type": {
+            "description": "Action category (e.g., commentCard, updateCard, createCard, addMemberToCard, moveCardToBoard, updateCheckItemStateOnCard)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "idMemberCreator", "data", "type", "date"],
+        "title": "Action",
+        "type": "object"
+      },
+      "ActionData": {
+        "description": "Relevant information regarding the action.",
+        "properties": {
+          "board": {
+            "$ref": "#/$defs/ActionDataBoardInfo",
+            "description": "Board information where the action occurred",
+            "title": "Board"
+          },
+          "card": {
+            "$ref": "#/$defs/ActionDataCardInfo",
+            "description": "Card information related to the action",
+            "title": "Card"
+          },
+          "list": {
+            "$ref": "#/$defs/ActionDataListInfo",
+            "description": "List information related to the action",
+            "title": "List"
+          },
+          "old": {
+            "$ref": "#/$defs/ActionDataOldValues",
+            "description": "Previous values for update operations",
+            "title": "Old"
+          },
+          "text": {
+            "description": "Text content (e.g., comment text)",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "title": "ActionData",
+        "type": "object"
+      },
+      "ActionDataBoardInfo": {
+        "description": "Board information where the action occurred.",
+        "properties": {
+          "id": {
+            "description": "Board ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Board name",
+            "title": "Name",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "Short link identifier for the board",
+            "title": "Short Link",
+            "type": "string"
+          }
+        },
+        "title": "ActionDataBoardInfo",
+        "type": "object"
+      },
+      "ActionDataCardInfo": {
+        "description": "Card information related to the action.",
+        "properties": {
+          "due": {
+            "description": "Due date of the card in ISO 8601 format",
+            "title": "Due",
+            "type": "string"
+          },
+          "id": {
+            "description": "Card ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "idShort": {
+            "description": "Short numeric ID of the card",
+            "title": "Id Short",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Card name",
+            "title": "Name",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "Short link identifier for the card",
+            "title": "Short Link",
+            "type": "string"
+          }
+        },
+        "title": "ActionDataCardInfo",
+        "type": "object"
+      },
+      "ActionDataListInfo": {
+        "description": "List information related to the action.",
+        "properties": {
+          "id": {
+            "description": "List ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "List name",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "ActionDataListInfo",
+        "type": "object"
+      },
+      "ActionDataOldValues": {
+        "description": "Previous values for update operations.",
+        "properties": {
+          "due": {
+            "description": "Previous due date value",
+            "title": "Due",
+            "type": "string"
+          }
+        },
+        "title": "ActionDataOldValues",
+        "type": "object"
+      },
+      "ActionDisplay": {
+        "description": "Localized action display information with translation keys and entities for rendering.",
+        "properties": {
+          "entities": {
+            "$ref": "#/$defs/DisplayEntities",
+            "description": "Structured data about objects involved in the action",
+            "title": "Entities"
+          },
+          "translationKey": {
+            "description": "Translation key for the action (e.g., action_changed_a_due_date, action_comment_on_card)",
+            "title": "Translation Key",
+            "type": "string"
+          }
+        },
+        "title": "ActionDisplay",
+        "type": "object"
+      },
+      "ActionLimits": {
+        "description": "Reaction limitations for the action.",
+        "properties": {
+          "reactions": {
+            "$ref": "#/$defs/ReactionsLimits",
+            "description": "Reaction limits configuration",
+            "title": "Reactions"
+          }
+        },
+        "title": "ActionLimits",
+        "type": "object"
+      },
+      "DisplayEntities": {
+        "description": "Structured data about objects involved in the action.",
+        "properties": {
+          "card": {
+            "$ref": "#/$defs/DisplayEntityCard",
+            "description": "Card entity information",
+            "title": "Card"
+          },
+          "date": {
+            "$ref": "#/$defs/DisplayEntityDate",
+            "description": "Date entity information",
+            "title": "Date"
+          },
+          "memberCreator": {
+            "description": "Member creator entity information",
+            "title": "Member Creator"
+          }
+        },
+        "title": "DisplayEntities",
+        "type": "object"
+      },
+      "DisplayEntityCard": {
+        "description": "Card entity information.",
+        "properties": {
+          "due": {
+            "description": "Due date in ISO 8601 format",
+            "title": "Due",
+            "type": "string"
+          },
+          "id": {
+            "description": "Card ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "Short link identifier",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "text": {
+            "description": "Card text or name",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type (e.g., card)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "DisplayEntityCard",
+        "type": "object"
+      },
+      "DisplayEntityDate": {
+        "description": "Date entity information.",
+        "properties": {
+          "date": {
+            "description": "Date value in ISO 8601 format",
+            "title": "Date",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type (e.g., date)",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "DisplayEntityDate",
+        "type": "object"
+      },
+      "GetListsActionsByIdListResponse": {
+        "description": "Array of Action objects representing activities on the list.",
+        "properties": {
+          "actions": {
+            "description": "Array of Action objects representing activities on the list",
+            "items": {
+              "$ref": "#/$defs/Action"
+            },
+            "title": "Actions",
+            "type": "array"
+          }
+        },
+        "required": ["actions"],
+        "title": "GetListsActionsByIdListResponse",
+        "type": "object"
+      },
+      "MemberCreator": {
+        "description": "Full member details of the member who created the action.",
+        "properties": {
+          "avatarHash": {
+            "description": "A hash used to reference the member's avatar image",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "fullName": {
+            "description": "The member's full name",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier for the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "initials": {
+            "description": "The member's initials",
+            "title": "Initials",
+            "type": "string"
+          },
+          "username": {
+            "description": "The member's Trello username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "MemberCreator",
+        "type": "object"
+      },
+      "ReactionLimitDetail": {
+        "description": "Reaction limit configuration details.",
+        "properties": {
+          "disableAt": {
+            "description": "Maximum count before the feature is disabled (typically 1000)",
+            "title": "Disable At",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Status of the limit (e.g., ok)",
+            "title": "Status",
+            "type": "string"
+          },
+          "warnAt": {
+            "description": "Threshold at which warnings appear (typically 900)",
+            "title": "Warn At",
+            "type": "integer"
+          }
+        },
+        "title": "ReactionLimitDetail",
+        "type": "object"
+      },
+      "ReactionsLimits": {
+        "description": "Reaction limits configuration.",
+        "properties": {
+          "perAction": {
+            "$ref": "#/$defs/ReactionLimitDetail",
+            "description": "Total reaction limit per action",
+            "title": "Per Action"
+          },
+          "uniquePerAction": {
+            "$ref": "#/$defs/ReactionLimitDetail",
+            "description": "Unique reaction limit per action",
+            "title": "Unique Per Action"
+          }
+        },
+        "title": "ReactionsLimits",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetListsActionsByIdListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

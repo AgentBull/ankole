@@ -1,0 +1,311 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Show multiple tickets by their IDs. Use when you need to retrieve specific tickets by their IDs to display ticket details, compare tickets, or bulk fetch ticket information. The `ids` parameter accepts a comma-separated list of ticket IDs (e.g., '35436,35437'). Returns tickets for valid IDs only; non-existent IDs result in an empty tickets array without error.",
+  "inputSchema": {
+    "description": "Request parameters for showing multiple tickets.",
+    "properties": {
+      "ids": {
+        "description": "Comma-separated list of ticket IDs to retrieve (e.g., '35436,35437' or '35436,35437,35438'). Maximum 100 IDs per request.",
+        "examples": ["35436,35437"],
+        "human_parameter_description": "Enter the ticket IDs you want to retrieve, separated by commas (e.g., 35436,35437). You can specify up to 100 IDs at once.",
+        "human_parameter_name": "Ticket IDs",
+        "title": "Ids",
+        "type": "string"
+      },
+      "include": {
+        "description": "A comma-separated list of sideloads to include. Available sideloads depend on the endpoint (e.g., 'users,groups,organizations').",
+        "examples": ["users,organizations"],
+        "human_parameter_description": "Choose related data to include with each ticket, such as users, organizations, or groups. Separate multiple with commas.",
+        "human_parameter_name": "Include Sideloads",
+        "title": "Include",
+        "type": "string"
+      }
+    },
+    "required": ["ids"],
+    "title": "ShowManyTicketsRequest",
+    "type": "object"
+  },
+  "name": "show_many_tickets",
+  "outputSchema": {
+    "$defs": {
+      "ShowManyTicketsResponse": {
+        "description": "Response containing tickets matching the requested IDs.",
+        "properties": {
+          "count": {
+            "description": "Total number of tickets returned",
+            "title": "Count",
+            "type": "integer"
+          },
+          "tickets": {
+            "description": "List of tickets matching the requested IDs",
+            "items": {
+              "$ref": "#/$defs/Ticket"
+            },
+            "title": "Tickets",
+            "type": "array"
+          }
+        },
+        "required": ["tickets"],
+        "title": "ShowManyTicketsResponse",
+        "type": "object"
+      },
+      "Ticket": {
+        "description": "Zendesk ticket object returned by show_many.",
+        "properties": {
+          "assignee_id": {
+            "description": "ID of the assigned agent",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "brand_id": {
+            "description": "ID of the brand associated with this ticket",
+            "title": "Brand Id",
+            "type": "integer"
+          },
+          "collaborator_ids": {
+            "description": "IDs of ticket collaborators",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Ticket creation timestamp",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "Custom field values",
+            "items": {
+              "$ref": "#/$defs/TicketCustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "custom_status_id": {
+            "description": "ID of the custom status",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Ticket description",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "description": "Ticket due date",
+            "title": "Due At",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External ID associated with the ticket",
+            "title": "External Id",
+            "type": "string"
+          },
+          "follower_ids": {
+            "description": "IDs of users following this ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Follower Ids",
+            "type": "array"
+          },
+          "from_messaging_channel": {
+            "description": "Whether ticket was created from messaging channel",
+            "title": "From Messaging Channel",
+            "type": "boolean"
+          },
+          "generated_timestamp": {
+            "description": "Timestamp when the ticket was generated",
+            "title": "Generated Timestamp",
+            "type": "integer"
+          },
+          "group_id": {
+            "description": "ID of the assigned group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "has_incidents": {
+            "description": "Whether the ticket has related incidents",
+            "title": "Has Incidents",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique ticket ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_public": {
+            "description": "Whether the ticket is publicly visible",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "organization_id": {
+            "description": "ID of the requester's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Ticket priority (urgent, high, normal, low)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "problem_id": {
+            "description": "ID of the problem ticket if this is an incident",
+            "title": "Problem Id",
+            "type": "integer"
+          },
+          "raw_subject": {
+            "description": "Subject with original template variables",
+            "title": "Raw Subject",
+            "type": "string"
+          },
+          "recipient": {
+            "description": "Original recipient email address",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "ID of the user who requested the ticket",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "satisfaction_rating": {
+            "$ref": "#/$defs/TicketSatisfactionRating",
+            "description": "Customer satisfaction rating",
+            "title": "Satisfaction Rating"
+          },
+          "sharing_agreement_ids": {
+            "description": "IDs of sharing agreements",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sharing Agreement Ids",
+            "type": "array"
+          },
+          "status": {
+            "description": "Ticket status (new, open, pending, hold, solved, closed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Ticket subject",
+            "title": "Subject",
+            "type": "string"
+          },
+          "tags": {
+            "description": "List of ticket tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "description": "Ticket type (problem, incident, question, task)",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Ticket last update timestamp",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the ticket",
+            "title": "Url",
+            "type": "string"
+          },
+          "via": {
+            "$ref": "#/$defs/TicketVia",
+            "description": "How the ticket was created",
+            "title": "Via"
+          }
+        },
+        "title": "Ticket",
+        "type": "object"
+      },
+      "TicketCustomField": {
+        "description": "Custom field value for a ticket.",
+        "properties": {
+          "id": {
+            "description": "Custom field ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "description": "Value of the custom field (can be string, int, bool, or null)",
+            "title": "Value"
+          }
+        },
+        "title": "TicketCustomField",
+        "type": "object"
+      },
+      "TicketSatisfactionRating": {
+        "description": "Satisfaction rating for a ticket.",
+        "properties": {
+          "comment": {
+            "description": "Satisfaction rating comment",
+            "title": "Comment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Satisfaction rating ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "score": {
+            "description": "Satisfaction score (e.g., 'good', 'bad', 'unoffered', 'reject')",
+            "title": "Score",
+            "type": "string"
+          }
+        },
+        "title": "TicketSatisfactionRating",
+        "type": "object"
+      },
+      "TicketVia": {
+        "description": "Via object describing how the ticket was created.",
+        "properties": {
+          "channel": {
+            "description": "How the ticket was created (e.g., 'web', 'email', 'api')",
+            "title": "Channel",
+            "type": "string"
+          },
+          "id": {
+            "description": "The via ID",
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "title": "TicketVia",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ShowManyTicketsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

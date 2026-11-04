@@ -1,0 +1,103 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Run a Salesforce report asynchronously (POST /analytics/reports/{id}/instances). Returns an instance id and status; the report runs in the background. Retrieve results later with get_report_instance using the returned instance id. Use this (instead of the synchronous run_report) for large reports or to avoid blocking. Without this action, get_report_instance had no obtainable instance id.",
+  "inputSchema": {
+    "properties": {
+      "include_details": {
+        "default": false,
+        "description": "If true, the async run includes detailed (row-level) results in addition to aggregates. Passed as the includeDetails query parameter.",
+        "examples": [true, false],
+        "title": "Include Details",
+        "type": "boolean"
+      },
+      "report_id": {
+        "description": "The Salesforce ID of the report to run asynchronously.",
+        "examples": ["00OXXXXXXXXXXXXXXX"],
+        "title": "Report Id",
+        "type": "string"
+      },
+      "report_metadata": {
+        "additionalProperties": true,
+        "description": "Optional reportMetadata object to override the report's filters/settings for this run only (e.g. reportFilters, standardDateFilter). Sent as the request body when provided.",
+        "title": "Report Metadata",
+        "type": "object"
+      }
+    },
+    "required": ["report_id"],
+    "title": "RunReportAsyncRequest",
+    "type": "object"
+  },
+  "name": "run_report_async",
+  "outputSchema": {
+    "$defs": {
+      "RunReportAsyncResponse": {
+        "description": "Metadata for the asynchronous report run instance.",
+        "properties": {
+          "completionDate": {
+            "description": "ISO 8601 datetime when the run completed. Null until finished.",
+            "title": "Completion Date",
+            "type": "string"
+          },
+          "hasDetailRows": {
+            "description": "Whether the instance includes detail (row-level) rows.",
+            "title": "Has Detail Rows",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "The instance ID for this async run. Poll get_report_instance with this id (and the report_id) to retrieve results once status is 'Success'.",
+            "title": "Id",
+            "type": "string"
+          },
+          "ownerId": {
+            "description": "ID of the user who requested the async run.",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "queryOptions": {
+            "additionalProperties": true,
+            "description": "Query options applied to the run, if any.",
+            "title": "Query Options",
+            "type": "object"
+          },
+          "requestDate": {
+            "description": "ISO 8601 datetime when the run was requested.",
+            "title": "Request Date",
+            "type": "string"
+          },
+          "status": {
+            "description": "Run status: 'New', 'Running', 'Success', or 'Error'.",
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "description": "Resource type, typically 'reportMetadata'.",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "Relative URL of this instance for fetching results.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "status"],
+        "title": "RunReportAsyncResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/RunReportAsyncResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,412 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves derived health statuses for release thresholds in a Sentry organization for a given time range, optionally filtered by environment, project, or release; `start` and `end` times must be provided together. **`[WARNING]`**: This API is experimental (Alpha) and subject to change!",
+  "inputSchema": {
+    "description": "Parameters to fetch release threshold statuses for an organization.",
+    "properties": {
+      "end": {
+        "description": "The inclusive end of the time series range for querying release threshold statuses. Must be in UTC ISO8601 format (e.g., '2023-01-01T23:59:59Z').",
+        "examples": ["2023-01-01T23:59:59Z", "2024-12-31T23:59:59Z"],
+        "title": "End",
+        "type": "string"
+      },
+      "environment": {
+        "description": "A list of environment names (e.g., 'production', 'staging') to filter the release threshold statuses by. If not provided, statuses for all environments are considered.",
+        "examples": [["production", "staging"], ["development"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the Sentry organization for which to fetch release threshold statuses.",
+        "examples": ["my-org-slug", "12345"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "projectSlug": {
+        "description": "A list of project slugs (e.g., 'frontend', 'backend-api') to filter the release threshold statuses by. If not provided, statuses for all projects in the organization are considered.",
+        "examples": [["frontend-app", "backend-service"], ["ios-app"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Project Slug",
+        "type": "array"
+      },
+      "release": {
+        "description": "A list of release versions (e.g., '1.0.0', 'my-app@2.1.3') to filter the release threshold statuses by. If not provided, statuses for all releases within the time range are considered.",
+        "examples": [["v1.2.3", "my-project@2.0.1-beta"], ["feature-xyz"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Release",
+        "type": "array"
+      },
+      "start": {
+        "description": "The start of the time series range for querying release threshold statuses. Must be in UTC ISO8601 format (e.g., '2023-01-01T00:00:00Z').",
+        "examples": ["2023-01-01T00:00:00Z", "2024-06-15T14:30:00Z"],
+        "title": "Start",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "start", "end"],
+    "title": "FetchOrganizationReleaseThresholdStatusesRequest",
+    "type": "object"
+  },
+  "name": "fetch_organization_release_threshold_statuses",
+  "outputSchema": {
+    "$defs": {
+      "Environment": {
+        "description": "Environment details for the threshold.",
+        "properties": {
+          "name": {
+            "description": "Name of the environment (e.g., 'production', 'staging')",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "Environment",
+        "type": "object"
+      },
+      "FetchOrganizationReleaseThresholdStatusesResponse": {
+        "additionalProperties": {
+          "items": {
+            "$ref": "#/$defs/ThresholdStatus"
+          },
+          "type": "array"
+        },
+        "description": "Response is an object keyed by '{release_version}-{project_slug}' format, where each key maps to an array of threshold status objects.",
+        "title": "FetchOrganizationReleaseThresholdStatusesResponse",
+        "type": "object"
+      },
+      "Project": {
+        "description": "Complete serialized project object with all metadata.",
+        "properties": {
+          "hasSessions": {
+            "description": "Whether the project has session data",
+            "title": "Has Sessions",
+            "type": "boolean"
+          },
+          "access": {
+            "description": "List of access permissions for the current user",
+            "items": {
+              "type": "string"
+            },
+            "title": "Access",
+            "type": "array"
+          },
+          "firstTransactionEvent": {
+            "description": "Whether the project has received transaction events",
+            "title": "First Transaction Event",
+            "type": "boolean"
+          },
+          "hasTraceMetrics": {
+            "description": "Whether the project has trace metrics",
+            "title": "Has Trace Metrics",
+            "type": "boolean"
+          },
+          "isBookmarked": {
+            "description": "Whether the project is bookmarked by the current user",
+            "title": "Is Bookmarked",
+            "type": "boolean"
+          },
+          "hasInsightsVitals": {
+            "description": "Whether the project has web vitals insights data",
+            "title": "Has Insights Vitals",
+            "type": "boolean"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the project was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly project identifier",
+            "title": "Slug",
+            "type": "string"
+          },
+          "hasInsightsScreenLoad": {
+            "description": "Whether the project has screen load insights data",
+            "title": "Has Insights Screen Load",
+            "type": "boolean"
+          },
+          "avatar": {
+            "$ref": "#/$defs/ProjectAvatar",
+            "description": "Project avatar configuration",
+            "title": "Avatar"
+          },
+          "status": {
+            "description": "Current status of the project (e.g., 'active', 'disabled')",
+            "title": "Status",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable project name",
+            "title": "Name",
+            "type": "string"
+          },
+          "hasLogs": {
+            "description": "Whether the project has log data",
+            "title": "Has Logs",
+            "type": "boolean"
+          },
+          "isInternal": {
+            "description": "Whether this is an internal Sentry project",
+            "title": "Is Internal",
+            "type": "boolean"
+          },
+          "color": {
+            "description": "Hex color code associated with the project",
+            "title": "Color",
+            "type": "string"
+          },
+          "hasInsightsMCP": {
+            "description": "Whether the project has MCP insights data",
+            "title": "Has Insights Mcp",
+            "type": "boolean"
+          },
+          "hasFeedbacks": {
+            "description": "Whether the project has user feedback",
+            "title": "Has Feedbacks",
+            "type": "boolean"
+          },
+          "hasInsightsDb": {
+            "description": "Whether the project has database insights data",
+            "title": "Has Insights Db",
+            "type": "boolean"
+          },
+          "isMember": {
+            "description": "Whether the current user is a member of the project",
+            "title": "Is Member",
+            "type": "boolean"
+          },
+          "isPublic": {
+            "description": "Whether the project is publicly accessible",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "hasProfiles": {
+            "description": "Whether the project has profiling data",
+            "title": "Has Profiles",
+            "type": "boolean"
+          },
+          "hasMonitors": {
+            "description": "Whether the project has cron monitors configured",
+            "title": "Has Monitors",
+            "type": "boolean"
+          },
+          "firstEvent": {
+            "description": "Timestamp of the first event received, or null if no events",
+            "title": "First Event",
+            "type": "string"
+          },
+          "platform": {
+            "description": "Project platform (e.g., 'python', 'javascript')",
+            "title": "Platform",
+            "type": "string"
+          },
+          "hasInsightsAppStart": {
+            "description": "Whether the project has app start insights data",
+            "title": "Has Insights App Start",
+            "type": "boolean"
+          },
+          "hasInsightsAgentMonitoring": {
+            "description": "Whether the project has agent monitoring insights",
+            "title": "Has Insights Agent Monitoring",
+            "type": "boolean"
+          },
+          "hasFlags": {
+            "description": "Whether the project has feature flags",
+            "title": "Has Flags",
+            "type": "boolean"
+          },
+          "hasAccess": {
+            "description": "Whether the current user has access to the project",
+            "title": "Has Access",
+            "type": "boolean"
+          },
+          "hasInsightsAssets": {
+            "description": "Whether the project has asset insights data",
+            "title": "Has Insights Assets",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique project identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "hasNewFeedbacks": {
+            "description": "Whether the project has new user feedback",
+            "title": "Has New Feedbacks",
+            "type": "boolean"
+          },
+          "hasInsightsQueues": {
+            "description": "Whether the project has queue insights data",
+            "title": "Has Insights Queues",
+            "type": "boolean"
+          },
+          "hasReplays": {
+            "description": "Whether the project has session replays",
+            "title": "Has Replays",
+            "type": "boolean"
+          },
+          "hasInsightsCaches": {
+            "description": "Whether the project has cache insights data",
+            "title": "Has Insights Caches",
+            "type": "boolean"
+          },
+          "features": {
+            "description": "List of enabled feature flags for the project",
+            "items": {
+              "type": "string"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "hasInsightsHttp": {
+            "description": "Whether the project has HTTP insights data",
+            "title": "Has Insights Http",
+            "type": "boolean"
+          },
+          "hasMinifiedStackTrace": {
+            "description": "Whether the project has minified stack traces",
+            "title": "Has Minified Stack Trace",
+            "type": "boolean"
+          }
+        },
+        "title": "Project",
+        "type": "object"
+      },
+      "ProjectAvatar": {
+        "description": "Project avatar configuration.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., 'letter_avatar', 'gravatar')",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the avatar image, or null if using default",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "title": "ProjectAvatar",
+        "type": "object"
+      },
+      "ThresholdStatus": {
+        "description": "Threshold status object containing health information for a release.",
+        "properties": {
+          "date": {
+            "description": "ISO 8601 timestamp associated with the threshold status",
+            "title": "Date",
+            "type": "string"
+          },
+          "end": {
+            "description": "ISO 8601 timestamp marking the end of the monitoring window",
+            "title": "End",
+            "type": "string"
+          },
+          "environment": {
+            "$ref": "#/$defs/Environment",
+            "description": "Environment details for the threshold",
+            "title": "Environment"
+          },
+          "id": {
+            "description": "Unique identifier for the threshold status",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_healthy": {
+            "description": "Indicates whether the release is healthy (true) or has breached thresholds (false)",
+            "title": "Is Healthy",
+            "type": "boolean"
+          },
+          "key": {
+            "description": "Composite identifier key for the threshold status",
+            "title": "Key",
+            "type": "string"
+          },
+          "metric_value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Measured metric value for the threshold, can be numeric or null if not yet measured",
+            "title": "Metric Value"
+          },
+          "project": {
+            "$ref": "#/$defs/Project",
+            "description": "Complete serialized project object with all metadata",
+            "title": "Project"
+          },
+          "project_id": {
+            "description": "Numeric identifier of the project",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "project_slug": {
+            "description": "URL-friendly identifier of the project",
+            "title": "Project Slug",
+            "type": "string"
+          },
+          "release": {
+            "description": "Release version identifier being monitored",
+            "title": "Release",
+            "type": "string"
+          },
+          "start": {
+            "description": "ISO 8601 timestamp marking the beginning of the monitoring window",
+            "title": "Start",
+            "type": "string"
+          },
+          "threshold_type": {
+            "description": "Classification/type of the threshold (numeric identifier)",
+            "title": "Threshold Type",
+            "type": "integer"
+          },
+          "trigger_type": {
+            "description": "Condition that triggers the threshold (e.g., 'over' for exceeding threshold)",
+            "title": "Trigger Type",
+            "type": "string"
+          },
+          "value": {
+            "description": "Numeric threshold value that determines health status",
+            "title": "Value",
+            "type": "integer"
+          },
+          "window_in_seconds": {
+            "description": "Time window duration in seconds for threshold measurement",
+            "title": "Window In Seconds",
+            "type": "integer"
+          }
+        },
+        "required": ["key", "release", "is_healthy", "start", "end", "metric_value"],
+        "title": "ThresholdStatus",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/FetchOrganizationReleaseThresholdStatusesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

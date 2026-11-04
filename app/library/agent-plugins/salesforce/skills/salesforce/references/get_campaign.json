@@ -1,0 +1,288 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a Salesforce campaign by ID and returns the fields represented in the response model.",
+  "inputSchema": {
+    "properties": {
+      "campaign_id": {
+        "description": "The Salesforce ID of the campaign to retrieve.",
+        "examples": ["701Wd00000BVUYAIA5", "701XXXXXXXXXXXXXXX"],
+        "human_parameter_description": "The unique Salesforce ID of the campaign you want to retrieve. You can copy this from the campaign's URL or from a previous search/list of campaigns.",
+        "human_parameter_name": "Campaign ID",
+        "title": "Campaign Id",
+        "type": "string"
+      }
+    },
+    "required": ["campaign_id"],
+    "title": "GetCampaignRequest",
+    "type": "object"
+  },
+  "name": "get_campaign",
+  "outputSchema": {
+    "$defs": {
+      "CampaignAttributes": {
+        "description": "Metadata about the API response",
+        "properties": {
+          "type": {
+            "description": "The sObject type name (Campaign)",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The REST API endpoint URL for this specific Campaign record",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "CampaignAttributes",
+        "type": "object"
+      },
+      "GetCampaignResponse": {
+        "description": "Response model for retrieving a Salesforce Campaign record.",
+        "properties": {
+          "NumberOfWonOpportunities": {
+            "description": "Number of opportunities marked as won that are associated with the campaign",
+            "title": "Number Of Won Opportunities",
+            "type": "integer"
+          },
+          "HierarchyNumberOfConvertedLeads": {
+            "description": "Total number of converted leads across the entire campaign hierarchy",
+            "title": "Hierarchy Number Of Converted Leads",
+            "type": "integer"
+          },
+          "HierarchyNumberOfWonOpportunities": {
+            "description": "Total number of won opportunities across the entire campaign hierarchy",
+            "title": "Hierarchy Number Of Won Opportunities",
+            "type": "integer"
+          },
+          "HierarchyBudgetedCost": {
+            "description": "Sum of budgeted costs across the entire campaign hierarchy including child campaigns",
+            "title": "Hierarchy Budgeted Cost",
+            "type": "number"
+          },
+          "ExpectedRevenue": {
+            "description": "Expected revenue from won opportunities associated with the campaign",
+            "title": "Expected Revenue",
+            "type": "number"
+          },
+          "HierarchyActualCost": {
+            "description": "Sum of actual costs across the entire campaign hierarchy including child campaigns",
+            "title": "Hierarchy Actual Cost",
+            "type": "number"
+          },
+          "attributes": {
+            "$ref": "#/$defs/CampaignAttributes",
+            "title": "Attributes"
+          },
+          "NumberOfLeads": {
+            "description": "Total number of leads associated with the campaign",
+            "title": "Number Of Leads",
+            "type": "integer"
+          },
+          "NumberOfContacts": {
+            "description": "Total number of contacts associated with the campaign",
+            "title": "Number Of Contacts",
+            "type": "integer"
+          },
+          "Status": {
+            "description": "Current status of the campaign (e.g., Planned, In Progress, Completed, Aborted)",
+            "title": "Status",
+            "type": "string"
+          },
+          "Description": {
+            "description": "Description of the campaign",
+            "title": "Description",
+            "type": "string"
+          },
+          "HierarchyAmountAllOpportunities": {
+            "description": "Total amount of all opportunities across the entire campaignhierarchy",
+            "title": "Hierarchy Amount All Opportunities",
+            "type": "number"
+          },
+          "CreatedDate": {
+            "description": "Date and time when the campaign was created",
+            "title": "Created Date",
+            "type": "string"
+          },
+          "OwnerId": {
+            "description": "ID of the User who owns the campaign record",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "BudgetedCost": {
+            "description": "Estimated cost of the campaign",
+            "title": "Budgeted Cost",
+            "type": "number"
+          },
+          "HierarchyAmountWonOpportunities": {
+            "description": "Total amount of won opportunities across the entire campaign hierarchy",
+            "title": "Hierarchy Amount Won Opportunities",
+            "type": "number"
+          },
+          "LastViewedDate": {
+            "description": "Date and time when the campaign was last viewed",
+            "title": "Last Viewed Date",
+            "type": "string"
+          },
+          "LastActivityDate": {
+            "description": "Date of the most recent activity associated with the campaign",
+            "title": "Last Activity Date",
+            "type": "string"
+          },
+          "ParentId": {
+            "description": "ID of the parent campaign in a campaign hierarchy",
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "IsActive": {
+            "description": "Indicates whether the campaign is active and visible to users",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "HierarchyNumberOfOpportunities": {
+            "description": "Total number of opportunities across the entire campaign hierarchy",
+            "title": "Hierarchy Number Of Opportunities",
+            "type": "integer"
+          },
+          "NumberOfOpportunities": {
+            "description": "Total number of opportunities associated with the campaign",
+            "title": "Number Of Opportunities",
+            "type": "integer"
+          },
+          "LastModifiedById": {
+            "description": "ID of the User who last modified the campaign record",
+            "title": "Last Modified By Id",
+            "type": "string"
+          },
+          "NumberOfResponses": {
+            "description": "Number of campaign members who have responded",
+            "title": "Number Of Responses",
+            "type": "integer"
+          },
+          "HierarchyNumberSent": {
+            "description": "Total number sent across the entire campaign hierarchy",
+            "title": "Hierarchy Number Sent",
+            "type": "number"
+          },
+          "ActualCost": {
+            "description": "Actual cost incurred for the campaign",
+            "title": "Actual Cost",
+            "type": "number"
+          },
+          "CreatedById": {
+            "description": "ID of the User who created the campaign record",
+            "title": "Created By Id",
+            "type": "string"
+          },
+          "NumberSent": {
+            "description": "Number of individuals contacted through the campaign",
+            "title": "Number Sent",
+            "type": "number"
+          },
+          "HierarchyNumberOfContacts": {
+            "description": "Total number of contacts across the entire campaign hierarchy",
+            "title": "Hierarchy Number Of Contacts",
+            "type": "integer"
+          },
+          "ExpectedResponse": {
+            "description": "Expected response percentage or count for the campaign",
+            "title": "Expected Response",
+            "type": "number"
+          },
+          "LastReferencedDate": {
+            "description": "Date and time when the campaign was last referenced",
+            "title": "Last Referenced Date",
+            "type": "string"
+          },
+          "SystemModstamp": {
+            "description": "System-maintained timestamp of when the record was last modified by any process",
+            "title": "System Modstamp",
+            "type": "string"
+          },
+          "StartDate": {
+            "description": "Start date of the campaign",
+            "title": "Start Date",
+            "type": "string"
+          },
+          "HierarchyNumberOfLeads": {
+            "description": "Total number of leads across the entire campaign hierarchy",
+            "title": "Hierarchy Number Of Leads",
+            "type": "integer"
+          },
+          "NumberOfConvertedLeads": {
+            "description": "Number of leads that have been converted from this campaign",
+            "title": "Number Of Converted Leads",
+            "type": "integer"
+          },
+          "AmountWonOpportunities": {
+            "description": "Total amount of won opportunities associated with the campaign",
+            "title": "Amount Won Opportunities",
+            "type": "number"
+          },
+          "Id": {
+            "description": "Unique identifier for the Campaign record",
+            "title": "Id",
+            "type": "string"
+          },
+          "HierarchyNumberOfResponses": {
+            "description": "Total number of responses across the entire campaign hierarchy",
+            "title": "Hierarchy Number Of Responses",
+            "type": "integer"
+          },
+          "Type": {
+            "description": "Type of campaign (e.g., direct mail, event, email blast, etc.)",
+            "title": "Type",
+            "type": "string"
+          },
+          "EndDate": {
+            "description": "End date of the campaign",
+            "title": "End Date",
+            "type": "string"
+          },
+          "AmountAllOpportunities": {
+            "description": "Total amount of all opportunities associated with the campaign",
+            "title": "Amount All Opportunities",
+            "type": "number"
+          },
+          "Name": {
+            "description": "Name of the Campaign",
+            "title": "Name",
+            "type": "string"
+          },
+          "HierarchyExpectedRevenue": {
+            "description": "Sum of expected revenue across the entire campaign hierarchy including child campaigns",
+            "title": "Hierarchy Expected Revenue",
+            "type": "number"
+          },
+          "CampaignMemberRecordTypeId": {
+            "description": "ID of the record type to be assigned to campaign members",
+            "title": "Campaign Member Record Type Id",
+            "type": "string"
+          },
+          "LastModifiedDate": {
+            "description": "Date and time when the campaign was last modified",
+            "title": "Last Modified Date",
+            "type": "string"
+          }
+        },
+        "required": ["attributes", "Id", "Name", "OwnerId"],
+        "title": "GetCampaignResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCampaignResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

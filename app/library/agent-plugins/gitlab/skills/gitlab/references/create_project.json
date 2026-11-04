@@ -1,0 +1,306 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to create a new project in GitLab. Implements POST /projects endpoint.",
+  "inputSchema": {
+    "properties": {
+      "build_git_strategy": {
+        "description": "Git strategy for builds.",
+        "title": "Build Git Strategy",
+        "type": "string"
+      },
+      "container_registry_enabled": {
+        "description": "Enable container registry.",
+        "title": "Container Registry Enabled",
+        "type": "boolean"
+      },
+      "default_branch": {
+        "description": "The default branch name.",
+        "title": "Default Branch",
+        "type": "string"
+      },
+      "description": {
+        "description": "Project description.",
+        "title": "Description",
+        "type": "string"
+      },
+      "issues_enabled": {
+        "description": "Enable issues feature.",
+        "title": "Issues Enabled",
+        "type": "boolean"
+      },
+      "merge_requests_enabled": {
+        "description": "Enable merge requests feature.",
+        "title": "Merge Requests Enabled",
+        "type": "boolean"
+      },
+      "name": {
+        "description": "The name of the project.",
+        "examples": ["My New Project"],
+        "title": "Name",
+        "type": "string"
+      },
+      "namespace_id": {
+        "description": "The namespace (group or user ID) under which to create the project.",
+        "title": "Namespace Id",
+        "type": "integer"
+      },
+      "path": {
+        "description": "The path or URL-friendly name for the project.",
+        "examples": ["my-new-project"],
+        "title": "Path",
+        "type": "string"
+      },
+      "snippets_enabled": {
+        "description": "Enable snippets feature.",
+        "title": "Snippets Enabled",
+        "type": "boolean"
+      },
+      "visibility": {
+        "description": "Project visibility.",
+        "enum": ["private", "internal", "public"],
+        "examples": ["private", "public"],
+        "title": "Visibility",
+        "type": "string"
+      },
+      "wiki_enabled": {
+        "description": "Enable wiki feature.",
+        "title": "Wiki Enabled",
+        "type": "boolean"
+      }
+    },
+    "required": ["name", "path"],
+    "title": "CreateProjectRequest",
+    "type": "object"
+  },
+  "name": "create_project",
+  "outputSchema": {
+    "$defs": {
+      "CreateProjectResponse": {
+        "description": "The full project object as returned by GitLab after project creation.",
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "avatar_url": {
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "container_registry_enabled": {
+            "title": "Container Registry Enabled",
+            "type": "boolean"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "creator_id": {
+            "title": "Creator Id",
+            "type": "integer"
+          },
+          "default_branch": {
+            "title": "Default Branch",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "forks_count": {
+            "title": "Forks Count",
+            "type": "integer"
+          },
+          "http_url_to_repo": {
+            "title": "Http Url To Repo",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "issues_enabled": {
+            "title": "Issues Enabled",
+            "type": "boolean"
+          },
+          "jobs_enabled": {
+            "title": "Jobs Enabled",
+            "type": "boolean"
+          },
+          "last_activity_at": {
+            "title": "Last Activity At",
+            "type": "string"
+          },
+          "merge_requests_enabled": {
+            "title": "Merge Requests Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "name_with_namespace": {
+            "title": "Name With Namespace",
+            "type": "string"
+          },
+          "namespace": {
+            "$ref": "#/$defs/ProjectNamespace",
+            "title": "Namespace"
+          },
+          "open_issues_count": {
+            "title": "Open Issues Count",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "path_with_namespace": {
+            "title": "Path With Namespace",
+            "type": "string"
+          },
+          "public_jobs": {
+            "title": "Public Jobs",
+            "type": "boolean"
+          },
+          "request_access_enabled": {
+            "title": "Request Access Enabled",
+            "type": "boolean"
+          },
+          "shared_runners_enabled": {
+            "title": "Shared Runners Enabled",
+            "type": "boolean"
+          },
+          "shared_with_groups": {
+            "items": {
+              "$ref": "#/$defs/SharedWithGroup"
+            },
+            "title": "Shared With Groups",
+            "type": "array"
+          },
+          "snippets_enabled": {
+            "title": "Snippets Enabled",
+            "type": "boolean"
+          },
+          "ssh_url_to_repo": {
+            "title": "Ssh Url To Repo",
+            "type": "string"
+          },
+          "star_count": {
+            "title": "Star Count",
+            "type": "integer"
+          },
+          "tag_list": {
+            "description": "Deprecated, use `topics` instead",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tag List",
+            "type": "array"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Topics",
+            "type": "array"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          },
+          "wiki_enabled": {
+            "title": "Wiki Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": ["id"],
+        "title": "CreateProjectResponse",
+        "type": "object"
+      },
+      "ProjectNamespace": {
+        "properties": {
+          "avatar_url": {
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "full_path": {
+            "title": "Full Path",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "title": "Parent Id",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "path", "kind"],
+        "title": "ProjectNamespace",
+        "type": "object"
+      },
+      "SharedWithGroup": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "group_access_level": {
+            "title": "Group Access Level",
+            "type": "integer"
+          },
+          "group_full_path": {
+            "title": "Group Full Path",
+            "type": "string"
+          },
+          "group_id": {
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "group_name": {
+            "title": "Group Name",
+            "type": "string"
+          }
+        },
+        "required": ["group_id", "group_name", "group_full_path", "group_access_level"],
+        "title": "SharedWithGroup",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateProjectResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

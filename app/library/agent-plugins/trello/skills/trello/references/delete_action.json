@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a specific Trello action, such as a `commentCard`, by its ID; this is an irreversible operation and only applies to deletable action types, as many (especially system-generated) actions cannot be deleted.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteAction`",
+    "properties": {
+      "idAction": {
+        "description": "The ID of the Trello action to be deleted (typically a 24-character hexadecimal string).",
+        "examples": ["5f84711c03c77e0067d7706d", "60d5a8e9cbf73a0029c9583a"],
+        "title": "Id Action",
+        "type": "string"
+      }
+    },
+    "required": ["idAction"],
+    "title": "DeleteActionRequest",
+    "type": "object"
+  },
+  "name": "delete_action",
+  "outputSchema": {
+    "$defs": {
+      "DeleteActionResponse": {
+        "description": "Response schema for `DeleteAction`. DELETE endpoint returns an empty response body. Only the HTTP status code should be relied upon for validation.",
+        "properties": {},
+        "title": "DeleteActionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteActionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

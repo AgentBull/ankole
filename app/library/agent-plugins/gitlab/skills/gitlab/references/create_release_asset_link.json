@@ -1,0 +1,101 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Create an asset link for an existing project release. Link names and URLs must each be unique within the release. Supported URL protocols are HTTP, HTTPS, and FTP. Optionally set a direct download path. See https://docs.gitlab.com/api/releases/links/#create-a-release-link.",
+  "inputSchema": {
+    "properties": {
+      "direct_asset_path": {
+        "description": "Optional path for a direct asset link.",
+        "title": "Direct Asset Path",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "ID or unencoded path of the project.",
+        "title": "Id"
+      },
+      "link_type": {
+        "description": "Link type; GitLab defaults to other.",
+        "enum": ["other", "runbook", "image", "package"],
+        "title": "Link Type",
+        "type": "string"
+      },
+      "name": {
+        "description": "Link name; must be unique within the release.",
+        "title": "Name",
+        "type": "string"
+      },
+      "tag_name": {
+        "description": "Tag associated with the release.",
+        "title": "Tag Name",
+        "type": "string"
+      },
+      "url": {
+        "description": "Link URL; must be unique within the release.",
+        "title": "Url",
+        "type": "string"
+      }
+    },
+    "required": ["name", "url", "id", "tag_name"],
+    "title": "CreateReleaseAssetLinkRequest",
+    "type": "object"
+  },
+  "name": "create_release_asset_link",
+  "outputSchema": {
+    "$defs": {
+      "CreateReleaseAssetLinkResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "direct_asset_url": {
+            "description": "Direct asset download URL.",
+            "title": "Direct Asset Url",
+            "type": "string"
+          },
+          "id": {
+            "description": "Asset link ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "link_type": {
+            "description": "Asset link type.",
+            "title": "Link Type",
+            "type": "string"
+          },
+          "name": {
+            "description": "Asset link name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "Asset link URL.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "CreateReleaseAssetLinkResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateReleaseAssetLinkResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

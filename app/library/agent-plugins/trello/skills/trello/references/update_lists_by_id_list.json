@@ -1,0 +1,133 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates attributes of an existing Trello list, such as name, position, archive status, board, or copies cards from another list, provided the list `idList` exists.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateListsByIdList`",
+    "properties": {
+      "closed": {
+        "description": "Set to 'true' to archive the list, or 'false' to unarchive.",
+        "examples": ["true", "false"],
+        "title": "Closed",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "ID of the board to move the list to.",
+        "title": "Id Board",
+        "type": "string"
+      },
+      "idList": {
+        "description": "The unique identifier of the Trello list to be updated. This ID is a path parameter.",
+        "title": "Id List",
+        "type": "string"
+      },
+      "idListSource": {
+        "description": "ID of a source list whose cards will be copied to this list.",
+        "title": "Id List Source",
+        "type": "string"
+      },
+      "name": {
+        "description": "New name for the list (1-16384 characters).",
+        "title": "Name",
+        "type": "string"
+      },
+      "pos": {
+        "description": "New position for the list on the board (e.g., 'top', 'bottom', '1', '1024.5').",
+        "examples": ["top", "bottom", "1", "1024.5"],
+        "title": "Pos",
+        "type": "string"
+      },
+      "subscribed": {
+        "description": "Set to 'true' to subscribe the current user, or 'false' to unsubscribe.",
+        "examples": ["true", "false"],
+        "title": "Subscribed",
+        "type": "string"
+      }
+    },
+    "required": ["idList"],
+    "title": "UpdateListsByIdListRequest",
+    "type": "object"
+  },
+  "name": "update_lists_by_id_list",
+  "outputSchema": {
+    "$defs": {
+      "UpdateListsByIdListResponse": {
+        "description": "Response schema for `UpdateListsByIdList`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/UpdateListsByIdListResponseData",
+            "description": "The updated Trello list details including id, name, closed status, color, idBoard, position, and subscription status.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "UpdateListsByIdListResponse",
+        "type": "object"
+      },
+      "UpdateListsByIdListResponseData": {
+        "additionalProperties": true,
+        "description": "Data model for the updated Trello list.",
+        "properties": {
+          "closed": {
+            "description": "Whether the list is archived (true) or active (false).",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "color": {
+            "description": "The color of the list, if set.",
+            "title": "Color",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the updated list.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "The ID of the board this list belongs to.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the list.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "The position of the list on the board.",
+            "title": "Pos"
+          },
+          "subscribed": {
+            "description": "Whether the current user is subscribed to the list.",
+            "title": "Subscribed",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "name", "closed", "idBoard", "pos"],
+        "title": "UpdateListsByIdListResponseData",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateListsByIdListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

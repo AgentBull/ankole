@@ -1,0 +1,210 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve one issue discussion and its notes without modifying it. See https://docs.gitlab.com/api/discussions/#retrieve-an-issue-discussion-item.",
+  "inputSchema": {
+    "properties": {
+      "discussion_id": {
+        "description": "ID of the discussion to retrieve.",
+        "title": "Discussion Id",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespace/project path.",
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "Project-local issue IID.",
+        "title": "Issue Iid",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid", "discussion_id"],
+    "title": "GetIssueDiscussionRequest",
+    "type": "object"
+  },
+  "name": "get_issue_discussion",
+  "outputSchema": {
+    "$defs": {
+      "GetIssueDiscussionResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "description": "Discussion ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "individual_note": {
+            "description": "Whether this is an individual note.",
+            "title": "Individual Note",
+            "type": "boolean"
+          },
+          "notes": {
+            "description": "Notes in the discussion.",
+            "items": {
+              "$ref": "#/$defs/IssueDiscussionNote"
+            },
+            "title": "Notes",
+            "type": "array"
+          }
+        },
+        "required": ["id", "individual_note", "notes"],
+        "title": "GetIssueDiscussionResponse",
+        "type": "object"
+      },
+      "IssueDiscussionNote": {
+        "additionalProperties": true,
+        "properties": {
+          "attachment": {
+            "description": "Attachment URL, if present.",
+            "title": "Attachment",
+            "type": "string"
+          },
+          "author": {
+            "$ref": "#/$defs/MergeRequestNoteAuthor",
+            "description": "Author of the note.",
+            "title": "Author"
+          },
+          "body": {
+            "description": "Content of the note.",
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "ISO 8601 creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "Note ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "noteable_id": {
+            "description": "Global numeric issue ID as a precision-preserving decimal string.",
+            "title": "Noteable Id",
+            "type": "string"
+          },
+          "noteable_iid": {
+            "description": "Project-local issue IID, if set.",
+            "title": "Noteable Iid",
+            "type": "integer"
+          },
+          "noteable_type": {
+            "description": "Type of the noteable object.",
+            "title": "Noteable Type",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "Project ID.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "resolvable": {
+            "description": "Whether the note can be resolved.",
+            "title": "Resolvable",
+            "type": "boolean"
+          },
+          "system": {
+            "description": "Whether GitLab generated this note.",
+            "title": "System",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "DiscussionNote or null for a single note.",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "ISO 8601 last update timestamp.",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "body",
+          "author",
+          "created_at",
+          "updated_at",
+          "system",
+          "noteable_id",
+          "noteable_type",
+          "project_id"
+        ],
+        "title": "IssueDiscussionNote",
+        "type": "object"
+      },
+      "MergeRequestNoteAuthor": {
+        "additionalProperties": true,
+        "properties": {
+          "avatar_url": {
+            "description": "Author's avatar URL.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Account creation timestamp.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Author's email, when available.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Author's user ID.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Author's display name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "description": "Author account state.",
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "description": "Author's username.",
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "Author's profile URL.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username", "name"],
+        "title": "MergeRequestNoteAuthor",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetIssueDiscussionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,208 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of discount coupons from a Stripe account, supporting pagination via `limit`, `starting_after`, and `ending_before`.",
+  "inputSchema": {
+    "description": "Parameters for listing coupons, with pagination options.",
+    "properties": {
+      "ending_before": {
+        "description": "A coupon ID for pagination. Returns items created before this object.",
+        "examples": ["co_yyyyyyyyyyyyy"],
+        "title": "Ending Before",
+        "type": "string"
+      },
+      "limit": {
+        "description": "Maximum number of coupon objects to return. Stripe's default (usually 10) applies if omitted.",
+        "examples": ["10", "50", "100"],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "starting_after": {
+        "description": "A coupon ID for pagination. Returns items created after this object.",
+        "examples": ["co_xxxxxxxxxxxxxx"],
+        "title": "Starting After",
+        "type": "string"
+      }
+    },
+    "title": "ListCouponsRequest",
+    "type": "object"
+  },
+  "name": "list_coupons",
+  "outputSchema": {
+    "$defs": {
+      "AppliesTo": {
+        "description": "Details about which products the coupon applies to.",
+        "properties": {
+          "products": {
+            "description": "List of product IDs this coupon applies to.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Products",
+            "type": "array"
+          }
+        },
+        "required": ["products"],
+        "title": "AppliesTo",
+        "type": "object"
+      },
+      "CouponData": {
+        "description": "Details of a Stripe coupon, including discount, duration, and redemption status.",
+        "properties": {
+          "amount_off": {
+            "description": "Monetary amount (smallest currency unit, e.g., cents for USD) deducted. Present for fixed amount discounts.",
+            "title": "Amount Off",
+            "type": "integer"
+          },
+          "applies_to": {
+            "$ref": "#/$defs/AppliesTo",
+            "description": "Contains information about which products the coupon applies to.",
+            "title": "Applies To"
+          },
+          "created": {
+            "description": "Timestamp (Unix epoch seconds) of coupon creation.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code (e.g., 'usd'), lowercase. Present if `amount_off` is set.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "currency_options": {
+            "additionalProperties": {
+              "$ref": "#/$defs/CurrencyOption"
+            },
+            "description": "Coupons defined in each available currency option. Keys are three-letter ISO currency codes.",
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "duration": {
+            "description": "Duration of discount: `forever`, `once`, or `repeating` (see `duration_in_months`).",
+            "title": "Duration",
+            "type": "string"
+          },
+          "duration_in_months": {
+            "description": "Number of months discount persists if `duration` is `repeating`.",
+            "title": "Duration In Months",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the coupon. Example: `co_123xyz`",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Indicates if created in live mode (`true`) or test mode (`false`).",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "max_redemptions": {
+            "description": "Maximum redemption count before invalidation. Null means unlimited.",
+            "title": "Max Redemptions",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "default": {},
+            "description": "Key-value pairs for additional structured information. Example: `{'department': 'Marketing'}`.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "Name of the coupon, displayable to customers. Example: `SUMMER25OFF`.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "Object type; always 'coupon' for coupons.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percent_off": {
+            "description": "Percentage discount (e.g., 25 for 25%). Present for percentage-based discounts.",
+            "title": "Percent Off",
+            "type": "number"
+          },
+          "redeem_by": {
+            "description": "Expiration timestamp (Unix epoch seconds). Null if no specific expiration, though `max_redemptions` or deactivation may still apply.",
+            "title": "Redeem By",
+            "type": "integer"
+          },
+          "times_redeemed": {
+            "description": "Number of times this coupon has been redeemed.",
+            "title": "Times Redeemed",
+            "type": "integer"
+          },
+          "valid": {
+            "description": "Indicates if the coupon is currently valid and redeemable (e.g., not expired, within `max_redemptions`, not deactivated).",
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "object", "created", "duration", "livemode", "times_redeemed", "valid"],
+        "title": "CouponData",
+        "type": "object"
+      },
+      "CurrencyOption": {
+        "description": "Currency-specific coupon configuration.",
+        "properties": {
+          "amount_off": {
+            "description": "Discount amount for the specified currency.",
+            "title": "Amount Off",
+            "type": "integer"
+          }
+        },
+        "required": ["amount_off"],
+        "title": "CurrencyOption",
+        "type": "object"
+      },
+      "ListCouponsResponse": {
+        "description": "Response containing a list of coupons and pagination details.",
+        "properties": {
+          "data": {
+            "description": "Array of `CouponData` objects. Empty if no coupons match or exist.",
+            "items": {
+              "$ref": "#/$defs/CouponData"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "`true` if more coupon objects are available via pagination.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "object": {
+            "description": "Object type; always 'list' for a list of coupons.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the retrieved list, typically `/v1/coupons`.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "ListCouponsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListCouponsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

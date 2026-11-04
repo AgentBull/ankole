@@ -1,0 +1,484 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Export users incrementally using cursor-based pagination. Use when you need to export all users from Zendesk in a reliable, paginated manner. The start_time parameter is required for the initial request to define the time range. Subsequent requests use the cursor returned in previous responses to fetch the next batch of records. This action is ideal for: - Full user data synchronization to external systems - Regular incremental backups of user data - Building user directories with pagination support Note: Data from the most recent minute is not included to ensure consistency.",
+  "inputSchema": {
+    "description": "Request parameters for incremental user export with cursor-based pagination.",
+    "properties": {
+      "cursor": {
+        "description": "The cursor pointer to work with for all subsequent exports after the initial request. Use the cursor returned in the previous response to paginate through all records.",
+        "examples": ["MTU3NjYxMzUzOS4wfHw0Njd8"],
+        "human_parameter_description": "Cursor value returned in previous response for pagination.",
+        "human_parameter_name": "Cursor",
+        "title": "Cursor",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "The number of records to return per page (max 100).",
+        "examples": [25],
+        "human_parameter_description": "How many user records to return per page. Maximum is 100.",
+        "human_parameter_name": "Records Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "start_time": {
+        "description": "The time to start the incremental export from. Must be at least one minute in the past. Data isn't provided for the most recent minute. Required on the initial export request; not required on subsequent cursor-based pagination requests.",
+        "examples": [1332034771],
+        "human_parameter_description": "Unix timestamp to start the incremental export from. Must be at least one minute in the past.",
+        "human_parameter_name": "Start Time",
+        "title": "Start Time",
+        "type": "integer"
+      }
+    },
+    "title": "GetIncrementalUsersCursorRequest",
+    "type": "object"
+  },
+  "name": "get_incremental_users_cursor",
+  "outputSchema": {
+    "$defs": {
+      "AttachmentThumbnail": {
+        "description": "Attachment thumbnail object for user photos.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type (e.g., image/png)",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL where the thumbnail can be downloaded",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "True if attachment is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Thumbnail filename",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Thumbnail attachment ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "True if inline attachment",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "mapped_content_url": {
+            "description": "Mapped URL for the thumbnail",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "API URL to access attachment details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "AttachmentThumbnail",
+        "type": "object"
+      },
+      "GetIncrementalUsersCursorResponse": {
+        "description": "Response containing incremental users exported with cursor-based pagination.",
+        "properties": {
+          "after_cursor": {
+            "description": "Cursor value to retrieve the next page of results",
+            "title": "After Cursor",
+            "type": "string"
+          },
+          "after_url": {
+            "description": "URL to retrieve the next page of results",
+            "title": "After Url",
+            "type": "string"
+          },
+          "before_cursor": {
+            "description": "Cursor value to retrieve the previous page of results",
+            "title": "Before Cursor",
+            "type": "string"
+          },
+          "before_url": {
+            "description": "URL to retrieve the previous page of results",
+            "title": "Before Url",
+            "type": "string"
+          },
+          "end_of_stream": {
+            "description": "Indicates whether all records have been exported. When true, there are no more records to retrieve.",
+            "title": "End Of Stream",
+            "type": "boolean"
+          },
+          "meta": {
+            "$ref": "#/$defs/IncrementalUserCursorResponse",
+            "description": "Cursor pagination metadata",
+            "title": "Meta"
+          },
+          "users": {
+            "description": "List of user records exported in this batch",
+            "items": {
+              "$ref": "#/$defs/ZendeskUserDetailed"
+            },
+            "title": "Users",
+            "type": "array"
+          }
+        },
+        "required": ["users", "end_of_stream"],
+        "title": "GetIncrementalUsersCursorResponse",
+        "type": "object"
+      },
+      "IncrementalUserCursorResponse": {
+        "description": "Response metadata for cursor-based incremental user export.",
+        "properties": {
+          "after_cursor": {
+            "description": "Cursor value to retrieve the next page of results",
+            "title": "After Cursor",
+            "type": "string"
+          },
+          "after_url": {
+            "description": "URL to retrieve the next page of results",
+            "title": "After Url",
+            "type": "string"
+          },
+          "before_cursor": {
+            "description": "Cursor value to retrieve the previous page of results",
+            "title": "Before Cursor",
+            "type": "string"
+          },
+          "before_url": {
+            "description": "URL to retrieve the previous page of results",
+            "title": "Before Url",
+            "type": "string"
+          },
+          "end_of_stream": {
+            "description": "Indicates whether all records have been exported. When true, there are no more records to retrieve.",
+            "title": "End Of Stream",
+            "type": "boolean"
+          }
+        },
+        "required": ["end_of_stream"],
+        "title": "IncrementalUserCursorResponse",
+        "type": "object"
+      },
+      "UserPhotoAttachment": {
+        "description": "User photo object represented as an Attachment.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type (e.g., image/png)",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL where the thumbnail can be downloaded",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "True if attachment is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Thumbnail filename",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Image height in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Thumbnail attachment ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "True if inline attachment",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malware_access_override": {
+            "description": "True if malware-flagged file can be downloaded",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malware_scan_result": {
+            "description": "Malware scan result status",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mapped_content_url": {
+            "description": "Mapped URL for the thumbnail",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "List of thumbnail versions",
+            "items": {
+              "$ref": "#/$defs/AttachmentThumbnail"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          },
+          "url": {
+            "description": "API URL to access attachment details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "UserPhotoAttachment",
+        "type": "object"
+      },
+      "ZendeskUserDetailed": {
+        "description": "Detailed Zendesk user object.",
+        "properties": {
+          "locale": {
+            "description": "User locale",
+            "title": "Locale",
+            "type": "string"
+          },
+          "remote_photo_url": {
+            "description": "Remote photo URL",
+            "title": "Remote Photo Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          },
+          "notes": {
+            "description": "Notes on the user profile",
+            "title": "Notes",
+            "type": "string"
+          },
+          "role_type": {
+            "description": "Role type ID",
+            "title": "Role Type",
+            "type": "integer"
+          },
+          "external_id": {
+            "description": "External system ID",
+            "title": "External Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the user was last updated",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "iana_time_zone": {
+            "description": "IANA timezone",
+            "title": "Iana Time Zone",
+            "type": "string"
+          },
+          "two_factor_auth_enabled": {
+            "description": "True if 2FA is enabled",
+            "title": "Two Factor Auth Enabled",
+            "type": "boolean"
+          },
+          "details": {
+            "description": "User details",
+            "title": "Details",
+            "type": "string"
+          },
+          "only_private_comments": {
+            "description": "True if user can only make private comments",
+            "title": "Only Private Comments",
+            "type": "boolean"
+          },
+          "tags": {
+            "description": "List of user tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Timestamp when the user was created",
+            "title": "Created At",
+            "type": "string"
+          },
+          "phone": {
+            "description": "User phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Locale ID",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "User's full name",
+            "title": "Name",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's primary email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "alias": {
+            "description": "User alias",
+            "title": "Alias",
+            "type": "string"
+          },
+          "shared_agent": {
+            "description": "True if agent is shared",
+            "title": "Shared Agent",
+            "type": "boolean"
+          },
+          "custom_role_id": {
+            "description": "Custom role ID",
+            "title": "Custom Role Id",
+            "type": "integer"
+          },
+          "restricted_agent": {
+            "description": "True if agent is restricted",
+            "title": "Restricted Agent",
+            "type": "boolean"
+          },
+          "moderator": {
+            "description": "True if user is a moderator",
+            "title": "Moderator",
+            "type": "boolean"
+          },
+          "role": {
+            "description": "User role (end-user, agent, admin)",
+            "title": "Role",
+            "type": "string"
+          },
+          "report_csv": {
+            "description": "True if user can access CSV reports",
+            "title": "Report Csv",
+            "type": "boolean"
+          },
+          "last_login_at": {
+            "description": "Timestamp of last login",
+            "title": "Last Login At",
+            "type": "string"
+          },
+          "signature": {
+            "description": "User signature",
+            "title": "Signature",
+            "type": "string"
+          },
+          "verified": {
+            "description": "True if user is verified",
+            "title": "Verified",
+            "type": "boolean"
+          },
+          "suspended": {
+            "description": "True if user is suspended",
+            "title": "Suspended",
+            "type": "boolean"
+          },
+          "user_fields": {
+            "additionalProperties": true,
+            "description": "Custom user fields with admin-defined keys and dynamic values",
+            "title": "User Fields",
+            "type": "object"
+          },
+          "active": {
+            "description": "True if the user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "photo": {
+            "$ref": "#/$defs/UserPhotoAttachment",
+            "description": "User photo object",
+            "title": "Photo"
+          },
+          "ticket_restriction": {
+            "description": "Ticket restriction level",
+            "title": "Ticket Restriction",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "User timezone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "shared_phone_number": {
+            "description": "True if phone number is shared",
+            "title": "Shared Phone Number",
+            "type": "boolean"
+          },
+          "shared": {
+            "description": "True if user is shared",
+            "title": "Shared",
+            "type": "boolean"
+          },
+          "chat_only": {
+            "description": "True if user is chat-only (Zendesk Chat)",
+            "title": "Chat Only",
+            "type": "boolean"
+          },
+          "default_group_id": {
+            "description": "Default group ID",
+            "title": "Default Group Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "Organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "ZendeskUserDetailed",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetIncrementalUsersCursorResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

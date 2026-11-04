@@ -1,0 +1,212 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves calendar resources (such as conference rooms) from a Google Workspace domain using the Admin SDK Directory API. Use this action when you need to list available meeting rooms, conference spaces, or other bookable calendar resources in an organization. The action supports filtering by resource category, capacity, building location, and other criteria. IMPORTANT: This requires Admin SDK Directory API access and appropriate admin permissions - it is NOT available for personal Gmail accounts, only Google Workspace domains.",
+  "inputSchema": {
+    "properties": {
+      "customer": {
+        "default": "my_customer",
+        "description": "The unique ID for the customer's Google Workspace account. Use 'my_customer' as an alias for the account's customer ID.",
+        "examples": ["my_customer", "C03az79cb"],
+        "title": "Customer",
+        "type": "string"
+      },
+      "maxResults": {
+        "default": 25,
+        "description": "Maximum number of results to return per page.",
+        "examples": [25, 50, 100],
+        "maximum": 500,
+        "minimum": 1,
+        "title": "Max Results",
+        "type": "integer"
+      },
+      "orderBy": {
+        "description": "Specifies sorting order for results. Use field names like 'resourceId', 'resourceName', 'capacity', 'buildingId', 'floorName' optionally followed by ' desc' for descending order. Multiple fields can be separated by commas (e.g., 'buildingId, capacity desc').",
+        "examples": ["resourceName", "capacity desc", "buildingId, capacity desc"],
+        "title": "Order By",
+        "type": "string"
+      },
+      "pageToken": {
+        "description": "Token for retrieving subsequent pages in paginated results. Use the nextPageToken from a previous response.",
+        "examples": ["nextPageToken123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "query": {
+        "description": "Search query to filter calendar resources. Each clause is 'field operator value'. Supported operators: '=' (exact match), '!=' (mismatch), ':' (prefix/HAS match — for prefix match, follow the value with '*'). Supported logical operators: AND, NOT (in that order of precedence). IMPORTANT: Numeric comparison operators (>, <, >=, <=) are NOT supported by the Google Admin Directory API for this endpoint and will cause a 400 Bad Request — 'capacity' can only be filtered by exact equality (e.g., 'capacity=10'). Supported fields: generatedResourceName, name, buildingId, floor_name, capacity, featureInstances.feature.name, resourceEmail, resourceCategory.",
+        "examples": [
+          "resourceCategory=CONFERENCE_ROOM",
+          "capacity=10",
+          "buildingId=US-NYC-9TH AND featureInstances.feature.name:Phone",
+          "resourceCategory=CONFERENCE_ROOM AND buildingId=US-NYC-9TH"
+        ],
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "title": "ListCalendarResourcesRequest",
+    "type": "object"
+  },
+  "name": "list_calendar_resources",
+  "outputSchema": {
+    "$defs": {
+      "CalendarResource": {
+        "description": "Represents a calendar resource from Google Workspace Admin SDK.",
+        "properties": {
+          "buildingId": {
+            "description": "Unique ID for the building a resource is located in.",
+            "title": "Building Id",
+            "type": "string"
+          },
+          "capacity": {
+            "description": "Capacity of a resource, number of seats in a room.",
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "etags": {
+            "description": "ETag of the resource.",
+            "title": "Etags",
+            "type": "string"
+          },
+          "featureInstances": {
+            "description": "Instances of features for the calendar resource.",
+            "items": {
+              "$ref": "#/$defs/FeatureInstance"
+            },
+            "title": "Feature Instances",
+            "type": "array"
+          },
+          "floorName": {
+            "description": "Name of the floor a resource is located on.",
+            "title": "Floor Name",
+            "type": "string"
+          },
+          "floorSection": {
+            "description": "Name of the section within a floor a resource is located in.",
+            "title": "Floor Section",
+            "type": "string"
+          },
+          "generatedResourceName": {
+            "description": "The read-only auto-generated name including metadata such as building name, floor, capacity.",
+            "title": "Generated Resource Name",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of the resource, always 'admin#directory#resources#calendars#CalendarResource'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "resourceCategory": {
+            "description": "The category of the calendar resource. Either CONFERENCE_ROOM or OTHER.",
+            "title": "Resource Category",
+            "type": "string"
+          },
+          "resourceDescription": {
+            "description": "Description of the resource, visible only to admins.",
+            "title": "Resource Description",
+            "type": "string"
+          },
+          "resourceEmail": {
+            "description": "The read-only email for the calendar resource. Generated as part of creating a new calendar resource.",
+            "title": "Resource Email",
+            "type": "string"
+          },
+          "resourceId": {
+            "description": "The unique ID for the calendar resource.",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "resourceName": {
+            "description": "The name of the calendar resource (e.g., 'Training Room 1A').",
+            "title": "Resource Name",
+            "type": "string"
+          },
+          "resourceType": {
+            "description": "The type of the calendar resource, intended for non-room resources.",
+            "title": "Resource Type",
+            "type": "string"
+          },
+          "userVisibleDescription": {
+            "description": "Description of the resource, visible to users and admins.",
+            "title": "User Visible Description",
+            "type": "string"
+          }
+        },
+        "title": "CalendarResource",
+        "type": "object"
+      },
+      "Feature": {
+        "description": "Feature details for a calendar resource.",
+        "properties": {
+          "key": {
+            "description": "Unique identifier for the feature.",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the feature.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "title": "Feature",
+        "type": "object"
+      },
+      "FeatureInstance": {
+        "description": "Feature instance for a calendar resource.",
+        "properties": {
+          "feature": {
+            "$ref": "#/$defs/Feature",
+            "description": "Feature object containing feature details.",
+            "title": "Feature"
+          }
+        },
+        "title": "FeatureInstance",
+        "type": "object"
+      },
+      "ListCalendarResourcesResponse": {
+        "description": "Response from listing calendar resources.",
+        "properties": {
+          "etag": {
+            "description": "Entity tag for the resource.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "items": {
+            "description": "Array of CalendarResource objects from the result set.",
+            "items": {
+              "$ref": "#/$defs/CalendarResource"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "kind": {
+            "description": "Identifies response as 'admin#directory#resources#calendars#calendarResourcesList'.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "nextPageToken": {
+            "description": "The continuation token, used to page through large result sets. Use this value in the next request's pageToken parameter.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "ListCalendarResourcesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListCalendarResourcesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

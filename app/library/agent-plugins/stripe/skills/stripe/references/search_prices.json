@@ -1,0 +1,369 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Search for prices using Stripe's Search Query Language. Use when you need to find prices by status, currency, product, or other criteria with flexible query syntax.",
+  "inputSchema": {
+    "description": "Request model for searching prices in Stripe.",
+    "properties": {
+      "limit": {
+        "description": "Maximum number of results per page (default is 10, maximum is 100).",
+        "examples": [10, 25, 100],
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Limit",
+        "type": "integer"
+      },
+      "page": {
+        "description": "Pagination cursor for a specific page; omit for the first page. Use `next_page` from a previous response for subsequent pages.",
+        "examples": ["price_1N2M3O4P5Q6R7S8T_page_2"],
+        "title": "Page",
+        "type": "string"
+      },
+      "query": {
+        "description": "The search query string, adhering to Stripe's Search Query Language. This language supports features like exact matches, range queries, boolean operators, and searching by metadata. For detailed syntax, refer to https://docs.stripe.com/search#search-query-language.",
+        "examples": ["active:\"true\"", "currency:'usd'", "metadata['key']:'value'"],
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": ["query"],
+    "title": "SearchPricesRequest",
+    "type": "object"
+  },
+  "name": "search_prices",
+  "outputSchema": {
+    "$defs": {
+      "CurrencyOptions": {
+        "description": "Per-currency configuration options.",
+        "properties": {
+          "custom_unit_amount": {
+            "$ref": "#/$defs/CustomUnitAmount",
+            "description": "Customer-adjustable amount config for this currency.",
+            "title": "Custom Unit Amount"
+          },
+          "tax_behavior": {
+            "description": "Tax behavior for this currency.",
+            "enum": ["inclusive", "exclusive", "unspecified"],
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "tiers": {
+            "description": "List of tiers when billing_scheme='tiered'.",
+            "items": {
+              "$ref": "#/$defs/PriceTier"
+            },
+            "title": "Tiers",
+            "type": "array"
+          },
+          "unit_amount": {
+            "description": "Per-unit amount in cents for this currency.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Decimal per-unit amount for this currency.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "title": "CurrencyOptions",
+        "type": "object"
+      },
+      "CustomUnitAmount": {
+        "description": "Configuration for customer-adjustable amounts.",
+        "properties": {
+          "maximum": {
+            "description": "Maximum unit amount in cents.",
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "description": "Minimum unit amount in cents.",
+            "title": "Minimum",
+            "type": "integer"
+          },
+          "preset": {
+            "description": "Preset unit amount in cents.",
+            "title": "Preset",
+            "type": "integer"
+          }
+        },
+        "title": "CustomUnitAmount",
+        "type": "object"
+      },
+      "Price": {
+        "description": "Represents a Stripe Price object.",
+        "properties": {
+          "active": {
+            "description": "Whether the price is currently active.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "billing_scheme": {
+            "description": "Pricing scheme used to compute the price.",
+            "enum": ["per_unit", "tiered"],
+            "title": "Billing Scheme",
+            "type": "string"
+          },
+          "created": {
+            "description": "Unix timestamp (seconds since epoch) when created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "currency_options": {
+            "additionalProperties": {
+              "$ref": "#/$defs/CurrencyOptions"
+            },
+            "description": "Per-currency configuration options.",
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "custom_unit_amount": {
+            "$ref": "#/$defs/CustomUnitAmount",
+            "description": "Configuration for customer-adjustable amounts.",
+            "title": "Custom Unit Amount"
+          },
+          "id": {
+            "description": "Unique identifier for the price.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "True if the object exists in live mode, false if in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "lookup_key": {
+            "description": "Lookup key for this price, if applicable.",
+            "title": "Lookup Key",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Key-value pairs attached to the object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "nickname": {
+            "description": "A brief description of the price.",
+            "title": "Nickname",
+            "type": "string"
+          },
+          "object": {
+            "const": "price",
+            "description": "String value 'price'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "product": {
+            "description": "ID of the product this price is associated with.",
+            "title": "Product",
+            "type": "string"
+          },
+          "recurring": {
+            "$ref": "#/$defs/Recurring",
+            "description": "Recurring billing configuration, if this is a recurring price.",
+            "title": "Recurring"
+          },
+          "tax_behavior": {
+            "description": "Tax behavior for the price.",
+            "enum": ["inclusive", "exclusive", "unspecified"],
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "tiers": {
+            "description": "List of tiers for tiered pricing.",
+            "items": {
+              "$ref": "#/$defs/PriceTier"
+            },
+            "title": "Tiers",
+            "type": "array"
+          },
+          "tiers_mode": {
+            "description": "Tiering strategy for tiered pricing.",
+            "enum": ["graduated", "volume"],
+            "title": "Tiers Mode",
+            "type": "string"
+          },
+          "transform_quantity": {
+            "$ref": "#/$defs/TransformQuantity",
+            "description": "Rules for transforming usage quantities before billing.",
+            "title": "Transform Quantity"
+          },
+          "type": {
+            "description": "Specifies if the price is one-time or recurring.",
+            "enum": ["one_time", "recurring"],
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "Unit amount in cents, if applicable.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Decimal unit amount, if applicable.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "active",
+          "billing_scheme",
+          "created",
+          "currency",
+          "livemode",
+          "metadata",
+          "product",
+          "type"
+        ],
+        "title": "Price",
+        "type": "object"
+      },
+      "PriceTier": {
+        "description": "Represents a pricing tier for tiered pricing.",
+        "properties": {
+          "flat_amount": {
+            "description": "Price for entire tier.",
+            "title": "Flat Amount",
+            "type": "integer"
+          },
+          "flat_amount_decimal": {
+            "description": "Decimal form of flat_amount.",
+            "title": "Flat Amount Decimal",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "Per-unit price for the tier.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Decimal per-unit price for the tier.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          },
+          "up_to": {
+            "description": "Upper bound quantity for this tier.",
+            "title": "Up To",
+            "type": "integer"
+          }
+        },
+        "title": "PriceTier",
+        "type": "object"
+      },
+      "Recurring": {
+        "description": "Recurring billing configuration.",
+        "properties": {
+          "interval": {
+            "description": "Billing frequency (interval).",
+            "enum": ["day", "week", "month", "year"],
+            "title": "Interval",
+            "type": "string"
+          },
+          "interval_count": {
+            "description": "Number of intervals between each billing.",
+            "title": "Interval Count",
+            "type": "integer"
+          },
+          "meter": {
+            "description": "Meter used for metered billing.",
+            "title": "Meter",
+            "type": "string"
+          },
+          "trial_period_days": {
+            "description": "Default number of trial days when subscribing a customer to this price using trial_from_plan=true.",
+            "title": "Trial Period Days",
+            "type": "integer"
+          },
+          "usage_type": {
+            "description": "How usage is determined for metered billing.",
+            "enum": ["metered", "licensed"],
+            "title": "Usage Type",
+            "type": "string"
+          }
+        },
+        "required": ["interval", "interval_count", "usage_type"],
+        "title": "Recurring",
+        "type": "object"
+      },
+      "SearchPricesResponse": {
+        "description": "Response model containing the search results for Stripe prices.",
+        "properties": {
+          "data": {
+            "description": "An array containing up to limit price objects matching the search query. If no objects match the query, the resulting array will be empty.",
+            "items": {
+              "$ref": "#/$defs/Price"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "has_more": {
+            "description": "Whether or not there are more elements available after this set. If false, this set comprises the end of the list.",
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_page": {
+            "description": "A cursor for use in pagination. If has_more is true, you can pass the value of next_page to a subsequent call to fetch the next page of results.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always has the value 'search_result'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL for accessing this search result endpoint ('/v1/prices/search').",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["object", "url", "has_more", "data"],
+        "title": "SearchPricesResponse",
+        "type": "object"
+      },
+      "TransformQuantity": {
+        "description": "Rules for transforming usage quantities before billing.",
+        "properties": {
+          "divide_by": {
+            "description": "Number by which to divide the usage before billing.",
+            "title": "Divide By",
+            "type": "integer"
+          },
+          "round": {
+            "description": "Direction to round after division.",
+            "enum": ["up", "down"],
+            "title": "Round",
+            "type": "string"
+          }
+        },
+        "required": ["divide_by", "round"],
+        "title": "TransformQuantity",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SearchPricesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

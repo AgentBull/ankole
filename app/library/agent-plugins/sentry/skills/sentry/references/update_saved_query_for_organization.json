@@ -1,0 +1,264 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing Discover saved query for a Sentry organization. If omitted, projects is sent as an empty list and the query dataset as error-events.",
+  "inputSchema": {
+    "description": "Request schema for updating an existing Discover saved query for an organization.",
+    "properties": {
+      "display": {
+        "description": "The visualization type for the saved query chart. Allowed values are: 'default', 'previous', 'top5', 'daily', 'dailytop5', 'bar'.",
+        "examples": ["default", "bar", "top5", "daily"],
+        "title": "Display",
+        "type": "string"
+      },
+      "end": {
+        "description": "The specific end date and time for the query's time range, in ISO 8601 format (e.g., '2023-01-31T23:59:59Z'); used if 'range' is not provided.",
+        "examples": ["2024-01-31T23:59:59Z", "2024-07-21T18:00:00Z"],
+        "format": "date-time",
+        "title": "End",
+        "type": "string"
+      },
+      "environment": {
+        "description": "A list of environment names to filter the query by.",
+        "examples": ["['production', 'staging']", "['development']"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "fields": {
+        "description": "A list of fields, functions, or equations for the query, with a maximum of 20. Each item can be: 1. A built-in key field (e.g., 'transaction'; see Sentry's properties table for event properties). 2. A tag, formatted as 'tag[tagName]' (e.g., 'tag[isEnterprise]'). 3. A function, like 'function_name(parameters,...)' (e.g., 'count_if(transaction.duration,greater,300)'; Discover groups by tags/fields when functions are used; see Sentry's query builder documentation). 4. An equation, prefixed with 'equation|' (e.g., 'equation|count_if(transaction.duration,greater,300) / count() * 100'; see Sentry's documentation on query equations).",
+        "examples": [
+          ["transaction", "count()", "tag[custom_tag]"],
+          ["p75(transaction.duration)", "equation|count()/2"]
+        ],
+        "items": {
+          "type": "string"
+        },
+        "title": "Fields",
+        "type": "array"
+      },
+      "interval": {
+        "description": "The resolution of the time series for the chart (e.g., '1h', '1d', '30m').",
+        "examples": ["1h", "1d", "30m"],
+        "title": "Interval",
+        "type": "string"
+      },
+      "name": {
+        "description": "The new user-defined name for the saved query.",
+        "examples": ["High Priority Errors", "Weekly Performance Trends"],
+        "title": "Name",
+        "type": "string"
+      },
+      "orderby": {
+        "description": "Field to sort the query results by. Must be one of the items in the 'fields' list (excluding equations). Prefix with a hyphen '-' for descending order (e.g., '-count()').",
+        "examples": ["-count()", "transaction", "timestamp"],
+        "title": "Orderby",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the Sentry organization to which the saved query belongs.",
+        "examples": ["my-sentry-org", "acme-inc"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "projects": {
+        "default": [],
+        "description": "A list of project IDs to associate with this saved query. An empty list means the query applies to all projects selected in the Sentry UI unless overridden.",
+        "examples": [[12345, 67890], [98765]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Projects",
+        "type": "array"
+      },
+      "query": {
+        "description": "The Sentry search query string to filter results (e.g., 'error.type:ZeroDivisionError browser.name:Firefox'). Refer to Sentry's search syntax documentation for details.",
+        "examples": ["event.type:error transaction.duration:>1s", "user.email:*@example.com", "!has:user"],
+        "title": "Query",
+        "type": "string"
+      },
+      "queryDataset": {
+        "default": "error-events",
+        "description": "The dataset to query. Note: 'discover' is deprecated; use 'error-events' or 'transaction-like' instead.",
+        "enum": ["discover", "error-events", "transaction-like"],
+        "examples": ["error-events", "transaction-like"],
+        "title": "Query Dataset",
+        "type": "string"
+      },
+      "query_id": {
+        "description": "The unique identifier of the Discover saved query to be updated.",
+        "examples": [101, 202],
+        "title": "Query Id",
+        "type": "integer"
+      },
+      "range": {
+        "description": "The relative time range period for this saved query (e.g., '24h', '7d', '30d'); an alternative to specific 'start' and 'end' times.",
+        "examples": ["24h", "7d", "30d"],
+        "title": "Range",
+        "type": "string"
+      },
+      "start": {
+        "description": "The specific start date and time for the query's time range, in ISO 8601 format (e.g., '2023-01-01T00:00:00Z'); used if 'range' is not provided.",
+        "examples": ["2024-01-01T00:00:00Z", "2024-07-20T14:30:00+05:30"],
+        "format": "date-time",
+        "title": "Start",
+        "type": "string"
+      },
+      "topEvents": {
+        "description": "The number of top events' timeseries to be visualized on the chart.",
+        "examples": [5, 10],
+        "title": "Top Events",
+        "type": "integer"
+      },
+      "yAxis": {
+        "description": "A list of aggregate functions to be plotted on the Y-axis of the chart (e.g., 'count()', 'p95(transaction.duration)').",
+        "examples": ["['count()', 'p95(transaction.duration)']", "['avg(cpu_usage)']"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Y Axis",
+        "type": "array"
+      }
+    },
+    "required": ["organization_id_or_slug", "query_id", "name"],
+    "title": "UpdateSavedQueryForOrganizationRequest",
+    "type": "object"
+  },
+  "name": "update_saved_query_for_organization",
+  "outputSchema": {
+    "$defs": {
+      "UpdateSavedQueryForOrganizationResponse": {
+        "description": "Details of the updated saved query.",
+        "properties": {
+          "createdBy": {
+            "additionalProperties": true,
+            "description": "Information about the user who created this query.",
+            "title": "Created By",
+            "type": "object"
+          },
+          "dateCreated": {
+            "description": "The timestamp when the saved query was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateUpdated": {
+            "description": "The timestamp when the saved query was last updated.",
+            "title": "Date Updated",
+            "type": "string"
+          },
+          "display": {
+            "description": "The visualization type for the chart.",
+            "title": "Display",
+            "type": "string"
+          },
+          "end": {
+            "description": "The end time for the query.",
+            "title": "End",
+            "type": "string"
+          },
+          "environment": {
+            "description": "List of environment names associated with this query.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Environment",
+            "type": "array"
+          },
+          "fields": {
+            "description": "List of fields selected for the query.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "id": {
+            "description": "The unique identifier of the saved query.",
+            "title": "Id",
+            "type": "string"
+          },
+          "interval": {
+            "description": "The time series resolution.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the saved query.",
+            "title": "Name",
+            "type": "string"
+          },
+          "orderby": {
+            "description": "The field to order results by.",
+            "title": "Orderby",
+            "type": "string"
+          },
+          "projects": {
+            "default": [],
+            "description": "List of project IDs associated with this saved query.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "query": {
+            "description": "The search query string.",
+            "title": "Query",
+            "type": "string"
+          },
+          "queryDataset": {
+            "description": "The dataset being queried (e.g., 'error-events', 'transaction-like').",
+            "title": "Query Dataset",
+            "type": "string"
+          },
+          "range": {
+            "description": "The time range for the query.",
+            "title": "Range",
+            "type": "string"
+          },
+          "start": {
+            "description": "The start time for the query.",
+            "title": "Start",
+            "type": "string"
+          },
+          "topEvents": {
+            "description": "Number of top events to visualize.",
+            "title": "Top Events",
+            "type": "integer"
+          },
+          "version": {
+            "description": "The version number of the saved query.",
+            "title": "Version",
+            "type": "integer"
+          },
+          "yAxis": {
+            "description": "Aggregate functions for the Y-axis.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Y Axis",
+            "type": "array"
+          }
+        },
+        "required": ["id", "name", "version", "queryDataset", "dateCreated", "dateUpdated"],
+        "title": "UpdateSavedQueryForOrganizationResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateSavedQueryForOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

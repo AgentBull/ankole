@@ -1,0 +1,360 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List tickets the specified Zendesk user is following. Returns all tickets where the specified user is a follower. Use when you need to retrieve all tickets a particular user is watching or tracking, such as for notification purposes, audit trails, or understanding which tickets a user has interest in. Pagination is available for large result sets; follow next_page links until null to retrieve all followed tickets.",
+  "inputSchema": {
+    "description": "Request parameters for getting tickets followed by a specific user.",
+    "properties": {
+      "exclude_archived": {
+        "description": "If true, excludes archived tickets from the results.",
+        "examples": [true],
+        "human_parameter_description": "Toggle to hide archived tickets from the results.",
+        "human_parameter_name": "Exclude Archived",
+        "title": "Exclude Archived",
+        "type": "boolean"
+      },
+      "page": {
+        "description": "Pagination parameter. Supports both traditional offset and cursor-based pagination: traditional uses '?page=2' (integer page number), cursor uses '?page[size]=50&page[after]=cursor' (deepObject with size, after, before). These are mutually exclusive.",
+        "examples": ["2"],
+        "human_parameter_description": "Page number for offset pagination or cursor token for cursor-based pagination.",
+        "human_parameter_name": "Page",
+        "title": "Page",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Number of tickets to return per page (max 100).",
+        "examples": [50],
+        "human_parameter_description": "How many tickets to show per page. You can choose up to 100.",
+        "human_parameter_name": "Tickets Per Page",
+        "maximum": 100,
+        "minimum": 1,
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "sort_by": {
+        "description": "Field to sort by: 'id', 'subject', 'deleted_at', 'created_at', 'updated_at', 'status', 'requester', 'requester.name', 'group', 'assignee', 'assignee.name'",
+        "enum": [
+          "id",
+          "subject",
+          "deleted_at",
+          "created_at",
+          "updated_at",
+          "status",
+          "requester",
+          "requester.name",
+          "group",
+          "assignee",
+          "assignee.name"
+        ],
+        "examples": ["created_at"],
+        "human_parameter_description": "Pick the ticket field to sort results by.",
+        "human_parameter_name": "Sort By",
+        "title": "Sort By",
+        "type": "string"
+      },
+      "sort_order": {
+        "description": "Sort order: 'asc' or 'desc'. Defaults to 'asc'",
+        "enum": ["asc", "desc"],
+        "examples": ["desc"],
+        "human_parameter_description": "Choose ascending (asc) or descending (desc) sort direction.",
+        "human_parameter_name": "Sort Order",
+        "title": "Sort Order",
+        "type": "string"
+      },
+      "user_id": {
+        "description": "The numeric ID of the user whose followed tickets to retrieve. This is the user ID found in ticket payloads (assignee_id, requester_id, submitter_id, author_id) or from user listings.",
+        "examples": [35436],
+        "human_parameter_description": "The unique ID of the Zendesk user. Find this in ticket payloads (assignee_id, requester_id) or via ZENDESK_LIST_USERS.",
+        "human_parameter_name": "User ID",
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id"],
+    "title": "GetUsersFollowedTicketsRequest",
+    "type": "object"
+  },
+  "name": "get_users_followed_tickets",
+  "outputSchema": {
+    "$defs": {
+      "GetUsersFollowedTicketsResponse": {
+        "description": "Response containing tickets followed by a specific user.",
+        "properties": {
+          "count": {
+            "description": "Total number of tickets followed by the user",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "URL for next page of results",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "URL for previous page of results",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "tickets": {
+            "description": "List of tickets followed by the user",
+            "items": {
+              "$ref": "#/$defs/UserFollowedTicket"
+            },
+            "title": "Tickets",
+            "type": "array"
+          }
+        },
+        "required": ["tickets"],
+        "title": "GetUsersFollowedTicketsResponse",
+        "type": "object"
+      },
+      "UserFollowedTicket": {
+        "description": "Ticket object returned in user followed tickets response.",
+        "properties": {
+          "assignee_id": {
+            "description": "ID of the assigned agent",
+            "title": "Assignee Id",
+            "type": "integer"
+          },
+          "collaborator_ids": {
+            "description": "IDs of collaborators on the ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Collaborator Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "description": "Ticket creation timestamp",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custom_fields": {
+            "description": "Custom field values",
+            "items": {
+              "$ref": "#/$defs/UserFollowedTicketCustomField"
+            },
+            "title": "Custom Fields",
+            "type": "array"
+          },
+          "custom_status_id": {
+            "description": "Custom status ID for the ticket",
+            "title": "Custom Status Id",
+            "type": "integer"
+          },
+          "description": {
+            "description": "Ticket description",
+            "title": "Description",
+            "type": "string"
+          },
+          "due_at": {
+            "description": "Ticket due date timestamp",
+            "title": "Due At",
+            "type": "string"
+          },
+          "external_id": {
+            "description": "External ID of the ticket",
+            "title": "External Id",
+            "type": "string"
+          },
+          "follower_ids": {
+            "description": "IDs of followers on the ticket",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Follower Ids",
+            "type": "array"
+          },
+          "from_messaging_channel": {
+            "description": "Whether ticket originated from messaging channel",
+            "title": "From Messaging Channel",
+            "type": "boolean"
+          },
+          "generated_timestamp": {
+            "description": "Unix timestamp when ticket was generated",
+            "title": "Generated Timestamp",
+            "type": "integer"
+          },
+          "group_id": {
+            "description": "ID of the assigned group",
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "has_incidents": {
+            "description": "Whether ticket has associated incidents",
+            "title": "Has Incidents",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique ticket ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "organization_id": {
+            "description": "ID of the ticket's organization",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "Ticket priority (urgent, high, normal, low)",
+            "title": "Priority",
+            "type": "string"
+          },
+          "problem_id": {
+            "description": "Related problem ID if ticket is an incident",
+            "title": "Problem Id",
+            "type": "integer"
+          },
+          "raw_subject": {
+            "description": "Raw subject with dynamic content placeholders",
+            "title": "Raw Subject",
+            "type": "string"
+          },
+          "recipient": {
+            "description": "Email recipient for the ticket",
+            "title": "Recipient",
+            "type": "string"
+          },
+          "requester_id": {
+            "description": "ID of the user who requested the ticket",
+            "title": "Requester Id",
+            "type": "integer"
+          },
+          "satisfaction_rating": {
+            "$ref": "#/$defs/UserFollowedTicketSatisfactionRating",
+            "description": "Customer satisfaction rating",
+            "title": "Satisfaction Rating"
+          },
+          "sharing_agreement_ids": {
+            "description": "IDs of sharing agreements",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Sharing Agreement Ids",
+            "type": "array"
+          },
+          "status": {
+            "description": "Ticket status (new, open, pending, hold, solved, closed)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Ticket subject",
+            "title": "Subject",
+            "type": "string"
+          },
+          "submitter_id": {
+            "description": "ID of the user who submitted the ticket",
+            "title": "Submitter Id",
+            "type": "integer"
+          },
+          "tags": {
+            "description": "List of ticket tags",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "type": {
+            "description": "Ticket type (problem, incident, question, task)",
+            "title": "Type",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Ticket last update timestamp",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the ticket",
+            "title": "Url",
+            "type": "string"
+          },
+          "via": {
+            "$ref": "#/$defs/UserFollowedTicketVia",
+            "description": "Channel through which ticket was created",
+            "title": "Via"
+          }
+        },
+        "required": ["id"],
+        "title": "UserFollowedTicket",
+        "type": "object"
+      },
+      "UserFollowedTicketCustomField": {
+        "description": "Custom field value in ticket.",
+        "properties": {
+          "id": {
+            "description": "Custom field ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "description": "Custom field value",
+            "title": "Value"
+          }
+        },
+        "title": "UserFollowedTicketCustomField",
+        "type": "object"
+      },
+      "UserFollowedTicketSatisfactionRating": {
+        "description": "Satisfaction rating for ticket.",
+        "properties": {
+          "comment": {
+            "description": "Optional satisfaction comment",
+            "title": "Comment",
+            "type": "string"
+          },
+          "id": {
+            "description": "Satisfaction rating ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "score": {
+            "description": "Rating score (good, bad, or unoffered)",
+            "title": "Score",
+            "type": "string"
+          }
+        },
+        "title": "UserFollowedTicketSatisfactionRating",
+        "type": "object"
+      },
+      "UserFollowedTicketVia": {
+        "description": "Channel through which ticket was created.",
+        "properties": {
+          "channel": {
+            "description": "The channel (web, email, api, etc.)",
+            "title": "Channel",
+            "type": "string"
+          }
+        },
+        "title": "UserFollowedTicketVia",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetUsersFollowedTicketsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

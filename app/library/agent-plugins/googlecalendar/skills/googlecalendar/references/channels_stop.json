@@ -1,0 +1,66 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to stop watching resources through a notification channel. Use when you need to discontinue push notifications for a specific channel subscription.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "description": "A UUID or similar unique string that identifies this channel.",
+        "examples": ["4ba78bf0-6a47-11e2-bcfd-0800200c9a66", "test-channel-987654321"],
+        "maxLength": 64,
+        "title": "Id",
+        "type": "string"
+      },
+      "resourceId": {
+        "description": "An opaque ID that identifies the resource being watched on this channel. Stable across different API versions.",
+        "examples": ["Glz7TVFWTQFgQtbe1Sgnrfno6FM", "ret08u3rv24htgh289g"],
+        "title": "Resource Id",
+        "type": "string"
+      },
+      "token": {
+        "description": "An arbitrary string delivered to the target address with each notification delivered over this channel. Optional.",
+        "maxLength": 256,
+        "title": "Token",
+        "type": "string"
+      }
+    },
+    "required": ["id", "resourceId"],
+    "title": "ChannelsStopRequest",
+    "type": "object"
+  },
+  "name": "channels_stop",
+  "outputSchema": {
+    "$defs": {
+      "ChannelsStopResponse": {
+        "properties": {
+          "display_url": {
+            "description": "URL to view this resource in the Google Calendar web UI. None for notification channels (no dedicated UI).",
+            "title": "Display Url",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "description": "Indicates whether the channel was successfully stopped.",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ChannelsStopResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ChannelsStopResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

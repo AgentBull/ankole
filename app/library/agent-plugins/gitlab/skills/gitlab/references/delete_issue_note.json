@@ -1,0 +1,72 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a note (comment) from an issue in a GitLab project. Use this action when you need to remove a specific comment from an issue. This action is irreversible — the note cannot be recovered once deleted.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["123", "group_name/project_name"],
+        "title": "Id"
+      },
+      "issue_iid": {
+        "description": "The internal ID of the issue.",
+        "examples": [42],
+        "title": "Issue Iid",
+        "type": "integer"
+      },
+      "note_id": {
+        "description": "The ID of the note to delete.",
+        "examples": [636],
+        "title": "Note Id",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "issue_iid", "note_id"],
+    "title": "DeleteIssueNoteRequest",
+    "type": "object"
+  },
+  "name": "delete_issue_note",
+  "outputSchema": {
+    "$defs": {
+      "DeleteIssueNoteResponse": {
+        "properties": {
+          "message": {
+            "description": "A message indicating the status of the deletion.",
+            "title": "Message",
+            "type": "string"
+          },
+          "status_code": {
+            "description": "HTTP status code of the response.",
+            "title": "Status Code",
+            "type": "integer"
+          }
+        },
+        "required": ["status_code"],
+        "title": "DeleteIssueNoteResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteIssueNoteResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

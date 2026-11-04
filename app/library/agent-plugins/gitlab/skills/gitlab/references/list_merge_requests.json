@@ -1,0 +1,769 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of merge requests from across all accessible projects based on scope and filters. Use this action when you need to query merge requests at the instance or user level (not scoped to a specific project), such as finding all merge requests created by a user, assigned to a user, or awaiting review. By default returns merge requests created by the authenticated user; use scope=all to retrieve all accessible merge requests.",
+  "inputSchema": {
+    "properties": {
+      "non_archived": {
+        "description": "Return merge requests from non-archived projects only. Default is true.",
+        "examples": [true],
+        "title": "Non Archived",
+        "type": "boolean"
+      },
+      "environment": {
+        "description": "Returns merge requests deployed to the given environment.",
+        "examples": ["production"],
+        "title": "Environment",
+        "type": "string"
+      },
+      "assignee_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "Returns merge requests assigned to the given user ID. Use string 'None' for unassigned merge requests or 'Any' for merge requests with an assignee.",
+        "examples": [456, "None", "Any"],
+        "title": "Assignee Id"
+      },
+      "not_filter": {
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
+        },
+        "description": "Returns merge requests that do not match the parameters supplied. Accepts: labels, milestone, author_id, author_username, assignee_id, assignee_username, reviewer_id, reviewer_username, my_reaction_emoji.",
+        "examples": [
+          {
+            "labels": "bug",
+            "milestone": "v1.0"
+          }
+        ],
+        "title": "Not Filter",
+        "type": "object"
+      },
+      "author_username": {
+        "description": "Returns merge requests created by the given username. Mutually exclusive with author_id.",
+        "examples": ["john_doe"],
+        "title": "Author Username",
+        "type": "string"
+      },
+      "reviewer_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "Returns merge requests which have the user as a reviewer with the given user ID. Use string 'None' for merge requests with no reviewers or 'Any' for merge requests with any reviewer. Mutually exclusive with reviewer_username.",
+        "examples": [789, "None", "Any"],
+        "title": "Reviewer Id"
+      },
+      "with_merge_status_recheck": {
+        "description": "If true, this projection requests (but does not guarantee) an asynchronous recalculation of the merge_status field.",
+        "examples": [false],
+        "title": "With Merge Status Recheck",
+        "type": "boolean"
+      },
+      "merge_user_id": {
+        "description": "Returns merge requests merged by the user with the given user ID. Mutually exclusive with merge_user_username. Introduced in GitLab 17.0.",
+        "examples": [111],
+        "title": "Merge User Id",
+        "type": "integer"
+      },
+      "updated_after": {
+        "description": "Returns merge requests updated on or after the given time. Expected in ISO 8601 format.",
+        "examples": ["2019-03-15T08:00:00Z"],
+        "format": "date-time",
+        "title": "Updated After",
+        "type": "string"
+      },
+      "draft": {
+        "description": "Filter merge requests by draft status. True returns draft merge requests, False returns non-draft merge requests.",
+        "examples": [false],
+        "title": "Draft",
+        "type": "boolean"
+      },
+      "reviewer_username": {
+        "description": "Returns merge requests which have the user as a reviewer with the given username. Mutually exclusive with reviewer_id.",
+        "examples": ["reviewer_user"],
+        "title": "Reviewer Username",
+        "type": "string"
+      },
+      "created_before": {
+        "description": "Returns merge requests created on or before the given time. Expected in ISO 8601 format.",
+        "examples": ["2019-03-16T08:00:00Z"],
+        "format": "date-time",
+        "title": "Created Before",
+        "type": "string"
+      },
+      "approver_ids": {
+        "description": "Returns merge requests which have all the users with the given IDs as individual approvers. Use None for merge requests without approvers or Any for merge requests with an approver. Premium and Ultimate only.",
+        "examples": [[10, 20]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Approver Ids[]",
+        "type": "array"
+      },
+      "view": {
+        "const": "simple",
+        "description": "If simple, returns the iid, URL, title, description, and basic state of merge request.",
+        "examples": ["simple"],
+        "title": "View",
+        "type": "string"
+      },
+      "my_reaction_emoji": {
+        "description": "Returns merge requests reacted by the authenticated user by the given emoji. Use None for merge requests not given a reaction or Any for merge requests given at least one reaction.",
+        "examples": ["thumbsup"],
+        "title": "My Reaction Emoji",
+        "type": "string"
+      },
+      "order_by": {
+        "description": "Returns requests ordered by the specified field. Default is created_at.",
+        "enum": [
+          "created_at",
+          "updated_at",
+          "merged_at",
+          "label_priority",
+          "priority",
+          "milestone_due",
+          "popularity",
+          "title"
+        ],
+        "examples": ["updated_at"],
+        "title": "Order By",
+        "type": "string"
+      },
+      "deployed_before": {
+        "description": "Returns merge requests deployed before the given date/time. Expected in ISO 8601 format.",
+        "examples": ["2019-03-16T08:00:00Z"],
+        "format": "date-time",
+        "title": "Deployed Before",
+        "type": "string"
+      },
+      "with_labels_details": {
+        "description": "If true, response returns more details for each label in labels field: name, color, description, description_html, text_color. Default is false.",
+        "examples": [true],
+        "title": "With Labels Details",
+        "type": "boolean"
+      },
+      "per_page": {
+        "default": 25,
+        "description": "The number of results per page. Defaults to 25.",
+        "examples": [25],
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "wip": {
+        "description": "Filter merge requests by work-in-progress status. Deprecated, use draft parameter instead.",
+        "enum": ["yes", "no"],
+        "examples": ["no"],
+        "title": "Wip",
+        "type": "string"
+      },
+      "merge_user_username": {
+        "description": "Returns merge requests merged by the user with the given username. Mutually exclusive with merge_user_id. Introduced in GitLab 17.0.",
+        "examples": ["merger_user"],
+        "title": "Merge User Username",
+        "type": "string"
+      },
+      "scope": {
+        "description": "Limit results by scope. Defaults to created_by_me. Use 'all' to see all merge requests across the instance (requires appropriate permissions).",
+        "enum": ["created_by_me", "assigned_to_me", "reviews_for_me", "all"],
+        "examples": ["all"],
+        "title": "Scope",
+        "type": "string"
+      },
+      "created_after": {
+        "description": "Returns merge requests created on or after the given time. Expected in ISO 8601 format.",
+        "examples": ["2019-03-15T08:00:00Z"],
+        "format": "date-time",
+        "title": "Created After",
+        "type": "string"
+      },
+      "target_branch": {
+        "description": "Returns merge requests with the given target branch.",
+        "examples": ["main"],
+        "title": "Target Branch",
+        "type": "string"
+      },
+      "author_id": {
+        "description": "Returns merge requests created by the given user ID. Mutually exclusive with author_username.",
+        "examples": [123],
+        "title": "Author Id",
+        "type": "integer"
+      },
+      "assignee_username": {
+        "description": "Returns merge requests assigned to the given username(s). Array parameter.",
+        "examples": [["jane_doe"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Assignee Username[]",
+        "type": "array"
+      },
+      "approved_by_ids": {
+        "description": "Returns merge requests approved by all the users with the given IDs (up to 5 users). Use None for merge requests with no approvals or Any for merge requests with an approval. Premium and Ultimate only.",
+        "examples": [[1, 2, 3]],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Approved By Ids[]",
+        "type": "array"
+      },
+      "milestone": {
+        "description": "Returns merge requests for a specific milestone. Use None for merge requests with no milestone or Any for merge requests that have an assigned milestone.",
+        "examples": ["v1.0"],
+        "title": "Milestone",
+        "type": "string"
+      },
+      "labels": {
+        "description": "Returns merge requests matching a comma-separated list of labels. Use None to list all merge requests with no labels or Any to list all merge requests with at least one label. Predefined names are case-insensitive.",
+        "examples": ["bug,critical"],
+        "title": "Labels",
+        "type": "string"
+      },
+      "deployed_after": {
+        "description": "Returns merge requests deployed after the given date/time. Expected in ISO 8601 format.",
+        "examples": ["2019-03-15T08:00:00Z"],
+        "format": "date-time",
+        "title": "Deployed After",
+        "type": "string"
+      },
+      "state": {
+        "description": "Filter merge requests by state. Defaults to all if not specified.",
+        "enum": ["opened", "closed", "locked", "merged", "all"],
+        "examples": ["opened"],
+        "title": "State",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Returns requests sorted in the specified order. Default is desc.",
+        "enum": ["asc", "desc"],
+        "examples": ["asc"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "in": {
+        "description": "Modify the scope of the search attribute. Options: title, description, or title,description (both). If not specified, searches both by default.",
+        "enum": ["title", "description", "title,description"],
+        "examples": ["title"],
+        "title": "In",
+        "type": "string"
+      },
+      "search": {
+        "description": "Search merge requests against their title and description.",
+        "examples": ["fix login bug"],
+        "title": "Search",
+        "type": "string"
+      },
+      "page": {
+        "description": "The page of results to return. Defaults to 1.",
+        "examples": [1],
+        "title": "Page",
+        "type": "integer"
+      },
+      "updated_before": {
+        "description": "Returns merge requests updated on or before the given time. Expected in ISO 8601 format.",
+        "examples": ["2019-03-16T08:00:00Z"],
+        "format": "date-time",
+        "title": "Updated Before",
+        "type": "string"
+      },
+      "source_branch": {
+        "description": "Returns merge requests with the given source branch.",
+        "examples": ["feature-branch"],
+        "title": "Source Branch",
+        "type": "string"
+      },
+      "approved_by_usernames": {
+        "description": "Returns merge requests approved by all the users with the given usernames (up to 5 users). Premium and Ultimate only.",
+        "examples": [["user1", "user2"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Approved By Usernames[]",
+        "type": "array"
+      }
+    },
+    "title": "ListMergeRequestsRequest",
+    "type": "object"
+  },
+  "name": "list_merge_requests",
+  "outputSchema": {
+    "$defs": {
+      "Label": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "color": {
+            "title": "Color",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "description_html": {
+            "title": "Description Html",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "text_color": {
+            "title": "Text Color",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "Label",
+        "type": "object"
+      },
+      "ListMergeRequestsResponse": {
+        "properties": {
+          "merge_requests": {
+            "description": "List of merge requests matching the specified filters.",
+            "items": {
+              "$ref": "#/$defs/MergeRequest"
+            },
+            "title": "Merge Requests",
+            "type": "array"
+          }
+        },
+        "required": ["merge_requests"],
+        "title": "ListMergeRequestsResponse",
+        "type": "object"
+      },
+      "MergeRequest": {
+        "properties": {
+          "references": {
+            "$ref": "#/$defs/References",
+            "title": "References"
+          },
+          "closed_by": {
+            "$ref": "#/$defs/User",
+            "title": "Closed By"
+          },
+          "target_project_id": {
+            "title": "Target Project Id",
+            "type": "integer"
+          },
+          "merged_at": {
+            "format": "date-time",
+            "title": "Merged At",
+            "type": "string"
+          },
+          "user_notes_count": {
+            "title": "User Notes Count",
+            "type": "integer"
+          },
+          "detailed_merge_status": {
+            "title": "Detailed Merge Status",
+            "type": "string"
+          },
+          "source_project_id": {
+            "title": "Source Project Id",
+            "type": "integer"
+          },
+          "merge_user": {
+            "$ref": "#/$defs/User",
+            "title": "Merge User"
+          },
+          "merge_status": {
+            "title": "Merge Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "draft": {
+            "title": "Draft",
+            "type": "boolean"
+          },
+          "blocking_discussions_resolved": {
+            "title": "Blocking Discussions Resolved",
+            "type": "boolean"
+          },
+          "downvotes": {
+            "title": "Downvotes",
+            "type": "integer"
+          },
+          "approvals_before_merge": {
+            "title": "Approvals Before Merge",
+            "type": "integer"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "closed_at": {
+            "format": "date-time",
+            "title": "Closed At",
+            "type": "string"
+          },
+          "time_stats": {
+            "$ref": "#/$defs/TimeStats",
+            "title": "Time Stats"
+          },
+          "assignee": {
+            "$ref": "#/$defs/User",
+            "title": "Assignee"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "should_remove_source_branch": {
+            "title": "Should Remove Source Branch",
+            "type": "boolean"
+          },
+          "imported_from": {
+            "title": "Imported From",
+            "type": "string"
+          },
+          "reviewers": {
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Reviewers",
+            "type": "array"
+          },
+          "squash_on_merge": {
+            "title": "Squash On Merge",
+            "type": "boolean"
+          },
+          "squash_commit_sha": {
+            "title": "Squash Commit Sha",
+            "type": "string"
+          },
+          "imported": {
+            "title": "Imported",
+            "type": "boolean"
+          },
+          "assignees": {
+            "items": {
+              "$ref": "#/$defs/User"
+            },
+            "title": "Assignees",
+            "type": "array"
+          },
+          "iid": {
+            "title": "Iid",
+            "type": "integer"
+          },
+          "merge_when_pipeline_succeeds": {
+            "title": "Merge When Pipeline Succeeds",
+            "type": "boolean"
+          },
+          "merged_by": {
+            "$ref": "#/$defs/User",
+            "title": "Merged By"
+          },
+          "target_branch": {
+            "title": "Target Branch",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          },
+          "discussion_locked": {
+            "title": "Discussion Locked",
+            "type": "boolean"
+          },
+          "author": {
+            "$ref": "#/$defs/User",
+            "title": "Author"
+          },
+          "milestone": {
+            "$ref": "#/$defs/Milestone",
+            "title": "Milestone"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "merge_commit_sha": {
+            "title": "Merge Commit Sha",
+            "type": "string"
+          },
+          "task_completion_status": {
+            "$ref": "#/$defs/TaskCompletionStatus",
+            "title": "Task Completion Status"
+          },
+          "prepared_at": {
+            "format": "date-time",
+            "title": "Prepared At",
+            "type": "string"
+          },
+          "upvotes": {
+            "title": "Upvotes",
+            "type": "integer"
+          },
+          "labels": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/$defs/Label"
+                }
+              ]
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "sha": {
+            "title": "Sha",
+            "type": "string"
+          },
+          "has_conflicts": {
+            "title": "Has Conflicts",
+            "type": "boolean"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "merge_after": {
+            "format": "date-time",
+            "title": "Merge After",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "work_in_progress": {
+            "title": "Work In Progress",
+            "type": "boolean"
+          },
+          "source_branch": {
+            "title": "Source Branch",
+            "type": "string"
+          },
+          "squash": {
+            "title": "Squash",
+            "type": "boolean"
+          },
+          "force_remove_source_branch": {
+            "title": "Force Remove Source Branch",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "iid", "title", "state", "web_url"],
+        "title": "MergeRequest",
+        "type": "object"
+      },
+      "Milestone": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "due_date": {
+            "title": "Due Date",
+            "type": "string"
+          },
+          "expired": {
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "group_id": {
+            "title": "Group Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "title": "Iid",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "start_date": {
+            "title": "Start Date",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "iid", "title", "state", "created_at", "updated_at", "web_url"],
+        "title": "Milestone",
+        "type": "object"
+      },
+      "References": {
+        "properties": {
+          "full": {
+            "title": "Full",
+            "type": "string"
+          },
+          "relative": {
+            "title": "Relative",
+            "type": "string"
+          },
+          "short": {
+            "title": "Short",
+            "type": "string"
+          }
+        },
+        "required": ["short", "relative", "full"],
+        "title": "References",
+        "type": "object"
+      },
+      "TaskCompletionStatus": {
+        "properties": {
+          "completed_count": {
+            "title": "Completed Count",
+            "type": "integer"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": ["count", "completed_count"],
+        "title": "TaskCompletionStatus",
+        "type": "object"
+      },
+      "TimeStats": {
+        "properties": {
+          "human_time_estimate": {
+            "title": "Human Time Estimate",
+            "type": "string"
+          },
+          "human_total_time_spent": {
+            "title": "Human Total Time Spent",
+            "type": "string"
+          },
+          "time_estimate": {
+            "title": "Time Estimate",
+            "type": "integer"
+          },
+          "total_time_spent": {
+            "title": "Total Time Spent",
+            "type": "integer"
+          }
+        },
+        "required": ["time_estimate", "total_time_spent"],
+        "title": "TimeStats",
+        "type": "object"
+      },
+      "User": {
+        "properties": {
+          "avatar_url": {
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "locked": {
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          },
+          "web_url": {
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "username", "state", "web_url"],
+        "title": "User",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListMergeRequestsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

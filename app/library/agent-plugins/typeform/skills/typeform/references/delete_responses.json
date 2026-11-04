@@ -1,0 +1,58 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Tool to delete specific responses from a Typeform by response IDs. Use when you need to remove response data from a form. Deletion is asynchronous - a 200 status means the deletion request was registered, not that deletion is complete. Maximum 1000 response IDs can be deleted per request.",
+  "inputSchema": {
+    "properties": {
+      "form_id": {
+        "description": "Unique form identifier",
+        "examples": ["CoZt0LNp"],
+        "title": "Form Id",
+        "type": "string"
+      },
+      "included_response_ids": {
+        "description": "Comma-separated list of response IDs to delete (max 1000 IDs). Example: 'id1,id2,id3'",
+        "examples": ["test_response_id_123", "id1,id2,id3"],
+        "title": "Included Response Ids",
+        "type": "string"
+      }
+    },
+    "required": ["form_id", "included_response_ids"],
+    "title": "DeleteResponsesRequest",
+    "type": "object"
+  },
+  "name": "delete_responses",
+  "outputSchema": {
+    "$defs": {
+      "DeleteResponsesResponse": {
+        "properties": {
+          "description": {
+            "description": "Description of the deletion status. Deletion is asynchronous, 200 indicates registration not completion",
+            "title": "Description",
+            "type": "string"
+          },
+          "status": {
+            "description": "HTTP status code as string (typically '200')",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "DeleteResponsesResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteResponsesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieve variables associated with a project pipeline. GitLab returns 404 if the pipeline variables file is missing from storage.",
+  "inputSchema": {
+    "properties": {
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.\\-]*(/[A-Za-z0-9_][A-Za-z0-9_.\\-]*)*$",
+            "type": "string"
+          }
+        ],
+        "description": "Project ID or unencoded namespaced project path.",
+        "title": "Id"
+      },
+      "pipeline_id": {
+        "description": "ID of the pipeline.",
+        "title": "Pipeline Id",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "pipeline_id"],
+    "title": "ListPipelineVariablesRequest",
+    "type": "object"
+  },
+  "name": "list_pipeline_variables",
+  "outputSchema": {
+    "$defs": {
+      "ListPipelineVariablesResponse": {
+        "properties": {
+          "variables": {
+            "description": "Variables associated with the specified pipeline.",
+            "items": {
+              "$ref": "#/$defs/PipelineVariable"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": ["variables"],
+        "title": "ListPipelineVariablesResponse",
+        "type": "object"
+      },
+      "PipelineVariable": {
+        "additionalProperties": true,
+        "properties": {
+          "key": {
+            "description": "Name of the pipeline variable.",
+            "title": "Key",
+            "type": "string"
+          },
+          "raw": {
+            "description": "Whether the value is raw rather than expanded.",
+            "title": "Raw",
+            "type": "boolean"
+          },
+          "value": {
+            "description": "Value of the pipeline variable.",
+            "title": "Value",
+            "type": "string"
+          },
+          "variable_type": {
+            "description": "Type of the variable, such as env_var or file.",
+            "title": "Variable Type",
+            "type": "string"
+          }
+        },
+        "required": ["key", "variable_type"],
+        "title": "PipelineVariable",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListPipelineVariablesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

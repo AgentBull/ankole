@@ -1,0 +1,83 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve information about a specific Calendly organization. Use when you need to get organization details such as name, slug, or timestamps.",
+  "inputSchema": {
+    "description": "Request model for retrieving information about a specific organization.",
+    "properties": {
+      "uuid": {
+        "description": "The unique identifier (UUID) of the organization to retrieve. This is the alphanumeric string at the end of the organization URI.",
+        "examples": ["dbed26fe-cb7f-4224-8f10-3331cecdeb13"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "GetOrganizationRequest",
+    "type": "object"
+  },
+  "name": "get_organization",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationResponse": {
+        "description": "Response model containing information about the organization.",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/OrganizationResource",
+            "description": "The organization resource object containing all organization information.",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "GetOrganizationResponse",
+        "type": "object"
+      },
+      "OrganizationResource": {
+        "description": "Organization resource object containing all organization information.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the organization was created (ISO 8601 format in UTC).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "name": {
+            "description": "The organization's name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "description": "The organization's URL-friendly slug.",
+            "title": "Slug",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the organization was last updated (ISO 8601 format in UTC).",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the organization.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "name", "created_at", "updated_at"],
+        "title": "OrganizationResource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Download the file bytes for one Zendesk ticket attachment ID. Zendesk attachment IDs first resolve to metadata. This action then downloads the provider-issued content URL and returns the file for use by other tools.",
+  "inputSchema": {
+    "description": "Request parameters for downloading a Zendesk ticket attachment.",
+    "properties": {
+      "attachment_id": {
+        "description": "The attachment ID from a Zendesk ticket comment, as a string.",
+        "examples": ["26942782002716"],
+        "human_parameter_description": "The ID of the ticket attachment to download, as a string.",
+        "human_parameter_name": "Attachment ID",
+        "title": "Attachment Id",
+        "type": "string"
+      }
+    },
+    "required": ["attachment_id"],
+    "title": "DownloadAttachmentRequest",
+    "type": "object"
+  },
+  "name": "download_attachment",
+  "outputSchema": {
+    "$defs": {
+      "DownloadAttachmentResponse": {
+        "description": "Response containing the downloaded Zendesk attachment.",
+        "properties": {
+          "content": {
+            "$ref": "#/$defs/FileDownloadable",
+            "description": "The downloaded attachment file, retaining Zendesk's filename.",
+            "title": "Content"
+          }
+        },
+        "required": ["content"],
+        "title": "DownloadAttachmentResponse",
+        "type": "object"
+      },
+      "FileDownloadable": {
+        "file_downloadable": true,
+        "properties": {
+          "mimetype": {
+            "description": "Mime type of the file.",
+            "title": "Mimetype",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the file",
+            "title": "Name",
+            "type": "string"
+          },
+          "s3url": {
+            "description": "S3 URL of the downloaded file.",
+            "title": "S3Url",
+            "type": "string"
+          }
+        },
+        "required": ["name", "mimetype", "s3url"],
+        "title": "FileDownloadable",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DownloadAttachmentResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

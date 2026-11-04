@@ -1,0 +1,166 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Merges multiple tickets into a target ticket in Zendesk. The source tickets are merged into the target ticket and then deleted. This is an asynchronous operation that returns a job status. Use when you need to consolidate duplicate or related tickets into a single ticket. **Important**: This action is irreversible - source tickets are permanently merged and deleted once the operation completes. Always verify the target_ticket_id and source_ticket_ids before executing.",
+  "inputSchema": {
+    "description": "Request model for merging tickets into a target ticket.",
+    "properties": {
+      "source_comment": {
+        "description": "Private comment to add to the source tickets before they are merged.",
+        "examples": ["Merged into ticket 12345"],
+        "human_parameter_description": "An optional comment to add to the source tickets before they are merged.",
+        "human_parameter_name": "Source Comment",
+        "title": "Source Comment",
+        "type": "string"
+      },
+      "source_comment_is_public": {
+        "description": "Whether the comment added to source tickets is public or private. Defaults to false (private).",
+        "examples": [false],
+        "human_parameter_description": "Set to true for public comments or false for internal notes on source tickets.",
+        "human_parameter_name": "Source Comment Is Public",
+        "title": "Source Comment Is Public",
+        "type": "boolean"
+      },
+      "source_ticket_ids": {
+        "description": "Array of ticket IDs to merge into the target ticket. These tickets will be merged and then deleted.",
+        "examples": [[81, 82, 83]],
+        "human_parameter_description": "A list of ticket IDs to merge into the target ticket. All data from these tickets will be transferred to the target ticket.",
+        "human_parameter_name": "Source Ticket IDs",
+        "items": {
+          "type": "integer"
+        },
+        "title": "Source Ticket Ids",
+        "type": "array"
+      },
+      "target_comment": {
+        "description": "Private comment to add to the target ticket after the merge.",
+        "examples": ["Merged source tickets into target"],
+        "human_parameter_description": "An optional comment to add to the target ticket after the merge.",
+        "human_parameter_name": "Target Comment",
+        "title": "Target Comment",
+        "type": "string"
+      },
+      "target_comment_is_public": {
+        "description": "Whether the comment added to the target ticket is public or private. Defaults to false (private).",
+        "examples": [false],
+        "human_parameter_description": "Set to true for public comments or false for internal notes on the target ticket.",
+        "human_parameter_name": "Target Comment Is Public",
+        "title": "Target Comment Is Public",
+        "type": "boolean"
+      },
+      "target_ticket_id": {
+        "description": "The ID of the target ticket to merge other tickets into. This ticket will be retained after the merge.",
+        "examples": [12345],
+        "human_parameter_description": "The numeric ID of the Zendesk ticket that will be the destination for the merge. All source tickets will be merged into this ticket.",
+        "human_parameter_name": "Target Ticket ID",
+        "title": "Target Ticket Id",
+        "type": "integer"
+      }
+    },
+    "required": ["target_ticket_id", "source_ticket_ids"],
+    "title": "MergeZendeskTicketsRequest",
+    "type": "object"
+  },
+  "name": "merge_zendesk_tickets",
+  "outputSchema": {
+    "$defs": {
+      "MergeJobResult": {
+        "description": "Result object for a single merge task.",
+        "properties": {
+          "action": {
+            "description": "The action performed (e.g., 'update')",
+            "title": "Action",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the affected ticket",
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "description": "The status of the action (e.g., 'Updated')",
+            "title": "Status",
+            "type": "string"
+          },
+          "success": {
+            "description": "Whether the action was successful",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": ["action", "id", "status", "success"],
+        "title": "MergeJobResult",
+        "type": "object"
+      },
+      "MergeZendeskTicketsResponse": {
+        "description": "Response model for merge tickets operation.",
+        "properties": {
+          "job_id": {
+            "description": "Automatically assigned ID when the merge job is queued",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "job_type": {
+            "description": "The type of the job (e.g., 'merge')",
+            "title": "Job Type",
+            "type": "string"
+          },
+          "message": {
+            "description": "Message from the job worker, if any",
+            "title": "Message",
+            "type": "string"
+          },
+          "progress": {
+            "description": "Number of tasks that have already been completed",
+            "title": "Progress",
+            "type": "integer"
+          },
+          "results": {
+            "description": "Result data from processed tasks",
+            "items": {
+              "$ref": "#/$defs/MergeJobResult"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "status": {
+            "description": "The current status of the job: 'queued', 'working', 'failed', or 'completed'",
+            "title": "Status",
+            "type": "string"
+          },
+          "success": {
+            "description": "Indicates whether the merge request was successfully submitted",
+            "title": "Success",
+            "type": "boolean"
+          },
+          "total": {
+            "description": "The total number of tasks this job is batching through",
+            "title": "Total",
+            "type": "integer"
+          },
+          "url": {
+            "description": "The URL to poll for status updates on the job",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["job_id", "status", "success"],
+        "title": "MergeZendeskTicketsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/MergeZendeskTicketsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to list BigQuery Links on a property. Use when you need to retrieve BigQuery link resources associated with a Google Analytics property. Results support pagination for large datasets.",
+  "inputSchema": {
+    "description": "Request model for listing BigQuery Links on a Google Analytics property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of resources to return. The service may return fewer than this value. If unspecified, at most 50 resources will be returned. The maximum value is 200; higher values will be coerced to the maximum.",
+        "examples": [50],
+        "maximum": 200,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. A page token received from a previous ListBigQueryLinks call. Provide this to retrieve the subsequent page. When paginating, all other parameters provided to ListBigQueryLinks must match the call that provided the page token.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. The name of the property to list BigQuery links under. Format: properties/{property_id} (e.g., properties/1234).",
+        "examples": ["properties/489591273"],
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "AnalyticsAdminPropertiesBigQueryLinksListRequest",
+    "type": "object"
+  },
+  "name": "list_bigquery_links",
+  "outputSchema": {
+    "$defs": {
+      "AnalyticsAdminPropertiesBigQueryLinksListResponse": {
+        "description": "Response model for listing BigQuery Links.",
+        "properties": {
+          "bigQueryLinks": {
+            "description": "List of BigQueryLink resources.",
+            "items": {
+              "$ref": "#/$defs/BigQueryLink"
+            },
+            "title": "Big Query Links",
+            "type": "array"
+          },
+          "nextPageToken": {
+            "description": "Token for retrieving the subsequent page. Omitted if no further pages exist.",
+            "title": "Next Page Token",
+            "type": "string"
+          }
+        },
+        "title": "AnalyticsAdminPropertiesBigQueryLinksListResponse",
+        "type": "object"
+      },
+      "BigQueryLink": {
+        "description": "Schema for a BigQueryLink resource.",
+        "properties": {
+          "createTime": {
+            "description": "Output only. Time when the link was created (google-datetime format).",
+            "title": "Create Time",
+            "type": "string"
+          },
+          "dailyExportEnabled": {
+            "description": "If true, enables daily data export to the linked Google Cloud project.",
+            "title": "Daily Export Enabled",
+            "type": "boolean"
+          },
+          "datasetLocation": {
+            "description": "Immutable. Geographic location where the BigQuery dataset resides.",
+            "title": "Dataset Location",
+            "type": "string"
+          },
+          "excludedEvents": {
+            "description": "List of event names that are excluded from exports.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Excluded Events",
+            "type": "array"
+          },
+          "exportStreams": {
+            "description": "List of streams under the parent property for which data will be exported.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Export Streams",
+            "type": "array"
+          },
+          "freshDailyExportEnabled": {
+            "description": "If true, enables fresh daily export to the linked Google Cloud project.",
+            "title": "Fresh Daily Export Enabled",
+            "type": "boolean"
+          },
+          "includeAdvertisingId": {
+            "description": "If true, exported data includes advertising identifiers for mobile app streams.",
+            "title": "Include Advertising Id",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Output only. Resource name of this BigQuery link. Format: properties/{property_id}/bigQueryLinks/{bigquery_link_id}.",
+            "title": "Name",
+            "type": "string"
+          },
+          "project": {
+            "description": "Immutable. The linked Google Cloud project (project number or project ID).",
+            "title": "Project",
+            "type": "string"
+          },
+          "streamingExportEnabled": {
+            "description": "If true, enables streaming export of data to the linked Google Cloud project.",
+            "title": "Streaming Export Enabled",
+            "type": "boolean"
+          }
+        },
+        "title": "BigQueryLink",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AnalyticsAdminPropertiesBigQueryLinksListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

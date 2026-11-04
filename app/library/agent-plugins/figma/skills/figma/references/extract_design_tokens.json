@@ -1,0 +1,473 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Extracts design tokens from a Figma file using styles, optional variables and node properties. Results may be incomplete or use fallback style values; variables require appropriate access and a supported plan.",
+  "inputSchema": {
+    "description": "Request to extract design tokens.",
+    "properties": {
+      "extract_from_nodes": {
+        "default": true,
+        "description": "Extract tokens from node properties",
+        "title": "Extract From Nodes",
+        "type": "boolean"
+      },
+      "file_key": {
+        "description": "The Figma file key (e.g., 'aA1b2Cd3E4F5g6H7i8J9k0L'). Extract from Figma URLs like figma.com/file/FILE_KEY/... or use figma.discover_figma_resources to find file keys",
+        "title": "File Key",
+        "type": "string"
+      },
+      "include_local_styles": {
+        "default": true,
+        "description": "Include local styles in extraction",
+        "title": "Include Local Styles",
+        "type": "boolean"
+      },
+      "include_variables": {
+        "default": false,
+        "description": "Include variables in extraction. Even with this enabled, modes and scopes may be incomplete; use figma.get_local_variables for full semantic token coverage including variable modes and aliases.",
+        "title": "Include Variables",
+        "type": "boolean"
+      }
+    },
+    "required": ["file_key"],
+    "title": "ExtractDesignTokensRequest",
+    "type": "object"
+  },
+  "name": "extract_design_tokens",
+  "outputSchema": {
+    "$defs": {
+      "BorderRadiusToken": {
+        "description": "A border radius token.",
+        "properties": {
+          "name": {
+            "description": "Name of the border radius token",
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "description": "Source of the token extraction",
+            "enum": ["style", "variable", "extracted"],
+            "title": "Source",
+            "type": "string"
+          },
+          "usage_count": {
+            "default": 0,
+            "description": "Number of times this token appears in the design",
+            "minimum": 0,
+            "title": "Usage Count",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "$ref": "#/$defs/CornerRadii"
+              }
+            ],
+            "description": "Single radius value in pixels or individual corner radii",
+            "title": "Value"
+          }
+        },
+        "required": ["name", "value", "source"],
+        "title": "BorderRadiusToken",
+        "type": "object"
+      },
+      "ColorToken": {
+        "description": "A color design token.",
+        "properties": {
+          "name": {
+            "description": "The name identifier for the color token.",
+            "title": "Name",
+            "type": "string"
+          },
+          "opacity": {
+            "description": "Opacity value (0-1) if less than 1",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "Opacity",
+            "type": "number"
+          },
+          "source": {
+            "description": "Source of the token extraction",
+            "enum": ["style", "variable", "extracted"],
+            "title": "Source",
+            "type": "string"
+          },
+          "usage_count": {
+            "default": 0,
+            "description": "Number of times this token appears in the design",
+            "minimum": 0,
+            "title": "Usage Count",
+            "type": "integer"
+          },
+          "value": {
+            "description": "CSS hex color format (e.g., '#ff0000')",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["name", "value", "source"],
+        "title": "ColorToken",
+        "type": "object"
+      },
+      "CornerRadii": {
+        "description": "Individual corner radius values in pixels.",
+        "properties": {
+          "bottom_left": {
+            "default": 0,
+            "description": "Bottom-left corner radius",
+            "minimum": 0,
+            "title": "Bottom Left",
+            "type": "number"
+          },
+          "bottom_right": {
+            "default": 0,
+            "description": "Bottom-right corner radius",
+            "minimum": 0,
+            "title": "Bottom Right",
+            "type": "number"
+          },
+          "top_left": {
+            "default": 0,
+            "description": "Top-left corner radius",
+            "minimum": 0,
+            "title": "Top Left",
+            "type": "number"
+          },
+          "top_right": {
+            "default": 0,
+            "description": "Top-right corner radius",
+            "minimum": 0,
+            "title": "Top Right",
+            "type": "number"
+          }
+        },
+        "title": "CornerRadii",
+        "type": "object"
+      },
+      "DesignTokens": {
+        "description": "Extracted design tokens.",
+        "properties": {
+          "border_radius": {
+            "description": "List of border radius design tokens",
+            "items": {
+              "$ref": "#/$defs/BorderRadiusToken"
+            },
+            "title": "Border Radius",
+            "type": "array"
+          },
+          "colors": {
+            "description": "List of color design tokens",
+            "items": {
+              "$ref": "#/$defs/ColorToken"
+            },
+            "title": "Colors",
+            "type": "array"
+          },
+          "shadows": {
+            "description": "List of shadow design tokens",
+            "items": {
+              "$ref": "#/$defs/ShadowToken"
+            },
+            "title": "Shadows",
+            "type": "array"
+          },
+          "sources": {
+            "$ref": "#/$defs/TokenSourceCounts",
+            "description": "Count of tokens by extraction source",
+            "title": "Sources"
+          },
+          "spacing": {
+            "description": "List of spacing design tokens",
+            "items": {
+              "$ref": "#/$defs/SpacingToken"
+            },
+            "title": "Spacing",
+            "type": "array"
+          },
+          "total_tokens": {
+            "description": "Total number of design tokens extracted",
+            "minimum": 0,
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "typography": {
+            "description": "List of typography design tokens",
+            "items": {
+              "$ref": "#/$defs/TypographyToken"
+            },
+            "title": "Typography",
+            "type": "array"
+          }
+        },
+        "required": ["total_tokens", "sources"],
+        "title": "DesignTokens",
+        "type": "object"
+      },
+      "RgbaColor": {
+        "description": "RGBA color values (0-1 range for each component).",
+        "properties": {
+          "a": {
+            "default": 1,
+            "description": "Alpha/opacity component (0-1)",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "A",
+            "type": "number"
+          },
+          "b": {
+            "description": "Blue component (0-1)",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "B",
+            "type": "number"
+          },
+          "g": {
+            "description": "Green component (0-1)",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "G",
+            "type": "number"
+          },
+          "r": {
+            "description": "Red component (0-1)",
+            "maximum": 1,
+            "minimum": 0,
+            "title": "R",
+            "type": "number"
+          }
+        },
+        "required": ["r", "g", "b"],
+        "title": "RgbaColor",
+        "type": "object"
+      },
+      "ShadowOffset": {
+        "description": "Shadow offset values in pixels.",
+        "properties": {
+          "x": {
+            "description": "Horizontal offset in pixels",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Vertical offset in pixels",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": ["x", "y"],
+        "title": "ShadowOffset",
+        "type": "object"
+      },
+      "ShadowProperties": {
+        "description": "Properties of a shadow effect.",
+        "properties": {
+          "color": {
+            "$ref": "#/$defs/RgbaColor",
+            "description": "Shadow color in RGBA",
+            "title": "Color"
+          },
+          "offset": {
+            "$ref": "#/$defs/ShadowOffset",
+            "description": "Shadow offset in pixels",
+            "title": "Offset"
+          },
+          "radius": {
+            "description": "Blur radius in pixels",
+            "minimum": 0,
+            "title": "Radius",
+            "type": "number"
+          },
+          "type": {
+            "description": "Shadow type",
+            "enum": ["DROP_SHADOW", "INNER_SHADOW"],
+            "title": "Type",
+            "type": "string"
+          },
+          "visible": {
+            "description": "Whether the shadow is visible",
+            "title": "Visible",
+            "type": "boolean"
+          }
+        },
+        "title": "ShadowProperties",
+        "type": "object"
+      },
+      "ShadowToken": {
+        "description": "A shadow design token.",
+        "properties": {
+          "name": {
+            "description": "Name of the shadow token",
+            "title": "Name",
+            "type": "string"
+          },
+          "shadows": {
+            "description": "List of shadow effect properties",
+            "items": {
+              "$ref": "#/$defs/ShadowProperties"
+            },
+            "title": "Shadows",
+            "type": "array"
+          },
+          "source": {
+            "description": "Source of the token extraction",
+            "enum": ["style", "variable", "extracted"],
+            "title": "Source",
+            "type": "string"
+          },
+          "usage_count": {
+            "default": 0,
+            "description": "Number of times this token appears in the design",
+            "minimum": 0,
+            "title": "Usage Count",
+            "type": "integer"
+          }
+        },
+        "required": ["name", "shadows", "source"],
+        "title": "ShadowToken",
+        "type": "object"
+      },
+      "SpacingToken": {
+        "description": "A spacing design token.",
+        "properties": {
+          "name": {
+            "description": "Name of the spacing token",
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "description": "Source of the token extraction",
+            "enum": ["style", "variable", "extracted"],
+            "title": "Source",
+            "type": "string"
+          },
+          "type": {
+            "description": "Type of spacing",
+            "enum": ["padding", "margin", "gap", "spacing"],
+            "title": "Type",
+            "type": "string"
+          },
+          "usage_count": {
+            "default": 0,
+            "description": "Number of times this token appears in the design",
+            "minimum": 0,
+            "title": "Usage Count",
+            "type": "integer"
+          },
+          "value": {
+            "description": "Spacing value in pixels",
+            "minimum": 0,
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": ["name", "value", "type", "source"],
+        "title": "SpacingToken",
+        "type": "object"
+      },
+      "TokenSourceCounts": {
+        "description": "Count of design tokens by their extraction source.",
+        "properties": {
+          "extracted": {
+            "default": 0,
+            "description": "Tokens extracted from node properties",
+            "minimum": 0,
+            "title": "Extracted",
+            "type": "integer"
+          },
+          "style": {
+            "default": 0,
+            "description": "Tokens extracted from Figma styles",
+            "minimum": 0,
+            "title": "Style",
+            "type": "integer"
+          },
+          "variable": {
+            "default": 0,
+            "description": "Tokens extracted from Figma variables",
+            "minimum": 0,
+            "title": "Variable",
+            "type": "integer"
+          }
+        },
+        "title": "TokenSourceCounts",
+        "type": "object"
+      },
+      "TypographyToken": {
+        "description": "A typography design token.",
+        "properties": {
+          "font_family": {
+            "description": "Font family name (e.g., 'Inter', 'Roboto')",
+            "title": "Font Family",
+            "type": "string"
+          },
+          "font_size": {
+            "description": "Font size in pixels",
+            "exclusiveMinimum": 0,
+            "title": "Font Size",
+            "type": "number"
+          },
+          "font_weight": {
+            "description": "Font weight (100-900)",
+            "maximum": 900,
+            "minimum": 100,
+            "title": "Font Weight",
+            "type": "integer"
+          },
+          "letter_spacing": {
+            "description": "Letter spacing in pixels",
+            "title": "Letter Spacing",
+            "type": "number"
+          },
+          "line_height": {
+            "description": "Line height in pixels",
+            "title": "Line Height",
+            "type": "number"
+          },
+          "name": {
+            "description": "Name of the typography token",
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "description": "Source of the token extraction",
+            "enum": ["style", "variable", "extracted"],
+            "title": "Source",
+            "type": "string"
+          },
+          "text_transform": {
+            "description": "Text case transformation",
+            "enum": ["ORIGINAL", "UPPER", "LOWER", "TITLE", "SMALL_CAPS", "SMALL_CAPS_FORCED"],
+            "title": "Text Transform",
+            "type": "string"
+          },
+          "usage_count": {
+            "default": 0,
+            "description": "Number of times this token appears in the design",
+            "minimum": 0,
+            "title": "Usage Count",
+            "type": "integer"
+          }
+        },
+        "required": ["name", "font_family", "font_size", "font_weight", "source"],
+        "title": "TypographyToken",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DesignTokens",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

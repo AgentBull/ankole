@@ -1,0 +1,264 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to get a list of repository commits in a project. Use when you need to retrieve commit history for a specific project, branch, or time range.",
+  "inputSchema": {
+    "properties": {
+      "all": {
+        "description": "Retrieve every commit from the repository. When set to true, the ref_name parameter is ignored.",
+        "title": "All",
+        "type": "boolean"
+      },
+      "author": {
+        "description": "Search commits by commit author.",
+        "examples": ["john.doe@example.com"],
+        "title": "Author",
+        "type": "string"
+      },
+      "first_parent": {
+        "description": "Follow only the first parent commit upon seeing a merge commit.",
+        "title": "First Parent",
+        "type": "boolean"
+      },
+      "order": {
+        "description": "List commits in order. Possible values: default, topo. Defaults to default, the commits are shown in reverse chronological order.",
+        "enum": ["default", "topo"],
+        "title": "Order",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number for pagination (1-based).",
+        "examples": [1],
+        "title": "Page",
+        "type": "integer"
+      },
+      "path": {
+        "description": "The file path to filter commits by.",
+        "examples": ["README.md"],
+        "title": "Path",
+        "type": "string"
+      },
+      "per_page": {
+        "description": "Number of items per page for pagination (max 100).",
+        "examples": [20],
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["5", "namespace/project-name"],
+        "title": "Project Id"
+      },
+      "ref_name": {
+        "description": "The name of a repository branch, tag or revision range, or if not given the default branch.",
+        "examples": ["main", "v1.0.0"],
+        "title": "Ref Name",
+        "type": "string"
+      },
+      "since": {
+        "description": "Only commits after or on this date are returned in ISO 8601 format YYYY-MM-DDTHH:MM:SSZ.",
+        "examples": ["2023-01-01T00:00:00Z"],
+        "title": "Since",
+        "type": "string"
+      },
+      "trailers": {
+        "description": "Parse and include Git trailers for every commit.",
+        "title": "Trailers",
+        "type": "boolean"
+      },
+      "until": {
+        "description": "Only commits before or on this date are returned in ISO 8601 format YYYY-MM-DDTHH:MM:SSZ.",
+        "examples": ["2023-12-31T23:59:59Z"],
+        "title": "Until",
+        "type": "string"
+      },
+      "with_stats": {
+        "description": "Stats about each commit are added to the response.",
+        "title": "With Stats",
+        "type": "boolean"
+      }
+    },
+    "required": ["project_id"],
+    "title": "ListRepositoryCommitsRequest",
+    "type": "object"
+  },
+  "name": "list_repository_commits",
+  "outputSchema": {
+    "$defs": {
+      "Commit": {
+        "properties": {
+          "author_email": {
+            "description": "The author's email.",
+            "title": "Author Email",
+            "type": "string"
+          },
+          "author_name": {
+            "description": "The author's name.",
+            "title": "Author Name",
+            "type": "string"
+          },
+          "authored_date": {
+            "description": "The authored date in ISO 8601 format.",
+            "title": "Authored Date",
+            "type": "string"
+          },
+          "committed_date": {
+            "description": "The committed date in ISO 8601 format.",
+            "title": "Committed Date",
+            "type": "string"
+          },
+          "committer_email": {
+            "description": "The committer's email.",
+            "title": "Committer Email",
+            "type": "string"
+          },
+          "committer_name": {
+            "description": "The committer's name.",
+            "title": "Committer Name",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "The created date in ISO 8601 format.",
+            "title": "Created At",
+            "type": "string"
+          },
+          "extended_trailers": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Extended Git trailers associated with the commit.",
+            "title": "Extended Trailers",
+            "type": "object"
+          },
+          "id": {
+            "description": "The commit ID.",
+            "title": "Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "The commit message.",
+            "title": "Message",
+            "type": "string"
+          },
+          "parent_ids": {
+            "description": "A list of parent commit IDs.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parent Ids",
+            "type": "array"
+          },
+          "short_id": {
+            "description": "The short commit ID.",
+            "title": "Short Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "The commit title.",
+            "title": "Title",
+            "type": "string"
+          },
+          "trailers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Git trailers associated with the commit.",
+            "title": "Trailers",
+            "type": "object"
+          },
+          "web_url": {
+            "description": "The URL to the commit in the GitLab UI.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "short_id",
+          "title",
+          "author_name",
+          "author_email",
+          "authored_date",
+          "committer_name",
+          "committer_email",
+          "committed_date",
+          "created_at",
+          "message",
+          "parent_ids",
+          "web_url"
+        ],
+        "title": "Commit",
+        "type": "object"
+      },
+      "ListRepositoryCommitsResponse": {
+        "properties": {
+          "commits": {
+            "description": "A list of repository commits.",
+            "items": {
+              "$ref": "#/$defs/Commit"
+            },
+            "title": "Commits",
+            "type": "array"
+          },
+          "next_page": {
+            "description": "Next page number, if available.",
+            "title": "Next Page",
+            "type": "integer"
+          },
+          "page": {
+            "description": "Current page number.",
+            "title": "Page",
+            "type": "integer"
+          },
+          "per_page": {
+            "description": "Number of items per page.",
+            "title": "Per Page",
+            "type": "integer"
+          },
+          "prev_page": {
+            "description": "Previous page number, if available.",
+            "title": "Prev Page",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total number of items.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "description": "Total number of pages.",
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": ["commits"],
+        "title": "ListRepositoryCommitsResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListRepositoryCommitsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

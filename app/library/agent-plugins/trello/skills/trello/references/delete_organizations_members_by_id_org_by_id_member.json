@@ -1,0 +1,47 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Permanently removes a member from a Trello organization by ID, revoking all access to its content; re-invitation is required for renewed access, and this does not delete the member's Trello account.",
+  "inputSchema": {
+    "description": "Request schema for removing a member from a Trello organization.",
+    "properties": {
+      "idMember": {
+        "description": "The ID of the member to be removed from the organization.",
+        "title": "Id Member",
+        "type": "string"
+      },
+      "idOrg": {
+        "description": "The ID or name of the Trello organization from which the member will be removed.",
+        "title": "Id Org",
+        "type": "string"
+      }
+    },
+    "required": ["idOrg", "idMember"],
+    "title": "DeleteOrganizationsMembersByIdOrgByIdMemberRequest",
+    "type": "object"
+  },
+  "name": "delete_organizations_members_by_id_org_by_id_member",
+  "outputSchema": {
+    "$defs": {
+      "DeleteOrganizationsMembersByIdOrgByIdMemberResponse": {
+        "description": "Response schema for DELETE /1/organizations/{id}/members/{idMember} endpoint.\n\nReturns an empty response body with HTTP 200 OK status code to indicate successful removal\nof the member from the organization. This follows the standard Trello API pattern for DELETE\noperations where an empty/null-like response body with 200 status confirms successful deletion.\n\nOfficial Trello API documentation does not specify a structured response body for this endpoint,\nonly confirming \"200 OK: Success\" status. Based on Trello's consistent DELETE operation patterns,\nthis endpoint returns an empty or null-like response body upon successful execution.",
+        "properties": {},
+        "title": "DeleteOrganizationsMembersByIdOrgByIdMemberResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteOrganizationsMembersByIdOrgByIdMemberResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

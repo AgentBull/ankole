@@ -1,0 +1,395 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves all entities (e.g., boards, lists, cards, members) associated with a specific, existing Trello action ID.",
+  "inputSchema": {
+    "description": "Request schema for `GetActionsEntitiesByIdAction`",
+    "properties": {
+      "idAction": {
+        "description": "The ID of the Trello action to retrieve entities for, e.g., '592f11060f95a3d3d46a987a'.",
+        "examples": ["592f11060f95a3d3d46a987a"],
+        "title": "Id Action",
+        "type": "string"
+      }
+    },
+    "required": ["idAction"],
+    "title": "GetActionsEntitiesByIdActionRequest",
+    "type": "object"
+  },
+  "name": "get_actions_entities_by_id_action",
+  "outputSchema": {
+    "$defs": {
+      "AttachmentEntity": {
+        "description": "Attachment entity involved in the action",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the attachment",
+            "title": "Id",
+            "type": "string"
+          },
+          "text": {
+            "description": "Display name of the attachment",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type identifier, always 'attachment'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "text"],
+        "title": "AttachmentEntity",
+        "type": "object"
+      },
+      "BoardEntity": {
+        "description": "Board entity involved in the action",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the board",
+            "title": "Id",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "8-character shortened ID for linking to the board",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "text": {
+            "description": "Display name of the board",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type identifier, always 'board'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "text"],
+        "title": "BoardEntity",
+        "type": "object"
+      },
+      "CardEntity": {
+        "description": "Card entity involved in the action",
+        "properties": {
+          "due": {
+            "description": "Due date in ISO 8601 format (e.g., 2017-12-12T17:00:00.000Z)",
+            "title": "Due",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the card",
+            "title": "Id",
+            "type": "string"
+          },
+          "shortLink": {
+            "description": "8-character shortened ID for linking to the card",
+            "title": "Short Link",
+            "type": "string"
+          },
+          "text": {
+            "description": "Display name of the card",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type identifier, always 'card'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "text"],
+        "title": "CardEntity",
+        "type": "object"
+      },
+      "CheckItemEntity": {
+        "description": "Check item entity involved in the action (individual item within a checklist)",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the check item",
+            "title": "Id",
+            "type": "string"
+          },
+          "text": {
+            "description": "Display name of the check item",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type identifier, always 'checkItem'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "text"],
+        "title": "CheckItemEntity",
+        "type": "object"
+      },
+      "ChecklistEntity": {
+        "description": "Checklist entity involved in the action",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the checklist",
+            "title": "Id",
+            "type": "string"
+          },
+          "text": {
+            "description": "Display name of the checklist",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type identifier, always 'checklist'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "text"],
+        "title": "ChecklistEntity",
+        "type": "object"
+      },
+      "DateEntity": {
+        "description": "Date entity when action involves a date change or date-related activity",
+        "properties": {
+          "date": {
+            "description": "Date value in ISO 8601 format",
+            "title": "Date",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type identifier, always 'date'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "date"],
+        "title": "DateEntity",
+        "type": "object"
+      },
+      "GetActionsEntitiesByIdActionResponse": {
+        "description": "Response schema for `GetActionsEntitiesByIdAction`",
+        "properties": {
+          "attachment": {
+            "$ref": "#/$defs/AttachmentEntity",
+            "description": "Attachment entity involved in the action",
+            "title": "Attachment"
+          },
+          "board": {
+            "$ref": "#/$defs/BoardEntity",
+            "description": "Board entity involved in the action",
+            "title": "Board"
+          },
+          "card": {
+            "$ref": "#/$defs/CardEntity",
+            "description": "Card entity involved in the action",
+            "title": "Card"
+          },
+          "checkItem": {
+            "$ref": "#/$defs/CheckItemEntity",
+            "description": "Check item entity involved in the action (individual item within a checklist)",
+            "title": "Check Item"
+          },
+          "checklist": {
+            "$ref": "#/$defs/ChecklistEntity",
+            "description": "Checklist entity involved in the action",
+            "title": "Checklist"
+          },
+          "date": {
+            "$ref": "#/$defs/DateEntity",
+            "description": "Date entity when action involves a date change or date-related activity",
+            "title": "Date"
+          },
+          "label": {
+            "$ref": "#/$defs/LabelEntity",
+            "description": "Label entity involved in the action",
+            "title": "Label"
+          },
+          "list": {
+            "$ref": "#/$defs/ListEntity",
+            "description": "List entity involved in the action (e.g., card moved to this list)",
+            "title": "List"
+          },
+          "member": {
+            "$ref": "#/$defs/MemberEntity",
+            "description": "Member entity involved in the action (e.g., member added to card)",
+            "title": "Member"
+          },
+          "memberCreator": {
+            "$ref": "#/$defs/MemberCreatorEntity",
+            "description": "Creator member entity for the action",
+            "title": "Member Creator"
+          },
+          "organization": {
+            "$ref": "#/$defs/OrganizationEntity",
+            "description": "Organization entity involved in the action",
+            "title": "Organization"
+          },
+          "translatable": {
+            "$ref": "#/$defs/TranslatableEntity",
+            "description": "Translatable text entity for localization purposes",
+            "title": "Translatable"
+          }
+        },
+        "title": "GetActionsEntitiesByIdActionResponse",
+        "type": "object"
+      },
+      "LabelEntity": {
+        "description": "Label entity involved in the action",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the label",
+            "title": "Id",
+            "type": "string"
+          },
+          "text": {
+            "description": "Display name or color of the label",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type identifier, always 'label'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "text"],
+        "title": "LabelEntity",
+        "type": "object"
+      },
+      "ListEntity": {
+        "description": "List entity involved in the action (e.g., card moved to this list)",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the list",
+            "title": "Id",
+            "type": "string"
+          },
+          "text": {
+            "description": "Display name of the list",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type identifier, always 'list'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "text"],
+        "title": "ListEntity",
+        "type": "object"
+      },
+      "MemberCreatorEntity": {
+        "description": "Creator member entity for the action",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the creator",
+            "title": "Id",
+            "type": "string"
+          },
+          "text": {
+            "description": "Display name of the creator",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type identifier, always 'memberCreator'",
+            "title": "Type",
+            "type": "string"
+          },
+          "username": {
+            "description": "Creator's username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "text"],
+        "title": "MemberCreatorEntity",
+        "type": "object"
+      },
+      "MemberEntity": {
+        "description": "Member entity involved in the action (e.g., member added to card)",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "text": {
+            "description": "Display name of the member",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type identifier, always 'member'",
+            "title": "Type",
+            "type": "string"
+          },
+          "username": {
+            "description": "Member's username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "text"],
+        "title": "MemberEntity",
+        "type": "object"
+      },
+      "OrganizationEntity": {
+        "description": "Organization entity involved in the action",
+        "properties": {
+          "id": {
+            "description": "Unique identifier of the organization",
+            "title": "Id",
+            "type": "string"
+          },
+          "text": {
+            "description": "Display name of the organization",
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type identifier, always 'organization'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "id", "text"],
+        "title": "OrganizationEntity",
+        "type": "object"
+      },
+      "TranslatableEntity": {
+        "description": "Translatable text entity for localization purposes",
+        "properties": {
+          "translationKey": {
+            "description": "Key for translation lookup to localize the text",
+            "title": "Translation Key",
+            "type": "string"
+          },
+          "type": {
+            "description": "Entity type identifier, always 'translatable'",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "translationKey"],
+        "title": "TranslatableEntity",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetActionsEntitiesByIdActionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

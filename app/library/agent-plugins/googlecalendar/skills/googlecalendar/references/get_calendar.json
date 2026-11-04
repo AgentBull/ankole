@@ -1,0 +1,118 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Gets canonical metadata for one Google Calendar, defaulting to the authenticated user's primary calendar. Returns its identifier, title, description, location, time zone, and conference properties. Use googlecalendar.calendar_list_get for one calendar's user-specific list settings such as access role, color, visibility, selection, and default reminders; use googlecalendar.list_calendars to enumerate accessible calendars.",
+  "inputSchema": {
+    "properties": {
+      "calendar_id": {
+        "default": "primary",
+        "description": "Identifier of the Google Calendar to retrieve. Must be 'primary' (the default) for the user's main calendar, or an email-like identifier (e.g., 'user@example.com' or 'en.usa#holiday@group.v.calendar.google.com'). IMPORTANT: Calendar display names/titles (e.g., 'Work', 'Vacation') are NOT valid identifiers and will result in errors. To find a calendar's ID, use the LIST_CALENDARS action which returns the 'id' field for each calendar.",
+        "examples": ["primary", "user@example.com", "en.usa#holiday@group.v.calendar.google.com"],
+        "human_parameter_description": "Which calendar you want to retrieve. Use 'primary' for your main calendar, or use the calendar's email-like identifier for a shared or secondary calendar. IMPORTANT: Calendar display names (like 'Work' or 'Vacation') are NOT valid - you must use 'primary' or the calendar's email address. If you only know the calendar's name, use the List Calendars action to find its ID.",
+        "human_parameter_name": "Calendar ID",
+        "title": "Calendar Id",
+        "type": "string"
+      }
+    },
+    "title": "GetCalendarRequest",
+    "type": "object"
+  },
+  "name": "get_calendar",
+  "outputSchema": {
+    "$defs": {
+      "CalendarResource": {
+        "properties": {
+          "conferenceProperties": {
+            "$ref": "#/$defs/ConferenceProperties",
+            "description": "Conferencing properties for this calendar. Read-only.",
+            "title": "Conference Properties"
+          },
+          "description": {
+            "description": "Description of the calendar. Optional.",
+            "title": "Description",
+            "type": "string"
+          },
+          "etag": {
+            "description": "ETag of the resource. Used for caching and concurrency control. Read-only.",
+            "title": "Etag",
+            "type": "string"
+          },
+          "id": {
+            "description": "Identifier of the calendar, typically an email-like value (e.g., the calendar's primary email address). Read-only.",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Type of the resource. Always 'calendar#calendar'. Read-only.",
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "description": "Geographic location of the calendar as free-form text. Optional.",
+            "title": "Location",
+            "type": "string"
+          },
+          "summary": {
+            "description": "Title or display name of the calendar.",
+            "title": "Summary",
+            "type": "string"
+          },
+          "timeZone": {
+            "description": "The time zone of the calendar, specified as an IANA Time Zone Database name (e.g., 'Europe/Zurich', 'America/Denver', 'Asia/Kolkata'). Optional.",
+            "title": "Time Zone",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "etag", "id", "summary"],
+        "title": "CalendarResource",
+        "type": "object"
+      },
+      "ConferenceProperties": {
+        "properties": {
+          "allowedConferenceSolutionTypes": {
+            "description": "The types of conference solutions supported for this calendar. Read-only. Possible values include: 'eventHangout', 'eventNamedHangout', 'hangoutsMeet'.",
+            "items": {
+              "enum": ["eventHangout", "eventNamedHangout", "hangoutsMeet"],
+              "type": "string"
+            },
+            "title": "Allowed Conference Solution Types",
+            "type": "array"
+          }
+        },
+        "required": ["allowedConferenceSolutionTypes"],
+        "title": "ConferenceProperties",
+        "type": "object"
+      },
+      "GetCalendarResponse": {
+        "properties": {
+          "calendar_data": {
+            "$ref": "#/$defs/CalendarResource",
+            "description": "Calendar resource data as returned by the Google Calendar API. This object includes fields such as kind, etag, id, summary, description, location, timeZone, and conferenceProperties.",
+            "title": "Calendar Data"
+          },
+          "display_url": {
+            "description": "Direct URL to view this calendar's settings in the Google Calendar web interface.",
+            "title": "Display Url",
+            "type": "string"
+          }
+        },
+        "required": ["calendar_data", "display_url"],
+        "title": "GetCalendarResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCalendarResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

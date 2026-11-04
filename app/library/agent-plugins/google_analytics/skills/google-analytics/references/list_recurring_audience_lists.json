@@ -1,0 +1,150 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List a page of recurring audience lists for a GA4 property, with a continuation token when more results are available. Use it to find existing recurring audience lists.",
+  "inputSchema": {
+    "description": "Request model for listing recurring audience lists under a GA4 property.",
+    "properties": {
+      "pageSize": {
+        "description": "Optional. Maximum number of recurring audience lists to return. Defaults to 200; maximum is 1000.",
+        "examples": [200],
+        "maximum": 1000,
+        "minimum": 1,
+        "title": "Page Size",
+        "type": "integer"
+      },
+      "pageToken": {
+        "description": "Optional. Token for retrieving the next page of results.",
+        "examples": ["token123"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "parent": {
+        "description": "Required. Resource name of the parent property. Format: properties/{property_id}",
+        "examples": ["properties/489591273"],
+        "pattern": "^properties/[^/]+$",
+        "title": "Parent",
+        "type": "string"
+      }
+    },
+    "required": ["parent"],
+    "title": "ListRecurringAudienceListsRequest",
+    "type": "object"
+  },
+  "name": "list_recurring_audience_lists",
+  "outputSchema": {
+    "$defs": {
+      "AudienceDimension": {
+        "description": "A single dimension included in the recurring audience list.",
+        "properties": {
+          "dimensionName": {
+            "description": "API name of the dimension.",
+            "title": "Dimension Name",
+            "type": "string"
+          }
+        },
+        "title": "AudienceDimension",
+        "type": "object"
+      },
+      "ListRecurringAudienceListsResponse": {
+        "description": "Response model for listing recurring audience lists.",
+        "properties": {
+          "nextPageToken": {
+            "description": "Token to retrieve the next page of results, if present.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "recurringAudienceLists": {
+            "description": "All recurring audience lists for the specified property.",
+            "items": {
+              "$ref": "#/$defs/RecurringAudienceList"
+            },
+            "title": "Recurring Audience Lists",
+            "type": "array"
+          }
+        },
+        "title": "ListRecurringAudienceListsResponse",
+        "type": "object"
+      },
+      "RecurringAudienceList": {
+        "description": "Schema for a RecurringAudienceList resource.",
+        "properties": {
+          "activeDaysRemaining": {
+            "description": "Days remaining for export generation. Decreases daily. Analytics 360: default 180, max 365. Standard: default 14, max 30.",
+            "title": "Active Days Remaining",
+            "type": "integer"
+          },
+          "audience": {
+            "description": "Audience resource name. Format: properties/{property}/audiences/{audience}",
+            "title": "Audience",
+            "type": "string"
+          },
+          "audienceDisplayName": {
+            "description": "Descriptive display name for the audience (e.g., 'Purchasers').",
+            "title": "Audience Display Name",
+            "type": "string"
+          },
+          "audienceLists": {
+            "description": "Resource names for daily audience list instances, ordered with most recent first.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Audience Lists",
+            "type": "array"
+          },
+          "dimensions": {
+            "description": "Dimensions requested in the recurring audience list.",
+            "items": {
+              "$ref": "#/$defs/AudienceDimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "name": {
+            "description": "Resource identifier. Format: properties/{property}/recurringAudienceLists/{recurringAudienceList}",
+            "title": "Name",
+            "type": "string"
+          },
+          "webhookNotification": {
+            "$ref": "#/$defs/WebhookNotification",
+            "description": "Webhook notification configuration for new list creation alerts.",
+            "title": "Webhook Notification"
+          }
+        },
+        "required": ["name", "audience", "dimensions"],
+        "title": "RecurringAudienceList",
+        "type": "object"
+      },
+      "WebhookNotification": {
+        "description": "Webhook notification configuration for recurring audience list.",
+        "properties": {
+          "channelToken": {
+            "description": "Token for authentication of webhook notifications.",
+            "title": "Channel Token",
+            "type": "string"
+          },
+          "uri": {
+            "description": "URI for webhook notifications.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "title": "WebhookNotification",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListRecurringAudienceListsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

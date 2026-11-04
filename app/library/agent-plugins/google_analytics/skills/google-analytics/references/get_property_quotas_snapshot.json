@@ -1,0 +1,118 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve all property quotas organized by category (corePropertyQuota, funnelPropertyQuota, realtimePropertyQuota) for a given GA4 property. Use when you need to check current quota usage. Snapshot data can lag real consumption by several minutes; treat reported values as approximate and avoid scheduling high-volume jobs at full apparent capacity.",
+  "inputSchema": {
+    "description": "Request model for retrieving a property quotas snapshot.",
+    "properties": {
+      "property": {
+        "description": "Required. The property resource. Format: properties/{property_id}.",
+        "examples": ["properties/1234"],
+        "title": "Property",
+        "type": "string"
+      }
+    },
+    "required": ["property"],
+    "title": "GetPropertyQuotasSnapshotRequest",
+    "type": "object"
+  },
+  "name": "get_property_quotas_snapshot",
+  "outputSchema": {
+    "$defs": {
+      "GetPropertyQuotasSnapshotResponse": {
+        "description": "Response model for GetPropertyQuotasSnapshot action.",
+        "properties": {
+          "corePropertyQuota": {
+            "$ref": "#/$defs/PropertyQuota",
+            "description": "Quota for core property tokens.",
+            "title": "Core Property Quota"
+          },
+          "funnelPropertyQuota": {
+            "$ref": "#/$defs/PropertyQuota",
+            "description": "Quota for funnel property tokens.",
+            "title": "Funnel Property Quota"
+          },
+          "name": {
+            "description": "Resource name of the property quota snapshot.",
+            "title": "Name",
+            "type": "string"
+          },
+          "realtimePropertyQuota": {
+            "$ref": "#/$defs/PropertyQuota",
+            "description": "Quota for realtime property tokens.",
+            "title": "Realtime Property Quota"
+          }
+        },
+        "title": "GetPropertyQuotasSnapshotResponse",
+        "type": "object"
+      },
+      "PropertyQuota": {
+        "description": "Quota details for a property category.",
+        "properties": {
+          "concurrentRequests": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Concurrent requests quota status.",
+            "title": "Concurrent Requests"
+          },
+          "potentiallyThresholdedRequestsPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Potentially thresholded requests per hour status.",
+            "title": "Potentially Thresholded Requests Per Hour"
+          },
+          "serverErrorsPerProjectPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Server errors per project per hour status.",
+            "title": "Server Errors Per Project Per Hour"
+          },
+          "tokensPerDay": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Daily tokens quota status.",
+            "title": "Tokens Per Day"
+          },
+          "tokensPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Hourly tokens quota status.",
+            "title": "Tokens Per Hour"
+          },
+          "tokensPerProjectPerHour": {
+            "$ref": "#/$defs/QuotaStatus",
+            "description": "Tokens per project per hour status.",
+            "title": "Tokens Per Project Per Hour"
+          }
+        },
+        "title": "PropertyQuota",
+        "type": "object"
+      },
+      "QuotaStatus": {
+        "description": "Represents quota usage status.",
+        "properties": {
+          "consumed": {
+            "description": "Quota consumed by this request.",
+            "title": "Consumed",
+            "type": "integer"
+          },
+          "remaining": {
+            "description": "Quota remaining after this request.",
+            "title": "Remaining",
+            "type": "integer"
+          }
+        },
+        "title": "QuotaStatus",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetPropertyQuotasSnapshotResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

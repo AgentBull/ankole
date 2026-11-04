@@ -1,0 +1,49 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "⚠️ This endpoint is currently in beta and may be subject to change. Deletes an alert. Use when you need to permanently remove an alert from an organization.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteAnAlert`",
+    "properties": {
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization the resource belongs to.",
+        "examples": ["mia-yd", "my-organization", "4508539392294912"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "workflow_id": {
+        "description": "The ID of the alert you'd like to query.",
+        "examples": [2330570, 2104912, 123456],
+        "title": "Workflow Id",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id_or_slug", "workflow_id"],
+    "title": "DeleteAnAlertRequest",
+    "type": "object"
+  },
+  "name": "delete_an_alert",
+  "outputSchema": {
+    "$defs": {
+      "DeleteAnAlertResponse": {
+        "description": "Response schema for `DeleteAnAlert`. DELETE endpoint returns 204 No Content with no response body on successful deletion.",
+        "properties": {},
+        "title": "DeleteAnAlertResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteAnAlertResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

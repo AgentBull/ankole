@@ -1,0 +1,455 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information for a specific subscription item using its unique ID. Use when you need to fetch subscription item details, pricing, or billing information.",
+  "inputSchema": {
+    "description": "Specifies the subscription item ID to retrieve.",
+    "properties": {
+      "subscription_item_id": {
+        "description": "The identifier of the subscription item to retrieve, typically starting with 'si_'.",
+        "examples": ["si_NcLYdDxLHxlFo7", "si_Tephjk9QH4RLUF"],
+        "title": "Subscription Item Id",
+        "type": "string"
+      }
+    },
+    "required": ["subscription_item_id"],
+    "title": "GetSubscriptionItemRequest",
+    "type": "object"
+  },
+  "name": "get_subscription_item",
+  "outputSchema": {
+    "$defs": {
+      "BillingThresholds": {
+        "description": "Define thresholds at which an invoice will be sent.",
+        "properties": {
+          "usage_gte": {
+            "description": "Usage threshold that triggers the subscription to advance to a new billing period.",
+            "title": "Usage Gte",
+            "type": "integer"
+          }
+        },
+        "title": "BillingThresholds",
+        "type": "object"
+      },
+      "CustomUnitAmount": {
+        "description": "Configuration for the amount to be adjusted by the customer.",
+        "properties": {
+          "maximum": {
+            "description": "The maximum unit amount the customer can specify.",
+            "title": "Maximum",
+            "type": "integer"
+          },
+          "minimum": {
+            "description": "The minimum unit amount the customer can specify.",
+            "title": "Minimum",
+            "type": "integer"
+          },
+          "preset": {
+            "description": "The starting unit amount which can be updated by the customer.",
+            "title": "Preset",
+            "type": "integer"
+          }
+        },
+        "title": "CustomUnitAmount",
+        "type": "object"
+      },
+      "GetSubscriptionItemResponse": {
+        "description": "Contains detailed information of the retrieved subscription item.",
+        "properties": {
+          "billing_thresholds": {
+            "$ref": "#/$defs/BillingThresholds",
+            "description": "Define thresholds at which an invoice will be sent, and the related subscription advanced to a new billing period.",
+            "title": "Billing Thresholds"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "current_period_end": {
+            "description": "End time of the subscription item's current billing period. Unix timestamp.",
+            "title": "Current Period End",
+            "type": "integer"
+          },
+          "current_period_start": {
+            "description": "Start time of the subscription item's current billing period. Unix timestamp.",
+            "title": "Current Period Start",
+            "type": "integer"
+          },
+          "discounts": {
+            "description": "The discounts applied to the subscription item. Subscription item discounts are applied before subscription discounts.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discounts",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier for the subscription item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Set of key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'subscription_item'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/$defs/Price",
+            "title": "Price"
+          },
+          "quantity": {
+            "description": "The quantity of the plan to which the customer should be subscribed.",
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "subscription": {
+            "description": "The subscription this subscription item belongs to.",
+            "title": "Subscription",
+            "type": "string"
+          },
+          "tax_rates": {
+            "description": "The tax rates which apply to this subscription item.",
+            "items": {
+              "$ref": "#/$defs/TaxRate"
+            },
+            "title": "Tax Rates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "created",
+          "current_period_end",
+          "current_period_start",
+          "metadata",
+          "price",
+          "subscription"
+        ],
+        "title": "GetSubscriptionItemResponse",
+        "type": "object"
+      },
+      "Price": {
+        "description": "The price the customer is subscribed to.",
+        "properties": {
+          "active": {
+            "description": "Whether the price can be used for new purchases.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "billing_scheme": {
+            "description": "Describes how to compute the price per period. Either per_unit or tiered.",
+            "title": "Billing Scheme",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code, in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "currency_options": {
+            "additionalProperties": true,
+            "description": "Prices defined in each available currency option.",
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "custom_unit_amount": {
+            "$ref": "#/$defs/CustomUnitAmount",
+            "description": "When set, provides configuration for the amount to be adjusted by the customer.",
+            "title": "Custom Unit Amount"
+          },
+          "id": {
+            "description": "Unique identifier for the price.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "lookup_key": {
+            "description": "A lookup key used to retrieve prices dynamically.",
+            "title": "Lookup Key",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Set of key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "nickname": {
+            "description": "A brief description of the price, hidden from customers.",
+            "title": "Nickname",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'price'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "product": {
+            "description": "The ID of the product this price is associated with.",
+            "title": "Product",
+            "type": "string"
+          },
+          "recurring": {
+            "$ref": "#/$defs/PriceRecurring",
+            "description": "The recurring components of a price such as interval and usage_type.",
+            "title": "Recurring"
+          },
+          "tax_behavior": {
+            "description": "Specifies whether the price is considered inclusive of taxes or exclusive of taxes. One of inclusive, exclusive, or unspecified.",
+            "title": "Tax Behavior",
+            "type": "string"
+          },
+          "tiers": {
+            "description": "Each element represents a pricing tier. This parameter requires billing_scheme to be set to tiered.",
+            "items": {
+              "$ref": "#/$defs/PriceTier"
+            },
+            "title": "Tiers",
+            "type": "array"
+          },
+          "tiers_mode": {
+            "description": "Defines if the tiering price should be graduated or volume based. One of: graduated or volume.",
+            "title": "Tiers Mode",
+            "type": "string"
+          },
+          "transform_quantity": {
+            "$ref": "#/$defs/TransformQuantity",
+            "description": "Apply a transformation to the reported usage before computing the billed price.",
+            "title": "Transform Quantity"
+          },
+          "type": {
+            "description": "One of one_time or recurring depending on whether the price is for a one-time purchase or a recurring subscription.",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "The unit amount in cents to be charged, represented as a whole integer.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "The unit amount in cents to be charged, represented as a decimal string.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "active",
+          "billing_scheme",
+          "created",
+          "currency",
+          "livemode",
+          "metadata",
+          "product",
+          "type"
+        ],
+        "title": "Price",
+        "type": "object"
+      },
+      "PriceRecurring": {
+        "description": "The recurring components of a price such as interval and usage_type.",
+        "properties": {
+          "aggregate_usage": {
+            "description": "Specifies a usage aggregation strategy for prices of usage_type=metered. One of: last_during_period, last_ever, max, or sum.",
+            "title": "Aggregate Usage",
+            "type": "string"
+          },
+          "interval": {
+            "description": "The frequency at which a subscription is billed. One of day, week, month or year.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "interval_count": {
+            "description": "The number of intervals between subscription billings. For example, interval=month and interval_count=3 bills every 3 months.",
+            "title": "Interval Count",
+            "type": "integer"
+          },
+          "meter": {
+            "description": "The meter tracking the usage of a metered price.",
+            "title": "Meter",
+            "type": "string"
+          },
+          "usage_type": {
+            "description": "Configures how the quantity per period should be determined. One of: licensed or metered.",
+            "title": "Usage Type",
+            "type": "string"
+          }
+        },
+        "required": ["interval", "interval_count", "usage_type"],
+        "title": "PriceRecurring",
+        "type": "object"
+      },
+      "PriceTier": {
+        "description": "Pricing tier information for tiered pricing.",
+        "properties": {
+          "flat_amount": {
+            "description": "Price for the entire tier in cents.",
+            "title": "Flat Amount",
+            "type": "integer"
+          },
+          "flat_amount_decimal": {
+            "description": "Decimal string price for the entire tier.",
+            "title": "Flat Amount Decimal",
+            "type": "string"
+          },
+          "unit_amount": {
+            "description": "Per unit price for units in this tier in cents.",
+            "title": "Unit Amount",
+            "type": "integer"
+          },
+          "unit_amount_decimal": {
+            "description": "Decimal string per unit price for units in this tier.",
+            "title": "Unit Amount Decimal",
+            "type": "string"
+          },
+          "up_to": {
+            "description": "Up to and including this quantity will be contained in the tier.",
+            "title": "Up To",
+            "type": "integer"
+          }
+        },
+        "title": "PriceTier",
+        "type": "object"
+      },
+      "TaxRate": {
+        "description": "Tax rate object details.",
+        "properties": {
+          "active": {
+            "description": "Whether the tax rate is currently usable.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2).",
+            "title": "Country",
+            "type": "string"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the tax rate for internal use only.",
+            "title": "Description",
+            "type": "string"
+          },
+          "display_name": {
+            "description": "The display name of the tax rate shown to customers on invoices and receipts.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "effective_percentage": {
+            "description": "Actual/effective tax rate percentage.",
+            "title": "Effective Percentage",
+            "type": "number"
+          },
+          "id": {
+            "description": "Unique identifier for the tax rate.",
+            "title": "Id",
+            "type": "string"
+          },
+          "inclusive": {
+            "description": "True if the tax rate is inclusive; false if exclusive.",
+            "title": "Inclusive",
+            "type": "boolean"
+          },
+          "jurisdiction": {
+            "description": "The jurisdiction for the tax rate.",
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "jurisdiction_level": {
+            "description": "Level of the jurisdiction. One of city, country, county, district, multiple, or state.",
+            "title": "Jurisdiction Level",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or false for test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Set of key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Value is 'tax_rate'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percentage": {
+            "description": "Tax rate percentage out of 100.",
+            "title": "Percentage",
+            "type": "number"
+          },
+          "state": {
+            "description": "ISO 3166-2 subdivision code without country prefix.",
+            "title": "State",
+            "type": "string"
+          },
+          "tax_type": {
+            "description": "The high-level tax type (e.g., vat, sales_tax, etc.).",
+            "title": "Tax Type",
+            "type": "string"
+          }
+        },
+        "required": ["id", "object", "active", "created", "display_name", "inclusive", "livemode", "percentage"],
+        "title": "TaxRate",
+        "type": "object"
+      },
+      "TransformQuantity": {
+        "description": "Apply a transformation to the reported usage or set quantity.",
+        "properties": {
+          "divide_by": {
+            "description": "Divide usage by this number before computing the billed price.",
+            "title": "Divide By",
+            "type": "integer"
+          },
+          "round": {
+            "description": "After division, either round the result up or down. One of: up or down.",
+            "title": "Round",
+            "type": "string"
+          }
+        },
+        "required": ["divide_by", "round"],
+        "title": "TransformQuantity",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetSubscriptionItemResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

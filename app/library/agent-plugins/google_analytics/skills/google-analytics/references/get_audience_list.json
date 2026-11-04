@@ -1,0 +1,142 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to get configuration metadata about a specific audience list. Use after confirming the audience list resource name.",
+  "inputSchema": {
+    "description": "Request model for retrieving a specific Audience List.",
+    "properties": {
+      "name": {
+        "description": "Required. The resource name of the Audience List to retrieve. Format: properties/{property}/audienceLists/{audienceList}.",
+        "examples": ["properties/1234/audienceLists/5678"],
+        "pattern": "^properties/[^/]+/audienceLists/[^/]+$",
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": ["name"],
+    "title": "GetAudienceListRequest",
+    "type": "object"
+  },
+  "name": "get_audience_list",
+  "outputSchema": {
+    "$defs": {
+      "AudienceDimension": {
+        "description": "Dimension metadata for an Audience List.",
+        "properties": {
+          "dimensionName": {
+            "description": "API name of the dimension in the Audience List.",
+            "title": "Dimension Name",
+            "type": "string"
+          }
+        },
+        "required": ["dimensionName"],
+        "title": "AudienceDimension",
+        "type": "object"
+      },
+      "GetAudienceListResponse": {
+        "description": "Response model for getting an Audience List.",
+        "properties": {
+          "audience": {
+            "description": "The Audience resource name this list is based on.",
+            "title": "Audience",
+            "type": "string"
+          },
+          "audienceDisplayName": {
+            "description": "Human-readable display name of the audience.",
+            "title": "Audience Display Name",
+            "type": "string"
+          },
+          "beginCreatingTime": {
+            "description": "Timestamp in RFC3339 when creation started.",
+            "title": "Begin Creating Time",
+            "type": "string"
+          },
+          "creationQuotaTokensCharged": {
+            "description": "Total quota tokens charged to create this Audience List.",
+            "title": "Creation Quota Tokens Charged",
+            "type": "integer"
+          },
+          "dimensions": {
+            "description": "List of dimensions in the Audience List.",
+            "items": {
+              "$ref": "#/$defs/AudienceDimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "errorMessage": {
+            "description": "Error message if creation failed.",
+            "title": "Error Message",
+            "type": "string"
+          },
+          "name": {
+            "description": "Resource name of the Audience List.",
+            "title": "Name",
+            "type": "string"
+          },
+          "percentageCompleted": {
+            "description": "Progress percentage of creation from 0 to 100.",
+            "title": "Percentage Completed",
+            "type": "number"
+          },
+          "recurringAudienceList": {
+            "description": "Resource name of the recurring Audience List that generated this list.",
+            "title": "Recurring Audience List",
+            "type": "string"
+          },
+          "rowCount": {
+            "description": "Total number of rows in the Audience List result.",
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "state": {
+            "description": "Current state of the Audience List. One of STATE_UNSPECIFIED, CREATING, ACTIVE, FAILED.",
+            "enum": ["STATE_UNSPECIFIED", "CREATING", "ACTIVE", "FAILED"],
+            "title": "State",
+            "type": "string"
+          },
+          "webhookNotification": {
+            "$ref": "#/$defs/WebhookNotification",
+            "description": "Webhook notification configuration for Audience List state changes.",
+            "title": "Webhook Notification"
+          }
+        },
+        "required": ["name", "audience", "dimensions"],
+        "title": "GetAudienceListResponse",
+        "type": "object"
+      },
+      "WebhookNotification": {
+        "description": "Configuration for webhook notifications on Audience List changes.",
+        "properties": {
+          "payloadFormat": {
+            "description": "The payload format for the webhook notification.",
+            "enum": ["PAYLOAD_FORMAT_UNSPECIFIED", "JSON"],
+            "title": "Payload Format",
+            "type": "string"
+          },
+          "uri": {
+            "description": "The URI to which notifications will be sent.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "payloadFormat"],
+        "title": "WebhookNotification",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetAudienceListResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

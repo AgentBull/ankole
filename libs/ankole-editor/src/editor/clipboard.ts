@@ -27,7 +27,7 @@ import { blocks } from '../blocks'
 import { unknownNames, vocabulary } from '../document/vocabulary'
 import { recordOf } from './attributes'
 import { dispatchStep } from './block-insert'
-import { pageDocument } from './convert'
+import { normalizedPageDocument } from './convert'
 import { BlockSelection } from './block-selection'
 import { withoutCommentSlice } from './comments'
 import { hostFacet } from './host-context'
@@ -230,7 +230,7 @@ function readMarkdown(text: string): Slice | null {
   if (!hasMarkdown(page) || unknownNames(page).length) return null
   // Open at both ends, as pasted HTML.
   // The tokens already name their open edges. The parser result does not also carry that context.
-  return Slice.of(edges(pageDocument(page).content, true, true).content)
+  return Slice.of(edges(normalizedPageDocument(page).content, true, true).content)
 }
 
 function canPasteBarePageMention(state: GardState): boolean {

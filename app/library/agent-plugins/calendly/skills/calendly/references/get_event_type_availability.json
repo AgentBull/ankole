@@ -1,0 +1,204 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve availability schedules configured for a specific Calendly event type. Use when you need to get the availability rules including day-of-week schedules and date-specific overrides.",
+  "inputSchema": {
+    "description": "Request to retrieve availability schedules for a specific Calendly event type.",
+    "properties": {
+      "event_type": {
+        "description": "URI of the event type whose availability schedules are to be listed. Must be a valid Calendly event type URI. Retrieve this URI from calendly.list_event_types; using a URI not owned by the authenticated user returns a 403 error.",
+        "examples": ["https://api.calendly.com/event_types/73ec12fc-6c7b-4869-b927-6141c9e716e9"],
+        "title": "Event Type",
+        "type": "string"
+      },
+      "user": {
+        "description": "URI of the user associated with the event type. Optional parameter to filter by user.",
+        "examples": ["https://api.calendly.com/users/BBBBBBBBBBBBBBBB"],
+        "title": "User",
+        "type": "string"
+      }
+    },
+    "required": ["event_type"],
+    "title": "GetEventTypeAvailabilityRequest",
+    "type": "object"
+  },
+  "name": "get_event_type_availability",
+  "outputSchema": {
+    "$defs": {
+      "AvailabilityRule": {
+        "description": "Rule defining availability for a specific day or date.",
+        "properties": {
+          "date": {
+            "description": "Specific date in ISO 8601 format (YYYY-MM-DD) when type is 'date'. Example: '2025-08-05'.",
+            "title": "Date",
+            "type": "string"
+          },
+          "intervals": {
+            "description": "Array of time intervals defining when the event type is available during the specified day or date.",
+            "items": {
+              "$ref": "#/$defs/TimeInterval"
+            },
+            "title": "Intervals",
+            "type": "array"
+          },
+          "type": {
+            "description": "The type of availability rule: 'wday' for weekday-based rules or 'date' for specific date rules.",
+            "title": "Type",
+            "type": "string"
+          },
+          "wday": {
+            "description": "Day of the week when type is 'wday'. Values: 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'.",
+            "title": "Wday",
+            "type": "string"
+          }
+        },
+        "required": ["type", "intervals"],
+        "title": "AvailabilityRule",
+        "type": "object"
+      },
+      "AvailabilityRuleWrapper": {
+        "description": "Wrapper containing the timezone and availability rules.",
+        "properties": {
+          "name": {
+            "description": "Name of the availability schedule (may be null).",
+            "title": "Name",
+            "type": "string"
+          },
+          "rules": {
+            "description": "Array of availability rule objects that define when the event type is available.",
+            "items": {
+              "$ref": "#/$defs/AvailabilityRule"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "timezone": {
+            "description": "IANA timezone identifier for the availability schedule (e.g., 'Europe/London', 'America/New_York').",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "uri": {
+            "description": "Canonical reference (unique identifier) for the user availability schedule resource.",
+            "title": "Uri",
+            "type": "string"
+          },
+          "user": {
+            "description": "URI reference to the user.",
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "timezone", "rules"],
+        "title": "AvailabilityRuleWrapper",
+        "type": "object"
+      },
+      "EventTypeAvailabilitySchedule": {
+        "description": "Event type availability schedule resource.",
+        "properties": {
+          "availability_rule": {
+            "$ref": "#/$defs/AvailabilityRuleWrapper",
+            "description": "Availability rule configuration containing timezone, user, URI, and rules for when the event type is available.",
+            "title": "Availability Rule"
+          },
+          "availability_setting": {
+            "description": "Indicates how availability is determined (e.g., 'host').",
+            "title": "Availability Setting",
+            "type": "string"
+          },
+          "event_type": {
+            "description": "URI reference to the event type.",
+            "title": "Event Type",
+            "type": "string"
+          }
+        },
+        "required": ["event_type", "availability_rule", "availability_setting"],
+        "title": "EventTypeAvailabilitySchedule",
+        "type": "object"
+      },
+      "GetEventTypeAvailabilityResponse": {
+        "description": "Response containing the availability schedules for the specified event type.",
+        "properties": {
+          "collection": {
+            "description": "Array containing the event type availability schedule resources.",
+            "items": {
+              "$ref": "#/$defs/EventTypeAvailabilitySchedule"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection", "pagination"],
+        "title": "GetEventTypeAvailabilityResponse",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination information for navigating through multiple pages of results.",
+        "properties": {
+          "count": {
+            "description": "The number of items returned in the current page. Maximum value is 100.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "The URL to retrieve the next page of results. Null if there are no more pages.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "next_page_token": {
+            "description": "Token used for cursor-based pagination to retrieve the next page. Null if there are no more pages.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "The URL to retrieve the previous page of results. Null if this is the first page.",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "previous_page_token": {
+            "description": "Token used for cursor-based pagination to retrieve the previous page. Null if this is the first page.",
+            "title": "Previous Page Token",
+            "type": "string"
+          }
+        },
+        "required": ["count"],
+        "title": "Pagination",
+        "type": "object"
+      },
+      "TimeInterval": {
+        "description": "Time interval defining when availability exists.",
+        "properties": {
+          "from": {
+            "description": "Start time of the availability interval in 24-hour format (HH:MM), e.g., '09:00'.",
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "description": "End time of the availability interval in 24-hour format (HH:MM), e.g., '17:00'.",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": ["from", "to"],
+        "title": "TimeInterval",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetEventTypeAvailabilityResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

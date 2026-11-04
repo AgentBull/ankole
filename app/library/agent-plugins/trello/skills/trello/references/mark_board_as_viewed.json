@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Marks the Trello board specified by idBoard as viewed for the current user, exclusively updating its viewed status and potentially influencing its position in user-specific lists and notification settings.",
+  "inputSchema": {
+    "description": "Request schema for `MarkBoardAsViewed`",
+    "properties": {
+      "idBoard": {
+        "description": "The unique identifier of the Trello board to be marked as viewed.",
+        "examples": ["60d5f0f8e4b0a0f7f8d3e2c1", "anotherBoardIdExample"],
+        "title": "Id Board",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard"],
+    "title": "MarkBoardAsViewedRequest",
+    "type": "object"
+  },
+  "name": "mark_board_as_viewed",
+  "outputSchema": {
+    "$defs": {
+      "MarkBoardAsViewedResponse": {
+        "description": "Response schema for `MarkBoardAsViewed`\n\nEmpty response body returned on successful operation. This endpoint marks a board as\nviewed and returns HTTP 200 OK with no content in the response body.",
+        "properties": {},
+        "title": "MarkBoardAsViewedResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/MarkBoardAsViewedResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

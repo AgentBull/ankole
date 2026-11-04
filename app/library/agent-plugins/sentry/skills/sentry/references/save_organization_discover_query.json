@@ -1,0 +1,463 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Saves a new Discover query with a unique name for a Sentry organization, allowing reuse of search criteria for analyzing event data (errors, transactions) across specified projects and environments.",
+  "inputSchema": {
+    "description": "Request schema for `SaveOrganizationDiscoverQuery`",
+    "properties": {
+      "display": {
+        "description": "Chart visualization type. Allowed: `default`, `previous`, `top5`, `daily`, `dailytop5`, `bar`.",
+        "examples": ["default", "top5", "bar", "daily"],
+        "title": "Display",
+        "type": "string"
+      },
+      "end": {
+        "description": "End date/time for the query's time range (ISO 8601). Takes precedence over `range`.",
+        "examples": ["2023-01-31T23:59:59Z", "2024-07-15T12:30:00.000Z"],
+        "format": "date-time",
+        "title": "End",
+        "type": "string"
+      },
+      "environment": {
+        "description": "List of environment names to filter by.",
+        "examples": [["production"], ["staging", "canary"]],
+        "items": {
+          "type": "string"
+        },
+        "title": "Environment",
+        "type": "array"
+      },
+      "fields": {
+        "description": "List of fields (e.g., `transaction`, `tag[tagName]`), functions (e.g., `count_if(...)`), or equations (prefixed with `equation|`) to include (max 20). See Sentry documentation for details.",
+        "examples": ["[\"transaction\", \"tag[custom_tag]\"]", "[\"count()\", \"failure_rate()\", \"epm()\"]"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Fields",
+        "type": "array"
+      },
+      "interval": {
+        "description": "Time series resolution for the chart (e.g., '1h', '30m', 'auto').",
+        "examples": ["1h", "1d", "30m", "auto"],
+        "title": "Interval",
+        "type": "string"
+      },
+      "name": {
+        "description": "Unique name for the saved query.",
+        "examples": ["High Priority Errors - Last 24h", "Slow API Endpoints - p95"],
+        "title": "Name",
+        "type": "string"
+      },
+      "orderby": {
+        "description": "Field or function from `fields` list to order results by (prefix with `-` for descending). Cannot be an equation.",
+        "examples": ["-timestamp", "count()", "transaction.duration"],
+        "title": "Orderby",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "ID or slug of the Sentry organization.",
+        "examples": ["my-awesome-org", "sentry-inc"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "projects": {
+        "default": [],
+        "description": "List of project IDs to filter by; empty list implies all projects in the organization.",
+        "examples": ["[12345, 67890]", "[]"],
+        "items": {
+          "type": "integer"
+        },
+        "title": "Projects",
+        "type": "array"
+      },
+      "query": {
+        "description": "Search query string using Sentry's syntax (e.g., `level:error transaction:/api/v1/*`).",
+        "examples": ["level:error transaction:/api/v1/users", "tag:isEnterprise:true user.ip_address:127.0.0.1"],
+        "title": "Query",
+        "type": "string"
+      },
+      "queryDataset": {
+        "default": "error-events",
+        "description": "Dataset to query: `discover` (event properties/tags), `error-events` (error data), or `transaction-like` (transaction/performance data).",
+        "enum": ["discover", "error-events", "transaction-like"],
+        "examples": ["error-events"],
+        "title": "Query Dataset",
+        "type": "string"
+      },
+      "range": {
+        "description": "Relative time range (e.g., '24h', '7d') if `start` and `end` are not provided.",
+        "examples": ["24h", "7d", "auto"],
+        "title": "Range",
+        "type": "string"
+      },
+      "start": {
+        "description": "Start date/time for the query's time range (ISO 8601). Takes precedence over `range`.",
+        "examples": ["2023-01-01T00:00:00Z", "2024-07-15T10:30:00.000Z"],
+        "format": "date-time",
+        "title": "Start",
+        "type": "string"
+      },
+      "topEvents": {
+        "description": "Number of 'top events' timeseries for `top5` or `dailytop5` display types.",
+        "examples": ["5", "10"],
+        "title": "Top Events",
+        "type": "integer"
+      },
+      "yAxis": {
+        "description": "List of aggregate functions for the y-axis of the chart visualization.",
+        "examples": ["[\"count()\"]", "[\"p95(transaction.duration)\", \"avg(transaction.duration)\"]"],
+        "items": {
+          "type": "string"
+        },
+        "title": "Y Axis",
+        "type": "array"
+      }
+    },
+    "required": ["organization_id_or_slug", "name"],
+    "title": "SaveOrganizationDiscoverQueryRequest",
+    "type": "object"
+  },
+  "name": "save_organization_discover_query",
+  "outputSchema": {
+    "$defs": {
+      "CreatedByUser": {
+        "description": "Information about the user who created the saved query.",
+        "properties": {
+          "avatar": {
+            "$ref": "#/$defs/UserAvatar",
+            "description": "User avatar configuration.",
+            "title": "Avatar"
+          },
+          "avatarUrl": {
+            "description": "URL of the user's avatar image.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "dateJoined": {
+            "description": "ISO 8601 timestamp when the user joined.",
+            "title": "Date Joined",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address of the user.",
+            "title": "Email",
+            "type": "string"
+          },
+          "emails": {
+            "description": "List of email addresses associated with the user account.",
+            "items": {
+              "$ref": "#/$defs/UserEmail"
+            },
+            "title": "Emails",
+            "type": "array"
+          },
+          "experiments": {
+            "additionalProperties": true,
+            "description": "User-specific experiment flags and settings.",
+            "title": "Experiments",
+            "type": "object"
+          },
+          "has2fa": {
+            "description": "Whether the user has two-factor authentication enabled.",
+            "title": "Has2Fa",
+            "type": "boolean"
+          },
+          "hasPasswordAuth": {
+            "description": "Whether the user has password authentication enabled.",
+            "title": "Has Password Auth",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier of the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "isActive": {
+            "description": "Whether the user account is currently active.",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "isManaged": {
+            "description": "Whether the user account is managed externally.",
+            "title": "Is Managed",
+            "type": "boolean"
+          },
+          "isStaff": {
+            "description": "Whether the user is a staff member.",
+            "title": "Is Staff",
+            "type": "boolean"
+          },
+          "isSuperuser": {
+            "description": "Whether the user has superuser privileges.",
+            "title": "Is Superuser",
+            "type": "boolean"
+          },
+          "lastActive": {
+            "description": "ISO 8601 timestamp of the user's last activity, or null if no activity recorded.",
+            "title": "Last Active",
+            "type": "string"
+          },
+          "lastLogin": {
+            "description": "ISO 8601 timestamp of the user's last login, or null if never logged in.",
+            "title": "Last Login",
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name of the user.",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username of the user.",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "username",
+          "email",
+          "avatarUrl",
+          "isActive",
+          "hasPasswordAuth",
+          "isManaged",
+          "dateJoined",
+          "has2fa",
+          "isSuperuser",
+          "isStaff",
+          "experiments",
+          "emails"
+        ],
+        "title": "CreatedByUser",
+        "type": "object"
+      },
+      "SaveOrganizationDiscoverQueryResponse": {
+        "description": "Details of the newly created saved Discover query.",
+        "properties": {
+          "aggregations": {
+            "description": "List of aggregation functions applied to the query.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Aggregations",
+            "type": "array"
+          },
+          "conditions": {
+            "description": "List of query conditions.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Conditions",
+            "type": "array"
+          },
+          "createdBy": {
+            "$ref": "#/$defs/CreatedByUser",
+            "title": "Created By"
+          },
+          "datasetSource": {
+            "description": "The source of the dataset.",
+            "title": "Dataset Source",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "ISO 8601 timestamp when the saved query was created.",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "dateUpdated": {
+            "description": "ISO 8601 timestamp when the saved query was last updated.",
+            "title": "Date Updated",
+            "type": "string"
+          },
+          "display": {
+            "description": "Visualization type for the saved query chart (e.g., table, line, bar).",
+            "title": "Display",
+            "type": "string"
+          },
+          "end": {
+            "description": "End time for the query filter.",
+            "title": "End",
+            "type": "string"
+          },
+          "environment": {
+            "description": "List of environment names to filter by.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Environment",
+            "type": "array"
+          },
+          "expired": {
+            "description": "Indicates whether the saved query has expired.",
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "exploreQuery": {
+            "additionalProperties": true,
+            "description": "Additional explore query configuration object.",
+            "title": "Explore Query",
+            "type": "object"
+          },
+          "fields": {
+            "description": "List of fields to include in the query results. Can be functions like count_if(transaction.duration,greater,300) or equations when prefixed with equation|.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "id": {
+            "description": "Unique identifier of the saved query.",
+            "title": "Id",
+            "type": "string"
+          },
+          "interval": {
+            "description": "Time series resolution interval.",
+            "title": "Interval",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum number of results to return.",
+            "title": "Limit",
+            "type": "string"
+          },
+          "name": {
+            "description": "The user-defined saved query name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "orderby": {
+            "description": "Field to order results by. Must be a field in the field list, excluding equations.",
+            "title": "Orderby",
+            "type": "string"
+          },
+          "projects": {
+            "description": "List of project IDs included in the saved query filter.",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "query": {
+            "description": "Query string for filtering results using Sentry query syntax.",
+            "title": "Query",
+            "type": "string"
+          },
+          "queryDataset": {
+            "description": "The dataset being queried (e.g., discover, error-events, transaction-like).",
+            "title": "Query Dataset",
+            "type": "string"
+          },
+          "range": {
+            "description": "Time range for the query (e.g., 24h, 7d).",
+            "title": "Range",
+            "type": "string"
+          },
+          "start": {
+            "description": "Start time for the query filter.",
+            "title": "Start",
+            "type": "string"
+          },
+          "topEvents": {
+            "description": "Number of top events' timeseries to be visualized.",
+            "title": "Top Events",
+            "type": "integer"
+          },
+          "version": {
+            "description": "Version number of the saved query.",
+            "title": "Version",
+            "type": "integer"
+          },
+          "widths": {
+            "description": "Column widths for display purposes.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Widths",
+            "type": "array"
+          },
+          "yAxis": {
+            "description": "Aggregate functions to be plotted on the chart y-axis.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Y Axis",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "queryDataset",
+          "datasetSource",
+          "expired",
+          "dateCreated",
+          "dateUpdated",
+          "createdBy"
+        ],
+        "title": "SaveOrganizationDiscoverQueryResponse",
+        "type": "object"
+      },
+      "UserAvatar": {
+        "description": "User avatar configuration.",
+        "properties": {
+          "avatarType": {
+            "description": "Type of avatar (e.g., letter_avatar, gravatar, upload).",
+            "title": "Avatar Type",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "URL of the avatar image, or null if not set.",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "avatarUuid": {
+            "description": "UUID of the uploaded avatar, or null if not applicable.",
+            "title": "Avatar Uuid",
+            "type": "string"
+          }
+        },
+        "title": "UserAvatar",
+        "type": "object"
+      },
+      "UserEmail": {
+        "description": "Email address record for a user.",
+        "properties": {
+          "email": {
+            "description": "Email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the email record.",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_verified": {
+            "description": "Whether the email address has been verified.",
+            "title": "Is Verified",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "email", "is_verified"],
+        "title": "UserEmail",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/SaveOrganizationDiscoverQueryResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,189 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves routing forms for a specified organization; routing forms are questionnaires used to direct invitees to appropriate booking pages or external URLs.",
+  "inputSchema": {
+    "description": "Request schema for retrieving a list of routing forms.",
+    "properties": {
+      "count": {
+        "default": 20,
+        "description": "The number of routing forms to return per page.",
+        "examples": ["10", "20", "50"],
+        "title": "Count",
+        "type": "integer"
+      },
+      "organization": {
+        "description": "The URI of the organization for which to retrieve routing forms.",
+        "examples": ["https://api.calendly.com/organizations/AAAAAAAAAAAAAAAA"],
+        "title": "Organization",
+        "type": "string"
+      },
+      "page_token": {
+        "description": "Token to retrieve a specific page of results, usually from a previous response's pagination details.",
+        "examples": ["nextPageTokenABC", "prevPageTokenXYZ"],
+        "title": "Page Token",
+        "type": "string"
+      },
+      "sort": {
+        "description": "Specifies the order of results. Use a comma-separated list of `field:direction` pairs. Supported field: `created_at`. Supported directions: `asc` (ascending), `desc` (descending).",
+        "examples": ["created_at:desc", "created_at:asc"],
+        "title": "Sort",
+        "type": "string"
+      }
+    },
+    "required": ["organization"],
+    "title": "ListRoutingFormsRequest",
+    "type": "object"
+  },
+  "name": "list_routing_forms",
+  "outputSchema": {
+    "$defs": {
+      "ListRoutingFormsResponse": {
+        "description": "Response schema for `ListRoutingForms`, containing a list of routing forms and pagination information.",
+        "properties": {
+          "collection": {
+            "description": "Array of routing form objects returned by the API.",
+            "items": {
+              "$ref": "#/$defs/RoutingForm"
+            },
+            "title": "Collection",
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/$defs/Pagination",
+            "title": "Pagination"
+          }
+        },
+        "required": ["collection", "pagination"],
+        "title": "ListRoutingFormsResponse",
+        "type": "object"
+      },
+      "Pagination": {
+        "description": "Pagination metadata for navigating through multiple pages of routing forms.",
+        "properties": {
+          "count": {
+            "description": "The number of items returned in the current page.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "next_page": {
+            "description": "The full URL for retrieving the next page of results. Null when there are no more pages.",
+            "title": "Next Page",
+            "type": "string"
+          },
+          "next_page_token": {
+            "description": "Token that can be used with the page_token parameter to fetch the next page of results.",
+            "title": "Next Page Token",
+            "type": "string"
+          },
+          "previous_page": {
+            "description": "The full URL for retrieving the previous page of results. Null when on the first page.",
+            "title": "Previous Page",
+            "type": "string"
+          },
+          "previous_page_token": {
+            "description": "Token that can be used with the page_token parameter to fetch the previous page of results.",
+            "title": "Previous Page Token",
+            "type": "string"
+          }
+        },
+        "required": ["count"],
+        "title": "Pagination",
+        "type": "object"
+      },
+      "Question": {
+        "description": "A question object within a routing form.",
+        "properties": {
+          "answer_choices": {
+            "description": "Array of available answer options for select-type questions. Null for open-ended questions like text or email.",
+            "items": {},
+            "title": "Answer Choices",
+            "type": "array"
+          },
+          "name": {
+            "description": "The question text displayed to the user.",
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "description": "Indicates whether the question is required to be answered.",
+            "title": "Required",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "The type of question (e.g., 'select', 'email', 'text').",
+            "title": "Type",
+            "type": "string"
+          },
+          "uuid": {
+            "description": "Unique identifier for the question.",
+            "title": "Uuid",
+            "type": "string"
+          }
+        },
+        "required": ["uuid", "name", "type", "required"],
+        "title": "Question",
+        "type": "object"
+      },
+      "RoutingForm": {
+        "description": "A routing form object.",
+        "properties": {
+          "created_at": {
+            "description": "Timestamp when the routing form was created (ISO 8601 format).",
+            "title": "Created At",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name of the routing form.",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization": {
+            "description": "The URI of the organization that owns the routing form.",
+            "title": "Organization",
+            "type": "string"
+          },
+          "questions": {
+            "description": "Array of question objects that define the form questions.",
+            "items": {
+              "$ref": "#/$defs/Question"
+            },
+            "title": "Questions",
+            "type": "array"
+          },
+          "status": {
+            "description": "The publication status of the routing form (e.g., 'published').",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Timestamp when the routing form was last updated (ISO 8601 format).",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "uri": {
+            "description": "The unique canonical reference (URI) for the routing form.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": ["uri", "organization", "name", "status", "questions", "created_at", "updated_at"],
+        "title": "RoutingForm",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListRoutingFormsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

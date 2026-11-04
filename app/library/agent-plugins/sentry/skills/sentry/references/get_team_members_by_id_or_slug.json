@@ -1,0 +1,289 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a page of Sentry team members with user information, organization and team roles, authentication status, and membership flags. Supports pagination with a cursor.",
+  "inputSchema": {
+    "description": "Request schema for `GetTeamMembersByIdOrSlug`",
+    "properties": {
+      "cursor": {
+        "description": "Optional pagination cursor for fetching the next page of results. Obtain this value from the 'Link' header in the previous API response. Leave empty for the first request.",
+        "examples": ["MTY0NjYxMDM0ODAwMDoxOjA="],
+        "title": "Cursor",
+        "type": "string"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the organization. Can be either a numeric ID (e.g., '4508539392294912') or a URL-friendly slug (e.g., 'my-organization').",
+        "examples": ["my-organization", "4508539392294912"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "team_id_or_slug": {
+        "description": "The ID or slug of the team. Can be either a numeric ID (e.g., '4510810786627585') or a URL-friendly slug (e.g., 'backend-team').",
+        "examples": ["backend-team", "4510810786627585"],
+        "title": "Team Id Or Slug",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "team_id_or_slug"],
+    "title": "GetTeamMembersByIdOrSlugRequest",
+    "type": "object"
+  },
+  "name": "get_team_members_by_id_or_slug",
+  "outputSchema": {
+    "$defs": {
+      "GetTeamMembersByIdOrSlugResponse": {
+        "description": "Response schema for `GetTeamMembersByIdOrSlug`",
+        "properties": {
+          "data": {
+            "description": "List of team members with detailed information including user details, roles, and status flags. Excludes members with pending invitations.",
+            "items": {
+              "$ref": "#/$defs/TeamMember"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "GetTeamMembersByIdOrSlugResponse",
+        "type": "object"
+      },
+      "TeamMember": {
+        "description": "Team member information",
+        "properties": {
+          "dateCreated": {
+            "description": "Date the member was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "email": {
+            "description": "Member's email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "expired": {
+            "description": "Whether the invite has expired",
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "flags": {
+            "$ref": "#/$defs/TeamMemberFlags",
+            "title": "Flags"
+          },
+          "id": {
+            "description": "Member ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "inviteStatus": {
+            "description": "Invitation status (e.g., 'approved')",
+            "title": "Invite Status",
+            "type": "string"
+          },
+          "inviterName": {
+            "description": "Name of the person who invited this member",
+            "title": "Inviter Name",
+            "type": "string"
+          },
+          "name": {
+            "description": "Member's display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "orgRole": {
+            "description": "Organization role (e.g., 'owner', 'member', 'manager')",
+            "title": "Org Role",
+            "type": "string"
+          },
+          "pending": {
+            "description": "Whether the member has a pending invite",
+            "title": "Pending",
+            "type": "boolean"
+          },
+          "role": {
+            "description": "Role identifier",
+            "title": "Role",
+            "type": "string"
+          },
+          "roleName": {
+            "description": "Human-readable role name",
+            "title": "Role Name",
+            "type": "string"
+          },
+          "teamRole": {
+            "description": "Team-specific role",
+            "title": "Team Role",
+            "type": "string"
+          },
+          "teamSlug": {
+            "description": "Team slug this member belongs to",
+            "title": "Team Slug",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/TeamMemberUser",
+            "description": "Detailed user information",
+            "title": "User"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "user",
+          "orgRole",
+          "pending",
+          "expired",
+          "flags",
+          "dateCreated",
+          "inviteStatus",
+          "role",
+          "roleName",
+          "teamSlug"
+        ],
+        "title": "TeamMember",
+        "type": "object"
+      },
+      "TeamMemberFlags": {
+        "additionalProperties": true,
+        "description": "Flags indicating member status",
+        "properties": {
+          "idp:provisioned": {
+            "description": "IDP provisioned status",
+            "title": "Idp:Provisioned",
+            "type": "boolean"
+          },
+          "idp:role-restricted": {
+            "description": "IDP role restricted status",
+            "title": "Idp:Role Restricted",
+            "type": "boolean"
+          },
+          "member-limit:restricted": {
+            "description": "Member limit restricted status",
+            "title": "Member Limit:Restricted",
+            "type": "boolean"
+          },
+          "partnership:restricted": {
+            "description": "Partnership restricted status",
+            "title": "Partnership:Restricted",
+            "type": "boolean"
+          },
+          "sso:invalid": {
+            "description": "SSO invalid status",
+            "title": "Sso:Invalid",
+            "type": "boolean"
+          },
+          "sso:linked": {
+            "description": "SSO linked status",
+            "title": "Sso:Linked",
+            "type": "boolean"
+          }
+        },
+        "title": "TeamMemberFlags",
+        "type": "object"
+      },
+      "TeamMemberUser": {
+        "description": "User information for a team member",
+        "properties": {
+          "avatarUrl": {
+            "description": "URL to user's avatar",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "dateJoined": {
+            "description": "Date the user joined",
+            "title": "Date Joined",
+            "type": "string"
+          },
+          "email": {
+            "description": "User's email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "has2fa": {
+            "description": "Whether user has 2FA enabled",
+            "title": "Has2Fa",
+            "type": "boolean"
+          },
+          "hasPasswordAuth": {
+            "description": "Whether user has password authentication",
+            "title": "Has Password Auth",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "User ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "isActive": {
+            "description": "Whether the user is active",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "isManaged": {
+            "description": "Whether the user is managed",
+            "title": "Is Managed",
+            "type": "boolean"
+          },
+          "isStaff": {
+            "description": "Whether user is staff",
+            "title": "Is Staff",
+            "type": "boolean"
+          },
+          "isSuperuser": {
+            "description": "Whether user is a superuser",
+            "title": "Is Superuser",
+            "type": "boolean"
+          },
+          "lastActive": {
+            "description": "Last activity timestamp",
+            "title": "Last Active",
+            "type": "string"
+          },
+          "lastLogin": {
+            "description": "Last login timestamp",
+            "title": "Last Login",
+            "type": "string"
+          },
+          "name": {
+            "description": "User's display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "username",
+          "email",
+          "isActive",
+          "hasPasswordAuth",
+          "isManaged",
+          "dateJoined",
+          "has2fa",
+          "isSuperuser",
+          "isStaff"
+        ],
+        "title": "TeamMemberUser",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetTeamMembersByIdOrSlugResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

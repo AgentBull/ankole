@@ -1,0 +1,43 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes an Invitee No-Show record by its `uuid` to reverse an invitee's 'no-show' status; the `uuid` must refer to an existing record.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteInviteeNoShow`",
+    "properties": {
+      "uuid": {
+        "description": "The unique identifier (UUID) of the Invitee No-Show record to be removed.",
+        "examples": ["FHKLMNPQRSTUVWXY1234567890"],
+        "title": "Uuid",
+        "type": "string"
+      }
+    },
+    "required": ["uuid"],
+    "title": "DeleteInviteeNoShowRequest",
+    "type": "object"
+  },
+  "name": "delete_invitee_no_show",
+  "outputSchema": {
+    "$defs": {
+      "DeleteInviteeNoShowResponse": {
+        "description": "Response schema for `DeleteInviteeNoShow`\n\nThe DELETE Invitee No Show endpoint removes the no-show status from an invitee.\nIt returns a 204 No Content status code with an empty response body upon successful deletion.",
+        "properties": {},
+        "title": "DeleteInviteeNoShowResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteInviteeNoShowResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

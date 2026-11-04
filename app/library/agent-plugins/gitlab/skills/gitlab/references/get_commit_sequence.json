@@ -1,0 +1,66 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to get the sequence number of a commit in a project by following parent links from the given commit. Use when you need to determine the order of a commit in the project's history.",
+  "inputSchema": {
+    "properties": {
+      "first_parent": {
+        "description": "Follow only the first parent commit upon seeing a merge commit.",
+        "title": "First Parent",
+        "type": "boolean"
+      },
+      "project_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["5", "group_name%2Fproject_name"],
+        "title": "Project Id"
+      },
+      "sha": {
+        "description": "The commit hash.",
+        "examples": ["5937ac0a7beb003549fc5fd26fc247adbce4a52e"],
+        "title": "Sha",
+        "type": "string"
+      }
+    },
+    "required": ["project_id", "sha"],
+    "title": "GetCommitSequenceRequest",
+    "type": "object"
+  },
+  "name": "get_commit_sequence",
+  "outputSchema": {
+    "$defs": {
+      "GetCommitSequenceResponse": {
+        "properties": {
+          "count": {
+            "description": "The sequence number of the commit.",
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": ["count"],
+        "title": "GetCommitSequenceResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCommitSequenceResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

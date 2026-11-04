@@ -1,0 +1,121 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Adds a new check item to a specified Trello checklist; this action does not update existing check items.",
+  "inputSchema": {
+    "description": "Parameters to create a new check item on a checklist.",
+    "properties": {
+      "checked": {
+        "description": "Initial completion status: 'true' or 'false'. Defaults to unchecked.",
+        "examples": ["true", "false"],
+        "title": "Checked",
+        "type": "string"
+      },
+      "idChecklist": {
+        "description": "ID of the checklist to add the new check item to.",
+        "examples": ["5f9f1b9b3b9b4e001f3e8b9a", "60d5f1b9b3b9b4e001f3e8b9b"],
+        "title": "Id Checklist",
+        "type": "string"
+      },
+      "name": {
+        "description": "Name/title for the new check item (1-16384 characters). Required by the Trello API for successful creation.",
+        "examples": ["Review documentation", "Submit expense report", "Draft initial proposal"],
+        "title": "Name",
+        "type": "string"
+      },
+      "pos": {
+        "description": "Position for the new check item: 'top', 'bottom', or a positive number. Defaults to bottom.",
+        "examples": ["top", "bottom", "1", "10.5", "16384"],
+        "title": "Pos",
+        "type": "string"
+      }
+    },
+    "required": ["idChecklist"],
+    "title": "AddChecklistsCheckItemsByIdChecklistRequest",
+    "type": "object"
+  },
+  "name": "add_checklists_check_items_by_id_checklist",
+  "outputSchema": {
+    "$defs": {
+      "AddChecklistsCheckItemsByIdChecklistResponse": {
+        "description": "Response from Trello after adding a check item.",
+        "properties": {
+          "due": {
+            "description": "Due date for the check item in ISO 8601 format, if set.",
+            "title": "Due",
+            "type": "string"
+          },
+          "dueReminder": {
+            "description": "Due reminder setting in minutes before due date, if set.",
+            "title": "Due Reminder",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier of the newly created check item.",
+            "title": "Id",
+            "type": "string"
+          },
+          "idChecklist": {
+            "description": "ID of the parent checklist containing this check item.",
+            "title": "Id Checklist",
+            "type": "string"
+          },
+          "idMember": {
+            "description": "ID of the member assigned to this check item, if any.",
+            "title": "Id Member",
+            "type": "string"
+          },
+          "limits": {
+            "additionalProperties": true,
+            "description": "Rate limits and restrictions for the check item.",
+            "title": "Limits",
+            "type": "object"
+          },
+          "name": {
+            "description": "The name/title of the check item.",
+            "title": "Name",
+            "type": "string"
+          },
+          "nameData": {
+            "additionalProperties": true,
+            "description": "Additional name data including emoji information.",
+            "title": "Name Data",
+            "type": "object"
+          },
+          "pos": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Position of the check item within the checklist.",
+            "title": "Pos"
+          },
+          "state": {
+            "description": "Completion state: 'incomplete' or 'complete'.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "AddChecklistsCheckItemsByIdChecklistResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/AddChecklistsCheckItemsByIdChecklistResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

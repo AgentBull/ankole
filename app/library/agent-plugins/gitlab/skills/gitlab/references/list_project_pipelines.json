@@ -1,0 +1,264 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to retrieve a list of pipelines for a specified project. Use when you need to get information about CI/CD pipelines, such as their status, source, or creation/update times.",
+  "inputSchema": {
+    "properties": {
+      "created_after": {
+        "description": "Return pipelines created after the specified date (ISO 8601 format).",
+        "format": "date-time",
+        "title": "Created After",
+        "type": "string"
+      },
+      "created_before": {
+        "description": "Return pipelines created before the specified date (ISO 8601 format).",
+        "format": "date-time",
+        "title": "Created Before",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "title": "Id"
+      },
+      "name": {
+        "description": "Return pipelines with the specified name.",
+        "title": "Name",
+        "type": "string"
+      },
+      "order_by": {
+        "default": "id",
+        "description": "Order pipelines by 'id', 'status', 'ref', 'updated_at' or 'user_id'.",
+        "enum": ["id", "status", "ref", "updated_at", "user_id"],
+        "title": "Order By",
+        "type": "string"
+      },
+      "page": {
+        "description": "Page number for pagination.",
+        "title": "Page",
+        "type": "integer"
+      },
+      "per_page": {
+        "description": "Number of items per page for pagination.",
+        "title": "Per Page",
+        "type": "integer"
+      },
+      "ref": {
+        "description": "The ref of pipelines.",
+        "title": "Ref",
+        "type": "string"
+      },
+      "scope": {
+        "description": "The scope of pipelines, one of: 'running', 'pending', 'finished', 'branches', 'tags'.",
+        "enum": ["running", "pending", "finished", "branches", "tags"],
+        "title": "Scope",
+        "type": "string"
+      },
+      "sha": {
+        "description": "The SHA of pipelines.",
+        "title": "Sha",
+        "type": "string"
+      },
+      "sort": {
+        "default": "desc",
+        "description": "Sort pipelines in 'asc' or 'desc' order.",
+        "enum": ["asc", "desc"],
+        "title": "Sort",
+        "type": "string"
+      },
+      "source": {
+        "description": "The pipeline source. To return child pipelines, set to 'parent_pipeline'.",
+        "title": "Source",
+        "type": "string"
+      },
+      "status": {
+        "description": "The status of pipelines.",
+        "enum": [
+          "created",
+          "waiting_for_resource",
+          "preparing",
+          "pending",
+          "running",
+          "success",
+          "failed",
+          "canceled",
+          "skipped",
+          "manual",
+          "scheduled"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "updated_after": {
+        "description": "Return pipelines updated after the specified date (ISO 8601 format).",
+        "format": "date-time",
+        "title": "Updated After",
+        "type": "string"
+      },
+      "updated_before": {
+        "description": "Return pipelines updated before the specified date (ISO 8601 format).",
+        "format": "date-time",
+        "title": "Updated Before",
+        "type": "string"
+      },
+      "username": {
+        "description": "The username of the user who triggered pipelines.",
+        "title": "Username",
+        "type": "string"
+      },
+      "yaml_errors": {
+        "description": "Returns pipelines with invalid configurations.",
+        "title": "Yaml Errors",
+        "type": "boolean"
+      }
+    },
+    "required": ["id"],
+    "title": "ListProjectPipelinesRequest",
+    "type": "object"
+  },
+  "name": "list_project_pipelines",
+  "outputSchema": {
+    "$defs": {
+      "ListProjectPipelinesResponse": {
+        "properties": {
+          "next_page": {
+            "description": "Next page number, if available.",
+            "title": "Next Page",
+            "type": "integer"
+          },
+          "page": {
+            "description": "Current page number.",
+            "title": "Page",
+            "type": "integer"
+          },
+          "per_page": {
+            "description": "Number of items per page.",
+            "title": "Per Page",
+            "type": "integer"
+          },
+          "pipelines": {
+            "description": "A list of pipelines for the specified project.",
+            "items": {
+              "$ref": "#/$defs/Pipeline"
+            },
+            "title": "Pipelines",
+            "type": "array"
+          },
+          "prev_page": {
+            "description": "Previous page number, if available.",
+            "title": "Prev Page",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Total number of items.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "description": "Total number of pages.",
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": ["pipelines"],
+        "title": "ListProjectPipelinesResponse",
+        "type": "object"
+      },
+      "Pipeline": {
+        "properties": {
+          "created_at": {
+            "description": "The creation date of the pipeline.",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the pipeline.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "iid": {
+            "description": "The IID of the pipeline.",
+            "title": "Iid",
+            "type": "integer"
+          },
+          "name": {
+            "description": "The name of the pipeline.",
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "description": "The ID of the project.",
+            "title": "Project Id",
+            "type": "integer"
+          },
+          "ref": {
+            "description": "The ref of the pipeline.",
+            "title": "Ref",
+            "type": "string"
+          },
+          "sha": {
+            "description": "The SHA of the pipeline.",
+            "title": "Sha",
+            "type": "string"
+          },
+          "source": {
+            "description": "The source of the pipeline.",
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "description": "The status of the pipeline.",
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "The last update date of the pipeline.",
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "web_url": {
+            "description": "The web URL of the pipeline.",
+            "title": "Web Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "iid",
+          "project_id",
+          "status",
+          "source",
+          "ref",
+          "sha",
+          "web_url",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Pipeline",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/ListProjectPipelinesResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

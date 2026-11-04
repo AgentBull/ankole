@@ -1,0 +1,270 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a new discount coupon in Stripe with percentage or fixed amount discount. Use when creating promotional discounts for customers.",
+  "inputSchema": {
+    "description": "Parameters for creating a new coupon in Stripe. Either percent_off or amount_off must be provided.",
+    "properties": {
+      "amount_off": {
+        "description": "A positive integer representing the amount to subtract from an invoice total in the smallest currency unit (e.g., cents for USD). Required if percent_off is not passed.",
+        "examples": [500, 1000],
+        "exclusiveMinimum": 0,
+        "title": "Amount Off",
+        "type": "integer"
+      },
+      "applies_to": {
+        "additionalProperties": false,
+        "description": "Specifies which products this coupon applies to.",
+        "properties": {
+          "products": {
+            "description": "An array of Product IDs that this coupon will apply discounts to.",
+            "examples": [["prod_ABC123", "prod_XYZ789"]],
+            "items": {
+              "type": "string"
+            },
+            "title": "Products",
+            "type": "array"
+          }
+        },
+        "required": ["products"],
+        "title": "AppliesToData",
+        "type": "object"
+      },
+      "currency": {
+        "description": "Three-letter ISO currency code in lowercase (e.g., 'usd', 'eur'). Required if amount_off is passed.",
+        "examples": ["usd", "eur", "gbp"],
+        "title": "Currency",
+        "type": "string"
+      },
+      "currency_options": {
+        "additionalProperties": {
+          "description": "Currency-specific discount amount configuration.",
+          "properties": {
+            "amount_off": {
+              "description": "A positive integer representing the amount to subtract from an invoice total in this currency's smallest unit (e.g., cents for USD).",
+              "examples": [500, 1000],
+              "title": "Amount Off",
+              "type": "integer"
+            }
+          },
+          "required": ["amount_off"],
+          "title": "CurrencyOptionData",
+          "type": "object"
+        },
+        "description": "Coupons defined in each available currency option. Each key must be a three-letter ISO currency code.",
+        "title": "Currency Options",
+        "type": "object"
+      },
+      "duration": {
+        "default": "once",
+        "description": "Specifies how long the discount applies. 'once' applies to a single invoice, 'forever' applies to all invoices indefinitely, 'repeating' applies to invoices for a specified number of months.",
+        "enum": ["once", "forever", "repeating"],
+        "title": "Duration",
+        "type": "string"
+      },
+      "duration_in_months": {
+        "description": "Required only if duration is 'repeating'. Must be a positive integer specifying the number of months the discount is valid.",
+        "examples": [3, 6, 12],
+        "exclusiveMinimum": 0,
+        "title": "Duration In Months",
+        "type": "integer"
+      },
+      "id": {
+        "description": "Unique identifier for the coupon. If not provided, Stripe will generate one automatically.",
+        "examples": ["SUMMER20", "WELCOME10"],
+        "title": "Id",
+        "type": "string"
+      },
+      "max_redemptions": {
+        "description": "A positive integer specifying the maximum number of times this coupon can be redeemed before it becomes invalid.",
+        "examples": [100, 1000],
+        "exclusiveMinimum": 0,
+        "title": "Max Redemptions",
+        "type": "integer"
+      },
+      "metadata": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Set of key-value pairs for storing additional structured information about the coupon.",
+        "examples": [
+          {
+            "campaign": "summer2024",
+            "source": "email"
+          }
+        ],
+        "title": "Metadata",
+        "type": "object"
+      },
+      "name": {
+        "description": "Name of the coupon displayed to customers on invoices or receipts. Maximum 40 characters.",
+        "examples": ["Summer Sale", "Welcome Discount"],
+        "maxLength": 40,
+        "title": "Name",
+        "type": "string"
+      },
+      "percent_off": {
+        "description": "A positive float larger than 0 and smaller or equal to 100 that represents the discount percentage. Required if amount_off is not passed.",
+        "examples": [20, 50, 10.5],
+        "exclusiveMinimum": 0,
+        "maximum": 100,
+        "title": "Percent Off",
+        "type": "number"
+      },
+      "redeem_by": {
+        "description": "Unix timestamp specifying the last time at which the coupon can be redeemed.",
+        "examples": [1735689600],
+        "title": "Redeem By",
+        "type": "integer"
+      }
+    },
+    "title": "CreateCouponRequest",
+    "type": "object"
+  },
+  "name": "create_coupon",
+  "outputSchema": {
+    "$defs": {
+      "AppliesToResponse": {
+        "description": "Details about which products the coupon applies to.",
+        "properties": {
+          "products": {
+            "description": "List of product IDs this coupon applies to.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Products",
+            "type": "array"
+          }
+        },
+        "required": ["products"],
+        "title": "AppliesToResponse",
+        "type": "object"
+      },
+      "CreateCouponResponse": {
+        "description": "Response from creating a coupon in Stripe.",
+        "properties": {
+          "amount_off": {
+            "description": "Fixed discount amount in the smallest currency unit if applicable.",
+            "title": "Amount Off",
+            "type": "integer"
+          },
+          "applies_to": {
+            "$ref": "#/$defs/AppliesToResponse",
+            "description": "Contains information about which products the coupon applies to.",
+            "title": "Applies To"
+          },
+          "created": {
+            "description": "Unix creation timestamp.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code if amount_off is set.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "currency_options": {
+            "additionalProperties": {
+              "$ref": "#/$defs/CurrencyOptionResponse"
+            },
+            "description": "Coupons defined in each available currency option. Keys are three-letter ISO currency codes.",
+            "title": "Currency Options",
+            "type": "object"
+          },
+          "duration": {
+            "description": "One of 'once', 'forever', or 'repeating'.",
+            "title": "Duration",
+            "type": "string"
+          },
+          "duration_in_months": {
+            "description": "Number of months if duration is 'repeating'.",
+            "title": "Duration In Months",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier for the coupon.",
+            "title": "Id",
+            "type": "string"
+          },
+          "livemode": {
+            "description": "Whether this is a live or test mode coupon.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "max_redemptions": {
+            "description": "Maximum allowed redemptions.",
+            "title": "Max Redemptions",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs attached to the object.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "description": "Customer-facing coupon name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'coupon'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "percent_off": {
+            "description": "Percentage discount value if applicable.",
+            "title": "Percent Off",
+            "type": "number"
+          },
+          "redeem_by": {
+            "description": "Expiration timestamp for coupon usage.",
+            "title": "Redeem By",
+            "type": "integer"
+          },
+          "times_redeemed": {
+            "description": "Count of coupon redemptions.",
+            "title": "Times Redeemed",
+            "type": "integer"
+          },
+          "valid": {
+            "description": "Whether the coupon is currently valid.",
+            "title": "Valid",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "object", "duration", "times_redeemed", "valid", "created", "livemode", "metadata"],
+        "title": "CreateCouponResponse",
+        "type": "object"
+      },
+      "CurrencyOptionResponse": {
+        "description": "Currency-specific coupon configuration.",
+        "properties": {
+          "amount_off": {
+            "description": "Discount amount for the specified currency.",
+            "title": "Amount Off",
+            "type": "integer"
+          }
+        },
+        "required": ["amount_off"],
+        "title": "CurrencyOptionResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateCouponResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves detailed information for the currently authenticated Figma user.",
+  "inputSchema": {
+    "description": "Request for `GetCurrentUser`; no parameters are needed.",
+    "properties": {},
+    "title": "GetCurrentUserRequest",
+    "type": "object"
+  },
+  "name": "get_current_user",
+  "outputSchema": {
+    "$defs": {
+      "GetCurrentUserResponse": {
+        "description": "Response for `GetCurrentUser`, with details of the authenticated user.",
+        "properties": {
+          "email": {
+            "description": "Email address for the user's Figma account; exclusively available on this /v1/me endpoint.",
+            "title": "Email",
+            "type": "string"
+          },
+          "handle": {
+            "description": "Figma handle or display name of the user.",
+            "title": "Handle",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique stable identifier of the user.",
+            "title": "Id",
+            "type": "string"
+          },
+          "img_url": {
+            "description": "URL of the user's profile image.",
+            "title": "Img Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "handle", "img_url", "email"],
+        "title": "GetCurrentUserResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetCurrentUserResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

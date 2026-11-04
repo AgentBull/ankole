@@ -1,0 +1,175 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves lists from a specified Trello board, with options to filter lists and include card details. You can select which list and card fields to return.",
+  "inputSchema": {
+    "description": "Defines the parameters to retrieve lists from a specific Trello board.",
+    "properties": {
+      "card_fields": {
+        "default": "all",
+        "description": "Specifies the fields of cards to be returned if the 'cards' parameter is not 'none'. Use 'all' for all fields, or provide a comma-separated list of specific fields. Valid fields include: badges, checkItemStates, closed, dateLastActivity, desc, descData, due, email, idAttachmentCover, idBoard, idChecklists, idLabels, idList, idMembers, idMembersVoted, idShort, labels, manualCoverAttachment, name, pos, shortLink, shortUrl, subscribed, or url.",
+        "examples": ["all", "name,desc,due", "idShort,labels"],
+        "title": "Card Fields",
+        "type": "string"
+      },
+      "cards": {
+        "default": "none",
+        "description": "Determines which cards should be returned within the lists. Valid values are 'all', 'closed', 'none', or 'open'.",
+        "examples": ["none", "open", "all", "closed"],
+        "title": "Cards",
+        "type": "string"
+      },
+      "fields": {
+        "default": "all",
+        "description": "Specifies the fields of the lists to be returned. Use 'all' for all fields, or provide a comma-separated list of specific fields. Valid fields include: closed, idBoard, name, pos, or subscribed.",
+        "examples": ["all", "name,pos", "idBoard,subscribed"],
+        "title": "Fields",
+        "type": "string"
+      },
+      "filter": {
+        "default": "open",
+        "description": "Filters the lists to be returned based on their status. Valid values are 'all', 'closed', 'none', or 'open'.",
+        "examples": ["open", "all", "closed"],
+        "title": "Filter",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The ID of the Trello board. Valid formats: 24-character hexadecimal ID (e.g., '60d5f2f1c8a8b4002b8f0123') OR 8-character shortLink (e.g., 'TH6F0pTM'). Human-readable board names or URL slugs (e.g., 'my-board', 'tech-jcorp') are NOT valid identifiers. In the URL 'trello.com/b/TH6F0pTM/my-board', 'TH6F0pTM' is the valid shortLink, while 'my-board' is just a slug and cannot be used. To find your board ID or shortLink: use trello.get_members_boards_by_id_member to list your boards, or look at the board URL in your browser.",
+        "examples": ["60d5f2f1c8a8b4002b8f0123", "TH6F0pTM"],
+        "title": "Id Board",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard"],
+    "title": "GetBoardsListsByIdBoardRequest",
+    "type": "object"
+  },
+  "name": "get_boards_lists_by_id_board",
+  "outputSchema": {
+    "$defs": {
+      "AttachmentLimits": {
+        "description": "Attachment limits information.",
+        "properties": {
+          "perBoard": {
+            "$ref": "#/$defs/LimitPerBoard",
+            "description": "Board-level attachment limits.",
+            "title": "Per Board"
+          }
+        },
+        "title": "AttachmentLimits",
+        "type": "object"
+      },
+      "GetBoardsListsByIdBoardResponse": {
+        "description": "Contains an array of list objects from the Trello API when retrieving lists for a board.",
+        "properties": {
+          "lists": {
+            "description": "Array of list objects from the specified board.",
+            "items": {
+              "$ref": "#/$defs/TrelloList"
+            },
+            "title": "Lists",
+            "type": "array"
+          }
+        },
+        "required": ["lists"],
+        "title": "GetBoardsListsByIdBoardResponse",
+        "type": "object"
+      },
+      "LimitPerBoard": {
+        "description": "Board-level limit information.",
+        "properties": {
+          "disableAt": {
+            "description": "Count at which the resource will be disabled.",
+            "title": "Disable At",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Status of the limit (e.g., 'ok', 'warn', 'maxExceeded').",
+            "title": "Status",
+            "type": "string"
+          },
+          "warnAt": {
+            "description": "Count at which a warning will be issued.",
+            "title": "Warn At",
+            "type": "integer"
+          }
+        },
+        "title": "LimitPerBoard",
+        "type": "object"
+      },
+      "Limits": {
+        "description": "Object containing various resource limits for the list.",
+        "properties": {
+          "attachments": {
+            "$ref": "#/$defs/AttachmentLimits",
+            "description": "Attachment limits information.",
+            "title": "Attachments"
+          }
+        },
+        "title": "Limits",
+        "type": "object"
+      },
+      "TrelloList": {
+        "description": "Represents a Trello list object.",
+        "properties": {
+          "closed": {
+            "description": "Indicates whether the list is archived/closed.",
+            "title": "Closed",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Unique identifier for the list, following TrelloID format (24-character hexadecimal string).",
+            "title": "Id",
+            "type": "string"
+          },
+          "idBoard": {
+            "description": "Unique identifier of the parent board this list belongs to.",
+            "title": "Id Board",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/$defs/Limits",
+            "description": "Object containing various resource limits for the list.",
+            "title": "Limits"
+          },
+          "name": {
+            "description": "Display name of the list.",
+            "title": "Name",
+            "type": "string"
+          },
+          "pos": {
+            "description": "Position value for ordering lists on the board (float).",
+            "title": "Pos",
+            "type": "number"
+          },
+          "softLimit": {
+            "description": "Card count threshold for soft limit warnings on the list. Can be null.",
+            "title": "Soft Limit",
+            "type": "integer"
+          },
+          "subscribed": {
+            "description": "Indicates whether the requesting user is subscribed to the list.",
+            "title": "Subscribed",
+            "type": "boolean"
+          }
+        },
+        "required": ["id"],
+        "title": "TrelloList",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetBoardsListsByIdBoardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

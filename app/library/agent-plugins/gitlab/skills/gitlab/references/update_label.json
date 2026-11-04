@@ -1,0 +1,158 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an existing label in a GitLab project by modifying its name, color, description, priority, or archived status. At least one of new_name or color must be provided to perform the update. Use this action when you need to rename a label, change its appearance, update its description, adjust its priority, or archive/unarchive it.",
+  "inputSchema": {
+    "properties": {
+      "archived": {
+        "description": "Set to true to mark the label as archived, false to unarchive. Defaults to false.",
+        "title": "Archived",
+        "type": "boolean"
+      },
+      "color": {
+        "description": "The new color for the label in 6-digit hex notation with leading '#' (e.g., #FFAABB) or CSS color name. Required if new_name is not provided.",
+        "examples": ["#FF0000", "#AABBCC"],
+        "title": "Color",
+        "type": "string"
+      },
+      "description": {
+        "description": "The new description for the label.",
+        "examples": ["Critical bugs that need immediate attention"],
+        "title": "Description",
+        "type": "string"
+      },
+      "id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or URL-encoded path of the project.",
+        "examples": ["my-group/my-project", 5],
+        "title": "Id"
+      },
+      "label_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "description": "The ID or title of the label to update.",
+        "examples": [12, "bug"],
+        "title": "Label Id"
+      },
+      "new_name": {
+        "description": "The new name for the label. Required if color is not provided.",
+        "examples": ["critical-bug"],
+        "title": "New Name",
+        "type": "string"
+      },
+      "priority": {
+        "description": "The new priority for the label. Must be greater than or equal to 0, or set to null to remove priority.",
+        "examples": [10],
+        "minimum": 0,
+        "title": "Priority",
+        "type": "integer"
+      }
+    },
+    "required": ["id", "label_id"],
+    "title": "UpdateLabelRequest",
+    "type": "object"
+  },
+  "name": "update_label",
+  "outputSchema": {
+    "$defs": {
+      "UpdateLabelResponse": {
+        "properties": {
+          "archived": {
+            "description": "Indicates if the label is archived.",
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "closed_issues_count": {
+            "description": "The count of closed issues with this label.",
+            "title": "Closed Issues Count",
+            "type": "integer"
+          },
+          "color": {
+            "description": "The color of the label in hex format (e.g., #FF0000).",
+            "title": "Color",
+            "type": "string"
+          },
+          "description": {
+            "description": "The description of the label.",
+            "title": "Description",
+            "type": "string"
+          },
+          "description_html": {
+            "description": "The HTML-rendered description of the label.",
+            "title": "Description Html",
+            "type": "string"
+          },
+          "id": {
+            "description": "The unique identifier of the label.",
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_project_label": {
+            "description": "Indicates if the label belongs to a project (true) or a group (false).",
+            "title": "Is Project Label",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "The name of the label.",
+            "title": "Name",
+            "type": "string"
+          },
+          "open_issues_count": {
+            "description": "The count of open issues with this label.",
+            "title": "Open Issues Count",
+            "type": "integer"
+          },
+          "open_merge_requests_count": {
+            "description": "The count of open merge requests with this label.",
+            "title": "Open Merge Requests Count",
+            "type": "integer"
+          },
+          "priority": {
+            "description": "The priority of the label, or null if not set.",
+            "title": "Priority",
+            "type": "integer"
+          },
+          "subscribed": {
+            "description": "Whether the user is subscribed to notifications for this label.",
+            "title": "Subscribed",
+            "type": "boolean"
+          },
+          "text_color": {
+            "description": "The text color for the label in hex format.",
+            "title": "Text Color",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "color", "text_color", "subscribed", "is_project_label", "archived"],
+        "title": "UpdateLabelResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateLabelResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

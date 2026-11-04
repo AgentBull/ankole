@@ -1,0 +1,89 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Deletes a specific emoji reaction from a comment in a Figma file; the user must have originally created the reaction.",
+  "inputSchema": {
+    "description": "Request schema for `DeleteAReaction`",
+    "properties": {
+      "comment_id": {
+        "description": "Identifier of the comment from which the reaction will be removed. This ID is specific to the comment within the Figma file.",
+        "examples": ["12345:67890"],
+        "title": "Comment Id",
+        "type": "string"
+      },
+      "emoji": {
+        "description": "The specific emoji character (e.g., '❤️', '👍') of the reaction to delete. This must be an exact match to the emoji of an existing reaction on the comment.",
+        "examples": ["❤️", "👍", "🎉"],
+        "title": "Emoji",
+        "type": "string"
+      },
+      "file_key": {
+        "description": "Key of the file or branch containing the comment reaction to be deleted. The file key can be obtained from the file URL or API responses. To get a branch key, use the `GET /v1/files/:key` endpoint with the `branch_data` query parameter.",
+        "examples": ["LFq2TMI2qg1hcvud2jNtC2", "T5j2SgL5qf3hcPud1jNtC7:branch_id_example"],
+        "title": "File Key",
+        "type": "string"
+      }
+    },
+    "required": ["file_key", "comment_id", "emoji"],
+    "title": "DeleteAReactionRequest",
+    "type": "object"
+  },
+  "name": "delete_a_reaction",
+  "outputSchema": {
+    "$defs": {
+      "DeleteAReactionResponse": {
+        "description": "Response schema for `DeleteAReaction`",
+        "properties": {
+          "data": {
+            "$ref": "#/$defs/Model",
+            "description": "Contains the result of the delete operation, including status and error information.",
+            "title": "Data"
+          }
+        },
+        "required": ["data"],
+        "title": "DeleteAReactionResponse",
+        "type": "object"
+      },
+      "Error": {
+        "enum": [false],
+        "title": "Error",
+        "type": "boolean"
+      },
+      "Model": {
+        "properties": {
+          "error": {
+            "$ref": "#/$defs/Error",
+            "description": "Indicates if an error occurred. Always `false` on successful deletion, as per the API specification.",
+            "title": "Error"
+          },
+          "status": {
+            "$ref": "#/$defs/Status",
+            "description": "HTTP status code confirming the outcome of the deletion. Always `200` on success as per the API specification.",
+            "title": "Status"
+          }
+        },
+        "required": ["status", "error"],
+        "title": "Model",
+        "type": "object"
+      },
+      "Status": {
+        "enum": [200],
+        "title": "Status",
+        "type": "integer"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DeleteAReactionResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

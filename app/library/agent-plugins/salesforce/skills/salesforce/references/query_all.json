@@ -1,0 +1,107 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Tool to execute SOQL queries including soft-deleted and archived records. Use when you need to query records that have been deleted via merge or delete operations, or when accessing archived Task and Event records.",
+  "inputSchema": {
+    "description": "Request schema for QueryAll action",
+    "properties": {
+      "query": {
+        "description": "The SOQL query to execute. Unlike standard queries, QueryAll includes soft-deleted records (from merge or delete operations) and archived Task/Event records. Example: 'SELECT Id, Name FROM Account WHERE IsDeleted = true'. Use standard SOQL syntax.",
+        "examples": [
+          "SELECT Id, Name FROM Account WHERE IsDeleted = true",
+          "SELECT Id, Name, Email FROM Contact",
+          "SELECT Id, Subject, Status FROM Task WHERE IsArchived = true",
+          "SELECT Id, Name, Amount FROM Opportunity ORDER BY Amount DESC LIMIT 10"
+        ],
+        "human_parameter_description": "The SOQL query to execute. QueryAll returns deleted records and archived Task/Event records that standard queries exclude.",
+        "human_parameter_name": "SOQL Query",
+        "minLength": 10,
+        "title": "Query",
+        "type": "string"
+      }
+    },
+    "required": ["query"],
+    "title": "QueryAllRequest",
+    "type": "object"
+  },
+  "name": "query_all",
+  "outputSchema": {
+    "$defs": {
+      "QueryAllRecord": {
+        "additionalProperties": true,
+        "description": "A single record returned by the QueryAll query.",
+        "properties": {
+          "attributes": {
+            "$ref": "#/$defs/RecordAttributes",
+            "title": "Attributes"
+          }
+        },
+        "required": ["attributes"],
+        "title": "QueryAllRecord",
+        "type": "object"
+      },
+      "QueryAllResponse": {
+        "description": "Response schema for QueryAll action",
+        "properties": {
+          "done": {
+            "description": "Indicates if all query results have been retrieved. False means more records are available via nextRecordsUrl.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "nextRecordsUrl": {
+            "description": "Query locator URL for retrieving the next batch of results. Present only when done is false. Use this URL to get remaining deleted records.",
+            "title": "Next Records Url",
+            "type": "string"
+          },
+          "records": {
+            "description": "Array of records returned by the query. Maximum 2000 records per response. Includes soft-deleted and archived records.",
+            "items": {
+              "$ref": "#/$defs/QueryAllRecord"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "totalSize": {
+            "description": "Total number of records that match the SOQL query, including deleted and archived records.",
+            "title": "Total Size",
+            "type": "integer"
+          }
+        },
+        "required": ["totalSize", "done", "records"],
+        "title": "QueryAllResponse",
+        "type": "object"
+      },
+      "RecordAttributes": {
+        "description": "Metadata about the record, including type and URL.",
+        "properties": {
+          "type": {
+            "description": "The Salesforce object type (e.g., 'Account', 'Contact', 'Opportunity').",
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "description": "The REST API URL path to access this specific record.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["type", "url"],
+        "title": "RecordAttributes",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/QueryAllResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

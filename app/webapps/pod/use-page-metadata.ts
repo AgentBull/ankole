@@ -11,7 +11,7 @@ import {
   resolvePodPagePath,
   subscribePageTransliteration
 } from '../common/pod-url'
-import { cachedPages, contentKeys, type PageDetail } from './content-api'
+import { cachedPageMap, contentKeys, type PageDetail } from './content-api'
 import { pageLocation, pageAncestors } from './state/page-location'
 import { pageMetadata, type PageMetadata } from './state/page-metadata'
 
@@ -63,13 +63,13 @@ export function knownPageTitle(client: QueryClient, id: string): string | undefi
 
 export function pageHrefFor(client: QueryClient | undefined, id: string, title?: string | null): string {
   const detail = client?.getQueryData<PageDetail>(contentKeys.page(id))
-  const pages = client ? cachedPages(client) : []
-  const page = detail?.page ?? pages.find(page => page.id === id)
-  if (page) {
-    return pageLocation(
-      { ...page, title: title ?? page.title },
-      detail?.ancestors ?? pageAncestors(page, new Map(pages.map(page => [page.id, page])))
-    )
+  if (detail?.page) {
+    return pageLocation({ ...detail.page, title: title ?? detail.page.title }, detail.ancestors)
+  }
+  const pages = client ? cachedPageMap(client) : undefined
+  const page = pages?.get(id)
+  if (page && pages) {
+    return pageLocation({ ...page, title: title ?? page.title }, pageAncestors(page, pages))
   }
   return podPagePath(id, title ?? (client ? knownPageTitle(client, id) : undefined))
 }

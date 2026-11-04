@@ -1,0 +1,552 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Detaches a PaymentMethod object from a Customer account. Use when you need to remove a payment method from a customer without deleting it entirely.",
+  "inputSchema": {
+    "description": "Request model for detaching a payment method from a customer.",
+    "properties": {
+      "payment_method_id": {
+        "description": "The unique identifier of the payment method to detach from the customer. Must start with 'pm_' followed by alphanumeric characters.",
+        "examples": ["pm_1ShVaIQvM72TjFrbGhpixPWH", "pm_1MqLiJLkdIwHu7ixUEgbFdYF"],
+        "title": "Payment Method Id",
+        "type": "string"
+      }
+    },
+    "required": ["payment_method_id"],
+    "title": "DetachPaymentMethodRequest",
+    "type": "object"
+  },
+  "name": "detach_payment_method",
+  "outputSchema": {
+    "$defs": {
+      "Address": {
+        "description": "Billing address.",
+        "properties": {
+          "city": {
+            "description": "City, district, suburb, town, or village.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter country code (ISO 3166-1 alpha-2).",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Address line 1 (e.g., street, PO Box, or company name).",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Address line 2 (e.g., apartment, suite, unit, or building).",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "ZIP or postal code.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State, county, province, or region.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "Address",
+        "type": "object"
+      },
+      "BillingDetails": {
+        "description": "Billing information associated with the PaymentMethod.",
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "Billing address.",
+            "title": "Address"
+          },
+          "email": {
+            "description": "Email address.",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Billing phone number (including extension).",
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "title": "BillingDetails",
+        "type": "object"
+      },
+      "Card": {
+        "description": "If this is a card PaymentMethod, this hash contains details about the card.",
+        "properties": {
+          "brand": {
+            "description": "Card brand. Can be amex, diners, discover, eftpos_au, jcb, mastercard, unionpay, visa, or unknown.",
+            "title": "Brand",
+            "type": "string"
+          },
+          "checks": {
+            "$ref": "#/$defs/CardChecks",
+            "description": "Checks on Card address and CVC if provided.",
+            "title": "Checks"
+          },
+          "country": {
+            "description": "Two-letter ISO code representing the country of the card.",
+            "title": "Country",
+            "type": "string"
+          },
+          "display_brand": {
+            "description": "The brand to use when displaying the card.",
+            "title": "Display Brand",
+            "type": "string"
+          },
+          "exp_month": {
+            "description": "Two-digit number representing the card's expiration month.",
+            "title": "Exp Month",
+            "type": "integer"
+          },
+          "exp_year": {
+            "description": "Four-digit number representing the card's expiration year.",
+            "title": "Exp Year",
+            "type": "integer"
+          },
+          "fingerprint": {
+            "description": "Uniquely identifies this particular card number.",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "funding": {
+            "description": "Card funding type. Can be credit, debit, prepaid, or unknown.",
+            "title": "Funding",
+            "type": "string"
+          },
+          "generated_from": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Details of the original PaymentMethod that created this object.",
+            "title": "Generated From",
+            "type": "object"
+          },
+          "last4": {
+            "description": "The last four digits of the card.",
+            "title": "Last4",
+            "type": "string"
+          },
+          "networks": {
+            "$ref": "#/$defs/CardNetworks",
+            "description": "Contains information about card networks that can be used to process the payment.",
+            "title": "Networks"
+          },
+          "three_d_secure_usage": {
+            "$ref": "#/$defs/ThreeDSecureUsage",
+            "description": "Contains details on how this Card may be used for 3D Secure authentication.",
+            "title": "Three D Secure Usage"
+          },
+          "wallet": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "If this Card is part of a card wallet, this contains the details of the card wallet.",
+            "title": "Wallet",
+            "type": "object"
+          }
+        },
+        "required": ["brand", "exp_month", "exp_year", "funding", "last4"],
+        "title": "Card",
+        "type": "object"
+      },
+      "CardChecks": {
+        "description": "Checks on Card address and CVC if provided.",
+        "properties": {
+          "address_line1_check": {
+            "description": "If a address line1 was provided, results of the check: pass, fail, unavailable, or unchecked.",
+            "title": "Address Line1 Check",
+            "type": "string"
+          },
+          "address_postal_code_check": {
+            "description": "If a address postal code was provided, results of the check: pass, fail, unavailable, or unchecked.",
+            "title": "Address Postal Code Check",
+            "type": "string"
+          },
+          "cvc_check": {
+            "description": "If a CVC was provided, results of the check: pass, fail, unavailable, or unchecked.",
+            "title": "Cvc Check",
+            "type": "string"
+          }
+        },
+        "title": "CardChecks",
+        "type": "object"
+      },
+      "CardNetworks": {
+        "description": "Contains information about card networks that can be used to process the payment.",
+        "properties": {
+          "available": {
+            "description": "All available networks for the card.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Available",
+            "type": "array"
+          },
+          "preferred": {
+            "description": "The preferred network for the card.",
+            "title": "Preferred",
+            "type": "string"
+          }
+        },
+        "required": ["available"],
+        "title": "CardNetworks",
+        "type": "object"
+      },
+      "DetachPaymentMethodResponse": {
+        "description": "Response model for a detached payment method.",
+        "properties": {
+          "acss_debit": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "If this is an acss_debit PaymentMethod, this hash contains details about the ACSS Debit payment method.",
+            "title": "Acss Debit",
+            "type": "object"
+          },
+          "alipay": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "If this is an alipay PaymentMethod, this hash contains details about the Alipay payment method.",
+            "title": "Alipay",
+            "type": "object"
+          },
+          "au_becs_debit": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "If this is an au_becs_debit PaymentMethod, this hash contains details about the bank account.",
+            "title": "Au Becs Debit",
+            "type": "object"
+          },
+          "bacs_debit": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "If this is a bacs_debit PaymentMethod, this hash contains details about the Bacs Direct Debit bank account.",
+            "title": "Bacs Debit",
+            "type": "object"
+          },
+          "billing_details": {
+            "$ref": "#/$defs/BillingDetails",
+            "title": "Billing Details"
+          },
+          "card": {
+            "$ref": "#/$defs/Card",
+            "description": "If this is a card PaymentMethod, this hash contains details about the card.",
+            "title": "Card"
+          },
+          "cashapp": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "If this is a cashapp PaymentMethod, this hash contains details about the Cash App payment method.",
+            "title": "Cashapp",
+            "type": "object"
+          },
+          "created": {
+            "description": "Time at which the object was created. Measured in seconds since the Unix epoch.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "customer": {
+            "description": "ID of the Customer to which this payment method is saved. Will be null after successful detachment.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the payment method.",
+            "title": "Id",
+            "type": "string"
+          },
+          "link": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "If this is a link PaymentMethod, this hash contains details about the Link payment method.",
+            "title": "Link",
+            "type": "object"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for storing additional information.",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'payment_method'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "paypal": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "If this is a paypal PaymentMethod, this hash contains details about the PayPal payment method.",
+            "title": "Paypal",
+            "type": "object"
+          },
+          "sepa_debit": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "If this is a sepa_debit PaymentMethod, this hash contains details about the SEPA debit bank account.",
+            "title": "Sepa Debit",
+            "type": "object"
+          },
+          "type": {
+            "description": "The type of the payment method (e.g., 'card', 'us_bank_account', 'sepa_debit').",
+            "title": "Type",
+            "type": "string"
+          },
+          "us_bank_account": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "description": "If this is an us_bank_account PaymentMethod, this hash contains details about the US bank account.",
+            "title": "Us Bank Account",
+            "type": "object"
+          }
+        },
+        "required": ["id", "object", "type", "created", "livemode", "metadata", "billing_details"],
+        "title": "DetachPaymentMethodResponse",
+        "type": "object"
+      },
+      "ThreeDSecureUsage": {
+        "description": "Contains details on how this Card may be used for 3D Secure authentication.",
+        "properties": {
+          "supported": {
+            "description": "Whether 3D Secure is supported on this card.",
+            "title": "Supported",
+            "type": "boolean"
+          }
+        },
+        "required": ["supported"],
+        "title": "ThreeDSecureUsage",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/DetachPaymentMethodResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Creates a one-time, single-use scheduling link for an active Calendly event type, expiring after one booking.",
+  "inputSchema": {
+    "description": "Request schema for `CreateSingleUseSchedulingLink`",
+    "properties": {
+      "max_event_count": {
+        "description": "The maximum number of events that can be scheduled using this link. For a single-use link, this value must be 1.",
+        "examples": ["1"],
+        "title": "Max Event Count",
+        "type": "integer"
+      },
+      "owner": {
+        "description": "The URI of the Calendly Event Type that will own this single-use scheduling link. This Event Type's settings (e.g., duration, availability) will apply to the scheduled meeting.",
+        "examples": ["https://api.calendly.com/event_types/GBGBDCAADAEDCRZ2"],
+        "format": "uri",
+        "title": "Owner",
+        "type": "string"
+      },
+      "owner_type": {
+        "description": "Identifies the owner resource type, which is 'EventType'.",
+        "enum": ["EventType"],
+        "examples": ["EventType"],
+        "title": "Owner Type",
+        "type": "string"
+      }
+    },
+    "required": ["max_event_count", "owner", "owner_type"],
+    "title": "CreateSingleUseSchedulingLinkRequest",
+    "type": "object"
+  },
+  "name": "create_single_use_scheduling_link",
+  "outputSchema": {
+    "$defs": {
+      "CreateSingleUseSchedulingLinkResponse": {
+        "description": "Response schema for `CreateSingleUseSchedulingLink`",
+        "properties": {
+          "resource": {
+            "$ref": "#/$defs/Resource",
+            "description": "The main resource object containing the scheduling link data",
+            "title": "Resource"
+          }
+        },
+        "required": ["resource"],
+        "title": "CreateSingleUseSchedulingLinkResponse",
+        "type": "object"
+      },
+      "Resource": {
+        "description": "The resource object containing scheduling link data",
+        "properties": {
+          "booking_url": {
+            "description": "The single-use scheduling link URL that can be shared with invitees to book an appointment. Single use scheduling links that haven't been used to book an event expire after 90 days.",
+            "title": "Booking Url",
+            "type": "string"
+          },
+          "owner": {
+            "description": "The URI of the event type associated with this scheduling link (e.g., 'https://api.calendly.com/event_types/AAAAAAAAAAAAAAAA').",
+            "title": "Owner",
+            "type": "string"
+          },
+          "owner_type": {
+            "description": "The type of owner for the scheduling link. Always 'EventType' for single-use scheduling links.",
+            "title": "Owner Type",
+            "type": "string"
+          }
+        },
+        "required": ["booking_url", "owner", "owner_type"],
+        "title": "Resource",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CreateSingleUseSchedulingLinkResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

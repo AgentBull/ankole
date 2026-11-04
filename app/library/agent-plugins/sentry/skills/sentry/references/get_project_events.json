@@ -1,0 +1,241 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Retrieves a list of error events for a specified project within a Sentry organization, with options for pagination and detail level.",
+  "inputSchema": {
+    "description": "Request schema for `GetProjectEvents`",
+    "properties": {
+      "cursor": {
+        "description": "Opaque cursor for pagination, pointing to the start of the next/previous page, typically from a 'Link' header.",
+        "examples": ["1633027800000:0:1", "cc735065495849739927242160780032"],
+        "title": "Cursor",
+        "type": "string"
+      },
+      "end": {
+        "description": "End of the query period in ISO-8601 format. Must be used with 'start' parameter. Cannot be used with 'statsPeriod' parameter.",
+        "examples": ["2024-01-31T23:59:59.999Z", "2024-12-26T12:00:00Z"],
+        "title": "End",
+        "type": "string"
+      },
+      "full": {
+        "default": false,
+        "description": "If `True`, retrieves full event details including stacktraces; otherwise, a summary is returned.",
+        "title": "Full",
+        "type": "boolean"
+      },
+      "organization_id_or_slug": {
+        "description": "The ID or slug of the Sentry organization.",
+        "examples": ["acme-corp", "sentry-demos"],
+        "title": "Organization Id Or Slug",
+        "type": "string"
+      },
+      "project_id_or_slug": {
+        "description": "The ID or slug of the Sentry project.",
+        "examples": ["my-web-app", "android-project"],
+        "title": "Project Id Or Slug",
+        "type": "string"
+      },
+      "sample": {
+        "default": false,
+        "description": "If `True`, returns events in a pseudo-random yet deterministic order.",
+        "title": "Sample",
+        "type": "boolean"
+      },
+      "start": {
+        "description": "Beginning of the query period in ISO-8601 format. Must be used with 'end' parameter. Cannot be used with 'statsPeriod' parameter.",
+        "examples": ["2024-01-01T00:00:00.000Z", "2024-12-25T12:00:00Z"],
+        "title": "Start",
+        "type": "string"
+      },
+      "statsPeriod": {
+        "description": "Time range for events in format: number + unit (d=days, h=hours, m=minutes, s=seconds, w=weeks). Cannot be used with 'start' and 'end' parameters.",
+        "examples": ["24h", "7d", "30d", "1h"],
+        "title": "Stats Period",
+        "type": "string"
+      }
+    },
+    "required": ["organization_id_or_slug", "project_id_or_slug"],
+    "title": "GetProjectEventsRequest",
+    "type": "object"
+  },
+  "name": "get_project_events",
+  "outputSchema": {
+    "$defs": {
+      "EventTag": {
+        "description": "Tag object containing key-value pairs for event metadata and filtering",
+        "properties": {
+          "key": {
+            "description": "Tag identifier or name",
+            "title": "Key",
+            "type": "string"
+          },
+          "query": {
+            "description": "Search query format for the tag",
+            "title": "Query",
+            "type": "string"
+          },
+          "value": {
+            "description": "Tag value",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": ["key", "value"],
+        "title": "EventTag",
+        "type": "object"
+      },
+      "EventUser": {
+        "description": "User context information associated with the event",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "description": "Additional custom user data",
+            "title": "Data",
+            "type": "object"
+          },
+          "email": {
+            "description": "User email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "geo": {
+            "additionalProperties": true,
+            "description": "Geographic information about the user's location",
+            "title": "Geo",
+            "type": "object"
+          },
+          "id": {
+            "description": "User identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "ip_address": {
+            "description": "IP address of the user",
+            "title": "Ip Address",
+            "type": "string"
+          },
+          "name": {
+            "description": "Display name of the user",
+            "title": "Name",
+            "type": "string"
+          },
+          "username": {
+            "description": "Username",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "title": "EventUser",
+        "type": "object"
+      },
+      "GetProjectEventsResponse": {
+        "description": "Response schema for `GetProjectEvents` - returns an array of event objects",
+        "items": {
+          "$ref": "#/$defs/ProjectEvent"
+        },
+        "title": "GetProjectEventsResponse",
+        "type": "array"
+      },
+      "ProjectEvent": {
+        "description": "Event object representing errors and events from the project",
+        "properties": {
+          "crashFile": {
+            "description": "Reference to associated crash dump file if available",
+            "title": "Crash File",
+            "type": "string"
+          },
+          "culprit": {
+            "description": "Problematic code path, function name, or endpoint responsible for the error",
+            "title": "Culprit",
+            "type": "string"
+          },
+          "dateCreated": {
+            "description": "ISO-8601 formatted timestamp indicating when the event was created",
+            "title": "Date Created",
+            "type": "string"
+          },
+          "event.type": {
+            "description": "Type classification of the event (e.g., 'error', 'transaction')",
+            "title": "Event.Type",
+            "type": "string"
+          },
+          "eventID": {
+            "description": "Hexadecimal event identifier (alternative format)",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "groupID": {
+            "description": "Associated issue group identifier for grouping related events together",
+            "title": "Group Id",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique event identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "location": {
+            "description": "Source location where the event occurred, typically in file:line format",
+            "title": "Location",
+            "type": "string"
+          },
+          "message": {
+            "description": "Event message content describing the error or event",
+            "title": "Message",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Additional custom metadata object containing event-specific information",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "platform": {
+            "description": "Platform or programming language identifier (e.g., 'python', 'javascript', 'java')",
+            "title": "Platform",
+            "type": "string"
+          },
+          "projectID": {
+            "description": "Project identifier that this event belongs to",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "tags": {
+            "description": "Array of tag objects containing key-value pairs for event metadata and filtering",
+            "items": {
+              "$ref": "#/$defs/EventTag"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "description": "Event title or summary",
+            "title": "Title",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/$defs/EventUser",
+            "description": "User context information associated with the event",
+            "title": "User"
+          }
+        },
+        "required": ["id", "eventID", "projectID", "event.type", "message", "title", "tags", "dateCreated"],
+        "title": "ProjectEvent",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetProjectEventsResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

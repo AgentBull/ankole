@@ -1,0 +1,90 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Get related counts and information for a specific Zendesk organization by ID. Returns metadata about tickets, users, groups, activities, and other related resources associated with the organization. Use when you need to understand the scale and composition of an organization's resources in Zendesk. This is a read-only, idempotent operation.",
+  "inputSchema": {
+    "description": "Request parameters for getting organization related information.",
+    "properties": {
+      "organization_id": {
+        "description": "Numeric ID of the organization to retrieve related information for (e.g. 123456). Must be a non-null integer; cast to int if sourced from tools that return it as a string. Do not pass null (skip the call if ticket's organization_id is null). Obtain from zendesk.get_all_zendesk_organizations or zendesk.create_zendesk_organization; never derive from organization name.",
+        "examples": [16],
+        "human_parameter_description": "Enter the numeric ID of the organization you want to get related information for in Zendesk. You can copy this from the organization's page or from a previous search or list.",
+        "human_parameter_name": "Organization ID",
+        "minimum": 1,
+        "title": "Organization Id",
+        "type": "integer"
+      }
+    },
+    "required": ["organization_id"],
+    "title": "GetOrganizationRelatedRequest",
+    "type": "object"
+  },
+  "name": "get_organization_related",
+  "outputSchema": {
+    "$defs": {
+      "GetOrganizationRelatedResponse": {
+        "description": "Response containing organization related information.",
+        "properties": {
+          "organization_related": {
+            "$ref": "#/$defs/OrganizationRelated",
+            "description": "Related counts and information for the organization",
+            "title": "Organization Related"
+          }
+        },
+        "required": ["organization_related"],
+        "title": "GetOrganizationRelatedResponse",
+        "type": "object"
+      },
+      "OrganizationRelated": {
+        "description": "Related counts and information for a Zendesk organization.",
+        "properties": {
+          "activities_count": {
+            "description": "The number of activities associated with the organization",
+            "title": "Activities Count",
+            "type": "integer"
+          },
+          "domains_count": {
+            "description": "The number of domain names associated with the organization",
+            "title": "Domains Count",
+            "type": "integer"
+          },
+          "groups_count": {
+            "description": "The number of groups associated with the organization",
+            "title": "Groups Count",
+            "type": "integer"
+          },
+          "organization_fields_count": {
+            "description": "The number of custom organization fields",
+            "title": "Organization Fields Count",
+            "type": "integer"
+          },
+          "tickets_count": {
+            "description": "The number of tickets associated with the organization",
+            "title": "Tickets Count",
+            "type": "integer"
+          },
+          "users_count": {
+            "description": "The number of users associated with the organization",
+            "title": "Users Count",
+            "type": "integer"
+          }
+        },
+        "title": "OrganizationRelated",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/GetOrganizationRelatedResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

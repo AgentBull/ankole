@@ -1,0 +1,232 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Merges two Zendesk end users together. The user specified in the path parameter (user_id) is the primary user (target) that will be kept. The user specified in the request body (id) is the source user that will be deleted and its data transferred to the primary user. Use when you need to consolidate duplicate end-user accounts in Zendesk. This action is irreversible — the source user and all their associated data (tickets, comments, etc.) will be merged into the primary user and the source user cannot be recovered.",
+  "inputSchema": {
+    "description": "Request model for merging two Zendesk end users.",
+    "properties": {
+      "user": {
+        "additionalProperties": false,
+        "description": "User object containing the ID of the user to merge from. The 'id' field is mandatory - the source user will be deleted. The 'name' field is optional to rename the primary user.",
+        "properties": {
+          "id": {
+            "description": "The ID of the user to merge from (source user that will be deleted)",
+            "examples": [26924495299996],
+            "human_parameter_description": "The ID of the user to merge from (source user that will be deleted)",
+            "human_parameter_name": "Source User ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "New name for the primary user after merge (optional)",
+            "examples": ["Merged User"],
+            "human_parameter_description": "Optional new name for the primary user after merge",
+            "human_parameter_name": "Name",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id"],
+        "title": "User",
+        "type": "object"
+      },
+      "user_id": {
+        "description": "The numeric ID of the primary user (target) to merge another user into",
+        "examples": [26924294027548],
+        "human_parameter_description": "The ID of the primary user to merge into",
+        "human_parameter_name": "User ID",
+        "title": "User Id",
+        "type": "integer"
+      }
+    },
+    "required": ["user_id", "user"],
+    "title": "MergeUsersRequest",
+    "type": "object"
+  },
+  "name": "merge_users",
+  "outputSchema": {
+    "$defs": {
+      "MergeUsersResponse": {
+        "description": "Response model for merge users operation.",
+        "properties": {
+          "user": {
+            "$ref": "#/$defs/MergeUsersUserResponse",
+            "description": "The merged user object (primary user)",
+            "title": "User"
+          }
+        },
+        "required": ["user"],
+        "title": "MergeUsersResponse",
+        "type": "object"
+      },
+      "MergeUsersUserResponse": {
+        "description": "User response object after merge operation.",
+        "properties": {
+          "active": {
+            "description": "True if user is active",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "chat_only": {
+            "description": "True if user is chat-only (Zendesk Chat)",
+            "title": "Chat Only",
+            "type": "boolean"
+          },
+          "created_at": {
+            "description": "Creation timestamp in ISO 8601 format",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "description": "Primary email address",
+            "title": "Email",
+            "type": "string"
+          },
+          "iana_time_zone": {
+            "description": "IANA time zone",
+            "title": "Iana Time Zone",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique ID for the user",
+            "title": "Id",
+            "type": "integer"
+          },
+          "locale": {
+            "description": "User locale BCP-47 string",
+            "title": "Locale",
+            "type": "string"
+          },
+          "locale_id": {
+            "description": "Locale identifier",
+            "title": "Locale Id",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Full name of the user",
+            "title": "Name",
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "Organization ID",
+            "title": "Organization Id",
+            "type": "integer"
+          },
+          "phone": {
+            "description": "Phone number",
+            "title": "Phone",
+            "type": "string"
+          },
+          "photo": {
+            "$ref": "#/$defs/PhotoResponse",
+            "description": "User photo object",
+            "title": "Photo"
+          },
+          "role": {
+            "description": "User role (end-user, agent, admin)",
+            "title": "Role",
+            "type": "string"
+          },
+          "shared_phone_number": {
+            "description": "True if phone number is shared",
+            "title": "Shared Phone Number",
+            "type": "boolean"
+          },
+          "time_zone": {
+            "description": "User time zone",
+            "title": "Time Zone",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update timestamp in ISO 8601 format",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "url": {
+            "description": "API URL of the user",
+            "title": "Url",
+            "type": "string"
+          },
+          "verified": {
+            "description": "True if user is verified",
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "name"],
+        "title": "MergeUsersUserResponse",
+        "type": "object"
+      },
+      "PhotoResponse": {
+        "description": "User photo response object.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type (e.g., image/png)",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL to download the photo",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "True if photo is deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "height": {
+            "description": "Image height in pixels",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Photo attachment ID",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "True if inline attachment",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Photo filename",
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "url": {
+            "description": "API URL to access photo details",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Image width in pixels",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "PhotoResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/MergeUsersResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

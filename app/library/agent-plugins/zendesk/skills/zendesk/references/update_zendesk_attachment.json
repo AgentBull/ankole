@@ -1,0 +1,159 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Updates an attachment's malware access override setting. Use when you need to enable or restrict agent access to attachments that have been flagged for malware.",
+  "inputSchema": {
+    "description": "Request schema for the Update Attachment action.",
+    "properties": {
+      "attachment_id": {
+        "description": "The unique ID of the attachment to update",
+        "examples": [26942801785116],
+        "human_parameter_description": "The numeric ID of the attachment you want to update. Find this from the ticket or attachment listing.",
+        "human_parameter_name": "Attachment ID",
+        "title": "Attachment Id",
+        "type": "integer"
+      },
+      "malware_access_override": {
+        "description": "If true, allows agents to access attachments with detected malware. If false, restricts access to malware-detected attachments.",
+        "examples": [true],
+        "human_parameter_description": "Set to true to enable agent access to attachments flagged as malware. Set to false to restrict access.",
+        "human_parameter_name": "Malware Access Override",
+        "title": "Malware Access Override",
+        "type": "boolean"
+      }
+    },
+    "required": ["attachment_id", "malware_access_override"],
+    "title": "UpdateZendeskAttachmentRequest",
+    "type": "object"
+  },
+  "name": "update_zendesk_attachment",
+  "outputSchema": {
+    "$defs": {
+      "Thumbnail": {
+        "description": "Thumbnail object for attachments.",
+        "properties": {
+          "content_type": {
+            "description": " MIME type of the thumbnail image",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL where the thumbnail is available",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "file_name": {
+            "description": "Name of the thumbnail file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier of the thumbnail",
+            "title": "Id",
+            "type": "integer"
+          },
+          "size": {
+            "description": "File size of the thumbnail in bytes",
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "title": "Thumbnail",
+        "type": "object"
+      },
+      "UpdateZendeskAttachmentResponse": {
+        "description": "Response schema for the Update Attachment action.",
+        "properties": {
+          "content_type": {
+            "description": "MIME type of the file (e.g., image/png)",
+            "title": "Content Type",
+            "type": "string"
+          },
+          "content_url": {
+            "description": "URL where the attachment content is available",
+            "title": "Content Url",
+            "type": "string"
+          },
+          "deleted": {
+            "description": "Whether the attachment has been deleted",
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "file_name": {
+            "description": "Name of the file",
+            "title": "File Name",
+            "type": "string"
+          },
+          "height": {
+            "description": "Height in pixels for image attachments",
+            "title": "Height",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique identifier of the attachment",
+            "title": "Id",
+            "type": "integer"
+          },
+          "inline": {
+            "description": "Whether the attachment is displayed inline",
+            "title": "Inline",
+            "type": "boolean"
+          },
+          "malware_access_override": {
+            "description": "Whether malware access override is enabled",
+            "title": "Malware Access Override",
+            "type": "boolean"
+          },
+          "malware_scan_result": {
+            "description": "Result of the malware scan",
+            "title": "Malware Scan Result",
+            "type": "string"
+          },
+          "mapped_content_url": {
+            "description": "Mapped content URL for the attachment",
+            "title": "Mapped Content Url",
+            "type": "string"
+          },
+          "size": {
+            "description": "File size in bytes",
+            "title": "Size",
+            "type": "integer"
+          },
+          "thumbnails": {
+            "description": "List of thumbnail objects for the attachment",
+            "items": {
+              "$ref": "#/$defs/Thumbnail"
+            },
+            "title": "Thumbnails",
+            "type": "array"
+          },
+          "url": {
+            "description": "URL of the attachment resource",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "description": "Width in pixels for image attachments",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "UpdateZendeskAttachmentResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateZendeskAttachmentResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

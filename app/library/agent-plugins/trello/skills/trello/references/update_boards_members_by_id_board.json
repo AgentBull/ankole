@@ -1,0 +1,160 @@
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Adds or updates a member's role on a specific Trello board, typically requiring the member's `email` and a membership `type`.",
+  "inputSchema": {
+    "description": "Request schema for `UpdateBoardsMembersByIdBoard`",
+    "properties": {
+      "email": {
+        "description": "Email address of the user to add or update. Typically required by Trello.",
+        "title": "Email",
+        "type": "string"
+      },
+      "fullName": {
+        "description": "Full name for a new user invitation; must be >=1 character and no leading/trailing spaces.",
+        "title": "Full Name",
+        "type": "string"
+      },
+      "idBoard": {
+        "description": "The unique identifier of the Trello board.",
+        "title": "Id Board",
+        "type": "string"
+      },
+      "type": {
+        "description": "Role to assign to the member on the board, determining permissions. Typically required by Trello.",
+        "examples": ["admin", "normal", "observer"],
+        "title": "Type",
+        "type": "string"
+      }
+    },
+    "required": ["idBoard"],
+    "title": "UpdateBoardsMembersByIdBoardRequest",
+    "type": "object"
+  },
+  "name": "update_boards_members_by_id_board",
+  "outputSchema": {
+    "$defs": {
+      "BioData": {
+        "description": "Structured biography data",
+        "properties": {
+          "emoji": {
+            "additionalProperties": true,
+            "description": "Emoji metadata associated with the member's biography",
+            "title": "Emoji",
+            "type": "object"
+          }
+        },
+        "title": "BioData",
+        "type": "object"
+      },
+      "UpdateBoardsMembersByIdBoardResponse": {
+        "description": "Response schema for `UpdateBoardsMembersByIdBoard`",
+        "properties": {
+          "activityBlocked": {
+            "description": "Whether member activity is restricted",
+            "title": "Activity Blocked",
+            "type": "boolean"
+          },
+          "avatarHash": {
+            "description": "Hash for avatar image",
+            "title": "Avatar Hash",
+            "type": "string"
+          },
+          "avatarUrl": {
+            "description": "The url of this member's avatar",
+            "title": "Avatar Url",
+            "type": "string"
+          },
+          "bio": {
+            "description": "Member biography text",
+            "title": "Bio",
+            "type": "string"
+          },
+          "bioData": {
+            "$ref": "#/$defs/BioData",
+            "description": "Structured biography data",
+            "title": "Bio Data"
+          },
+          "confirmed": {
+            "description": "Whether the user has confirmed their email address for their account",
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "fullName": {
+            "description": "The full name related to the account, if it is public",
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "description": "The ID of the member",
+            "title": "Id",
+            "type": "string"
+          },
+          "idMemberReferrer": {
+            "description": "ID of referring member",
+            "title": "Id Member Referrer",
+            "type": "string"
+          },
+          "idPremOrgsAdmin": {
+            "description": "Premium organization administration IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Id Prem Orgs Admin",
+            "type": "array"
+          },
+          "initials": {
+            "description": "The initials related to the account, if it is public",
+            "title": "Initials",
+            "type": "string"
+          },
+          "memberType": {
+            "description": "Classification of membership tier",
+            "title": "Member Type",
+            "type": "string"
+          },
+          "products": {
+            "description": "Associated product information",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "status": {
+            "description": "Current member state",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "Member profile URL",
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "description": "The username of this account",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": ["id", "username"],
+        "title": "UpdateBoardsMembersByIdBoardResponse",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/UpdateBoardsMembersByIdBoardResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}

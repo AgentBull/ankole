@@ -1,0 +1,576 @@
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Cancels a PaymentIntent when in cancelable state. Use when a PaymentIntent is no longer needed to prevent further charges. For PaymentIntents with status='requires_capture', the remaining amount_capturable will be automatically refunded.",
+  "inputSchema": {
+    "description": "Request model for canceling a PaymentIntent.",
+    "properties": {
+      "cancellation_reason": {
+        "description": "Reason for canceling this PaymentIntent. Must be one of: 'duplicate', 'fraudulent', 'requested_by_customer', or 'abandoned'.",
+        "enum": ["duplicate", "fraudulent", "requested_by_customer", "abandoned"],
+        "examples": ["duplicate", "requested_by_customer"],
+        "title": "Cancellation Reason",
+        "type": "string"
+      },
+      "payment_intent_id": {
+        "description": "The unique identifier of the PaymentIntent to cancel.",
+        "examples": ["pi_1234567890"],
+        "title": "Payment Intent Id",
+        "type": "string"
+      }
+    },
+    "required": ["payment_intent_id"],
+    "title": "CancelPaymentIntentRequest",
+    "type": "object"
+  },
+  "name": "cancel_payment_intent",
+  "outputSchema": {
+    "$defs": {
+      "Address": {
+        "description": "Shipping or billing address information.",
+        "properties": {
+          "city": {
+            "description": "City/District/Suburb/Town/Village.",
+            "title": "City",
+            "type": "string"
+          },
+          "country": {
+            "description": "Two-letter ISO 3166-1 country code.",
+            "title": "Country",
+            "type": "string"
+          },
+          "line1": {
+            "description": "Street address/PO Box/Company name.",
+            "title": "Line1",
+            "type": "string"
+          },
+          "line2": {
+            "description": "Apartment/Suite/Unit/Building.",
+            "title": "Line2",
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "ZIP or postal code.",
+            "title": "Postal Code",
+            "type": "string"
+          },
+          "state": {
+            "description": "State/County/Province/Region.",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "Address",
+        "type": "object"
+      },
+      "AmountDetails": {
+        "description": "Industry-specific breakdown of amount information.",
+        "properties": {
+          "tip": {
+            "$ref": "#/$defs/Tip",
+            "description": "Portion of the amount that corresponds to a tip.",
+            "title": "Tip"
+          }
+        },
+        "title": "AmountDetails",
+        "type": "object"
+      },
+      "AutomaticPaymentMethods": {
+        "description": "Settings for automatic payment method selection.",
+        "properties": {
+          "allow_redirects": {
+            "description": "Controls whether redirect-based payment methods are allowed. Can be 'always' or 'never'.",
+            "title": "Allow Redirects",
+            "type": "string"
+          },
+          "enabled": {
+            "description": "Indicates whether automatic payment methods are enabled.",
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "title": "AutomaticPaymentMethods",
+        "type": "object"
+      },
+      "CancelPaymentIntentResponse": {
+        "description": "Response model for canceling a PaymentIntent.",
+        "properties": {
+          "transfer_group": {
+            "description": "A string that identifies this transaction as part of a group.",
+            "title": "Transfer Group",
+            "type": "string"
+          },
+          "source": {
+            "additionalProperties": true,
+            "description": "Legacy payment source object.",
+            "title": "Source",
+            "type": "object"
+          },
+          "next_action": {
+            "$ref": "#/$defs/NextAction",
+            "description": "If present, indicates the next action required for the PaymentIntent.",
+            "title": "Next Action"
+          },
+          "canceled_at": {
+            "description": "Unix timestamp when the PaymentIntent was canceled.",
+            "title": "Canceled At",
+            "type": "integer"
+          },
+          "payment_method_types": {
+            "description": "List of payment method types that this PaymentIntent is allowed to use.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Payment Method Types",
+            "type": "array"
+          },
+          "application": {
+            "description": "ID of the Connect application that created the PaymentIntent.",
+            "title": "Application",
+            "type": "string"
+          },
+          "amount_details": {
+            "$ref": "#/$defs/AmountDetails",
+            "description": "Industry-specific breakdown of amount information.",
+            "title": "Amount Details"
+          },
+          "description": {
+            "description": "An arbitrary string attached to the object.",
+            "title": "Description",
+            "type": "string"
+          },
+          "created": {
+            "description": "Unix timestamp when the PaymentIntent was created.",
+            "title": "Created",
+            "type": "integer"
+          },
+          "automatic_payment_methods": {
+            "$ref": "#/$defs/AutomaticPaymentMethods",
+            "description": "Settings for automatic payment method selection.",
+            "title": "Automatic Payment Methods"
+          },
+          "invoice": {
+            "description": "ID of the invoice that created this PaymentIntent.",
+            "title": "Invoice",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of this PaymentIntent. Will be 'canceled' after successful cancellation.",
+            "title": "Status",
+            "type": "string"
+          },
+          "client_secret": {
+            "description": "The client secret of this PaymentIntent.",
+            "title": "Client Secret",
+            "type": "string"
+          },
+          "cancellation_reason": {
+            "description": "Reason for cancellation.",
+            "title": "Cancellation Reason",
+            "type": "string"
+          },
+          "customer": {
+            "description": "ID of the Customer this PaymentIntent belongs to.",
+            "title": "Customer",
+            "type": "string"
+          },
+          "payment_method_options": {
+            "$ref": "#/$defs/PaymentMethodOptions",
+            "description": "Payment-method-specific configuration for this PaymentIntent.",
+            "title": "Payment Method Options"
+          },
+          "latest_charge": {
+            "description": "ID of the latest Charge created by this PaymentIntent.",
+            "title": "Latest Charge",
+            "type": "string"
+          },
+          "amount_capturable": {
+            "description": "Amount that can be captured from this PaymentIntent, in the smallest currency unit.",
+            "title": "Amount Capturable",
+            "type": "integer"
+          },
+          "review": {
+            "description": "ID of the review associated with this PaymentIntent.",
+            "title": "Review",
+            "type": "string"
+          },
+          "application_fee_amount": {
+            "description": "The amount of the application fee that will be applied to the payment.",
+            "title": "Application Fee Amount",
+            "type": "integer"
+          },
+          "processing": {
+            "$ref": "#/$defs/Processing",
+            "description": "Processing information for payment methods with delayed notification.",
+            "title": "Processing"
+          },
+          "on_behalf_of": {
+            "description": "The account for which the funds of the PaymentIntent are intended.",
+            "title": "On Behalf Of",
+            "type": "string"
+          },
+          "last_payment_error": {
+            "$ref": "#/$defs/LastPaymentError",
+            "description": "The payment error encountered in the previous PaymentIntent confirmation.",
+            "title": "Last Payment Error"
+          },
+          "transfer_data": {
+            "$ref": "#/$defs/TransferData",
+            "description": "The data with which to automatically create a Transfer when the payment is finalized.",
+            "title": "Transfer Data"
+          },
+          "receipt_email": {
+            "description": "Email address that the receipt for the resulting payment will be sent to.",
+            "title": "Receipt Email",
+            "type": "string"
+          },
+          "statement_descriptor_suffix": {
+            "description": "Provides information about a card payment that customers see on their statements.",
+            "title": "Statement Descriptor Suffix",
+            "type": "string"
+          },
+          "payment_method_configuration_details": {
+            "$ref": "#/$defs/PaymentMethodConfigurationDetails",
+            "description": "Information about the payment method configuration used for this PaymentIntent.",
+            "title": "Payment Method Configuration Details"
+          },
+          "shipping": {
+            "$ref": "#/$defs/Shipping",
+            "description": "Shipping information for this PaymentIntent.",
+            "title": "Shipping"
+          },
+          "statement_descriptor": {
+            "description": "Text that appears on the customer's bank statement for the payment.",
+            "title": "Statement Descriptor",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Set of key-value pairs for storing additional information (up to 50 keys, key names up to 40 characters, values up to 500 characters).",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "livemode": {
+            "description": "Has the value true if the object exists in live mode or the value false if the object exists in test mode.",
+            "title": "Livemode",
+            "type": "boolean"
+          },
+          "amount": {
+            "description": "Amount intended to be collected by this PaymentIntent, in the smallest currency unit.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "confirmation_method": {
+            "description": "Determines how the PaymentIntent should be confirmed.",
+            "title": "Confirmation Method",
+            "type": "string"
+          },
+          "currency": {
+            "description": "Three-letter ISO currency code in lowercase.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "setup_future_usage": {
+            "description": "Indicates how to use the payment method for future payments.",
+            "title": "Setup Future Usage",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique identifier for the PaymentIntent object.",
+            "title": "Id",
+            "type": "string"
+          },
+          "amount_received": {
+            "description": "Amount that was successfully collected by this PaymentIntent, in the smallest currency unit.",
+            "title": "Amount Received",
+            "type": "integer"
+          },
+          "payment_method": {
+            "description": "ID of the payment method used in this PaymentIntent.",
+            "title": "Payment Method",
+            "type": "string"
+          },
+          "object": {
+            "description": "String representing the object's type. Always 'payment_intent'.",
+            "title": "Object",
+            "type": "string"
+          },
+          "capture_method": {
+            "description": "Controls when the funds will be captured from the customer's account.",
+            "title": "Capture Method",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "object",
+          "amount",
+          "amount_capturable",
+          "amount_received",
+          "capture_method",
+          "confirmation_method",
+          "created",
+          "currency",
+          "livemode",
+          "metadata",
+          "payment_method_types",
+          "status"
+        ],
+        "title": "CancelPaymentIntentResponse",
+        "type": "object"
+      },
+      "CardPaymentMethodOptions": {
+        "description": "Card-specific payment method options.",
+        "properties": {
+          "installments": {
+            "additionalProperties": true,
+            "description": "Installment plan configuration.",
+            "title": "Installments",
+            "type": "object"
+          },
+          "mandate_options": {
+            "additionalProperties": true,
+            "description": "Mandate options for recurring payments.",
+            "title": "Mandate Options",
+            "type": "object"
+          },
+          "network": {
+            "description": "Selected card network for processing.",
+            "title": "Network",
+            "type": "string"
+          },
+          "request_three_d_secure": {
+            "description": "Controls whether to perform 3D Secure authentication. Can be 'any', 'automatic', or 'challenge'.",
+            "title": "Request Three D Secure",
+            "type": "string"
+          }
+        },
+        "title": "CardPaymentMethodOptions",
+        "type": "object"
+      },
+      "LastPaymentError": {
+        "description": "The payment error encountered in the previous PaymentIntent confirmation.",
+        "properties": {
+          "charge": {
+            "description": "ID of the failed Charge.",
+            "title": "Charge",
+            "type": "string"
+          },
+          "code": {
+            "description": "Machine-readable error code for the failure.",
+            "title": "Code",
+            "type": "string"
+          },
+          "decline_code": {
+            "description": "Decline reason from the card issuer.",
+            "title": "Decline Code",
+            "type": "string"
+          },
+          "doc_url": {
+            "description": "Link to documentation providing more information about the error.",
+            "title": "Doc Url",
+            "type": "string"
+          },
+          "message": {
+            "description": "Human-readable explanation of the error.",
+            "title": "Message",
+            "type": "string"
+          },
+          "param": {
+            "description": "Reference to the problematic parameter if the error is parameter-specific.",
+            "title": "Param",
+            "type": "string"
+          },
+          "payment_method": {
+            "additionalProperties": true,
+            "description": "Full PaymentMethod object that encountered the error.",
+            "title": "Payment Method",
+            "type": "object"
+          },
+          "type": {
+            "description": "Type of error.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "LastPaymentError",
+        "type": "object"
+      },
+      "LinkPaymentMethodOptions": {
+        "description": "Stripe Link payment method options.",
+        "properties": {
+          "persistent_token": {
+            "description": "Token used to persist Link payment method for future use.",
+            "title": "Persistent Token",
+            "type": "string"
+          }
+        },
+        "title": "LinkPaymentMethodOptions",
+        "type": "object"
+      },
+      "NextAction": {
+        "description": "If present, indicates the next action required for the PaymentIntent.",
+        "properties": {
+          "redirect_to_url": {
+            "$ref": "#/$defs/RedirectToUrl",
+            "description": "Contains redirect URL details when type is 'redirect_to_url'.",
+            "title": "Redirect To Url"
+          },
+          "type": {
+            "description": "Type of action required. Can be 'redirect_to_url', 'use_stripe_sdk', etc.",
+            "title": "Type",
+            "type": "string"
+          },
+          "use_stripe_sdk": {
+            "additionalProperties": true,
+            "description": "Contains details for Stripe SDK handling when type is 'use_stripe_sdk'. Structure is internal to Stripe SDK and subject to change.",
+            "title": "Use Stripe Sdk",
+            "type": "object"
+          }
+        },
+        "title": "NextAction",
+        "type": "object"
+      },
+      "PaymentMethodConfigurationDetails": {
+        "description": "Information about the payment method configuration used for this PaymentIntent.",
+        "properties": {
+          "id": {
+            "description": "ID of the payment method configuration.",
+            "title": "Id",
+            "type": "string"
+          },
+          "parent": {
+            "description": "ID of the parent configuration (used for connected accounts).",
+            "title": "Parent",
+            "type": "string"
+          }
+        },
+        "title": "PaymentMethodConfigurationDetails",
+        "type": "object"
+      },
+      "PaymentMethodOptions": {
+        "description": "Payment-method-specific configuration for this PaymentIntent.",
+        "properties": {
+          "card": {
+            "$ref": "#/$defs/CardPaymentMethodOptions",
+            "description": "Card-specific options.",
+            "title": "Card"
+          },
+          "link": {
+            "$ref": "#/$defs/LinkPaymentMethodOptions",
+            "description": "Stripe Link payment method options.",
+            "title": "Link"
+          }
+        },
+        "title": "PaymentMethodOptions",
+        "type": "object"
+      },
+      "Processing": {
+        "description": "Processing information for payment methods with delayed notification.",
+        "properties": {
+          "card": {
+            "additionalProperties": true,
+            "description": "Card processing details.",
+            "title": "Card",
+            "type": "object"
+          }
+        },
+        "title": "Processing",
+        "type": "object"
+      },
+      "RedirectToUrl": {
+        "description": "Redirect URL details for 3D Secure authentication or other redirect flows.",
+        "properties": {
+          "return_url": {
+            "description": "URL to return to after the customer completes authentication.",
+            "title": "Return Url",
+            "type": "string"
+          },
+          "url": {
+            "description": "URL to redirect the customer to for authentication or completion.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "RedirectToUrl",
+        "type": "object"
+      },
+      "Shipping": {
+        "description": "Shipping information for this PaymentIntent.",
+        "properties": {
+          "address": {
+            "$ref": "#/$defs/Address",
+            "description": "Shipping address details.",
+            "title": "Address"
+          },
+          "carrier": {
+            "description": "The delivery service that shipped a physical product.",
+            "title": "Carrier",
+            "type": "string"
+          },
+          "name": {
+            "description": "Recipient name.",
+            "title": "Name",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Recipient phone number (including extension).",
+            "title": "Phone",
+            "type": "string"
+          },
+          "tracking_number": {
+            "description": "The tracking number for a physical product.",
+            "title": "Tracking Number",
+            "type": "string"
+          }
+        },
+        "title": "Shipping",
+        "type": "object"
+      },
+      "Tip": {
+        "description": "Tip amount information.",
+        "properties": {
+          "amount": {
+            "description": "Portion of the amount that corresponds to a tip, in smallest currency unit.",
+            "title": "Amount",
+            "type": "integer"
+          }
+        },
+        "title": "Tip",
+        "type": "object"
+      },
+      "TransferData": {
+        "description": "The data with which to automatically create a Transfer when the payment is finalized.",
+        "properties": {
+          "amount": {
+            "description": "Amount intended to be transferred to the destination account.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "destination": {
+            "description": "ID of the connected account receiving the transfer.",
+            "title": "Destination",
+            "type": "string"
+          }
+        },
+        "title": "TransferData",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "result": {
+        "$ref": "#/$defs/CancelPaymentIntentResponse",
+        "description": "Data from the action execution",
+        "title": "Data"
+      }
+    },
+    "required": ["result"],
+    "type": "object"
+  }
+}
