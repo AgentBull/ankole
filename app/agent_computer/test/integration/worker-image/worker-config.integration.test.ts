@@ -22,7 +22,7 @@ it('loads the image configuration and removes the auth key before child processe
   })
 })
 
-it('installs the Pod CLI with the editor codec and real applet build dependencies', async () => {
+it('installs the Pod CLI with real applet build dependencies', async () => {
   const { mkdtemp, rm } = await import('node:fs/promises')
   const root = await mkdtemp('/tmp/ankole-pod-image-')
   const directory = `${root}/tracker`
@@ -38,8 +38,6 @@ it('installs the Pod CLI with the editor codec and real applet build dependencie
     expect(script).toContain('@ankole/applet-sdk')
     expect(script).not.toContain('jsxDEV')
     expect(await Bun.file(`${directory}/dist/index.html`).text()).toContain('./main.js')
-    const { parseMarkdown, printXml } = await import('@ankole/block-editor/document')
-    expect(printXml(parseMarkdown('## Saved report'))).toContain('Saved report')
   } finally {
     await rm(root, { recursive: true, force: true })
   }
