@@ -11,9 +11,9 @@ order: 315
 
 | 数据类别 | 包含内容 | 备份方式与来源 |
 |---|---|---|
-| 控制面 PostgreSQL | 主体身份、Session、后台 Job、Pod 元数据与文档、Provider 配置、加密凭据、generation 标识与存储引用 | 执行 `pg_dump -Fc` 或启用时间点恢复（PITR） |
-| 物理 Base 分片库（`BASE_DB_URLS`） | 各租户物理 Base 表的行数据（未配置 `BASE_DB_URLS` 的单库部署中，Base 表直接位于控制面库内，单次 `pg_dump` 即可一并原子导出） | 对每个分片数据库分别执行 `pg_dump -Fc` 或启用 PITR |
-| 对象存储（文件存储） | Pod `file` 页面、Pod 与会话附件、编译后的 Applet 产物包、Agent 发布的文件、已安装 Skill | Docker Compose 的 `files_data` 卷、Kubernetes 文件存储 PVC 或 S3 兼容存储桶 |
+| 控制面 PostgreSQL | 主体身份、Session、后台 Job、Pod 与统一云盘（`pages`）元数据及文档、Brain 知识库、Skill 清单/绑定与 Agent 契约（`Ankole.AIAgent.Library`）、Provider 与连接器（`Connectors`）配置、加密凭据、generation 标识与存储引用 | 执行 `pg_dump -Fc` 或启用时间点恢复（PITR） |
+| 物理 Base 分片库（`BASE_DB_URLS`） | 各租户物理 Base 表的行数据（配置了 `BASE_DB_URLS` 时必须与控制面数据库一并备份全部物理分片库；未配置 `BASE_DB_URLS` 的单库部署中，Base 表直接位于控制面库内，单次 `pg_dump` 即可原子导出） | 对每个分片数据库分别执行 `pg_dump -Fc` 或启用 PITR |
+| 对象存储（文件存储） | 统一云盘文件对象（`file_objects`）、Pod 与 Applet 文件（`pod_files`，含文档与 Base 附件、已编译的 Applet 产物包及自定义表情）、Skill 随附二进制文件（`skill_files`）、冻结的聊天消息与投递附件 | Docker Compose 的 `files_data` 卷、Kubernetes 文件存储 PVC 或 S3 兼容存储桶 |
 | Agent Home | 工作区文件、用户自行安装的软件、`/workspace/.codex` 下的线程文件 | 各 Worker Provider 对应的独享数据卷、共享目录、云盘、EFS 或 Cloudflare R2 备份 |
 | 部署配置与密钥 | `ANKOLE_SECRET_BASE`、`ANKOLE_FUNCTION_RUNTIME_TOKEN`、`BASE_DB_URLS` 及其他启动凭据 | 独立的企业密钥管理系统 |
 

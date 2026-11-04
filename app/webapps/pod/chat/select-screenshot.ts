@@ -1,3 +1,4 @@
+import { blobToDataUrl } from '../../common/browser-files'
 import { getCaptureSnapshotAttr, resolveCaptureSnapshotsInSubtree, type CaptureSnapshot } from './dom-capture-snapshot'
 import { planScreenshotPixelRatio, validateScreenshotPng } from './screenshot-budget'
 
@@ -93,15 +94,6 @@ const INLINE_COMPUTED_PROPERTIES = [
   'min-height',
   'opacity'
 ]
-
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result ?? ''))
-    reader.onerror = () => reject(reader.error ?? new Error('Failed to read blob'))
-    reader.readAsDataURL(blob)
-  })
-}
 
 async function inlineImageElement(liveImg: HTMLImageElement, clonedImg: HTMLImageElement): Promise<void> {
   const src = liveImg.currentSrc || liveImg.getAttribute('src') || ''

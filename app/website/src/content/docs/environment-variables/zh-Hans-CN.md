@@ -52,7 +52,7 @@ order: 202
 
 ## 文件存储（进程启动）
 
-控制面对象存储（`Ankole.ObjectStore`）通过 `ANKOLE_FILES_STORE` 配置，统一承载每个 Agent 的云盘（包括收到的附件、生成的图片、发出的文件、已安装的 Skill、Automation Job 脚本及保存的文件），以及 Pod `file` 页面、Pod 文档/Base/Chat 附件与已编译的 Applet 产物包。Worker 从不持有底层存储凭据，所有文件字节均经由控制面中转。完整的 OpenDAL 后端支持列表见[控制面云盘与对象存储配置](../drive-storage/)。
+控制面对象存储（`Ankole.ObjectStore`）通过 `ANKOLE_FILES_STORE` 配置，统一承载统一云盘（Unified Drive）不可变文件对象（`file_objects`，涵盖公共空间、成员私人空间、Agent 云盘及会话文件）、Pod 与 Applet 资产（`pod_files`，含文档与 Base 附件、已编译的 Applet 产物包及自定义表情）、Skill 随附二进制文件（`skill_files`），以及冻结的聊天消息与投递附件。Worker 从不持有底层存储凭据，所有文件字节均经由控制面流式传输。完整的 OpenDAL 后端支持列表见[控制面云盘与对象存储配置](../drive-storage/)。
 
 | 变量 | 必填 | 含义 |
 |---|---|---|

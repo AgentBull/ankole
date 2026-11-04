@@ -14,7 +14,7 @@ Always rehearse the upgrade against a restored backup in an isolated staging env
 | Old 1.x layout | 2.0 layout | Operator action |
 | --- | --- | --- |
 | Pooled Workers and shared `/agents` | One Worker and private `/workspace` per Agent | Copy or adopt Agent Homes and assign a WorkerProvider |
-| Installed Skills and Worker script automations in Home | Skills in the control-plane drive; automation logic in published Applet Actions | Import Skills; export script Jobs and recreate them as Applet Jobs |
+| Installed Skills and Worker script automations in Home | Skills and Agent contracts in Meta Ankole (`Ankole.AIAgent.Library` PostgreSQL tables); files in Unified Drive; automation logic in published Applet Actions | Import legacy `installed-skills` and attachments; let schema migrations separate custom Skills; export script Jobs and recreate them as Applet Jobs |
 | Transient Codex state in Workers | Threads in `/workspace/.codex`; rebuildable cache in `/var/cache/ankole/codex` | Preserve Home and attach a separate cache disk |
 | In-process script sandboxes and 2 images | External stateless `ankole-function-runtime` (3 co-versioned images: `control-plane`, `worker`, `function-runtime`) | Set `ANKOLE_FUNCTION_RUNTIME_TOKEN` and deploy all three matching images |
 | Data and configuration without tenant ownership | Original data placed in the `default` tenant; Pod / Base storage on **PostgreSQL 18+** (with optional `BASE_DB_URLS` shards) | Upgrade to PostgreSQL 18+ and run schema and encrypted-config migrations with the original key |
@@ -53,14 +53,14 @@ grep -q '^ANKOLE_FUNCTION_RUNTIME_TOKEN=' .env || printf 'ANKOLE_FUNCTION_RUNTIM
 
 In `worker-providers.yaml`, ensure the initial provider seed sets `legacy_agents: true` and uses the same `provider_id` as the Home migration service's `WORKER_PROVIDER` (`docker` in the official files). Ankole imports this seed YAML only when the provider table is empty; make any subsequent provider changes in the Console.
 
-Because 2.0 requires **PostgreSQL 18+** (`pg_search` `0.25.11` and `vector`), complete a PostgreSQL major-version upgrade first if your server runs an older major version, and then update `pg_search` and run the Compose stack:
+Because 2.0 requires **PostgreSQL 18+** (`pg_search` `0.26.4` and `vector`), complete a PostgreSQL major-version upgrade first if your server runs an older major version, and then update `pg_search` and run the Compose stack:
 
 ```sh
 docker compose pull
 docker compose stop
 docker compose up -d postgresql
 docker compose exec postgresql psql -U ankole -d ankole -v ON_ERROR_STOP=1 \
-  -c "ALTER EXTENSION pg_search UPDATE TO '0.25.11'"
+  -c "ALTER EXTENSION pg_search UPDATE TO '0.26.4'"
 docker compose up -d --force-recreate
 docker compose ps -a migrate migrate-agent-homes
 docker compose logs migrate migrate-agent-homes
@@ -68,7 +68,7 @@ docker compose logs migrate migrate-agent-homes
 
 Here, `migrate` runs schema and encrypted-configuration migrations, while `migrate-agent-homes` stops any containers still mounting the old shared volume, copies each existing Agent's Home into its own private volume, and sets ownership to `uid 1000`. The control plane waits until both one-shot services exit `0`. Completion markers ensure retries never overwrite finished copies, and if no legacy volume exists, `migrate-agent-homes` exits cleanly without copying.
 
-Leave Agents disabled while you import legacy files into the control-plane drive (replace `ankole_agents_data` below if you use a custom Compose project name):
+Leave Agents disabled while you import legacy files into Unified Drive (replace `ankole_agents_data` below if you use a custom Compose project name):
 
 ```sh
 docker compose run --rm --no-deps --user root --entrypoint chmod \
@@ -77,20 +77,28 @@ docker compose run --rm --no-deps -v ankole_agents_data:/agents:ro control-plane
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
-`import_agent_home/1` imports installed Skills and unsent legacy Outbox attachments without overwriting existing drive paths. General user files and Session/Background Job workspaces stay in Home. Save the report, repair skipped files, and rerun the import. Preserve script source separately for conversion to Applet Actions, and retain the old volume until verification and a restore rehearsal succeed.
+`Ankole.Upgrade202610.import_agent_home/1` copies legacy `installed-skills` directories and unsent Outbox/Delivery attachments into each Agent's private Drive without overwriting existing paths, while the schema migrations separate custom Skills, Skill package files, and Agent contracts into Meta Ankole (`Ankole.AIAgent.Library` PostgreSQL tables; manage runnable Skill packages in **Meta Ankole → Skills** and Agent contracts in **Meta Ankole → Agents**). General user files and Session/Background Job workspaces stay in Home. Save the report, repair skipped files, and rerun the import. Preserve script source separately for conversion to Applet Actions, and retain the old volume until verification and a restore rehearsal succeed.
 
 ## Upgrade Kubernetes / Helm
 
 1. Scale both the 1.x control-plane Deployment and pooled Worker Deployment to `0` replicas and wait for every old Pod to terminate cleanly—never force-delete Pods or pass `--grace-period=0`.
-2. Confirm that your external or bundled database runs **PostgreSQL 18+**. If you use `secrets.existingSecret` (`ankole-bootstrap`), patch it so `RELEASE_COOKIE` and `ANKOLE_FUNCTION_RUNTIME_TOKEN` exist alongside `ANKOLE_SECRET_BASE` and `DATABASE_URL` before running `helm upgrade`:
+2. Prepare cluster FUSE prerequisites required by 2.0 Worker `/drive` mounts before starting local Kubernetes Workers: install the FUSE device plugin once per cluster (advertising `smarter-devices/fuse` on Linux nodes with `/dev/fuse`) and label the application namespace `pod-security.kubernetes.io/enforce=privileged` so it pairs with the Helm chart's cluster-scoped `ValidatingAdmissionPolicy` for the Worker `ServiceAccount` (Worker Pods run no privileged containers, host namespaces, or `hostPath` volumes, and Helm installation requires permission to manage this policy and binding):
+
+```sh
+kubectl apply -f tools/deploy/kubernetes/fuse-device-plugin.yaml
+kubectl -n kube-system rollout status daemonset/ankole-fuse-devices
+kubectl label namespace ankole pod-security.kubernetes.io/enforce=privileged --overwrite
+```
+
+3. Confirm that your external or bundled database runs **PostgreSQL 18+** (`pg_search` `0.26.4` and `vector`). If you use `secrets.existingSecret` (`ankole-bootstrap`), patch it so `RELEASE_COOKIE` and `ANKOLE_FUNCTION_RUNTIME_TOKEN` exist alongside `ANKOLE_SECRET_BASE` and `DATABASE_URL` before running `helm upgrade`:
 
 ```sh
 kubectl -n ankole patch secret ankole-bootstrap --type merge -p "$(printf '{"stringData":{"RELEASE_COOKIE":"%s","ANKOLE_FUNCTION_RUNTIME_TOKEN":"%s"}}' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)")"
 ```
 
    (Patch only keys that are not already present in `ankole-bootstrap`.)
-3. Retain your existing shared Agent Home PVC by pointing `worker.agents.persistence.existingClaim` at it, and keep the original `worker.installation` and Helm release name. If your bundled PostgreSQL stores data directly at the volume root, keep its existing `postgresql.pgdata` path (`/var/lib/pgsql/18/data`) so PostgreSQL does not initialize an empty directory.
-4. Normalize ownership and permissions on the Agent Home PVC before booting the 2.0 control plane (requires storage where container `root` can run `chown`; replace `OLD_AGENTS_PVC` with your PVC name):
+4. Retain your existing shared Agent Home PVC by pointing `worker.agents.persistence.existingClaim` at it, and keep the original `worker.installation` and Helm release name. If your bundled PostgreSQL stores data directly at the volume root, keep its existing `postgresql.pgdata` path (`/var/lib/pgsql/18/data`) so PostgreSQL does not initialize an empty directory.
+5. Normalize ownership and permissions on the Agent Home PVC before booting the 2.0 control plane (requires storage where container `root` can run `chown`; replace `OLD_AGENTS_PVC` with your PVC name):
 
 ```sh
 kubectl -n ankole run ankole-agent-home-prepare --rm -i --restart=Never \
@@ -104,7 +112,7 @@ kubectl -n ankole run ankole-agent-home-prepare --rm -i --restart=Never \
 
 On NFS exports with default root-squash enabled, a Pod cannot run `chown`; run the ownership change on the NFS server instead, and export the share so Worker `root` can write and `chown` to `uid/gid 1000` (or map all client access to `uid/gid 1000`). Volumes mounted via an AWS EFS access point already enforcing `uid/gid 1000` need no conversion. See [WorkerProviders and cache disks](../worker-providers/).
 
-Configure matching 2.0 digests for `controlPlane.image` and `functionRuntime.image` (plus `worker.image` only if you override the Worker image explicitly), your [drive backend](../drive-storage/), and the existing Home PVC in `values-production.yaml`. Assuming namespace and release name `ankole` with `fullnameOverride: ankole`, run:
+Configure matching 2.0 digests for `controlPlane.image` and `functionRuntime.image` (plus `worker.image` only if you override the Worker image explicitly), your [drive backend](../drive-storage/), and the existing Home PVC in `values-production.yaml`. Keep Agents disabled so no 2.0 Workers launch while legacy bare-UID directories are still being imported. Assuming namespace and release name `ankole` with `fullnameOverride: ankole`, run:
 
 ```sh
 helm upgrade ankole ./tools/deploy/helm/ankole-agent \
@@ -114,7 +122,16 @@ kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
-Because the control-plane Deployment uses the `Recreate` strategy, the new Pod's `db-migrate` init container completes all Ecto migrations before the control plane starts. Keep Agents disabled until `import_agent_home/1` finishes, review the printed report, remove `files.importAgentHomeClaim`, and run `helm upgrade` once more—keeping the shared Home PVC itself, which Worker Pods continue to mount. Adjust resource names if your release, namespace, or Deployment names differ; see the [Helm deployment guide](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md).
+Because the control-plane Deployment uses the `Recreate` strategy, the new Pod's `db-migrate` init container completes all Ecto migrations before the control plane starts. Keep Agents disabled until `import_agent_home/1` finishes while the legacy bare-UID directories are still in place, and verify the printed report.
+
+Workers using a shared Agent Home claim (`storage.sharedClaim` / `worker.agents.persistence.existingClaim`) mount tenant-qualified directory names computed by `Ankole.AgentWorkers.ProviderKind.storage_name/2` rather than bare `<agent_uid>` directories. Query each Agent's destination directory name from the upgraded control plane:
+
+```sh
+kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
+  /app/bin/ankole eval 'IO.puts(Ankole.Repo.with_tenant("TENANT_UUID", fn -> Ankole.AgentWorkers.ProviderKind.storage_name("INSTALLATION", "AGENT_UID") end))'
+```
+
+With the control plane scaled to `0` and all Workers stopped, mount `OLD_AGENTS_PVC` in a preparation Pod and rename each Agent's legacy `<agent_uid>` directory to its `ProviderKind.storage_name/2` path (reconciling manually rather than overwriting if a destination directory already exists). Then remove `files.importAgentHomeClaim` and run `helm upgrade` once more—keeping the shared Home PVC itself, which Worker Pods continue to mount—before re-enabling Agents. Adjust resource names if your release, namespace, or Deployment names differ; see the [Helm deployment guide](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md).
 
 ## Verify and recover
 

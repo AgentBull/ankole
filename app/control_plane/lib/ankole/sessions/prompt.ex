@@ -251,18 +251,8 @@ defmodule Ankole.Sessions.Prompt do
 
   defp available?(%{available_tool_names: names}, name), do: name in names
 
-  defp zoned_time(value, timezone) when is_binary(value) do
-    timezone = if timezone == "UTC", do: "Etc/UTC", else: timezone
-
-    with {:ok, at, _} <- DateTime.from_iso8601(value),
-         {:ok, at} <- DateTime.shift_zone(at, timezone) do
-      Calendar.strftime(at, "%Y-%m-%d %H:%M")
-    else
-      _invalid -> nil
-    end
-  end
-
-  defp zoned_time(_value, _timezone), do: nil
+  defp zoned_time(value, timezone),
+    do: Ankole.TimeZone.format_instant(value, timezone, "%Y-%m-%d %H:%M")
 
   defp format_channel(nil), do: nil
 

@@ -1840,7 +1840,7 @@ for `inline` tables and native column/edge SQL for `physical` tables:
 - Array equality checks both JSONB equality and containment, and author system
   fields accept either a single Principal UID or a UID list.
 - Aggregate queries support up to two group fields plus date bucketing in
-  `system.timezone` (`count` without a field counts rows; `count` with a field
+  `system.timezone`, including datetime-valued formulas (`count` without a field counts rows; `count` with a field
   counts non-null values) and return `value_json` alongside formatted labels so
   per-group record queries `AND` that exact JSON value outside user filters.
 - Large kanban boards fetch full-table group counts and paginate each column
@@ -1858,7 +1858,8 @@ and run local filters/sorts only when they match PostgreSQL semantics exactly.
 Numeric comparisons, numeric formulas, `sum`, `average`, and locale-dependent
 operations when the database locale is unsupported always route to the server so
 JavaScript `Number` arithmetic never approximates PostgreSQL `numeric`
-precision (verified by shared cross-runtime fixtures). Local evaluation requires
+precision (verified by shared cross-runtime fixtures). Array-valued formulas use
+the same JSONB comparison compatibility gate as stored array fields. Local evaluation requires
 matching schema and snapshot data versions—falling back to the server and
 invalidating both caches on any mismatch, promotion, or `resync`—and refreshes
 the schema before applying incoming record deltas.

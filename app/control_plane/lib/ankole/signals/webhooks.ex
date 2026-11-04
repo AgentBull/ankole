@@ -76,7 +76,7 @@ defmodule Ankole.Signals.Webhooks do
 
   def prepare_endpoint(attrs, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-    token = "wh_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    token = "wh_" <> Ankole.Authn.SecretDigest.token()
 
     with {:ok, attrs} <- create_attrs(attrs, token),
          :ok <- validate_public_target(attrs),
@@ -654,8 +654,8 @@ defmodule Ankole.Signals.Webhooks do
   end
 
   defp expiry(%{"expires_at" => value} = attrs) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, dt, _} -> expiry(Map.put(attrs, "expires_at", dt))
+    case Ankole.Attrs.parse_datetime(value) do
+      %DateTime{} = dt -> expiry(Map.put(attrs, "expires_at", dt))
       _ -> {:error, :invalid_webhook_expiry}
     end
   end

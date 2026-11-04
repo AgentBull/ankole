@@ -78,7 +78,12 @@ configured provider adopted automatically by default).
 
 Entra ID identity providers configure `tenantID`, `clientID`, and encrypted
 `clientSecret`, using `oidc.*` keys for sign-in and `sync.*` keys for full and
-real-time directory imports. Enabling real-time Graph notifications also
+real-time directory imports. Both `signals.teams.bindings.<id>` and
+`principals.identity_providers.entra-id.<id>` store their Microsoft application
+credentials (`appID`/`appPassword` and `clientID`/`clientSecret`) in a shared
+`Ankole.Connectors` connection (`connector_auth_configs`, referenced via
+`authConfigId` through `Ankole.Connectors.LegacyConfig`) while keeping behavior
+settings in `AppConfigure`. Enabling real-time Graph notifications also
 requires `publicBaseURL`: `SubscriptionReconciler` uses that URL to register and
 renew Graph change subscriptions at node startup, after saving identity
 settings, and every six hours, persisting subscription IDs and `clientState`
@@ -100,7 +105,11 @@ messages.
 
 The adapter derives `provider_conversation_id` from the base Teams conversation
 ID—anchoring channel threads on the thread root parsed from the conversation
-ID—and uses the Bot Framework activity ID as `provider_message_id`.
+ID—and uses the Bot Framework activity ID as `provider_message_id`. Inbound
+Teams file attachments materialize through `Ankole.Conversations.Attachments`
+into unified Drive ([Files](../Files.md)), storing an immutable `file_objects`
+row, freezing `object_id` on `message_attachments`, and linking the file into
+the conversation root (`/drive/ChatDrive`).
 
 ## Observe Conversations and Deliver Replies
 
@@ -136,10 +145,12 @@ syncs heal any notifications missed in transit.
 
 ## Restart and Recovery
 
-PostgreSQL persists encrypted settings and Graph subscription state in
-`AppConfigure`, public Messages and Delivery intents in `Conversations`,
-accepted stimuli in `Signals`, execution state in `Sessions`, and people,
-groups, memberships, and grants in `Principals` and `AuthZ`. Agent Computer
+PostgreSQL persists Microsoft application credentials in `Ankole.Connectors`,
+behavior settings and Graph subscription state in `AppConfigure`, public
+Messages and Delivery intents in `Conversations`, file objects and conversation
+Drive nodes in `Files`, accepted stimuli in `Signals`, execution state in
+`Sessions`, and people, groups, memberships, and grants in `Principals` and
+`AuthZ`. Agent Computer
 never receives Microsoft credentials. On control-plane startup, background jobs
 refresh stored channel metadata for enabled Teams bindings, and
 `SubscriptionReconciler` ensures or prunes Graph subscriptions across active

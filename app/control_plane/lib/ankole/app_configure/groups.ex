@@ -85,7 +85,8 @@ defmodule Ankole.AppConfigure.Groups do
 
   def mail_test(settings, recipient) do
     with true <-
-           is_binary(recipient) and Regex.match?(~r/\A[^\s@]+@[^\s@]+\.[^\s@]+\z/, recipient),
+           is_binary(recipient) and
+             Regex.match?(Ankole.Principals.HumanUser.email_format(), recipient),
          {:ok, settings} <-
            prepare_value(
              "smtp",

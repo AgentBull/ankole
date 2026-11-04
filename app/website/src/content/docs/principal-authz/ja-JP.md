@@ -11,9 +11,9 @@ Ankole におけるあらゆる操作（人間のサインイン、Agent によ�
 
 ## Principal: 1 つの説明責任ある主体
 
-Principal は、人間、Agent、システムサービスに共通する永続的な責任主体です。各 Principal は単一のテナントに所属し、グローバルに一意な不透明識別子 `uid` を持ちます。`principals` テーブルの各行は、`type`（`:human`、`:agent`、`:system`）、`status`（`:active` または `:disabled`）、さらに `:human` の場合は `:member` または `:guest` の `membership`（`:agent` と `:system` では `nil`）を保持します。
+Principal は、人間、Agent、システムサービスに共通する永続的な責任主体です。各 Principal は単一のテナントに所属し、`(tenant_id, uid)` で一意に識別されます（`uid` は `alex.smith` や `research-analyst` など、そのテナント内で一意な意味のある小文字名です）。`principals` テーブルの各行は、`type`（`:human`、`:agent`、`:system`）、`status`（`:active` または `:disabled`）、さらに `:human` の場合は `:member` または `:guest` の `membership`（`:agent` と `:system` では `nil`）を保持します。
 
-人間の Principal には、1 つの `HumanUser` 行、0 個以上のサイトスコープの `SiteCredential` 行（`principal_site_credentials`。検証済み Email OTP アドレスなど）、および 0 個以上のテナントスコープの `ExternalIdentity` 行（`principal_external_identities`。Identity Provider から連携された外部 ID）が紐付きます。Agent の Principal には 1 つの `Agent` 行が紐付きます。すべての主体を単一のテーブルに集約することで責任追跡の構造が一本化され、監査ログ、grant、グループメンバーシップのすべてが同じ不変の Principal `uid` を参照します。
+人間の Principal には、1 つの `HumanUser` 行、0 個以上のサイトスコープの `SiteCredential` 行（`principal_site_credentials`。検証済み Email OTP アドレスなど）、および 0 個以上のテナントスコープの `ExternalIdentity` 行（`principal_external_identities`。Identity Provider から連携された外部 ID）が紐付きます。Agent の Principal にはサブタイプ `:personal_assistant`（有効な内部 Human `member` ごとに `<owner_uid>_assistant` として 1:1 で自動作成）または `:ai_colleague`（共有の専門 Agent）を持つ 1 つの `Agent` 行が紐付きます。また、System Principal は Ankole の固定内部サービスレジストリで定義される `system`（Pod Applet のステートレスな `ctx.ai` と内部ランタイム処理）および `ankole_brain`（Company Brain の抽出、Dreaming、Skill 教訓の再確認、URL Source 取得、rerank）であり、サインインや UID リネームは行えず Worker も持ちません。すべての主体を単一のテーブルに集約することで監査ログ・grant・グループメンバーシップの追跡が一本化され、さらに監査付きのテナント内 UID リネーム（Human 向け `POST /api/v2/principals/:uid/rename`、および稼働中 Worker のない無効化済み Agent 向け `POST /api/v2/agents/:uid/rename`）によって grant・グループメンバーシップ・Brain のパスやメンション・Base 参照がアトミックに書き換えられます。
 
 人間の `membership` はテナント内の協業範囲を制御します。内部の `member` は computed group である `all_humans` に含まれますが、外部の `guest` は明示的な Pod ページ共有または Agent grant がなければアクセスできず、組み込み管理者グループ（`siteadmin` や `pod_admin`）への参加や Private ルートも持たず、Brain の `world` スコープも付与されません。
 
@@ -46,7 +46,7 @@ Principal group は名前付きの集合であり、Principal はグループを
 
 コントロールプレーンと Kernel は明確に役割を分担しており、この分離によって AuthZ を単なる助言ではなく確実な強制機構として機能させています。
 
-- **コントロールプレーンは永続状態、Ash の認可、スナップショットの構築を担当します。** 保護対象のアクションは `Ankole.AuthZ.Extension` でルールを宣言し、`Ankole.AuthZ.Authorizer` が `%Ankole.AuthZ.Actor{principal, turn_authority, authn}` の実行主体を検査します。Agent ターンは Agent 自身のリソース権限を使います。検証済みの認証情報は `context.request.authn` に入り、Agent に適用される grant の CEL 条件を評価します。`turn_authority` と `WorkAccess` は指示が有効かを別途確認します。
+- **コントロールプレーンは永続状態、Ash の認可、スナップショットの構築を担当します。** 保護対象のアクションは `Ankole.AuthZ.Extension` でルールを宣言し、`Ankole.AuthZ.Authorizer` が `%Ankole.AuthZ.Actor{principal, turn_authority, authn}` の実行主体を検査します。Unified Drive、Pod の Docs・Base、`all_humans` などのコラボレーションリソースに対しては、**個人アシスタント（`personal_assistant`）**の `Principals.authority_uid/1` が人間の `owner_principal_uid` へ解決され所有者の権限を投影します。一方、`site_console:**` および `tenant_console:**` の判定ではアシスタント自身の Principal が評価されるため管理権限が漏れることはなく、監査ログ・使用量帰属・専用 Worker ルートもアシスタント自身の `uid` に紐付きます。これに対し **AI 同僚（`ai_colleague`）**は Drive、Pod、Workflow、スケジュール、Background Agent Job のすべてで Agent 自身の Principal grant を使用し、人間の承認が必要な操作では Pod 会話に `propose_action_card` を提示します。さらに Brain の想起と会話での情報開示では、質問者・Agent・（`strict` モード時の）全ルーム参加者の到達可能 audience の共通部分（積集合）が強制されます。検証済みの認証情報は `context.request.authn` に入り、適用される grant の CEL 条件を評価したうえで、`turn_authority` と `WorkAccess` が指示の有効性を別途確認します。
 - **Kernel と PostgreSQL は決定論的なルール評価を担います。** 通常の権限チェックでは、`Ankole.AuthZ.Snapshot` が単一の SQL 文で Principal、グループメンバーシップ、候補 grant を読み込み、Rust Kernel がリソースパターン、computed group、CEL 条件を評価します。Drive ノードについては、5 ビットの ACL アンカーグラフ（`node_view=1`、`node_contribute=2`、`node_edit=4`、`node_manage=8`、`node_comment=16`、ロールマスク `view=1`、`contribute=19`、`edit=23`、`manage=31`）を使い、リクエスト依存の CEL 条件を Rust Kernel で一度評価したうえで、直接 grant、グループ、コンテナ継承、Userset エッジを PostgreSQL の `WITH RECURSIVE`（`UNION` による最小不動点計算）で解決します。
 
 `Ankole.AuthZ` の公開エントリポイントには、`authorize(subject, resource, action, context)`、真偽値を返す `allowed?/4`、単一アクションの判定マップを返す `authorize_decision/4`、単一リソースに対する複数アクションを一括評価する `authorize_all_decision/4`、同一スナップショット上で独立した複数のリソース・アクション組を評価する `authorize_checks/3`、および Drive コンテキスト評価用の `evaluate_drive_context/2` があります。いずれの関数も、呼び出し元の自己申告を無条件に信頼することはありません。
@@ -85,6 +85,7 @@ Principal group は名前付きの集合であり、Principal はグループを
 | `POST` | `/api/v2/principals` | Human の内部メンバー Principal を事前作成 |
 | `GET` | `/api/v2/principals/:uid` | 単一の Principal を取得 |
 | `PATCH` | `/api/v2/principals/:uid` | Human Principal のプロフィール（`display_name`）を更新 |
+| `POST` | `/api/v2/principals/:uid/rename` | Human Principal のテナント内 `uid` をリネーム（無効化済み Agent は `POST /api/v2/agents/:uid/rename`） |
 | `PATCH` | `/api/v2/principals/:uid/membership` | Human Principal の `membership`（`member` または `guest`）を変更 |
 | `GET` | `/api/v2/principals/:uid/access` | Human のアクセス状態、制限、復元レビュー用の投影を取得 |
 | `POST` | `/api/v2/principals/:uid/access-disables` | Human Principal を一時停止（`suspended`）または退職処理（`offboarded`） |

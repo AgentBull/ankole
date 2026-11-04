@@ -4,7 +4,7 @@ This document sets out Ankole's deliberate architectural boundaries, trust assum
 
 ## A Worker Is One Agent's Dedicated Computer
 
-Each Agent gets its own dedicated Worker instance—Agents never share a Worker container, persistent Home volume, cache disk, or Worker credential. Inside that container, the container boundary itself is the sole security boundary: shell commands, the Codex app-server, Automation scripts, and the headless browser all run as `uid 1000` without `sudo` or an inner nested sandbox.
+Each Agent gets its own dedicated Worker instance—Agents never share a Worker container, persistent Home volume, cache disk, or Worker credential. Inside that container, the container boundary itself is the sole security boundary: shell commands, the Codex app-server, and the headless browser all run as `uid 1000` without `sudo` or an inner nested sandbox.
 
 Ankole does not try to defend a Worker against its own Agent. Within user space, an Agent can install local tools, modify `/workspace`, or even break its own user-space environment (though it cannot install root system packages). That is intentional: the Worker's runtime credential represents only that single Agent, whose shell commands already have access to all of that Agent's files and scoped tokens. If a Worker fails to become ready within `agent_workers.ready_timeout_seconds`, the control plane replaces it with a fresh container and a clean cache disk.
 
@@ -32,7 +32,7 @@ To prevent split-brain writes to `/workspace`, the control plane waits until eve
 
 Each Session runs under the Actor identity `{agent_uid, session_id}` inside `/workspace/sessions/<workspace-id>` (where PostgreSQL allocates stable workspace IDs starting from `10000`).
 
-While separate Sessions get distinct working directories, foreground child processes, and scratch files, every Session belonging to the same Agent shares one Worker container and has full filesystem visibility across `/workspace`—including shared Home files, `installed-skills/`, sibling Session workspaces, and `.codex/` state. Use multiple Sessions to keep concurrent tasks organized, not as a security boundary within a single Agent.
+While separate Sessions get distinct working directories, foreground child processes, and scratch files, every Session belonging to the same Agent shares one Worker container and has full filesystem visibility across `/workspace`—including shared Home files, `.ankole/turn-skills/`, sibling Session workspaces, and `.codex/` state—alongside the Agent's read-only `/drive/Skills` mount. Use multiple Sessions to keep concurrent tasks organized, not as a security boundary within a single Agent.
 
 ## RuntimeFabric Is Transport, Not a Queue
 
@@ -112,7 +112,7 @@ Disabling a Human Principal immediately blocks new logins and rejects newly arri
 Once offboarding triggers, three boundary rules apply:
 - **In-flight attempts finish their current run**: If a task passed its admission check before the Human was disabled, Ankole lets that attempt finish rather than aborting mid-tool-call.
 - **OIDC Relying Parties enforce logout asynchronously**: Ankole sends OIDC Back-Channel Logout notifications and reflects revocation immediately on Token Introspection, but each external Client clears its own local session cache on its own schedule.
-- **External tokens outside Ankole keep their own lifetimes**: Ankole cannot revoke credentials it did not issue—such as an external RP's cached session cookie, an OAuth grant held directly by a third-party app, or a Lark CLI profile already selected by an in-flight Worker attempt—until those tokens expire at their issuer. See [Human Offboarding](design-docs/HumanOffboarding.md), [Browser Sessions](design-docs/BrowserSessions.md), and [OIDC Server](design-docs/OIDCServer.md).
+- **External tokens outside Ankole keep their own lifetimes**: Ankole cannot revoke credentials it did not issue—such as an external RP's cached session cookie, an OAuth grant held directly by a third-party app, or short-lived tokens already issued to an in-flight attempt—until those tokens expire at their issuer. See [Human Offboarding](design-docs/HumanOffboarding.md), [Browser Sessions](design-docs/BrowserSessions.md), and [OIDC Server](design-docs/OIDCServer.md).
 
 ## Headless Browser State Lives and Dies with the Worker
 
@@ -128,7 +128,7 @@ For shell execution, Ankole separates short interactive commands from long-runni
 - **Foreground `command` tool**: Runs synchronously with a 180-second default timeout (configurable per call) and deliberately provides no background daemon registry.
 - **`BackgroundAgentJob`**: Runs open-ended multi-turn work through `CodexRunner` on the Worker while the control plane tracks durable Job state, heartbeats turn leases to detect stalled Workers, retries transient failures, handles cancellation, and posts completion updates back to the originating Conversation. Workflows that require a wall-clock deadline can steer or cancel a Job explicitly.
 
-Every Job turn resolves the latest enabled built-in Skills, Agent Plugin Skills, and Drive-installed Skills at run time rather than pinning old Skill bytes, and Skill discovery operates independently of Control Plane Plugins. When an Agent invokes an MCP-backed Skill, `mcporter` runs in the foreground with an explicit per-call timeout rather than spawning background daemons.
+Interactive turns read current enabled built-in, Agent Plugin, and custom Skills from `Ankole.AIAgent.Library`, while Background Agent Jobs intersect their admission-time Skill projection with current enablement rather than pinning old Skill bytes, and Skill discovery operates independently of Control Plane Plugins. When an Agent invokes an MCP-backed Skill, `mcporter` runs in the foreground with an explicit per-call timeout rather than spawning background daemons.
 
 ## Durable Timers and Wakeups Run Through Oban
 
@@ -161,7 +161,7 @@ Today, Ankole intentionally does **not** provide:
 - Public network admission for untrusted third-party Workers
 - A durable message broker inside `RuntimeFabric`
 - Automatic scraping of durable business records out of arbitrary Worker files
-- End-user (non-operator) authoring of Signal routing rules
+- End-user (non-operator) authoring of external IM/channel and Console-level Signal routing rules (Pod members configure Applet Action triggers in the Pod Automation panel)
 - Nested Workflows, hot-swapping Workflow scripts mid-run, or shared token budgets across a Workflow batch
 - A public OpenAI-compatible `Conversations` CRUD API, or `Response` delete/cancel endpoints
 - Named git-style branch views over the `AIGateway` message graph

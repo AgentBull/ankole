@@ -303,12 +303,17 @@ describe('@ankole/agent-computer runtime', () => {
       { intervalMs: 5 }
     )
 
-    await Bun.sleep(18)
-    expect(sent.length).toBeGreaterThanOrEqual(3)
-    reporter.stop()
-    const stoppedAt = sent.length
-    await Bun.sleep(12)
-    expect(sent).toHaveLength(stoppedAt)
+    try {
+      const deadline = Date.now() + 1_000
+      while (sent.length < 3 && Date.now() < deadline) await Bun.sleep(5)
+      expect(sent.length).toBeGreaterThanOrEqual(3)
+      reporter.stop()
+      const stoppedAt = sent.length
+      await Bun.sleep(12)
+      expect(sent).toHaveLength(stoppedAt)
+    } finally {
+      reporter.stop()
+    }
   })
 
   for (const reason of ['background_agent_job_attempt_changed', 'run_closed']) {

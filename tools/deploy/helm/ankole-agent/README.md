@@ -330,8 +330,8 @@ If you change the Helm release name, set
 `worker.agents.persistence.existingClaim` to the previous claim name.
 
 In pooled-Worker releases, Workers ran as root and created each Agent Home with
-mode `0700`. In the current Worker layout, commands, Codex, MCP servers,
-browsers, and Automation scripts run as uid `1000`, the credential-holding
+mode `0700`. In the current Worker layout, commands, Codex, MCP servers, and
+browsers run as uid `1000`, the credential-holding
 Worker supervisor runs as root, and the one-time drive import reads legacy files
 as uid `10001`. Once all old writers have stopped, prepare the existing claim
 according to its storage backend:
@@ -376,8 +376,8 @@ kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
 ```
 
 After the import finishes, run `helm upgrade` again without
-`files.importAgentHomeClaim`. The import copies each Agent's installed Skills,
-Automation Job scripts, and unsent legacy attachment bytes into the drive
+`files.importAgentHomeClaim`. The import copies each Agent's installed Skills
+and unsent legacy attachment bytes into the drive
 without overwriting existing drive files, and it reports any skipped or
 unreadable files. User files, session files, and Job workspaces remain in Agent
 Home, while files referenced by unsent attachments are copied into the drive.
@@ -453,6 +453,15 @@ and renames the dump only after both commands succeed. Run `pg_restore` on the
 host using a client version that supports PostgreSQL 18 archives. Because
 `pg_restore -l` only inspects the archive table of contents, still run full
 restore drills against a separate database.
+
+When `secrets.baseDBURLs` (or `BASE_DB_URLS` in `secrets.existingSecret`) is
+unset, physical Base tables live in per-tenant `t_<tenant_hex>` schemas inside
+`DATABASE_URL` and are included in that `ankole` dump. When dedicated physical
+Base shards are configured through `secrets.baseDBURLs` or `BASE_DB_URLS`, back
+up every configured PostgreSQL shard database alongside the control-plane
+database (and during point-in-time recovery across independent PostgreSQL
+instances, recover each shard to a timestamp at or ahead of the control-plane
+recovery target).
 
 If `kubectl exec` truncates the stream, preserve the diagnostic output, set
 `KUBECTL_REMOTE_COMMAND_WEBSOCKETS=false`, and re-run both the export and the
@@ -632,21 +641,26 @@ enforces the policy.
    and test only against these controlled endpoints rather than cloud metadata
    services or production internal endpoints.
 3. Request both URLs from the same Agent using the `command` tool, the local
-   browser, and an Automation Job, using a distinct marker path on each request
-   to prevent caching:
+   browser, and a `BackgroundAgentJob` (Codex turn) on the Worker Pod, using a
+   distinct marker path on each request to prevent caching:
    - In `command`, run `curl --noproxy '*' --connect-timeout 3 --max-time 5 '<URL>'`.
    - In the Agent's local browser, open both URLs.
-   - In the Automation Job's `main.ts`, call `fetch` with
-     `AbortSignal.timeout(5000)` and log the response or error in the run output.
+   - In a `BackgroundAgentJob` (`background_agent_job`), run a shell or script
+     request with a 5-second timeout against both URLs and log the response or
+     error in the Job output.
    Record the tool or Job run, Worker Pod name, target address, timeout, and
    outcome, and confirm that control-plane connectivity and DNS resolution still
-   succeed.
+   succeed. To verify the separate Function Runtime `NetworkPolicy`
+   (`functionRuntime.deniedCIDRs`), trigger a disposable Applet backend route or
+   published Applet Action that calls `fetch` with `AbortSignal.timeout(5000)`
+   against both URLs and inspect the Function Runtime CNI logs alongside the
+   endpoint access logs.
 4. Confirm that the public endpoint returns its marker, and correlate each
    blocked private request with both CNI denial logs and the absence of hits in
    the private endpoint's access log. By themselves, a missing listener, DNS
    failure, connection refusal, timeout, browser SSRF block, or remote-browser
    request does not prove cluster NetworkPolicy enforcement. Delete the
-   temporary Job and test endpoints when finished.
+   temporary test artifacts and endpoints when finished.
 
 ## Worker Pods
 

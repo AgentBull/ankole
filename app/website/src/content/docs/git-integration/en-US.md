@@ -24,9 +24,9 @@ During a normal conversation, the Agent runs these shell and file tools in the f
 
 ## What you need
 
-- **Git credentials.** In **Console → Environment variables**, store an SSH key or personal access token as an encrypted variable such as `GIT_SSH_KEY` or `GIT_TOKEN`. The Agent receives the updated variable starting on its next turn. See [Environment variables](../worker-env/).
+- **Git credentials.** For GitHub (Cloud or Enterprise), connect a GitHub App installation or personal OAuth account in **Pod → Connections** (`Ankole.Connectors`): Ankole automatically injects a turn-scoped `GIT_ASKPASS` credential helper (`POST /api/internal/connectors/git-credentials`) so `git clone`, `git fetch`, and `git push` authenticate over HTTPS without storing static tokens in the Worker environment. For other Git hosts, store an SSH key or personal access token as an encrypted variable such as `GIT_SSH_KEY` or `GIT_TOKEN` in **Console → Environment variables** (see [Environment variables](../worker-env/)).
 - **Network access from the Worker to the repository.** Confirm that the Worker can reach your git host, especially on a private network. In a Docker Compose deployment, Worker containers join the `ankole_workers` network, which can reach both the control plane and the public internet. In a Helm deployment with `networkPolicy.enabled`, Worker Pods can reach the control plane, DNS, and public IP addresses, but cannot reach a private git server whose address range falls inside `networkPolicy.workerDeniedCIDRs`.
-- **A model profile for Background Agent Jobs, when needed.** The default fallback profile is enough to get started, so you only need to configure the `coding` profile if Background Agent Jobs require a dedicated provider or model.
+- **A model profile for Background Agent Jobs, when needed.** Agents inherit Site and Pod model profiles automatically unless overridden, and Background Agent Jobs fall back from `coding` to `heavy` and `primary` across Agent, Pod, and Site scopes, so you only need to set `coding` if Background Agent Jobs require a dedicated provider or model.
 
 ## The workspace
 
@@ -40,15 +40,15 @@ The Agent clones git repositories into its per-session or per-job workspace dire
         └── ...           # the working tree
 ```
 
-Repositories under `/workspace` survive Worker replacement and image updates, though you should always push to a remote repository or keep a backup to protect against underlying storage loss. When the Agent needs to share build artifacts or deliverables outside `/workspace`, it can run `ankole-files put` to publish them to the [Agent drive](../file-management/).
+Repositories under `/workspace` survive Worker replacement and image updates, though you should always push to a remote repository or keep a backup to protect against underlying storage loss. When the Agent needs to share build artifacts or deliverables outside `/workspace`, it writes them directly into `/drive` (for example `/drive/ChatDrive` or `/drive/Public`, falling back to `ankole-files put` on Workers where FUSE is unavailable); see [File management](../file-management/).
 
 ## A worked example
 
 To set up a coding Agent that reviews pull requests:
 
-1. In **Console → Environment variables**, store your personal access token as an encrypted variable named `GIT_TOKEN`.
-2. Create the Agent and bind its `primary`, `light`, and `heavy` model profiles. Configure the Background Agent Jobs profile only if you want to override its fallback model.
-3. Write a `AGENTS.md` document that specifies the target repository, review criteria, and branch naming conventions.
+1. Connect your GitHub App or personal OAuth account in **Pod → Connections** (or store an SSH key or PAT in **Console → Environment variables** for non-GitHub hosts).
+2. Create the Agent—it inherits your Site and Pod model profiles automatically; set Agent-specific overrides or a dedicated `coding` profile only if you want different models for interactive turns or Background Agent Jobs.
+3. Configure the Agent's `AGENTS.md` contract in **Meta Ankole → Agents** with the target repository, review criteria, and branch naming conventions.
 4. In a connected chat channel, ask the Agent: "Review the latest PR on `your-repo`. Clone, check out, run the tests, and report what you find."
 5. The Agent clones the repository, checks out the branch, runs the test suite with `command`, and posts its findings—either directly in the conversation or through a Background Agent Job.
 

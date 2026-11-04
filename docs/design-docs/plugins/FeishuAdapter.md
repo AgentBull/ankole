@@ -26,12 +26,17 @@ and delivery route rather than owning the platform chat.
 | Plugin ID | `lark-adapter` |
 | API version | `1` |
 | Signal adapter ID | `lark` |
-| Signal configuration | `signals.lark.binding_configs.<binding-digest>` |
+| Signal configuration | `signals.lark.binding_configs.<id>` |
 | Identity adapter ID | `lark` |
 | Identity configuration | `principals.identity_providers.lark.<id>` |
+| Connector ID | `lark` |
 | Provider library | `plugins/lark_adapter/lib/feishu_openapi` |
 
-The Signal adapter supports all three group-message policies (`addressed_only`,
+The Signal adapter supports both `ai_colleague` bindings (routing to one AI
+Colleague) and `sender_personal_assistant` shared Bot bindings (`agent_uid = nil`,
+defaulting to `signal.channel.kind == 'im_dm'` and `unmatched_sender_policy = "manual_review"`,
+resolving each matched active member and routing DMs to their Personal Assistant).
+It supports all three group-message policies (`addressed_only`,
 `observe_all`, and `may_intervene`), inbound capabilities `entry_receive`,
 `entry_removed`, `reaction_add`, `reaction_remove`, and `action_event`, and
 outbound capabilities `post_entry`, `reply_entry`, `edit_entry`, `delete_entry`,
@@ -54,9 +59,12 @@ Chat bindings configure these fields:
 | `userName` | Sets the outbound display name |
 
 How the Agent treats unaddressed group messages is configured on the Signal
-Binding itself. Identity-provider settings share `appID`, `appSecret`, and
-`domain`, using `oidc.*` keys for sign-in and `sync.*` keys for user and
-department imports.
+Binding itself. Both `signals.lark.binding_configs.<id>` and
+`principals.identity_providers.lark.<id>` select or create a shared
+`Ankole.Connectors` connection (`connector_auth_configs`, referenced via
+`authConfigId` through `Ankole.Connectors.LegacyConfig`) that holds `appID`,
+encrypted `appSecret`, and `domain`, while keeping behavior settings (`userName`,
+`identityProvider`, `oidc.*`, and `sync.*`) in `AppConfigure`.
 
 Before starting a chat connection owner, `ConnectionReconciler` fetches the bot
 `open_id` from `bot/v3/info` inside the reconciler process and passes it only in
@@ -75,12 +83,10 @@ the owner's process-local chat consumer config as `runtimeBotOpenID`
 A single Agent may enable multiple Lark bindings, provided each enabled binding
 claims a distinct `(domain, appID)` pair across the deployment (disabling a
 binding releases its pair, and the binding save transaction validates ownership
-before writing the binding or its encrypted settings). Each binding persists
-settings under `signals.lark.binding_configs.<binding-digest>`, where
-`<binding-digest>` hashes the normalized Agent UID and binding name
-(`Ankole.Upgrade202610` migrates `signals.lark.bindings.*` rows onto that key
-while the `signals.lark.bindings` pattern stays registered for the upgrade
-window).
+before writing the binding or its configuration). Each binding persists behavior
+settings under `signals.lark.binding_configs.<id>`, where `<id>` is the SHA-256
+digest of `[tenant_id, binding_id]`, and links its `auth_config_id` to the
+shared `connector_auth_configs` row.
 
 ## Connect to Feishu or Lark
 
@@ -152,15 +158,16 @@ media, video, locations, shared chats, and shared user cards:
 - Before starting a file download—including files listed in the top-level
   `files` array of a rich post—the adapter records a durable `pending`
   observation across every matching chat binding, allocates the numeric
-  attachment ID, downloads the blob once into the file service
-  ([Files](../Files.md)) under
-  `chats/<public conversation UUID>/inbox/<digest>/<filename>` (where `<digest>`
-  is the SHA-256 prefix and provider message/file keys stay in adapter metadata
-  out of the path), and then submits `complete` or `failed` under the same
-  provider message ID (retaining the provider reference without a local file on
-  failure). The adapter also downloads the file of an unaddressed group message
-  that the binding ignores. A later reply can promote that message, and the
-  promoted Message then carries the stored file.
+  attachment ID, materializes the bytes once through
+  `Ankole.Conversations.Attachments` into unified Drive ([Files](../Files.md))—storing
+  an immutable `file_objects` row, freezing `object_id` on `message_attachments`,
+  and linking the file into the conversation root (`/drive/ChatDrive`) while
+  keeping provider message/file keys in adapter metadata—and then submits
+  `complete` or `failed` under the same provider message ID (retaining the
+  provider reference without local bytes on failure). The adapter also downloads
+  the file of an unaddressed group message that the binding ignores. A later
+  reply can promote that message, and the promoted Message then carries the
+  stored file.
 - The initial `pending` observation timestamp anchors the 1,200 ms batching
   quiet window so slow downloads do not push that window out. `Conversations`
   waits up to 4 seconds for downloads to finish before releasing queued work; if
@@ -178,8 +185,8 @@ Outbound execution processes only durable Delivery intents: posting, replying,
 editing, deleting, reconciling (`outbound_reconciliation` verifies the recorded
 provider message ID), updating reactions, posting dividers, and sending cards.
 Text sends derive deterministic provider UUIDs from intent idempotency keys,
-and image or file sends upload blob bytes read via `blob_ref` from the file
-service first. If a reply target message has been deleted, the adapter falls
+and image or file sends read immutable attachment bytes from `Ankole.Files` via
+`object_id` (`delivery_attachments`) before uploading them. If a reply target message has been deleted, the adapter falls
 back to posting directly to the chat; if Lark rejects a final edit due to its
 message-edit cap, the adapter posts a new message instead.
 
@@ -309,9 +316,9 @@ events leaves scheduled/manual full sync intact).
 
 ## Restart and Recovery
 
-PostgreSQL persists all durable state across `AppConfigure`, `Conversations`,
-`Signals`, `Sessions`, `Principals`, and `AuthZ`, while the adapter remains
-stateless across restarts—rebuilding WebSocket connections, refreshing stored IM
+PostgreSQL persists all durable state across `Ankole.Connectors`, `AppConfigure`,
+`Conversations`, `Files`, `Signals`, `Sessions`, `Principals`, and `AuthZ`, while
+the adapter remains stateless across restarts—rebuilding WebSocket connections, refreshing stored IM
 group metadata on startup, reconciling open CardKit checkpoints against
 confirmed Delivery intents (closing any lingering open preview card with the
 confirmed terminal presentation), and scrubbing sensitive data from failure logs

@@ -1,4 +1,6 @@
 defmodule DingTalkOpenAPI.Pagination do
+  import IMTransport.HTTP, only: [get_in_path: 2]
+
   @moduledoc """
   Lazy cursor pagination for DingTalk old-domain (`topapi/*`) list endpoints.
 
@@ -81,15 +83,4 @@ defmodule DingTalkOpenAPI.Pagination do
 
   defp normalize_body(body) when is_map(body), do: body
   defp normalize_body(body) when is_list(body), do: Map.new(body)
-
-  defp get_in_path(value, []), do: value
-
-  defp get_in_path(map, [key | rest]) when is_map(map) do
-    case Map.fetch(map, key) do
-      {:ok, value} -> get_in_path(value, rest)
-      :error -> nil
-    end
-  end
-
-  defp get_in_path(_value, _path), do: nil
 end

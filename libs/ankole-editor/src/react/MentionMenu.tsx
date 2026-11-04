@@ -1,3 +1,4 @@
+import { composingKey } from '@ankole/uikit/lib/keyboard'
 import { RiAtLine, RiFileTextLine, RiUser3Line } from '@remixicon/react'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -203,7 +204,7 @@ export function MentionMenu() {
         const cur = latest.current
         const liveSession = editor.hasFocus && cur.hasQuery ? (editor.state.field(mentionField, false) ?? null) : null
         if (!liveSession) return false
-        if (event.isComposing || event.keyCode === 229 || editor.composing) return false
+        if (composingKey(event) || editor.composing) return false
         if (event.ctrlKey || event.metaKey || event.altKey) return false
 
         if (event.key === 'Tab') {

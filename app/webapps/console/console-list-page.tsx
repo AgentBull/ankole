@@ -1,3 +1,4 @@
+export { useSearchDraft as useResourceSearchDraft } from '../common/use-search-draft'
 import { TableRow, useQuery, Link, TenantTableRows, useConsoleTenant } from './tenant-context'
 
 import {
@@ -38,14 +39,13 @@ import {
   RiSearchLine
 } from '@remixicon/react'
 
-import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode, type Ref } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation } from '@tanstack/react-router'
 import { linkTarget } from '../common/router'
 import { agentListOptions } from './api/agents'
 import { PageHeader, PageStack, RefreshButton } from './console-page'
 import { ErrorBlock } from '../common/error-block'
-import { scheduleResourceSearchCommit } from './state/resource-search'
 
 /** Keep dialog return focus on the create button as it moves between list states. */
 export function useListCreateTrigger() {
@@ -459,49 +459,6 @@ export function ResourceSearch({
       {filters ? <div className="flex min-w-0 flex-wrap items-center gap-3">{filters}</div> : null}
     </div>
   )
-}
-
-/**
- * Local draft for a URL-backed search filter.
- *
- * Typing stays in the draft; `commit` runs after a short pause so the URL —
- * and any loader revalidation behind it — sees one write per pause instead of
- * one per keystroke. The URL mirrors back into the draft only when it changed
- * outside this hook (Back button, clear-filters), never for the echo of the
- * hook's own commit, so a commit that lands mid-typing cannot revert the
- * keystrokes typed after the debounce snapshot.
- */
-export function useResourceSearchDraft(
-  searchFilter: string,
-  commit: (draft: string) => void
-): [string, (value: string) => void] {
-  const [draft, setDraft] = useState(searchFilter)
-  const lastCommitted = useRef(searchFilter)
-  const commitDraft = useEffectEvent(commit)
-
-  useEffect(() => {
-    if (searchFilter === lastCommitted.current) return
-    lastCommitted.current = searchFilter
-    setDraft(searchFilter)
-  }, [searchFilter])
-
-  useEffect(() => {
-    if (draft === searchFilter) return
-
-    // The debounce collapses a typing burst; clearing the box is one terminal
-    // action, so it commits at once.
-    if (!draft.trim()) {
-      lastCommitted.current = draft
-      commitDraft(draft)
-      return
-    }
-    return scheduleResourceSearchCommit(() => {
-      lastCommitted.current = draft
-      commitDraft(draft)
-    })
-  }, [draft, searchFilter])
-
-  return [draft, setDraft]
 }
 
 /** One searchable text field with a browser-independent visible hint. */

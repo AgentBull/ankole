@@ -16,6 +16,7 @@ describe('conversation-visible Skill packages', () => {
     const frame = { run: { session: { session_id: 'conversation:1' }, signal_id: 'signal-1', epoch: 1 } }
     let files = [
       { path: 'SKILL.md', content: Buffer.from('Skill and visible supplement.').toString('base64'), mode: 0o444 },
+      { path: '..notes', content: Buffer.from('Visible package notes.').toString('base64'), mode: 0o444 },
       { path: 'scripts/run.sh', content: Buffer.from('echo current').toString('base64'), mode: 0o755 }
     ]
     const rpc = (async (method: string, payload: unknown, actualFrame: unknown) => {
@@ -28,6 +29,7 @@ describe('conversation-visible Skill packages', () => {
       const projected = await materializeKnowledgeSkills({ root, frame, skills: [skill], rpc })
       expect(projected.skills[0]?.sourceKind).toBe('installed')
       expect(await readFile(join(root, 'demo/SKILL.md'), 'utf8')).toBe('Skill and visible supplement.')
+      expect(await readFile(join(root, 'demo/..notes'), 'utf8')).toBe('Visible package notes.')
       expect((await stat(join(root, 'demo/scripts/run.sh'))).mode & 0o777).toBe(0o555)
       files = [{ path: 'SKILL.md', content: Buffer.from('Updated contract.').toString('base64'), mode: 0o444 }]
       await materializeKnowledgeSkills({ root, frame, skills: [skill], rpc })

@@ -53,3 +53,14 @@ export function widgetBlock(editor: Wordgard, dom: Element): { pos: number; node
   editor.flush()
   return editor.nodeFromDOM(dom)
 }
+
+/** Buttons in native block toolbars share accessible labels and keyboard focusability. */
+export function toolbarButton(text: string, title: string, className: string): HTMLButtonElement {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = className
+  button.textContent = text
+  button.title = title
+  button.setAttribute('aria-label', title)
+  return button
+}

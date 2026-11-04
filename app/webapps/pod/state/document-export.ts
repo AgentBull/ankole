@@ -1,3 +1,4 @@
+import { downloadBlob } from '../../common/browser-files'
 import type { QueryClient } from '@tanstack/react-query'
 import { podPagePath, resolvePodPagePath } from '../../common/pod-url'
 import i18n from '../../common/i18n'
@@ -164,7 +165,7 @@ export async function downloadDocument(
     .map(id => references.get(id))
     .filter((reference): reference is DocumentReference & { filePageID: string } => Boolean(reference?.filePageID))
   if (!assets.length && !embeddedFileReferences.length && !isCustomEmojiIcon(icon)) {
-    saveDownload(
+    downloadBlob(
       new Blob([documentMarkdownForExport(pageID, xml, title, icon, references, principals)], {
         type: 'text/markdown;charset=utf-8'
       }),
@@ -247,27 +248,18 @@ export async function downloadDocument(
   const content = withCustomIcon(markdown, customIcon)
 
   if (!archive) {
-    saveDownload(new Blob([content], { type: 'text/markdown;charset=utf-8' }), filename)
+    downloadBlob(new Blob([content], { type: 'text/markdown;charset=utf-8' }), filename)
     return
   }
 
   await appendEntry(filename, new TextEncoder().encode(content))
   archive.end()
   if (zipError) throw zipError
-  saveDownload(new Blob(chunks, { type: 'application/zip' }), filename.replace(/\.md$/, '.zip'))
+  downloadBlob(new Blob(chunks, { type: 'application/zip' }), filename.replace(/\.md$/, '.zip'))
 }
 
 /** Knowledge exports use the native codec so business properties and references round-trip. */
 export async function downloadKnowledge(pageID: string, title: string, snapshotID?: string): Promise<void> {
   const { markdown } = await pageAPI.exportKnowledge(pageID, snapshotID)
-  saveDownload(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }), documentFilename(title))
-}
-
-function saveDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const anchor = window.document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  downloadBlob(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }), documentFilename(title))
 }

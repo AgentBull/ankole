@@ -1,3 +1,4 @@
+import { isApplePlatform } from '../common/platform'
 import type { ReadonlySignal } from '@preact/signals-react'
 import {
   DropdownMenuCheckboxItem,
@@ -60,7 +61,7 @@ export function DocumentMenuItems({
   useSignals()
   const { t } = useTranslation()
   const client = useQueryClient()
-  const shortcut = typeof navigator !== 'undefined' && navigator.platform.includes('Mac') ? '⌘⇧' : 'Ctrl+Shift+'
+  const shortcut = isApplePlatform() ? '⌘⇧' : 'Ctrl+Shift+'
   const copy = async (format: 'markdown' | 'text') => {
     try {
       const xml = draft.xml.value

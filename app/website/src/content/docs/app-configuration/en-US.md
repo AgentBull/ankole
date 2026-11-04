@@ -42,15 +42,17 @@ Ankole ships with the built-in AppConfigure keys listed below, and Control Plane
 | `ai_agent.inactivity_timeout_ms` | Tenant | Time to wait for an inactive model or Provider before ending the turn |
 | `ai_agent.library.agent_plugin_defaults` | Tenant | Default enablement for Agent Plugins |
 | `background_agent_jobs.max_running_per_agent` | Tenant | Maximum concurrently running BackgroundAgentJobs per Agent; default `3`, valid range `1`–`64` |
+| `sessions.wake_recycle` | Tenant | Cold-wake model conversation rotation thresholds (`min_cold_gap_seconds: 3600`, `min_context_tokens: 128000`, `im_max_idle_seconds: 259200`), rotating a cold large model conversation or multi-day idle external IM session onto a successor branch with a bounded `<wake-briefing>` |
 
-### Pod, Base, and Applet
+### Pod, Base, Applet, and Drive
 
 | Key | Scope | Purpose |
 |---|---|---|
 | `pod.allow_external_guests` | Tenant | Allow invited external guests to access shared Pod pages; default `true` |
 | `pod.applet.limits` | Tenant | Applet invocation limits (`timeout_ms: 60000`, `heap_mb: 128`) |
 | `pod.base.limits` | Tenant | Base query and record limits (`query_rows: 1000`, `record_bytes: 1000000`, `group_count: 1000`, `statement_timeout_ms: 5000`) |
-| `drive.trash_retention_days` | Tenant | Days Ankole retains deleted Drive nodes before automatic purge; default `30`, `0` keeps them indefinitely |
+| `drive.trash_retention_days` | Tenant | Days Ankole retains deleted Drive nodes before automatic purge; default `30`, `0` keeps them indefinitely until changed |
+| `drive.vfs_max_upload_bytes` | Site | Maximum bytes per Worker `/drive` VFS upload; default `0` uses the object-store upload limit |
 | `pod.ot_replay_window` | Tenant | Number of recent document change batches retained for OT replay; default `1000` |
 
 ### Workflows
@@ -127,7 +129,7 @@ See [LLM observability](../llm-observability/) for Langfuse, LangSmith, Victoria
 
 Ankole rejects requests to cloud metadata addresses even when `security.ssrf_filter` is disabled.
 
-`agent_workers.ready_timeout_seconds` governs how long the control plane waits on an observed unready Worker before rebuilding it, whereas idle Worker release is configured per pool via `idleReleaseAfter` in the provider YAML; see [Workers](../worker-management/).
+`agent_workers.ready_timeout_seconds` governs how long the control plane waits on an observed unready Worker before rebuilding it, whereas idle Worker release is configured per provider via `idleReleaseAfter` in the `WorkerProvider` YAML; see [Workers](../worker-management/).
 
 ### First-run state
 

@@ -7,6 +7,19 @@ defmodule Ankole.AIGateway.Usage do
   A missing or invalid total uses the sum of input and output counts.
   """
 
+  @doc "Adds numeric usage counters recursively, retaining provider-specific fields."
+  def merge(nil, usage), do: usage
+
+  def merge(left, right) when is_map(left) and is_map(right) do
+    Map.merge(left, right, fn _key, left, right ->
+      cond do
+        is_number(left) and is_number(right) -> left + right
+        is_map(left) and is_map(right) -> merge(left, right)
+        true -> right
+      end
+    end)
+  end
+
   @spec normalize(term()) :: map()
   def normalize(usage) when is_map(usage) do
     input = integer(usage, ~w(input_tokens prompt_tokens inputTokens))

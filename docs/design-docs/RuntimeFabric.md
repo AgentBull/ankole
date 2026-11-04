@@ -691,7 +691,7 @@ state:
   packages against their stored whole-package baseline without changing saved
   enablement. Main runs read the Agent's enabled packages from the shared,
   read-only `/drive/Skills` mount, or materialize complete packages through
-  `skills.bundle` when FUSE is unavailable. Background Agent Jobs and Automation attempts
+  `skills.bundle` when FUSE is unavailable. Background Agent Jobs
   obtain `skills.bundle` through `pod.read`, restricted to their initial Skill
   selection intersected with the Agent's current enablement. They materialize
   each complete package in a separate execution directory. A download failure

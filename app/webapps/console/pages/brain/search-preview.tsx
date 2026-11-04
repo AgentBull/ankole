@@ -1,3 +1,4 @@
+import { ClaimTypeBadge } from './claims'
 import { TableRow, useMutation, useQuery } from '../../tenant-context'
 import { principalLabel } from '../../state/principal-label'
 import {
@@ -204,10 +205,7 @@ export function BrainSearchPreviewPage() {
                     <TableRow key={claim.id}>
                       <TableCell className="max-w-[420px] whitespace-normal text-xs">{claim.claim}</TableCell>
                       <TableCell>
-                        <Badge variant={claim.claim_type === 'fact' ? 'secondary' : 'info'}>
-                          {claim.claim_type}
-                          {claim.kind ? ` · ${claim.kind}` : ''}
-                        </Badge>
+                        <ClaimTypeBadge claim={claim} />
                       </TableCell>
                       <TableCell>
                         <BrainHolderLabel holder={claim.holder} />

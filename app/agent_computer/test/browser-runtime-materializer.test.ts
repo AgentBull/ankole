@@ -89,6 +89,36 @@ describe('rendered web_fetch fallback materialization', () => {
 })
 
 describe('persistent Codex browser materialization', () => {
+  test('preserves the route generation when remote headers are reordered', async () => {
+    const root = await temporaryRoot()
+    const materializer = new BrowserRouteMaterializer({
+      root: join(root, 'runtime'),
+      runnerPath: '/bin/true',
+      localChromiumExecutable: '/bin/true'
+    })
+    const materialize = (headers: Record<string, string>) =>
+      materializer.materializePersistent({
+        scopeRoot: join(root, 'job'),
+        artifactRoot: join(root, 'artifacts'),
+        settings: {
+          ssrfFilter: true,
+          workerEnv: {
+            BROWSER_BACKEND_JSON: JSON.stringify({
+              kind: 'remote_cdp',
+              endpoint: 'https://browser.example/cdp',
+              session_identity: 'session-1',
+              headers
+            })
+          }
+        }
+      })
+    const first = await materialize({ Authorization: 'Bearer test', 'X-Route': 'route-1' })
+    const second = await materialize({ 'X-Route': 'route-1', Authorization: 'Bearer test' })
+    expect(second.route).toBe(first.route)
+    expect(second.material.material_generation).toBe(first.material.material_generation)
+    await Promise.all([first.cleanup(), second.cleanup()])
+  })
+
   test('keeps one opaque route and increments generation when final material refreshes', async () => {
     const root = await temporaryRoot()
     const scopeRoot = join(root, 'job')

@@ -183,8 +183,9 @@ and advances the channel cursor.
   Plugins, Skills, and runtime configuration, returning `{job_id, status:
   "queued"}`.
 - The tool rejects any source Job that is still live, lacks a `runtime_thread_id`,
-  already has a successor, or has lost its original Workspace on both the Worker
-  and the drive (never copying a Workspace or creating a fresh directory).
+  already has a successor, or has lost its original Workspace directory under
+  persistent `/workspace` Home (never copying a Workspace or creating a fresh
+  directory).
 
 `stop_background_job` takes only `job_id` (an operator stop reason is supported
 only in the Console, not on the model tool), transitions any `queued`,
@@ -219,8 +220,9 @@ Workflow task turns can also spawn Jobs: the Job records `wf_task:<call_id>` as
 `owner_session_id` so `succeeded`, `failed`, and `waiting_on_user` wakeups
 resume the sleeping Workflow task rather than the main Agent's chat session, and
 when a Workflow run terminates, cleanup stops any live Jobs that its task
-sessions own (see [Workflow](Workflow.md)). Meanwhile, turn-local webhook and
-automation CLIs invoked inside a Job use `Conversations.Route` to walk the
+sessions own (see [Workflow](Workflow.md)). Meanwhile, turn-local CLIs
+(`ankole-pod`, `ankole-files`, and `create-webhook-cli`) invoked inside a Job
+use `Conversations.Route` to walk the
 persisted Job and Workflow owner chain back to the originating long-lived Agent
 Session so long-lived callbacks never target an ephemeral Job or task (without
 altering Job lifecycle wakeups, the calling Signal, or its `WorkAccess`
@@ -1097,8 +1099,8 @@ available:
   admission.
 - Terminal-source checks, linear respawn, exact thread and Workspace reuse, and
   missing-Workspace errors.
-- Workspace save and restore: unchanged files, mode changes, deletions, left-out
-  files, and drive changes against local work after the last save.
+- Persistent `/workspace` Home preservation and replacement-thread recovery when
+  native Codex thread files are absent.
 - Causal Turn lookup, bounded trajectory output, continuation, and delivery
   errors.
 - Root Turn trajectory, progress, causal lookup, and recovery when runtime

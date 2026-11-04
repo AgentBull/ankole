@@ -1,3 +1,4 @@
+import { xmlEscape } from './xml'
 import type {
   BlockContent,
   Code,
@@ -600,22 +601,13 @@ function flow(node: Element, children: RootContent[]): MdxJsxFlowElement {
   return { type: 'mdxJsxFlowElement', ...tagOf(node), children: children as MdxJsxFlowElement['children'] }
 }
 
-const attributeEscapes: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '"': '&quot;',
-  '\t': '&#9;',
-  '\n': '&#10;',
-  '\r': '&#13;'
-}
-
 function tagOf(node: Element): { name: string; attributes: MdxJsxAttribute[] } {
   return {
     name: node.name,
     attributes: Object.entries(node.attrs).map(([name, value]) => ({
       type: 'mdxJsxAttribute',
       name,
-      value: value.replace(/[&<"\t\n\r]/g, character => attributeEscapes[character]!)
+      value: xmlEscape(value, true)
     }))
   }
 }

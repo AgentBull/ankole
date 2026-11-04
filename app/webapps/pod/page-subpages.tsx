@@ -1,3 +1,4 @@
+import { useMenuFinalFocus } from '@ankole/uikit/hooks/use-menu-final-focus'
 import { canCreateChild, canRenamePage } from './state/page-location'
 import { BdiLabel } from '../common/bidi-file-name'
 import { stripBidi } from '../common/bidi'
@@ -68,7 +69,8 @@ import {
   type SubpageItem
 } from './content-api'
 import { contentError } from './content-errors'
-import { formatPageTimestamp, handlePodListKeyDown } from './content-list'
+import { handlePodListKeyDown } from './content-list'
+import { formatRelativeTime } from '../common/date-time'
 import { ContentError, typeLabels } from './content-primitives'
 import { PageMenuItems, usePageActions, type PageActions } from './page-actions'
 import { uploadFileSubpages, usePageCreation } from './page-create-menu'
@@ -609,12 +611,7 @@ function SubpageListRow({
   const [renameRequested, setRenaming] = useState(false)
   const renaming = renameRequested && canRenamePage(item)
   const [moving, setMoving] = useState(false)
-  const keepFocusInRow = useRef(false)
-  const menuFinalFocus = () => {
-    const restore = !keepFocusInRow.current
-    keepFocusInRow.current = false
-    return restore
-  }
+  const [keepFocusInRow, menuFinalFocus] = useMenuFinalFocus()
   const label = item.title || t('pod.content.untitled')
   const prefetch = () => void client.prefetchQuery(pageQuery(item.id))
 
@@ -664,7 +661,7 @@ function SubpageListRow({
                 </TableCell>
               )
             }
-            const timestamp = formatPageTimestamp(item[field], locale)
+            const timestamp = formatRelativeTime(item[field], locale)
             return (
               <TableCell key={field} className="text-xs tabular-nums text-fg-tertiary">
                 {timestamp || '—'}
@@ -720,14 +717,9 @@ function SubpageGridCard({
   const [renameRequested, setRenaming] = useState(false)
   const renaming = renameRequested && canRenamePage(item)
   const [moving, setMoving] = useState(false)
-  const keepFocusInCard = useRef(false)
-  const menuFinalFocus = () => {
-    const restore = !keepFocusInCard.current
-    keepFocusInCard.current = false
-    return restore
-  }
+  const [keepFocusInCard, menuFinalFocus] = useMenuFinalFocus()
   const label = item.title || t('pod.content.untitled')
-  const updatedLabel = formatPageTimestamp(item.updated_at, locale)
+  const updatedLabel = formatRelativeTime(item.updated_at, locale)
   const subtitle = [item.creator_name, updatedLabel].filter(Boolean).join(' · ') || typeLabels[item.type]
   const prefetch = () => void client.prefetchQuery(pageQuery(item.id))
 

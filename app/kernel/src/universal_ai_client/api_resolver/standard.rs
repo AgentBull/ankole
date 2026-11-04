@@ -249,6 +249,10 @@ pub(super) fn provider_object_body(
     body: Value,
     label: &'static str,
 ) -> Result<Value, StreamError> {
+    if !(200..300).contains(&status) {
+        return Err(provider_body_error(status, body));
+    }
+    reject_provider_body_error(status, &body)?;
     if body.is_object() {
         return Ok(body);
     }

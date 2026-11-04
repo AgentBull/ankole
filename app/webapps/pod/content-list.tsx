@@ -1,3 +1,5 @@
+import { useSearchDraft } from '../common/use-search-draft'
+import { formatRelativeTime } from '../common/date-time'
 import { usePageHref, usePageMetadata, usePagesMetadata } from './use-page-metadata'
 import { Button, Input, toast } from '@ankole/uikit'
 import { pageCreated } from './state/navigation-cache'
@@ -5,7 +7,7 @@ import { RiDeleteBinLine, RiLockLine } from '@remixicon/react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import type { TFunction } from 'i18next'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { podPagePath } from '../common/pod-url'
 import { BdiLabel } from '../common/bidi-file-name'
@@ -63,33 +65,19 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
   const rootScope = effectiveScope === 'space' || effectiveScope === 'private'
   const [searchParams, setSearchParams] = useSearchParams()
   const query = searchParams.get('q') ?? ''
-  const [inputQuery, setInputQuery] = useState(query)
-  const lastPushedQuery = useRef(query)
-  useEffect(() => {
-    if (query !== lastPushedQuery.current) {
-      lastPushedQuery.current = query
-      setInputQuery(query)
-    }
-  }, [query])
-  useEffect(() => {
-    lastPushedQuery.current = query
-    setInputQuery(query)
-  }, [scope])
-  useEffect(() => {
-    if (!(search || trash) || inputQuery === query) return
-    const timer = window.setTimeout(() => {
-      lastPushedQuery.current = inputQuery
+  const [inputQuery, setInputQuery] = useSearchDraft(
+    query,
+    value =>
       setSearchParams(
         current => {
-          if (inputQuery) current.set('q', inputQuery)
+          if (value) current.set('q', value)
           else current.delete('q')
           return current
         },
         { replace: true, preventScrollReset: true }
-      )
-    }, 180)
-    return () => window.clearTimeout(timer)
-  }, [inputQuery, query, search, setSearchParams, trash])
+      ),
+    { delay: 180, enabled: search || trash, scope }
+  )
   const debouncing = (search || trash) && inputQuery !== query
   const listing = useQuery({
     ...pagesQuery(effectiveScope, trash ? query : '', domain),
@@ -184,10 +172,7 @@ export function PageContentList({ scope, domain = 'pages' }: { scope: PageScope 
                 rootScope
                   ? ''
                   : [
-                      formatPageTimestamp(
-                        trash ? (page.deleted_at ?? page.updated_at) : page.updated_at,
-                        i18n.language
-                      ),
+                      formatRelativeTime(trash ? (page.deleted_at ?? page.updated_at) : page.updated_at, i18n.language),
                       trash && purgeDays(page, retentionDays, t)
                     ]
                       .filter(Boolean)
@@ -296,7 +281,7 @@ function RecentContentList() {
                 page={entry.page}
                 ancestors={pageAncestors(entry.page, pagesByID)}
                 showPrivateBadge={Boolean(entry.page.private_owner_uid)}
-                timestamp={formatPageTimestamp(entry.timestamp, i18n.language)}
+                timestamp={formatRelativeTime(entry.timestamp, i18n.language)}
               />
             )
           }
@@ -305,7 +290,7 @@ function RecentContentList() {
             room.conversationKind === 'colleague_dm'
               ? room.agents[0]?.role
               : room.agents.map(agent => agent.displayName).join(', ')
-          const timestamp = formatPageTimestamp(entry.timestamp, i18n.language)
+          const timestamp = formatRelativeTime(entry.timestamp, i18n.language)
           const chatLabel = t('pod.sidebar.tabs.chat')
           return (
             <li key={`chat:${room.id}`}>
@@ -433,29 +418,4 @@ function PageListItem({
       {restoreAction}
     </li>
   )
-}
-
-export function formatPageTimestamp(iso: string | null | undefined, locale?: string): string {
-  if (!iso) return ''
-  const time = Date.parse(iso)
-  if (Number.isNaN(time)) return ''
-  const now = Date.now()
-  const diffSeconds = Math.round((time - now) / 1000)
-  const absSeconds = Math.abs(diffSeconds)
-  try {
-    const rtf = new Intl.RelativeTimeFormat(locale || undefined, { numeric: 'auto' })
-    if (absSeconds < 60) return rtf.format(0, 'minute')
-    if (absSeconds < 3600) return rtf.format(Math.round(diffSeconds / 60), 'minute')
-    if (absSeconds < 86400) return rtf.format(Math.round(diffSeconds / 3600), 'hour')
-    if (absSeconds < 7 * 86400) return rtf.format(Math.round(diffSeconds / 86400), 'day')
-    const date = new Date(time)
-    const sameYear = date.getFullYear() === new Date(now).getFullYear()
-    return new Intl.DateTimeFormat(locale || undefined, {
-      ...(sameYear ? {} : { year: 'numeric' }),
-      month: 'short',
-      day: 'numeric'
-    }).format(date)
-  } catch {
-    return new Date(time).toLocaleDateString()
-  }
 }

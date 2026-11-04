@@ -11,26 +11,30 @@ Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分
 
 ## 杠杆 1：model profile 档位
 
-每个 Agent 的八个内置模型档案（Model Profile）分别对应不同的计费调用路径：其中五个指定语言模型，另外三个分别绑定网页搜索、网页抓取与图像生成能力。
+模型档案（Model Profile）在 **Console → Model Profiles** 中通过三层稀疏继承链（`Site -> Pod -> Agent/System`）解析。每个 Agent 提供八个内置槽位（五个语言模型槽位，外加 `web_search`、`web_fetch` 与 `image_generate`）；站点、Pod 与内置 `system` 主体（`ankole_brain`、`system`）则在此基础上增加第九个 `rerank` 槽位。未单独覆盖的槽位自动继承 Pod 与站点默认值，并支持 `coding -> heavy -> primary` 与 `light -> primary` 跨槽位回退。
 
 | 档案槽位 | 触发场景 | 控费要点 |
 |---|---|---|
 | `primary` | 日常主推理模型，承接绝大多数常规对话回合 | 占比最高的核心开销项 |
-| `light` | 高频、低风险的轻量辅助处理路径 | 务必绑定真正低成本的轻量模型 |
-| `heavy` | 高难度复杂推理与跨源综合分析 | 单价昂贵；只要 `primary` 选型得当，平时极少动用 |
-| 后台 Agent 任务（内部键名 `coding`） | 每一个持久化后台 Agent 任务 | 决定长时异步任务使用哪个 Provider 与模型 |
+| `light` | 高频、低风险的轻量处理路径（未配置时回退至 `primary`） | 务必绑定真正低成本的轻量模型，避免批量处理按主力单价计费 |
+| `heavy` | 高难度综合分析与 Dreaming 复盘 | 单价昂贵；只要 `primary` 选型得当，平时极少动用 |
+| 后台 Agent 任务（内部键名 `coding`） | 每一个持久化后台 Agent 任务（按 `coding -> heavy -> primary` 回退） | 决定长时异步任务使用哪个 Provider 与模型 |
 | `vision_fallback` | 当 `primary` 模型不支持视觉输入时的识图回退 | 仅在该 Agent 确实需要看图时才配置 |
 | `web_search`、`web_fetch` | 公网网页搜索与正文抓取工具 | 见下文“杠杆 3” |
 | `image_generate` | 图像生成工具 | 按张计费较高；仅在确有生图需求时绑定 |
+| `rerank`（Site / Pod / `system`） | Brain 召回重排与 `/rerank` 默认路由 | 绑定响应快、单价低的专用 Rerank 模型 |
 
-此外，Brain 子系统会从 [AppConfigure](../app-configuration/) 读取站点级的 Embedding 模型与租户级的 Rerank 模型，并通过租户配置键 `brain.maintainer_agent_uid` 指定一个活跃 Agent 作为当前租户的 Brain 维护主体——Brain 内部发起的全部模型与抓取调用均以该维护 Agent 的身份执行，用量也统一归入该 Agent 名下：其中 `light` 档案用于从日常对话与文档 Source 中抽取知识，`heavy` 档案用于离线 Dreaming 归纳与技能教训复审，`web_fetch` 档案用于提取网页 URL Source 正文（未配置 `web_fetch` 或上游报错时，网页 Source 学习将直接失败）。一旦停用该维护 Agent，Brain 的模型调用与 URL 抓取便会立即暂停，直至重新启用或更换为其他活跃 Agent；管理员可在 **Brain → 健康**页面直观核查维护 Agent 及各档案的就绪状态，详见 [Brain](../brain/)。类似地，Pod Applet 中的 `ctx.ai` 调用会复用创建该 Applet 的 Agent（须保持启用），其模型档案、配额与 Token 消耗均记在该创建者 Agent 名下。
+控制面内部子系统的模型调用统一归属内置 `system` 主体执行，后台治理与小应用调用绝不会挤占任何前台 Agent 的 Token 配额：
+
+- **`ankole_brain`**：承载企业大脑（Company Brain）的全部模型调用并将用量记入 `ankole_brain` 名下——其中 `light`（回退 `primary`）用于从对话与文档 Source 中抽取事实，`heavy`（回退 `primary`）用于离线 Dreaming 归纳与技能教训复审，`web_fetch` 用于抓取网页 URL Source 正文，`rerank` 用于知识召回重排，同时从 [AppConfigure](../app-configuration/) 读取站点级的 `brain.embedding_model`。若希望将后台知识治理与前台对话预算解耦，可直接在 **Console → Model Profiles** 中单独覆盖 `ankole_brain` 的各档槽位；管理员也可在 **Brain → 健康**页面核查各档案就绪状态，详见 [Brain](../brain/)。
+- **`system`（Pod Applet `ctx.ai`）**：以内置 `system` 主体无状态执行 Pod 小应用的 `ctx.ai` 调用，解析当前 Pod/站点生效的内置语言模型档案（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）。
 
 在模型分档上，有两条立竿见影的省钱铁律：
 
-- **给 `light` 真正配一款便宜好用的小模型**：`light` 专用于承接高频次后台与辅助调用；如果随手把跟 `primary` 差不多贵的旗舰大模型填进 `light`，分档机制就完全失去了控费意义。
-- **`primary` 默认够用即可，不必盲目拉满顶配**：很多让人觉得“烧钱”的 Agent，往往只是因为在 `primary` 槽位绑了远超日常任务难度的昂贵重型模型。建议先从性价比均衡的主力模型起步，只有验证发现特定岗位的回答质量确实吃紧时再针对性上调。
+- **在站点或 Pod 层给 `light` 配一款便宜好用的小模型**：`light` 未配置时会回退至 `primary`，且同时承接高频辅助调用与 `ankole_brain` 的日常事实抽取；在默认层绑好低成本模型，所有继承默认值的 Agent 与企业大脑都会同步受益。
+- **`primary` 默认够用即可，不必盲目拉满顶配**：很多让人觉得“烧钱”的 Agent，往往只是因为在 `primary` 槽位绑了远超日常任务难度的重型模型。建议先从性价比均衡的主力模型起步，仅为少数回答质量确实吃紧的专家岗位单独上调 `primary` 或 `heavy`。
 
-如果某个 Agent 压根不需要看图，直接将 `vision_fallback` 留空即可彻底杜绝此类调用。`image_generate` 留空时，若当前主模型的 Provider 声明支持原生生图，请求仍可走主模型原生路径。但“后台 Agent 任务”档案是个例外：即便留空不配，系统也会自动回退使用该 Agent 的 `heavy` 档案继续通过 AIGateway 执行——因此，只有当你希望后台任务改走另一套更划算的 Provider（如订阅池）或专用编码模型时，才需单独配置该槽位。
+对于当前 Pod 或 Agent 不需要用到的可选能力槽位（如 `vision_fallback`），保持留空即可杜绝误调用。`image_generate` 留空时，若当前主模型的 Provider 声明支持原生生图，请求仍可走主模型原生路径。后台 Agent 任务（`coding`）留空时则会沿 `heavy -> primary` 自动回退执行；当希望长时编码或调研任务改走专用编码模型或订阅池时，再单独配置 `coding` 槽位即可。
 
 ## 杠杆 2：reasoning effort
 
@@ -47,17 +51,20 @@ Ankole 运行成本的大头来自上游大模型的 Token 消耗，而这部分
 
 顺带一提，租户级配置键 `agent_workers.rendered_fetch_idle_ttl_ms` 控制的是动态渲染版 `web_fetch` 浏览器边车实例在空闲多久后自动回收释放——它管的是容器计算内存回收，并非网页响应缓存时长。
 
-## 杠杆 4：agent 循环预算
+## 杠杆 4：agent 循环预算与冷唤醒轮转
 
-三个租户级（`scope: :tenant`）`AppConfigure` 配置键共同为单个对话回合划定开销硬顶：
+租户级（`scope: :tenant`）[AppConfigure](../app-configuration/) 配置键既为单个对话回合划定开销硬顶，也防止长寿会话在上游提示词缓存失效后反复按全量无缓存输入重计费：
 
 | 配置键 | 约束目标 |
 |---|---|
 | `ai_agent.max_iterations` | 单个 Agent 回合内允许执行的模型迭代最大轮数 |
 | `ai_agent.max_output_tokens` | 单次模型响应允许生成的最大输出 Token 数 |
 | `ai_agent.inactivity_timeout_ms` | 上游无响应空闲多久后终止回收当前回合 |
+| `sessions.wake_recycle` | 冷唤醒会话轮转策略（`min_cold_gap_seconds`: `3600`、`min_context_tokens`: `128000`、`im_max_idle_seconds`: `259200`） |
 
 其中 `max_iterations` 能有效防止模型陷入工具调用死循环——避免原本调两次工具就能结案的任务反复拉锯空转；`max_output_tokens` 则约束单次长篇大论的体积。这三项 `ai_agent.*` 配置均作为租户级默认值生效（未覆盖时继承站点默认值），建议结合本租户的日常任务复杂度合理设定；当某个复杂回合触及迭代上限时，Agent 会基于手头已拿到的信息直接收敛给出最终答复。
+
+一旦上游 Provider 的提示词缓存（Prompt Cache）过期，直接续接超长历史模型线程会在下一回合按全量无缓存输入重新计费。`sessions.wake_recycle` 专门消除这类冷缓存重计费损耗：当某个 Session 空闲达到 `min_cold_gap_seconds`（默认 `1` 小时）且上下文规模达到 `min_context_tokens`（默认 `128,000` Token），或在外部 IM 渠道空闲超过 `im_max_idle_seconds`（默认 `72` 小时）后再次唤醒时，Ankole 会将底层 AIGateway 模型会话平滑轮转到携带精炼 `<wake-briefing>` 摘要的新分支上，同时完整保留群聊或私聊的公开消息记录。
 
 ## 杠杆 5：Workflow fanout 与任务尝试
 

@@ -1,3 +1,4 @@
+import { nodeErrorCode } from '../../../common/errors'
 import { writeFileAtomicSync } from '../../../common/atomic-write'
 import { ms } from '@agentbull/active-support'
 import { Buffer } from 'node:buffer'
@@ -72,7 +73,7 @@ export async function migrateCodexSession(
         return target
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      if (nodeErrorCode(error) !== 'ENOENT') throw error
     }
   }
   return undefined

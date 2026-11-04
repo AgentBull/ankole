@@ -1,3 +1,4 @@
+import { composingKey } from '@ankole/uikit/lib/keyboard'
 import { useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Leaf, Node } from '../core/doc'
@@ -88,7 +89,7 @@ function choose(wg: Wordgard, type: BlockType) {
 
 const keys = Wordgard.domEventHandler('keydown', (event, wg) => {
   const menu = wg.state.field(slashField, false)
-  if (!menu || event.isComposing || event.keyCode === 229 || wg.composing) return false
+  if (!menu || composingKey(event) || wg.composing) return false
   if (event.ctrlKey || event.metaKey || event.altKey) return false
   const count = menu.options.length
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {

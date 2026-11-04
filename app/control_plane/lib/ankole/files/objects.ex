@@ -67,7 +67,7 @@ defmodule Ankole.Files.Objects do
   def fetch(_id), do: {:error, :not_found}
 
   def complete_in_tx(stored) when is_map(stored) do
-    require_transaction!(:complete_in_tx)
+    Repo.require_transaction!({__MODULE__, :complete_in_tx})
     id = Ankole.Attrs.get(stored, :object_id)
 
     with {:ok, digest} <- digest(Ankole.Attrs.get(stored, :sha256)),
@@ -81,7 +81,7 @@ defmodule Ankole.Files.Objects do
   end
 
   def complete_in_tx(id) when is_binary(id) do
-    require_transaction!(:complete_in_tx)
+    Repo.require_transaction!({__MODULE__, :complete_in_tx})
     fetch(id)
   end
 
@@ -136,7 +136,7 @@ defmodule Ankole.Files.Objects do
   end
 
   def enqueue_tenant_object_deletions_in_tx do
-    require_transaction!(:enqueue_tenant_object_deletions_in_tx)
+    Repo.require_transaction!({__MODULE__, :enqueue_tenant_object_deletions_in_tx})
     enqueue_tenant_objects(nil)
   end
 
@@ -226,9 +226,4 @@ defmodule Ankole.Files.Objects do
 
   defp object_result({:error, %{"code" => "not_found"}}), do: {:error, :not_found}
   defp object_result(result), do: result
-
-  defp require_transaction!(operation) do
-    unless Repo.in_transaction?(),
-      do: raise(Ankole.Errors.Framework.TransactionRequired, operation: {__MODULE__, operation})
-  end
 end

@@ -72,7 +72,7 @@ defmodule MicrosoftOpenAPI.EntraAuth do
     tenant = Keyword.get(opts, :tenant) || client.tenant_id
     cache_key = {client.login_base_url, tenant, client.client_id, scope}
 
-    case cached_token(cache_key) do
+    case IMTransport.TokenCache.lookup(Cache.token_table(), cache_key) do
       {:ok, token} -> {:ok, token}
       :miss -> fetch_client_credentials_token(client, tenant, scope, cache_key)
     end
@@ -110,16 +110,6 @@ defmodule MicrosoftOpenAPI.EntraAuth do
 
   defp token_from_body(body),
     do: {:error, %Error{reason: :unexpected_shape, raw: body}}
-
-  defp cached_token(cache_key) do
-    case :ets.lookup(Cache.token_table(), cache_key) do
-      [{^cache_key, token, expires_at}] ->
-        if System.monotonic_time(:millisecond) < expires_at, do: {:ok, token}, else: :miss
-
-      [] ->
-        :miss
-    end
-  end
 
   defp token_url(client, tenant) when is_binary(tenant),
     do: "#{client.login_base_url}/#{URI.encode(tenant)}/oauth2/v2.0/token"

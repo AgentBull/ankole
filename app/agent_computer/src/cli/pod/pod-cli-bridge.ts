@@ -1,3 +1,4 @@
+import { nodeErrorCode } from '../../common/errors'
 import { randomUUID } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
@@ -123,7 +124,7 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
           try {
             if ((await readdir(directory)).length) throw new Error('Applet pull directory must be empty')
           } catch (error) {
-            if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error
+            if (nodeErrorCode(error) !== 'ENOENT') throw error
           }
           await mkdirAgent(dirname(directory))
           const temporary = await mkdtemp(join(dirname(directory), '.ankole-pull-'))
@@ -234,7 +235,7 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
             await readdir(serverDirectory)
             files.push(...(await opts.drive.put(serverDirectory, `${staging}/server`)))
           } catch (error) {
-            if (!(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')) throw error
+            if (nodeErrorCode(error) !== 'ENOENT') throw error
           }
           for (const name of ['package.json', 'bun.lock', 'tsconfig.json', 'applet.env.json']) {
             if (await Bun.file(join(directory, name)).exists()) {

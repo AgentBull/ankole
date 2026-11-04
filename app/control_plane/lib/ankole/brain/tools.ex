@@ -253,8 +253,8 @@ defmodule Ankole.Brain.Tools do
   defp datetime(value) when value in [nil, ""], do: {:ok, nil}
 
   defp datetime(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, date, _} -> {:ok, date}
+    case Ankole.Attrs.parse_datetime(value) do
+      %DateTime{} = date -> {:ok, date}
       _ -> {:error, :invalid_datetime}
     end
   end

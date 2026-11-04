@@ -1,18 +1,10 @@
+import { blobToDataUrl, downloadBlob } from '../../../common/browser-files'
 import { planScreenshotPixelRatio } from '../screenshot-budget'
 import { injectStandaloneSvgTheme, MERMAID_PALETTES, type MermaidThemeMode } from './mermaid-renderer'
 
 export function svgToDataUrl(svg: string, theme: MermaidThemeMode): string {
   const themed = injectStandaloneSvgTheme(svg, theme)
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(themed)}`
-}
-
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result ?? ''))
-    reader.onerror = () => reject(reader.error ?? new Error('Failed to read Mermaid PNG blob'))
-    reader.readAsDataURL(blob)
-  })
 }
 
 export async function svgToPngDataUrl(
@@ -86,16 +78,5 @@ export async function downloadMermaidPng(
   filename = 'ankole-diagram.png'
 ): Promise<void> {
   const blob = await svgToPngBlob(svg, width, height, theme)
-  const objectUrl = URL.createObjectURL(blob)
-  try {
-    const anchor = document.createElement('a')
-    anchor.href = objectUrl
-    anchor.download = filename
-    anchor.rel = 'noopener'
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-  } finally {
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000)
-  }
+  downloadBlob(blob, filename)
 }

@@ -656,7 +656,7 @@ defmodule Ankole.Pod.Formula do
   defp reverse_values(error), do: error
 
   defp timestamp_sql(sql),
-    do: "to_char((#{sql}) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')"
+    do: Ankole.Pod.Query.utc_timestamp("(#{sql})")
 
   defp referenced?(%{"kind" => "field", "id" => id}, id), do: true
   defp referenced?(ast, id) when is_map(ast), do: Enum.any?(Map.values(ast), &referenced?(&1, id))

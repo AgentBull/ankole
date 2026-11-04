@@ -1,5 +1,6 @@
+import { atomicJSON } from '../files'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { cp, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
+import { cp, mkdir, readFile, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { chromium, type Browser } from 'playwright-core'
 import { startWebProxy, type WebProxy } from '@ankole/kernel'
@@ -285,16 +286,4 @@ function processAlive(pid: number): boolean {
   } catch {
     return false
   }
-}
-
-async function atomicJSON(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.${crypto.randomUUID()}.tmp`
-  const file = await open(temporary, 'w', 0o600)
-  try {
-    await file.writeFile(`${JSON.stringify(value)}\n`)
-  } finally {
-    await file.close()
-  }
-  await rename(temporary, path)
 }

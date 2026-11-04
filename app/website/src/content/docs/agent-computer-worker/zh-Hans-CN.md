@@ -11,11 +11,11 @@ Agent Computer Worker 是每个 Agent 专属的隔离运行环境，相当于它
 
 在职责划分上，Bun Worker 负责运行 Shell 命令、文件与浏览器工具、Skills、MCP 调用以及 Codex Job；控制面的 `Ankole.Sessions` 负责驱动主 Agent 循环，将输入消费记录与工具执行结果持久化落库，并生成最终回复；AIGateway 则负责维护持久化的 Response 链与托管工具（Hosted Tools）。
 
-启动实例时，控制面会向 Worker 注入 `WORKER_ID`、RuntimeFabric 连接地址、代数（generation）凭据与存储参数。每个 Worker 实例只服务于所属的单个 Agent，不直连数据库，并在派生子进程前剥离平台凭据。容器本身构成 Agent 的安全隔离边界：所有命令均以 `uid 1000` 普通用户身份运行，不提供 `sudo` 权限。
+启动实例时，控制面会向 Worker 注入 `WORKER_ID`、RuntimeFabric 连接地址、代数（generation）凭据与存储参数。每个 Worker 实例只服务于所属的单个 Agent，不直连数据库，并在派生子进程前剥离平台凭据。根监管进程（`ankole-worker-supervisor` 配合仅限 `root` 访问的 `ankole-rclone` 守护进程）仅持有 `/dev/fuse` 与 `SYS_ADMIN` 用于在每次执行的私有挂载与 PID 命名空间内组装挂载视图，随后立即将所有命令与 Codex 子进程降权为 `uid 1000` / `gid 1000`，并清空全部 Linux Capabilities（启用 `NoNewPrivs`，不提供 `sudo`）。
 
-## WorkerPool 与实时连接
+## WorkerProvider 与实时连接
 
-Agent 绑定的 Worker Provider 决定了它归属的资源池、底层运行平台、实例规格与存储方式。多个 Agent 可以共用同一个资源池，平台仍会为每个 Agent 分配各自独立的电脑实例。实例空闲后可按策略销毁或暂停回收，而 Agent 的 Home 目录持久保留。详细的资源池配置与生命周期规则见 [WorkerPool](../worker-management/)。
+Agent 绑定的 `WorkerProvider`（`WorkerProviders`）决定了它所属的底层运行平台、实例规格与存储后端。即便多个 Agent 绑定同一个 `WorkerProvider`，平台仍会为每个 Agent 分配各自独立的电脑实例。实例空闲后可按策略销毁或暂停回收，而 Agent 的 Home 目录持久保留。详细的配置与生命周期规则见 [WorkerProvider](../worker-management/)。
 
 Worker 启动后，会向 `/runtime-fabric/worker/websocket` 建立经过鉴权的 WebSocket 长连接，并加入专属的 Phoenix Channel，通过 RuntimeFabric 的 Protobuf 消息信封传递环境工具调用、执行结果、Codex 控制指令与运行进度。控制面通过校验 generation 与 incarnation 标识来拦截已被新实例接替的旧 Worker。大文件字节流通过一次性 HTTP 中继地址传输，用于故障恢复的权威状态则统一保存在 PostgreSQL 中。
 
@@ -29,7 +29,7 @@ Worker 启动后，会向 `/runtime-fabric/worker/websocket` 建立经过鉴权�
 
 ## 文件系统契约
 
-Agent Home 是挂载在 `/workspace` 上的持久化存储目录。`/agents/<agent_uid>` 是指向 `/workspace` 的符号链接；路径安全检查会先解析符号链接，再校验目标路径是否位于 Home 边界之内。目录结构如下：
+Agent Home 挂载在 `/workspace` 上（`/agents/<agent_uid>` 是指向 `/workspace` 的符号链接），而支持 FUSE 的 Worker 会在每次执行的私有挂载命名空间内将统一云盘挂载到 `/drive`：
 
 ```text
 /workspace/
@@ -42,13 +42,23 @@ Agent Home 是挂载在 `/workspace` 上的持久化存储目录。`/agents/<age
     ├── .codex/config.toml
     ├── AGENTS.md
     └── temp/
+
+/drive/
+├── Public/        （读写）
+├── MyDrive/       （读写，个人助理所属成员的私人空间）
+├── AgentDrive/    （读写）
+├── ChatDrive/     （读写，按当前会话隔离）
+├── Brain/         （只读，按披露范围过滤）
+├── Skills/        （只读）
+├── AGENTS.md      （只读）
+└── DESIGN.md      （只读）
 ```
 
-`~/AGENTS.md` 与 `~/DESIGN.md` 是 [Agent Library](../agent-library/) 有效契约的完整投影，每轮还会刷新 `$CODEX_HOME/AGENTS.md`。主 Agent 从常驻只读挂载 `/drive/Skills/<slug>/` 读取已启用的完整技能包。后台任务将获准的技能包物化到 `.ankole/turn-skills/<signal-id>/`；任务初始能力白名单可以收窄，但不会因后来启用其他技能而扩大。`sessions/` 按 PostgreSQL 分配的稳定数字 ID（从 `10000` 起）保存会话工作区，`jobs/` 保存后台任务项目及其自己的指令文件。
+在 `/drive` 下，`Ankole.Files.Vfs` 暴露可读写的 `/drive/Public`、`/drive/MyDrive`（作为个人助理运行时）、`/drive/AgentDrive` 与按会话隔离的 `/drive/ChatDrive`，以及来自 [Agent Library](../agent-library/) 的只读 `/drive/Brain`、`/drive/Skills`、`/drive/AGENTS.md` 与 `/drive/DESIGN.md`。若后台 VFS 回写遇到 `412` 或 `422` 终态冲突，Worker 会在当前作用域的 `/drive-recovery` 目录保留草稿字节；在启动探测无法挂载 FUSE 的 Worker 上，则回退通过 `ankole-files` 传输云盘文件（详见 [文件管理](../file-management/)）。`~/AGENTS.md`、`~/DESIGN.md` 与 `$CODEX_HOME/AGENTS.md` 同样在每轮同步最新生效契约；后台任务将获准的技能包物化到 `.ankole/turn-skills/<signal-id>/`（初始能力白名单仅可随撤销收窄，不会在运行中扩大）。`sessions/` 按 PostgreSQL 分配的稳定数字 ID（从 `10000` 起）保存会话工作区，`jobs/` 保存后台任务项目及指令文件。
 
 销毁实例或升级镜像后，Agent Home 中的数据依然保留；重建实例只会清除 `/var/cache/ankole` 缓存目录。需要注意底层存储平台的边界：Docker 本地卷依赖宿主机磁盘；Cloudflare 容器若被强制终止，可能会丢失最近一次 R2 备份之后的写入。各平台的具体存储限制见 [工作节点](../worker-management/)。
 
-Codex 的主目录位于 `/workspace/.codex`，线程文件跨实例持久保留；即便 `/var/cache/ankole/codex` 下的可重建 SQLite 缓存被清空替换，Codex 仍可依据线程文件恢复上下文。后台任务在运行期间通过 `skill_view` 按需加载 Skill。
+Codex 原始线程文件持久保存在 `/workspace/.codex` 中，而 `AgentCodexRuntime` 会按执行视图（包含会话身份，以确保 `ChatDrive` 与披露挂载彼此隔离）分别隔离活跃的 Codex 运行时实例、`CODEX_HOME` 以及 `/var/cache/ankole/codex` 下的可重建 SQLite 缓存。即便跨 Worker 实例替换重建了缓存，Codex 仍可从 `/workspace/.codex` 恢复上下文；后台任务在运行期间通过 `skill_view` 按需加载 Skill。
 
 ## 进度与容量
 

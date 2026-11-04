@@ -636,6 +636,12 @@ defmodule Ankole.Repo do
     :ok
   end
 
+  @doc "Raises with the owning operation when an entry point requires a caller-owned transaction."
+  def require_transaction!(operation) do
+    unless in_transaction?(),
+      do: raise(Ankole.Errors.Framework.TransactionRequired, operation: operation)
+  end
+
   @doc "Checks a caller-owned transaction boundary for an _in_tx entry point."
   def require_transaction, do: require_transaction(__MODULE__)
 

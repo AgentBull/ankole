@@ -1,3 +1,4 @@
+import { effectiveFieldType } from './base-field-types'
 import { useTranslation } from 'react-i18next'
 import { useAggregate } from '@ankole/applet-sdk'
 import type { AggregateQuery, BaseField, Filter, GroupBy, Metric } from '@ankole/applet-sdk/types'
@@ -70,10 +71,8 @@ function Summary({
     field =>
       operation === 'count' ||
       (operation === 'sum' || operation === 'avg'
-        ? ['number', 'auto_number'].includes(field.type) ||
-          (field.type === 'formula' && field.config.result_type === 'number')
-        : ['text', 'number', 'auto_number', 'datetime', 'created_at', 'updated_at'].includes(field.type) ||
-          (field.type === 'formula' && ['number', 'text', 'datetime'].includes(String(field.config.result_type))))
+        ? effectiveFieldType(field) === 'number'
+        : ['number', 'text', 'datetime'].includes(effectiveFieldType(field)))
   )
   const selected = candidates.find(field => field.id === fieldID)
   const groups = groupIDs
@@ -85,7 +84,7 @@ function Summary({
     filter,
     group_by: groups.map(field => ({
       field_id: field.id,
-      ...(['datetime', 'created_at', 'updated_at'].includes(field.type) ? { bucket } : {})
+      ...(effectiveFieldType(field) === 'datetime' ? { bucket } : {})
     })),
     metrics: [{ operation, ...(operation === 'count' && !fieldID ? {} : { field_id: fieldID }), alias: 'value' }]
   }
@@ -143,7 +142,7 @@ function Summary({
             />
           )
         )}
-        {groups.some(field => ['datetime', 'created_at', 'updated_at'].includes(field.type)) && (
+        {groups.some(field => effectiveFieldType(field) === 'datetime') && (
           <Choice<NonNullable<GroupBy['bucket']>>
             label={t('pod.content.date_grouping')}
             value={bucket ?? 'day'}
@@ -196,7 +195,7 @@ function SummaryResult({ tableID, query, groups }: { tableID: string; query: Agg
               <TableRow key={index}>
                 {groups.map((field, i) => (
                   <TableCell key={field.id}>
-                    {['datetime', 'created_at', 'updated_at'].includes(field.type) ? (
+                    {effectiveFieldType(field) === 'datetime' ? (
                       String(group.values[i] ?? '—')
                     ) : (
                       <FieldValue field={field} value={group.values[i] ?? null} />

@@ -72,3 +72,27 @@ test('a knowledge response from a cancelled editing session cannot settle its re
   expect(draft.parsed.value.metadata).toEqual({ title: 'Second' })
   expect(draft.editing.value).toBe(true)
 })
+
+test('metadata key order does not keep a confirmed knowledge draft open', () => {
+  const body = new DocumentDraftModel()
+  const draft = new KnowledgeDraftModel()
+  body.load('page', '<page/>', 1)
+  draft.begin({ tokens: { foreground: 'black', background: 'white' } })
+  const submitted = knowledgeSubmission(body, draft)
+  draft.change(0, { source: 'background: white\nforeground: black' })
+  expect(draft.dirty.value).toBe(false)
+  acknowledgeKnowledge(body, draft, submitted, {
+    xml: '<page/>',
+    metadata: { tokens: { background: 'white', foreground: 'black' } },
+    revision: 2
+  })
+  expect(draft.editing.value).toBe(false)
+  expect(body.revision.value).toBe(2)
+})
+
+test('metadata treats React-like business keys as ordinary JSON properties', () => {
+  const draft = new KnowledgeDraftModel()
+  draft.begin({ payload: { $$typeof: 'business', _owner: { uid: 'alice' } } })
+  draft.change(0, { source: '$$typeof: business\n_owner: {uid: bob}' })
+  expect(draft.dirty.value).toBe(true)
+})

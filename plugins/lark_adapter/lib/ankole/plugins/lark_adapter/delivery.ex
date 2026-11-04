@@ -609,16 +609,8 @@ defmodule Ankole.Plugins.LarkAdapter.Delivery do
 
   @doc false
   @spec split_text(String.t()) :: [String.t()]
-  def split_text(text) when is_binary(text) do
-    text
-    |> String.graphemes()
-    |> Enum.chunk_every(@max_text_message_chars)
-    |> Enum.map(&Enum.join/1)
-    |> case do
-      [] -> [""]
-      chunks -> chunks
-    end
-  end
+  def split_text(text) when is_binary(text),
+    do: Ankole.Text.chunk_graphemes(text, @max_text_message_chars)
 
   @doc false
   @spec chunk_idempotency_key(String.t() | nil, pos_integer()) :: String.t() | nil

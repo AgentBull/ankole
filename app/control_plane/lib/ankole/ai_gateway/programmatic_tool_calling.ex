@@ -492,7 +492,7 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
           arguments}}
 
       nil ->
-        {:error, {:program_tool_not_allowed, public_path(namespace, name)}}
+        {:error, {:program_tool_not_allowed, ToolContract.public_path(namespace, name)}}
     end
   end
 
@@ -730,7 +730,8 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
                end
 
              nil ->
-               {:halt, {:error, {:binding_missing, public_path(call.namespace, call.name)}}}
+               {:halt,
+                {:error, {:binding_missing, ToolContract.public_path(call.namespace, call.name)}}}
            end
          end) do
       {:ok, memo_rev} -> {:ok, Enum.reverse(memo_rev)}
@@ -908,7 +909,8 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
             else: {:error, {:binding_snapshot_mismatch, binding_qualified_name(binding)}}
 
         nil ->
-          {:error, {:binding_missing, public_path(elem(identity, 0), elem(identity, 1))}}
+          {:error,
+           {:binding_missing, ToolContract.public_path(elem(identity, 0), elem(identity, 1))}}
       end
     end)
   end
@@ -1002,9 +1004,6 @@ defmodule Ankole.AIGateway.ProgrammaticToolCalling do
 
   defp snapshot_identity(%{"namespace" => namespace, "name" => name}), do: {namespace, name}
   defp snapshot_identity(_invalid), do: {nil, nil}
-
-  defp public_path(nil, name), do: name
-  defp public_path(namespace, name), do: "#{namespace}.#{name}"
 
   defp program_result(outcome) do
     parts =

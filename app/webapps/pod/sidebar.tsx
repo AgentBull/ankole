@@ -1,3 +1,4 @@
+import { isApplePlatform } from '../common/platform'
 import { commentAttentionQuery } from './content-api'
 import { useChatDrafts } from './chat-drafts'
 import { authenticationRef, podID, podLocation } from '../common/browser-context'
@@ -112,7 +113,7 @@ export function PodSidebar({
   const settingsActive = pathname === '/settings' || pathname.startsWith('/settings/')
   const trashPath = podLocation('/content/trash').pathname
   const trashActive = pathname === trashPath
-  const mac = typeof navigator !== 'undefined' && navigator.platform.includes('Mac')
+  const mac = isApplePlatform()
   const shortcut = mac ? '⌘K' : 'Ctrl+K'
   const preview = previewOpen && state === 'collapsed' && !isMobile
   const closeMobile = () => {

@@ -4109,13 +4109,16 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   end
 
   defp card_action_event do
-    %Event{
-      id: "evt_card",
-      type: "card.action.trigger",
-      tenant_key: "tenant-a",
-      app_id: "cli_test",
-      created_at: @base_time,
-      content: %{
+    Event.from_envelope(%{
+      "schema" => "2.0",
+      "header" => %{
+        "event_id" => "evt_card",
+        "event_type" => "card.action.trigger",
+        "tenant_key" => "tenant-a",
+        "app_id" => "cli_test",
+        "create_time" => Integer.to_string(@base_ms)
+      },
+      "event" => %{
         "operator" => %{
           "email" => "Card.Alice@Example.com",
           "user_id" => "ou_alice",
@@ -4133,9 +4136,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
             "selectedOptionId" => "approve"
           }
         }
-      },
-      raw: %{}
-    }
+      }
+    })
   end
 
   defp localized_field?(field) do

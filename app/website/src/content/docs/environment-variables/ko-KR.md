@@ -52,7 +52,7 @@ Helm 차트의 `values.yaml`에서 이에 대응하는 설정 경로는 `secrets
 
 ## 파일 저장소(프로세스 시작)
 
-`ANKOLE_FILES_STORE`는 컨트롤 플레인 객체 저장소(`Ankole.ObjectStore`) 백엔드를 지정합니다. 이곳에는 각 Agent의 드라이브(수신 첨부 파일, 생성된 이미지, 발신 첨부 파일, 설치된 Skill, Automation Job 스크립트, 직접 저장한 파일)는 물론 Pod `file` 페이지, Pod 문서/Base/Chat 첨부 파일, 컴파일된 Applet 번들까지 함께 보관됩니다. Worker에는 스토리지 자격 증명이 전달되지 않으며 모든 파일 바이트는 컨트롤 플레인을 경유해 오갑니다. 지원하는 전체 OpenDAL 백엔드 목록과 설정법은 [제어면 드라이브 및 객체 저장소 설정](../drive-storage/)을 참조하세요.
+`ANKOLE_FILES_STORE`는 컨트롤 플레인 객체 저장소(`Ankole.ObjectStore`) 백엔드를 지정합니다. 이곳에는 통합 드라이브(Unified Drive)의 불변 파일 객체(Pod 공간, 구성원 개인 공간, Agent 드라이브, 대화 파일을 뒷받침하는 `file_objects`), Pod 및 Applet 자산(문서·Base 자산, 컴파일된 Applet 번들, 커스텀 이모지를 포함하는 `pod_files`), Skill 동반 바이너리(`skill_files`), 그리고 동결된 메시지·전달 첨부 파일이 보관됩니다. Worker에는 스토리지 자격 증명이 전달되지 않으며 모든 파일 바이트는 컨트롤 플레인을 경유해 스트리밍됩니다. 지원하는 전체 OpenDAL 백엔드 목록과 설정법은 [제어면 드라이브 및 객체 저장소 설정](../drive-storage/)을 참조하세요.
 
 | 변수 | 필수 | 의미 |
 |---|---|---|

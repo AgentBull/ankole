@@ -13,9 +13,9 @@ Resolver、提供商模块与 Rust Kernel 各司其职，分别掌控其中一�
 
 `Ankole.AIGateway.Resolver` 负责将调用方传入的 `model` 字段解析为具体的提供商运行时 Map——将主体可见的逻辑选择符（如 `primary`、`web_search.default` 或显式的 `provider_id/model`）转换为确定的提供商 ID、提供商类型（kind）、上游模型名称以及合并后的运行时参数。
 
-每个 Agent 都拥有八个内置模型档案：`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch` 与 `image_generate`（其中 `coding` 是控制台界面中“后台 Agent 任务”档案在 API 与存储层对应的字段名）。前五个档案绑定语言模型，后三个档案则分别对应网页搜索、网页抓取与图像生成能力。
+每个 Agent 都暴露八个内置模型档案槽位（`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch` 与 `image_generate`，其中 `coding` 是控制台界面中“后台 Agent 任务”档案在 API 与存储层对应的字段名），未单独覆盖的槽位会通过 **Console → Model Profiles** 按 `Site -> Pod -> Agent` 逐层稀疏继承；Site、Pod 与 `system` 主体（`ankole_brain`、`system`）还额外暴露第九个内置 `rerank` 槽位。
 
-向量嵌入（Embedding）与重排（Rerank）不属于 Agent 级档案；直接通过 AIGateway 调用这两项能力时，必须传入显式的 `provider_id/model` 选择符。Brain 则分别从 [AppConfigure](../app-configuration/) 的 `brain.embedding_model` 读取站点级嵌入模型、从 `brain.rerank_model` 读取租户级重排模型，具体检索机制见 [Brain](../brain/)。
+向量嵌入（Embedding）不属于 Agent 级档案：直接通过 AIGateway 调用嵌入能力时需传入显式的 `provider_id/model` 选择符，而 Brain 从 [AppConfigure](../app-configuration/) 的 `brain.embedding_model` 读取全站共享的向量嵌入模型。重排（Rerank）方面，`ankole_brain` 解析其生效的 `rerank` 槽位（`Site -> Pod -> ankole_brain`），Agent 与人工发起的重排调用则使用当前 Pod 的 `rerank` 槽位，具体检索机制见 [Brain](../brain/)。
 
 锁定目标提供商记录后，Resolver 会从凭据池中挑选一份可用凭据。若当前对话线程已建立凭据亲和（Thread Affinity），则优先沿用原凭据；否则按该提供商配置的 `fill_first`、`round_robin`、`least_used` 或 `random` 策略选取。生成的运行时 Map 会携带精确的凭据 ID，贯穿后续每一条错误处理路径。对于采用 ChatGPT 订阅 OAuth 登录的凭据池成员，若令牌临近过期或距上次刷新过久，Resolver 会在提供商行级锁的保护下先行刷新令牌：一旦遭遇不可恢复的永久刷新失败，便将该成员标记为 `dead`；若是暂时性失败则标记为 `exhausted`，两种情况下都会继续顺延挑选池内下一个健康成员。
 

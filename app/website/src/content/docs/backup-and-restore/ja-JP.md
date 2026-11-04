@@ -11,9 +11,9 @@ order: 315
 
 | データ | 含まれる内容 | バックアップ元 |
 |---|---|---|
-| Control-plane PostgreSQL | Principal、Session、Job、Pod のメタデータとドキュメント、provider 設定、暗号化済み認証情報、generation、ストレージ参照 | `pg_dump -Fc` または PITR |
-| 物理 Base シャード（`BASE_DB_URLS`） | テナントの物理 Base テーブル行（`BASE_DB_URLS` 未設定の単一 DB 構成では Base テーブルも control-plane DB 内に同居するため、1 回の `pg_dump` で両方をアトミックに取得可能） | 各シャード DB の `pg_dump -Fc` または PITR |
-| オブジェクトストア（ファイルストア） | Pod の `file` ページ、Pod や会話の添付ファイル、コンパイル済み Applet バンドル、公開ファイル、インストール済み Skill | Compose の `files_data`、PVC、または S3 バケット |
+| Control-plane PostgreSQL | Principal、Session、Job、Pod と Unified Drive（`pages`）のメタデータとドキュメント、Brain ナレッジ、Skill マニフェスト・バインディングおよび Agent 契約（`Ankole.AIAgent.Library`）、provider とコネクターの設定、暗号化済み認証情報、generation、ストレージ参照 | `pg_dump -Fc` または PITR |
+| 物理 Base シャード（`BASE_DB_URLS`） | テナントの物理 Base テーブル行（`BASE_DB_URLS` 設定時は control-plane DB とあわせてすべての物理シャード DB のバックアップが必須。`BASE_DB_URLS` 未設定の単一 DB 構成では Base テーブルも control-plane DB 内に同居するため、1 回の `pg_dump` で両方をアトミックに取得可能） | 各シャード DB の `pg_dump -Fc` または PITR |
+| オブジェクトストア（ファイルストア） | Unified Drive のファイルオブジェクト（`file_objects`）、Pod・Applet ファイル（ドキュメントや Base のアセット、コンパイル済み Applet バンドル、カスタム絵文字を含む `pod_files`）、Skill 同梱バイナリ（`skill_files`）、凍結されたメッセージ・配信添付ファイル | Compose の `files_data`、PVC、または S3 バケット |
 | Agent Home | 作業用 workspace、ユーザーパッケージ、`/workspace/.codex` 内のスレッド履歴 | provider のボリューム、共有ディレクトリ、Drive、EFS、または Cloudflare R2 バックアップ |
 | デプロイ設定と秘密情報 | `ANKOLE_SECRET_BASE`、`ANKOLE_FUNCTION_RUNTIME_TOKEN`、`BASE_DB_URLS`、および起動時の各種認証情報 | 別系統のシークレットマネージャー |
 

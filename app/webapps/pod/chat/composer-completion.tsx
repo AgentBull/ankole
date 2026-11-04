@@ -1,3 +1,4 @@
+import { composingKey } from '@ankole/uikit/lib/keyboard'
 import { Button } from '@ankole/uikit'
 import {
   useEffect,
@@ -92,7 +93,7 @@ export function ComposerCompletionList({
   }, [activeID, query, input])
   useImperativeHandle(handle, () => ({
     onKeyDown(event) {
-      if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return false
+      if (composingKey(event.nativeEvent)) return false
       if (event.key === 'Escape') {
         event.preventDefault()
         onClose()

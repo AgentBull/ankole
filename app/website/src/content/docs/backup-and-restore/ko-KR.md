@@ -11,9 +11,9 @@ Ankole을 백업할 때는 PostgreSQL(컨트롤 플레인 데이터베이스와 
 
 | 데이터 | 내용 | 백업 원본 |
 |---|---|---|
-| 컨트롤 플레인 PostgreSQL | Principal, Session, Job, Pod 메타데이터 및 문서, provider 설정, 암호화된 자격 증명, generation, 스토리지 참조 | `pg_dump -Fc` 또는 PITR |
-| 물리 Base 샤드(`BASE_DB_URLS`) | 테넌트별 물리 Base 테이블 행(`BASE_DB_URLS`를 설정하지 않은 단일 DB 구성에서는 Base 테이블이 컨트롤 플레인 DB 안에 함께 저장되므로 한 번의 `pg_dump`로 원자적 백업 가능) | 모든 샤드 DB의 `pg_dump -Fc` 또는 PITR |
-| 오브젝트 스토리지(파일 저장소) | Pod `file` 페이지, Pod 및 대화 첨부 파일, 컴파일된 Applet 번들, 게시된 파일, Skill | Compose `files_data`, PVC, S3 버킷 |
+| 컨트롤 플레인 PostgreSQL | Principal, Session, Job, Pod 및 통합 드라이브(`pages`) 메타데이터와 문서, Brain 지식, Skill 매니페스트·바인딩 및 Agent 계약(`Ankole.AIAgent.Library`), 프로바이더 및 커넥터 설정, 암호화된 자격 증명, generation, 스토리지 참조 | `pg_dump -Fc` 또는 PITR |
+| 물리 Base 샤드(`BASE_DB_URLS`) | 테넌트별 물리 Base 테이블 행(`BASE_DB_URLS`를 구성한 경우 컨트롤 플레인 DB와 함께 모든 물리 샤드 DB를 반드시 백업해야 함; `BASE_DB_URLS`를 비워 둔 단일 DB 구성에서는 Base 테이블이 컨트롤 플레인 DB 안에 함께 저장되므로 한 번의 `pg_dump`로 원자적 백업 가능) | 모든 샤드 DB의 `pg_dump -Fc` 또는 PITR |
+| 오브젝트 스토리지(파일 저장소) | 통합 드라이브 파일 객체(`file_objects`), Pod 및 Applet 파일(문서·Base 자산, 컴파일된 Applet 번들, 커스텀 이모지를 포함하는 `pod_files`), Skill 동반 바이너리(`skill_files`), 동결된 메시지·전달 첨부 파일 | Compose `files_data`, PVC, S3 버킷 |
 | Agent Home | 작업 공간 파일, 사용자 설치 패키지, `/workspace/.codex` 스레드 데이터 | provider 볼륨, 공유 디렉터리, Drive, EFS, Cloudflare R2 백업 |
 | 배포 구성 및 비밀 정보 | `ANKOLE_SECRET_BASE`, `ANKOLE_FUNCTION_RUNTIME_TOKEN`, `BASE_DB_URLS` 및 부트스트랩 자격 증명 | 외부 secret manager |
 

@@ -30,6 +30,13 @@ defmodule IMTransport.HTTPTest do
     assert HTTP.put_body([headers: []], []) == [headers: []]
   end
 
+  test "JSON paths keep leaf values and stop at absent or non-map intermediates" do
+    assert HTTP.get_in_path(%{"data" => %{"items" => [1]}}, ["data", "items"]) == [1]
+    assert HTTP.get_in_path(%{"data" => 1}, ["data", "items"]) == nil
+    assert HTTP.get_in_path(%{}, ["data", "items"]) == nil
+    assert HTTP.get_in_path(false, []) == false
+  end
+
   test "Retry-After retains the clients' seconds and integer-prefix parsing contract" do
     assert HTTP.retry_after(Req.Response.new(headers: [{"retry-after", "12"}])) == 12
     assert HTTP.retry_after(Req.Response.new(headers: [{"retry-after", "3 seconds"}])) == 3

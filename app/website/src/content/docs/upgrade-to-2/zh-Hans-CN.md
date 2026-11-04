@@ -14,7 +14,7 @@ order: 313
 | 1.x 旧版形态 | 2.0 新版形态 | 所需运维操作 |
 | --- | --- | --- |
 | 共享池化 Worker、共用 `/agents` 目录 | 每个 Agent 独享一台 Worker 及专属 `/workspace` | 迁移或接管旧版主目录（Home），并指派 WorkerProvider |
-| Home 中的已安装 Skill 和 Worker 脚本自动化 | Skill 保存在控制面 Drive，自动化代码发布为 Applet Action | 导入 Skill；导出脚本任务并重建为 Applet 任务 |
+| Home 中的已安装 Skill 和 Worker 脚本自动化 | Skill 与 Agent 契约存入 Meta Ankole（`Ankole.AIAgent.Library` PostgreSQL 表），文件存入统一云盘，自动化代码发布为 Applet Action | 导入旧版 `installed-skills` 与未发送附件，由 Schema 迁移拆分自定义 Skill；导出脚本任务并重建为 Applet 任务 |
 | Worker 本地临时保存的 Codex 状态 | `/workspace/.codex` 持久化保存线程，`/var/cache/ankole/codex` 存放可重建缓存 | 保留主目录存储，并为 Worker 单独挂载缓存盘 |
 | 进程内脚本沙箱与双镜像部署 | 独立无状态的 `ankole-function-runtime`（`control-plane`、`worker`、`function-runtime` 三镜像同版本协同） | 补充 `ANKOLE_FUNCTION_RUNTIME_TOKEN` 密钥，并同步升级三套同版本镜像 |
 | 无租户概念的单库数据与配置 | 存量数据统一归入 `default` 租户；Pod / Base 存储要求 **PostgreSQL 18+**（支持可选的 `BASE_DB_URLS` 独立分片库） | 先将数据库升级至 PostgreSQL 18+，再沿用原主密钥执行 Schema 与加密配置迁移 |
@@ -53,14 +53,14 @@ grep -q '^ANKOLE_FUNCTION_RUNTIME_TOKEN=' .env || printf 'ANKOLE_FUNCTION_RUNTIM
 
 首次导入的默认 Worker 提供商配置必须带有 `legacy_agents: true`，且其 `provider_id` 须与主目录迁移服务的 `WORKER_PROVIDER` 环境变量保持一致（官方编排文件统一设为 `docker`）。注意，种子文件仅在数据库中提供商表为空时导入一次，此后直接修改本地 YAML 文件不会自动同步更新数据库记录。
 
-2.0 依赖 **PostgreSQL 18+**（搭配 `pg_search` 0.25.11 与 `vector` 扩展）。若当前数据库版本低于 PostgreSQL 18，请先完成 PostgreSQL 大版本升级，再按顺序执行以下扩展升级与服务拉起命令：
+2.0 依赖 **PostgreSQL 18+**（搭配 `pg_search` `0.26.4` 与 `vector` 扩展）。若当前数据库版本低于 PostgreSQL 18，请先完成 PostgreSQL 大版本升级，再按顺序执行以下扩展升级与服务拉起命令：
 
 ```sh
 docker compose pull
 docker compose stop
 docker compose up -d postgresql
 docker compose exec postgresql psql -U ankole -d ankole -v ON_ERROR_STOP=1 \
-  -c "ALTER EXTENSION pg_search UPDATE TO '0.25.11'"
+  -c "ALTER EXTENSION pg_search UPDATE TO '0.26.4'"
 docker compose up -d --force-recreate
 docker compose ps -a migrate migrate-agent-homes
 docker compose logs migrate migrate-agent-homes
@@ -68,7 +68,7 @@ docker compose logs migrate migrate-agent-homes
 
 其中，`migrate` 服务负责执行数据库 Schema 与加密配置迁移；`migrate-agent-homes` 服务则会先关停仍挂载着旧共享卷的容器，将现存各 Agent 的主目录逐一复制到各自的独享卷中，并将文件属主统一修正为 `uid 1000`。只有当这两个一次性迁移服务全部以成功状态退出后，新版控制面才会正式启动。主目录复制过程带有幂等完成标记，中途失败后重试不会覆盖已迁移完毕的目录；若环境中本就没有旧共享卷，该步骤会直接正常退出。
 
-控制面启动后请继续保持各 Agent 处于停用状态。如果旧版尚未启用控制面云盘，需先放宽旧共享卷的读取权限，再运行历史文件导入命令（下例基于默认 Compose 项目名编写；若使用了自定义项目名，请将 `ankole_agents_data` 替换为实际的旧共享卷名）：
+控制面启动后请继续保持各 Agent 处于停用状态。需先放宽旧共享卷的读取权限，再运行历史文件导入命令（下例基于默认 Compose 项目名编写；若使用了自定义项目名，请将 `ankole_agents_data` 替换为实际的旧共享卷名）：
 
 ```sh
 docker compose run --rm --no-deps --user root --entrypoint chmod \
@@ -77,20 +77,28 @@ docker compose run --rm --no-deps -v ankole_agents_data:/agents:ro control-plane
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
-导入命令会将已安装的 Skill 和尚未发出的旧版 Outbox 附件复制到控制面云盘，不覆盖已有路径。普通用户文件、Session 与后台任务工作区保留在 Home。保存导入报告，修复跳过的文件后重新运行。脚本源代码应单独备份，用于改写为 Applet Action；完成文件验证和恢复演练前，应保留旧卷。
+`Ankole.Upgrade202610.import_agent_home/1` 会将旧版 `installed-skills` 目录与尚未发出的 Outbox/投递附件导入各 Agent 的私有云盘，且不会覆盖已有路径；与此同时，Schema 迁移会将自定义 Skill、Skill 包文件及 Agent 契约拆分存入 Meta Ankole（`Ankole.AIAgent.Library` PostgreSQL 表，后续可在 **Meta Ankole → Skills** 与 **Meta Ankole → Agents** 中管理并安装可运行 Skill 包）。普通用户文件、Session 与后台任务工作区保留在 Home 中。请保存导入报告，修复跳过的文件后重新运行。脚本源代码应单独备份以改写为 Applet Action；在完成文件验证和恢复演练前，请保留旧卷。
 
 ## Kubernetes / Helm 升级
 
 1. 将旧版控制面与池化 Worker 的 Deployment 副本数均缩容至 `0`，等待所有旧 Pod 优雅退出并彻底消失——严禁附加 `--grace-period=0` 强制杀除 Pod。
-2. 确认外置或集群内置数据库已升级至 **PostgreSQL 18+**。若采用了 `secrets.existingSecret`（如 `ankole-bootstrap`），在执行 `helm upgrade` 前请确保该 Secret 中除原有的 `ANKOLE_SECRET_BASE` 与 `DATABASE_URL` 外，已补齐 `RELEASE_COOKIE` 与 `ANKOLE_FUNCTION_RUNTIME_TOKEN`：
+2. 准备 2.0 Worker 挂载 `/drive` 所需的集群级 FUSE 前置条件：在启动集群内本地 Worker 前，在每个集群中安装一次 FUSE 设备插件（在支持内核 `/dev/fuse` 的 Linux 节点上通告 `smarter-devices/fuse` 资源），并为应用命名空间打上 `pod-security.kubernetes.io/enforce=privileged` 标签，与 Helm Chart 针对 Worker `ServiceAccount` 安装的集群级 `ValidatingAdmissionPolicy` 配合生效（Worker Pod 不使用特权容器、宿主机命名空间或 `hostPath` 卷；执行 Helm 升级的账号需具备管理该策略及绑定的集群权限）：
+
+```sh
+kubectl apply -f tools/deploy/kubernetes/fuse-device-plugin.yaml
+kubectl -n kube-system rollout status daemonset/ankole-fuse-devices
+kubectl label namespace ankole pod-security.kubernetes.io/enforce=privileged --overwrite
+```
+
+3. 确认外置或集群内置数据库已升级至 **PostgreSQL 18+**（搭配 `pg_search` `0.26.4` 与 `vector` 扩展）。若采用了 `secrets.existingSecret`（如 `ankole-bootstrap`），在执行 `helm upgrade` 前请确保该 Secret 中除原有的 `ANKOLE_SECRET_BASE` 与 `DATABASE_URL` 外，已补齐 `RELEASE_COOKIE` 与 `ANKOLE_FUNCTION_RUNTIME_TOKEN`：
 
 ```sh
 kubectl -n ankole patch secret ankole-bootstrap --type merge -p "$(printf '{"stringData":{"RELEASE_COOKIE":"%s","ANKOLE_FUNCTION_RUNTIME_TOKEN":"%s"}}' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)")"
 ```
 
    （注意：仅针对 `ankole-bootstrap` 中尚不存在的键执行补齐，切勿覆盖已有值。）
-3. 保留原有的共享 Agent 主目录 PVC，将 `worker.agents.persistence.existingClaim` 指向该 PVC，同时维持原有的 `worker.installation` 与 Helm Release 名称不变。若内置 PostgreSQL 数据直接存放在存储卷根目录下，请保持原有的 `postgresql.pgdata` 路径（如 `/var/lib/pgsql/18/data`）不变，避免因挂载子路径变动而使数据库看起来变为空库。
-4. 在拉起新版控制面之前，先修正旧共享主目录 PVC 内的文件属主与目录权限。以下命令适用于允许 Pod 内 `root` 用户执行 `chown` 的存储后端（请将 `OLD_AGENTS_PVC` 替换为实际 PVC 名称）：
+4. 保留原有的共享 Agent 主目录 PVC，将 `worker.agents.persistence.existingClaim` 指向该 PVC，同时维持原有的 `worker.installation` 与 Helm Release 名称不变。若内置 PostgreSQL 数据直接存放在存储卷根目录下，请保持原有的 `postgresql.pgdata` 路径（如 `/var/lib/pgsql/18/data`）不变，避免因挂载子路径变动而使数据库看起来变为空库。
+5. 在拉起新版控制面之前，先修正旧共享主目录 PVC 内的文件属主与目录权限。以下命令适用于允许 Pod 内 `root` 用户执行 `chown` 的存储后端（请将 `OLD_AGENTS_PVC` 替换为实际 PVC 名称）：
 
 ```sh
 kubectl -n ankole run ankole-agent-home-prepare --rm -i --restart=Never \
@@ -104,7 +112,7 @@ kubectl -n ankole run ankole-agent-home-prepare --rm -i --restart=Never \
 
 默认开启 `root_squash` 的 NFS 服务端不允许从容器内直接执行上述 `chown`——此时需登录 NFS 服务端宿主机预先调整好文件权限，并提供允许 Worker `root` 写入及修改属主的导出挂载，或直接在存储层将全部访问映射为 `uid/gid 1000`。若使用配置了 `uid/gid 1000` 接入点（Access Point）的 AWS EFS，则存量文件天然匹配权限，无需执行此步转换。更多存储细节见 [WorkerProvider 与缓存盘](../worker-providers/)。
 
-在 `values-production.yaml` 中填入版本严格对齐的 `controlPlane.image` 与 `functionRuntime.image` Digest（仅当需要显式覆盖内置默认引用时，才需额外指定同版本的 `worker.image`），配妥[云盘后端](../drive-storage/)与上述旧 PVC 引用，然后依次运行以下命令（示例假设命名空间与 Release 名称均为 `ankole`，且设置了 `fullnameOverride: ankole`）：
+在 `values-production.yaml` 中填入版本严格对齐的 `controlPlane.image` 与 `functionRuntime.image` Digest（仅当需要显式覆盖内置默认引用时，才需额外指定同版本的 `worker.image`），配妥[云盘后端](../drive-storage/)与上述旧 PVC 引用。在导入旧裸 UID 目录期间请继续停用全部 Agent，防止提前拉起 2.0 Worker；依次运行以下命令（示例假设命名空间与 Release 名称均为 `ankole`，且设置了 `fullnameOverride: ankole`）：
 
 ```sh
 helm upgrade ankole ./tools/deploy/helm/ankole-agent \
@@ -114,7 +122,16 @@ kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
-控制面 Deployment 采用 `Recreate` 更新策略，新 Pod 启动时会先由 `db-migrate` 初始化容器完成数据库迁移。在历史文件导入彻底完成前，请继续保持所有 Agent 处于停用状态。核对导入报告确认无误后，去掉 `--set files.importAgentHomeClaim=OLD_AGENTS_PVC` 参数再执行一次 `helm upgrade` 以卸载控制面上的临时导入挂载——但切记保留该旧主目录 PVC 本身，因为各独享 Worker Pod 仍需继续挂载使用它。若你的集群采用了自定义 Release 名、命名空间或 Deployment 名称，请相应替换命令中的对象名。完整 Chart 参数说明见 [Helm 部署说明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.zh-Hans.md)。
+控制面 Deployment 采用 `Recreate` 更新策略，新 Pod 启动时会先由 `db-migrate` 初始化容器完成数据库迁移。在旧裸 UID 目录尚存时完成 `import_agent_home/1` 并核对导入报告，确认无误后再继续。
+
+使用共享 Agent 主目录 PVC（`storage.sharedClaim` / `worker.agents.persistence.existingClaim`）时，2.0 Worker 挂载的是由 `Ankole.AgentWorkers.ProviderKind.storage_name/2` 计算出的带租户限定目录名，而非旧版的裸 `<agent_uid>` 目录名。可通过新版控制面查询每个存量 Agent 对应的目标目录名：
+
+```sh
+kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
+  /app/bin/ankole eval 'IO.puts(Ankole.Repo.with_tenant("TENANT_UUID", fn -> Ankole.AgentWorkers.ProviderKind.storage_name("INSTALLATION", "AGENT_UID") end))'
+```
+
+将控制面副本缩容至 `0` 并确保所有 Worker 均处于停止状态后，在准备 Pod 中挂载 `OLD_AGENTS_PVC`，将各 Agent 原有的 `<agent_uid>` 目录重命名为对应的 `ProviderKind.storage_name/2` 目标目录（若目标目录已存在，请先人工核对合并，切勿直接覆盖）。随后去掉 `--set files.importAgentHomeClaim=OLD_AGENTS_PVC` 参数再执行一次 `helm upgrade` 卸载临时导入挂载——同时保留该共享主目录 PVC 供各独享 Worker Pod 继续挂载——最后再重新启用各 Agent。若你的集群采用了自定义 Release 名、命名空间或 Deployment 名称，请相应替换命令中的对象名。完整 Chart 参数说明见 [Helm 部署说明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.zh-Hans.md)。
 
 ## 验证与失败恢复
 

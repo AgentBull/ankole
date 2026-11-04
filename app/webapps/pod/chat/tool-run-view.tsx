@@ -10,7 +10,7 @@ import {
   RiToolsLine
 } from '@remixicon/react'
 import { useTranslation } from 'react-i18next'
-import { isRecord } from '@agentbull/active-support'
+import { isRecord, safeJsonParse } from '@agentbull/active-support'
 import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
 import type { ExecutionStep } from './types'
 import { formatElapsed } from './elapsed'
@@ -30,11 +30,7 @@ function ToolIcon({ tool }: { tool: string }) {
 
 function decoded(value: unknown): unknown {
   if (typeof value !== 'string') return value
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
-  }
+  return safeJsonParse(value).unwrapOr(value)
 }
 
 export function formatToolDetail(value: unknown): string | undefined {

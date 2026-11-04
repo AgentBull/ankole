@@ -7,24 +7,24 @@ order: 52
 
 각 Agent는 전용 Worker와 `/workspace` 아래의 영구 Home을 가집니다. Worker provider의 플랫폼 유형과 YAML 설정은 Console에서 구성하며 자격 증명은 별도 암호화 필드에 저장합니다. Agent에 연결할 provider는 생성 시점에 결정되며 나중에 다른 provider로 바꿀 수 없으므로, 다른 인스턴스 사양이 필요하면 별도의 provider를 등록하세요.
 
-## Worker pool
+## WorkerProvider
 
-Worker provider 하나가 하나의 Worker pool을 정의합니다. 각 pool은 사이트 범위에 속하며 플랫폼 유형, YAML 구성, 별도로 암호화된 자격 증명을 가집니다. 서로 다른 테넌트의 Agent들이 같은 pool을 선택할 수 있지만, 실행 시에는 Agent마다 전용 Worker 인스턴스, 영구 Home, 로컬 캐시, Worker 인증 자격 증명이 완전히 분리됩니다.
+`WorkerProvider` 하나가 사이트 범위에 속하는 컴퓨팅 프로바이더 하나를 정의하며, 플랫폼 유형, YAML 구성, 별도로 암호화된 자격 증명을 가집니다. 서로 다른 테넌트의 Agent들이 같은 `WorkerProvider`를 선택할 수 있지만, 실행 시에는 Agent마다 전용 Worker 인스턴스, 영구 Home, 로컬 캐시, Worker 인증 자격 증명이 완전히 분리됩니다.
 
 1. **Console → Settings → Worker providers**에서 **New Worker provider**를 선택합니다.
 2. 플랫폼 유형을 고르고 제공된 YAML 예시를 바탕으로 컨테이너 이미지, 인스턴스 사양, 스토리지, 연결 엔드포인트를 작성합니다.
 3. 별도의 자격 증명 입력란에 플랫폼 인증 키를 넣어 저장한 뒤 연결 테스트를 실행합니다.
-4. pool 하나를 사이트 기본값으로 지정하거나, 새 Agent를 만들 때 사용할 pool을 직접 선택합니다(둘 다 없으면 Agent 생성이 실패합니다).
+4. `WorkerProvider` 하나를 사이트 기본값으로 지정하거나, 새 Agent를 만들 때 사용할 프로바이더를 직접 선택합니다(둘 다 없으면 Agent 생성이 거부됩니다).
 
-사이트 전체에서 기본 pool은 최대 하나만 지정할 수 있습니다. 기본 pool을 바꾸더라도 이후 새로 만드는 Agent에만 적용되며, 기존 Agent는 처음 할당된 provider를 그대로 유지합니다. 사양이나 리전이 다른 환경이 필요하면 같은 플랫폼 유형이라도 pool을 여러 개 나누어 만들 수 있습니다. 한번 생성된 뒤에는 provider ID, 플랫폼 유형, 스토리지 위치 및 기존 Agent의 provider 할당을 변경할 수 없으며, 참조 중인 Agent Worker 행이 하나라도 남아 있는 pool은 삭제할 수 없습니다.
+사이트 전체에서 기본 `WorkerProvider`는 최대 하나만 지정할 수 있습니다. 기본 프로바이더를 바꾸더라도 이후 새로 만드는 Agent에만 적용되며, 기존 Agent는 처음 할당된 프로바이더를 그대로 유지합니다. 사양이나 리전이 다른 환경이 필요하면 같은 플랫폼 유형이라도 프로바이더를 여러 개 나누어 만들 수 있습니다. 한번 생성된 뒤에는 프로바이더 ID, 플랫폼 유형, 스토리지 위치 및 기존 Agent의 프로바이더 할당을 변경할 수 없으며, 참조 중인 Agent Worker 행이 하나라도 남아 있는 프로바이더는 삭제할 수 없습니다.
 
-pool은 지정된 플랫폼 위에서 인스턴스 수명 주기를 관리하며, 한 Agent의 컴퓨터를 다른 Agent에 재할당하지 않습니다. Agent 생성 절차는 [Agents](../agents/)를, 내부 실행 및 복구 메커니즘은 [Agent Computer Worker](../agent-computer-worker/)를 참조하세요.
+`WorkerProvider`는 지정된 플랫폼 위에서 인스턴스 수명 주기를 관리할 뿐, 한 Agent의 컴퓨터를 다른 Agent에 재할당하지 않습니다. Agent 생성 절차는 [Agents](../agents/)를, 내부 실행 및 복구 메커니즘은 [Agent Computer Worker](../agent-computer-worker/)를 참조하세요.
 
 ## Agent마다 Worker 하나
 
-새 Agent를 만들 때는 선택한 provider 정보와 Worker 메타데이터 행만 저장할 뿐 실제 인스턴스를 즉시 띄우지는 않습니다. 이후 환경 도구나 Codex Job, Automation Job 실행이 실제로 요청될 때 비로소 control plane이 Worker를 기동합니다. 일반 채팅 대화와 Workflow 모델 호출은 control plane에서 직접 처리되므로 Worker가 떠 있지 않아도 정상 진행됩니다.
+새 Agent를 만들 때는 선택한 프로바이더 정보와 Worker 메타데이터 행만 저장할 뿐 실제 인스턴스를 즉시 띄우지는 않습니다. 이후 대화형 환경 도구나 Background Agent Job(`Codex`) 실행이 실제로 요청될 때 비로소 control plane이 Worker를 기동합니다. 일반 채팅 대화와 Workflow 모델 호출은 control plane에서 직접 처리되고, Automation Job은 게시된 Applet Action을 `ankole-function-runtime`에서 실행하므로 Worker를 띄우지 않고 진행됩니다.
 
-같은 Agent 안에서 실행되는 여러 Session과 Job은 동일한 컴퓨터와 Home을 공유하되 Home 내부의 서로 다른 하위 workspace 디렉터리를 사용합니다. 열려 있는 환경 workspace 하나와 실행 중인 Codex turn 하나는 각각 Worker slot을 1개씩 차지하며, 단일 Worker의 전체 슬롯 용량은 `ANKOLE_MAX_CONCURRENT_SLOTS`로 결정됩니다. 새 pool을 추가하거나 다른 Agent를 더 만든다고 해서 특정 Agent의 Worker slot 수나 별도 설정인 Background Agent Job 동시 실행 한도가 늘어나지는 않습니다.
+같은 Agent 안에서 실행되는 여러 Session과 Job은 동일한 컴퓨터와 Home을 공유하되 `/workspace` 내부의 서로 다른 하위 workspace 디렉터리를 사용합니다. 열려 있는 환경 workspace 하나와 실행 중인 Codex turn 하나는 각각 Worker slot을 1개씩 차지하며, 단일 Worker의 전체 슬롯 용량은 `ANKOLE_MAX_CONCURRENT_SLOTS`로 결정됩니다. 새 `WorkerProvider`를 추가하거나 다른 Agent를 더 만든다고 해서 특정 Agent의 Worker slot 수나 별도 설정인 Background Agent Job 동시 실행 한도가 늘어나지는 않습니다.
 
 ## Worker 보기
 
@@ -57,7 +57,7 @@ pool은 지정된 플랫폼 위에서 인스턴스 수명 주기를 관리하며
 
 Vercel의 `sessionTimeoutSeconds`는 사용 중인 계정의 허용 한도 안에서 지정하세요(기본값은 `86400`초이며, 45분 제한 계정이라면 `2700`초로 설정). AWS Lambda 환경에서는 실행 중이거나 일시 중지된 Worker뿐 아니라 스토리지 삭제용 보조 인스턴스가 사용할 메모리 할당량까지 여유를 두어야 합니다. Alibaba Function Compute에서는 일시 중지 후 재개할 때 Worker 이미지 안의 OSS 재연결 도우미를 실행하므로, 반드시 버전이 일치하는 Worker 이미지와 control plane을 함께 배포하세요.
 
-영구 Home 데이터는 인스턴스가 삭제되거나 이미지가 업데이트되어도 그대로 유지됩니다. Codex 스레드는 `/workspace/.codex`에, SQLite 캐시는 `/var/cache/ankole/codex`에 분리 저장되며, 재구축 작업을 실행하면 캐시만 초기화됩니다. 다만 Docker 로컬 볼륨은 호스트 장비 장애 시 함께 유실될 수 있고, Cloudflare에서도 컨테이너가 비정상 강제 종료되면 마지막 백업 이후 변경분이 유실될 수 있으므로 Home과 [Agent 드라이브](../file-management/)를 모두 주기적으로 백업하세요.
+영구 Home 데이터는 인스턴스가 삭제되거나 이미지가 업데이트되어도 그대로 유지됩니다. Codex 스레드는 `/workspace/.codex`에, SQLite 캐시는 `/var/cache/ankole/codex`에 분리 저장되며, 재구축 작업을 실행하면 캐시만 초기화됩니다. 다만 Docker 로컬 볼륨은 호스트 장비 장애 시 함께 유실될 수 있고, Cloudflare에서도 컨테이너가 비정상 강제 종료되면 마지막 백업 이후 변경분이 유실될 수 있으므로 Home과 [통합 드라이브](../file-management/)를 모두 주기적으로 백업하세요.
 
 ## 해제, 교체, 삭제
 

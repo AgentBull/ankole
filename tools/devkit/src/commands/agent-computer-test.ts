@@ -31,6 +31,7 @@ export function buildAgentComputerTestDockerArgs(
     [path.join(packageRoot, 'src'), `${agentComputerRoot}/src`],
     [path.join(packageRoot, 'test'), `${agentComputerRoot}/test`],
     [path.join(packageRoot, 'scripts'), `${agentComputerRoot}/scripts`],
+    [path.join(resolvedRepoRoot, 'app', 'ankole-browser', 'src'), '/repo/app/ankole-browser/src'],
     // Agent Computer executes system skills from the shared library. Mount the
     // current source so package tests do not exercise a stale image copy.
     [path.join(resolvedRepoRoot, 'app', 'library'), '/repo/app/library'],

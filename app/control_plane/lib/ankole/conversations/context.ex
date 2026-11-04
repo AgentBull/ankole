@@ -225,8 +225,8 @@ defmodule Ankole.Conversations.Context do
       |> Enum.reverse()
 
   defp sort_key(message) do
-    case DateTime.from_iso8601(message["sent_at"] || "") do
-      {:ok, at, _} -> {DateTime.to_unix(at, :microsecond), message["seq"] || 0}
+    case Ankole.Attrs.parse_datetime(message["sent_at"]) do
+      %DateTime{} = at -> {DateTime.to_unix(at, :microsecond), message["seq"] || 0}
       _ -> {0, 0}
     end
   end

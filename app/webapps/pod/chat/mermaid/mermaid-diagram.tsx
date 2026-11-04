@@ -1,3 +1,4 @@
+import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { Button, cn, Dialog, DialogContent, DialogTitle, toast } from '@ankole/uikit'
 import {
   RiCheckLine,
@@ -50,12 +51,11 @@ export default function MermaidDiagram({ code, streaming = false }: { code: stri
   const [renderError, setRenderError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'diagram' | 'source'>('diagram')
   const [zoomOpen, setZoomOpen] = useState(false)
-  const [copiedKind, setCopiedKind] = useState<'code' | 'png' | null>(null)
+  const [copiedKind, markCopied] = useCopyFeedback<'code' | 'png' | null>(null)
 
   const cardRef = useRef<HTMLDivElement>(null)
   const zoomTriggerRef = useRef<HTMLButtonElement>(null)
   const latestSeqRef = useRef(0)
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const pendingAnchorTopRef = useRef<number | null>(null)
   const diagramTitle = t('pod.chat_timeline.mermaid_diagram', { defaultValue: 'Mermaid diagram' })
 
@@ -99,8 +99,6 @@ export default function MermaidDiagram({ code, streaming = false }: { code: stri
 
     return () => clearTimeout(timer)
   }, [code, theme, streaming])
-
-  useEffect(() => () => clearTimeout(copyTimerRef.current), [])
 
   const showSourceFallback = !rendered
   const effectiveView = showSourceFallback ? 'source' : viewMode
@@ -146,12 +144,6 @@ export default function MermaidDiagram({ code, streaming = false }: { code: stri
       pendingAnchorTopRef.current = cardRef.current.getBoundingClientRect().top
     }
     setViewMode(next)
-  }
-
-  const markCopied = (kind: 'code' | 'png') => {
-    setCopiedKind(kind)
-    clearTimeout(copyTimerRef.current)
-    copyTimerRef.current = setTimeout(() => setCopiedKind(null), 1500)
   }
 
   return (

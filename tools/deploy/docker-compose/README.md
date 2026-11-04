@@ -4,9 +4,10 @@
 
 This Compose project runs a private Ankole deployment on a single Linux, macOS,
 or Windows host capable of running Linux `amd64` or `arm64` containers. It runs
-PostgreSQL, database migrations, the control plane, and Caddy for HTTPS, while
-the control plane creates a dedicated Agent Computer Worker container for each
-Agent over the Docker socket.
+PostgreSQL, database migrations, the control plane, the Function Runtime
+(`ankole-function-runtime`), and Caddy for HTTPS, while the control plane
+creates a dedicated Agent Computer Worker container for each Agent over the
+Docker socket.
 
 A site is one complete Ankole deployment and can host multiple tenants, each
 with its own people, Agents, Brain, and integrations. Site operators manage
@@ -24,13 +25,16 @@ OIDC application rather than the site-admin Console.
 - Inbound TCP ports `80` and `443`.
 - A DNS name resolving to the host, or `ankole.localhost` for a local-only
   deployment.
-- Enough host disk and memory for PostgreSQL, Agent drives, and one Worker
-  container per active Agent.
+- Enough host disk and memory for PostgreSQL, Drive storage, the Function
+  Runtime, and one Worker container per active Agent.
 
 Because the control plane mounts the host's Docker socket—which grants
 root-equivalent control over the host—treat the host as a trusted first-party
-compute boundary. Worker containers never receive the Docker socket or extra
-kernel privileges; each container is the isolation boundary for a single Agent.
+compute boundary. Worker containers never receive the Docker socket; each
+container is the isolation boundary for a single Agent. The Docker Worker
+provider grants `/dev/fuse` and `SYS_ADMIN` only to the Worker's root supervisor
+so it can mount `/drive` inside private mount namespaces before dropping child
+processes (`uid 1000`) to an empty capability set.
 
 ## Prepare configuration
 
@@ -132,10 +136,10 @@ docker compose up -d
 docker compose ps
 ```
 
-Compose waits for PostgreSQL, database migrations, and the Agent Home migration
-job to finish before starting the control plane and Caddy. No Worker containers
-run yet: when you create an Agent, the control plane pulls the Worker image and
-starts that Agent's Worker on demand.
+Compose waits for PostgreSQL, database migrations, the Agent Home migration
+job, and the Function Runtime to become healthy before starting the control
+plane and Caddy. No Worker containers run yet: when you create an Agent, the
+control plane pulls the Worker image and starts that Agent's Worker on demand.
 
 Retrieve the initial setup activation code from the control-plane logs:
 
@@ -144,7 +148,8 @@ docker compose logs control-plane | grep "SETUP ACTIVATION CODE"
 ```
 
 Open `https://ANKOLE_HOST/setup`, enter the activation code, choose the Control
-Plane Plugins to enable, and configure the identity provider for administrators.
+Plane Plugins and starter Brain packs to enable, and configure passwordless
+administrator sign-in via either 6-digit SMTP Email OTP or enterprise OIDC SSO.
 
 Once setup completes, use the Console to configure model providers, model
 profiles, Agent Library capabilities, Agents, channel bindings, and `WorkerEnv`
@@ -262,8 +267,8 @@ completed ones.
 Inside each Worker, `/agents/<agent_uid>` symlinks to `/workspace`, where user
 files, session workspaces, and Job workspaces remain. Shared Agent drives live
 under `files_data` in the control plane. When upgrading from a release that
-predates Agent drives, run this one-time import to copy installed Skills,
-Automation Job scripts, and unsent legacy attachments into each Agent's drive:
+predates Agent drives, run this one-time import to copy installed Skills and
+unsent legacy attachments into each Agent's drive:
 
 ```sh
 docker compose run --rm --no-deps --user root --entrypoint chmod \
@@ -296,12 +301,21 @@ docker compose exec -T postgresql \
   > "ankole-$(date +%Y%m%d).dump"
 ```
 
+When `BASE_DB_URLS` is unset (the default), physical Base tables live in
+per-tenant `t_<tenant_hex>` schemas inside the `ankole` database and are
+captured by that single `pg_dump`. If you configure `BASE_DB_URLS`—whether
+pointing at separate shard databases on the bundled PostgreSQL container or at
+external PostgreSQL servers—dump and back up every configured Base shard
+database alongside `ankole` (when using point-in-time recovery across
+independent PostgreSQL instances, recover each shard to a timestamp at or ahead
+of the control-plane recovery target).
+
 With Ankole stopped, snapshot or back up `ankole_files_data` alongside
 `ankole_postgresql_data`—PostgreSQL holds the authoritative index of files in
 `ankole_files_data`, so always back up and restore them as a pair. Back up every
 Agent Home volume (`ankole-<installation>-<Agent hash>`) as well; volumes ending
 in `-cache` are rebuildable and do not need backups. Periodically test restoring
-the database, file store, and Agent Homes together on a separate host.
+the database(s), file store, and Agent Homes together on a separate host.
 
 ## Operations
 

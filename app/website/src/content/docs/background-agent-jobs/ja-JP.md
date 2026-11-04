@@ -48,7 +48,7 @@ wakeup イベントの実体は通常の Signal です。他の Signal と同じ
 
 ## 再開と入力待ち
 
-`waiting_on_user` は、実行スロットを占有し続けることなく Job を生かしたまま待機させるための一時停止状態です。人間の意思決定が必要になると Job は `waiting_on_user` へ遷移し、最新ステータスの投影レコードにはエラーコード `request_user_input` と保留中のツール呼び出しを伴う `interrupted` 状態が記録されます。これにより、owner 側の後続 Turn はどこから再開すべきかを正確に把握でき、人間からの回答が届いた時点で Job を `running` に戻して処理を継続できます。
+`waiting_on_user` は、実行スロットを占有し続けることなく Job を生かしたまま待機させるための一時停止状態です。人間の意思決定が必要になると Job は `waiting_on_user` へ遷移し、最新ステータスの投影レコードにはエラーコード `request_user_input` と保留中のツール呼び出しを伴う `interrupted` 状態が記録されます。これにより、owner 側の後続 Turn はどこから再開すべきかを正確に把握でき、人間からの回答が届いた時点で Job を `running` に戻して処理を継続できます。なお、`waiting_on_user` で `10` 分以上一時停止し、かつ直近のモデル呼び出しで報告された総トークン数が `128,000` 以上に達していた Job を再開する際は、`CodexJobSession` が冷えた巨大なコンテキストウィンドウを再送する代わりに上限付きの Workspace 再構築情報（`job.task`、永続 Workspace ファイル、上限付きの試行履歴、および引き継ぎ元のタスク・最終レポート）から新しいスレッドを開始し、新規スレッド開始時やコンパクション確定時にランタイム CLI の `contextId` をローテーションします。
 
 また、一時停止からの再開だけでなく、完了した過去の Job を引き継いで新しい Job を継続実行することも可能です。その連鎖は `continued_from_job_id` と `workspace_owner_job_id` に記録されるため、スレッド履歴や workspace の成果物を失わずに長期タスクを段階的に進められます。
 
@@ -69,19 +69,22 @@ AIGateway のクォータ上限に達し、かつ次回の回復予定時刻が�
 
 各 Job は任意の workspace テンプレートを 1 つ保持できます。初回の実行受け入れ（execution admission）時に、使用する provider・モデルの binding と、Agent Plugin および Skill の選択セットが同一トランザクションで記録・固定されます。以降のリトライや再開では、「その初回固定セット」と「現時点で Agent に有効なセット」の積集合（共通部分）が適用されます。つまり、途中で無効化された capability は使えなくなり、再度有効化すれば復活しますが、初回 admission 時に含まれていなかった capability が後から追加されることはありません。なお、認証情報と更新可能な Skill 本体については、実行時点での最新の管理元から読み取られます。`Sessions.CodexJob` はその kernel Signal から Job の試行を受け入れ、steer イベントを通常のセッション配信とは区別して処理するため、会話セッションへの通常のメッセージ配信が誤って Job への steer として扱われることはありません。すべてのモデル Turn は記録済みの binding を使って AIGateway を経由し、provider が複数の認証情報を持つ場合の選択・アフィニティ・トークン更新・リトライはすべて AIGateway が管理します。
 
-Background Agent Job はメイン Agent と同じ `skill_view` ローダーを使います。有効な Skill のカタログと各ページの読み込みには、その会話の Drive 権限を適用します。各 Turn の開始前に、Worker は閲覧可能な現在の Skill パッケージをスクリプトや MCP 宣言とともに配置します。`skill_view` は読み込むたびに有効状態を確認します。
+Background Agent Job はメイン Agent と同じく `Ankole.AIAgent.Library` を背後とする動的な `skill_view` ローダーを使います。各実行の前に、Worker は Job に固定された Skill 選択セットと `Ankole.AIAgent.Library` 上でその Agent に現在有効化されている Skill セットおよび `ankole-runtime` フィルタの積集合を計算し、許可された各パッケージ（同梱ファイル、スクリプト、MCP 宣言を含む）を `/workspace/.ankole/turn-skills/<signal-id>/<skill-name>/` に配置します。`skill_view` が呼ばれるたびに、コントロールプレーンは現在の有効状態を確認したうえで `Ankole.AIAgent.Library` から Skill マニフェストやパッケージ内の相対パスファイルを読み取り、Agent ごとの有効な Skill lesson を付加します。
 
-Worker は Turn の開始時と再開時に、Agent の契約全文を `$CODEX_HOME/AGENTS.md` と `~/AGENTS.md` に、視覚仕様を `~/DESIGN.md` に反映します。プロジェクト内の指示はワークスペーステンプレートやリポジトリが管理します。Job の実行情報と Skill 一覧は developer instructions で渡します。Codex の子 Agent の待機時間は最短 1 分、既定 10 分です。
+Worker は Turn の開始時と再開時に、`Ankole.AIAgent.Library.Contracts` が合成した Agent の有効契約全文を `$CODEX_HOME/AGENTS.md` と `~/AGENTS.md` に、視覚仕様を `~/DESIGN.md` に反映します。プロジェクト内の指示はワークスペーステンプレートやリポジトリが管理します。Job の実行情報と Skill 一覧は developer instructions で渡します。Codex の子 Agent の待機時間は最短 1 分、既定 10 分です。
 
 ## 運用者向けの表面
 
-運用者が利用する主な Console API ルートは次の 3 つです。
+`/api/v2` 配下の Console API ルートで Job の一覧・詳細確認、Turn 履歴、ヘルス状態、およびライフサイクル制御を行えます。
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/background-agent-jobs` | Job の一覧を取得 |
-| `GET` | `/background-agent-jobs/:job_id` | 特定の Job の詳細を取得 |
-| `POST` | `/background-agent-jobs/:job_id/cancel` | Job をキャンセル |
+| `GET` | `/api/v2/background-agent-jobs` | Job の一覧を取得 |
+| `GET` | `/api/v2/background-agent-jobs/:id` | 特定の Job の詳細を取得 |
+| `GET` | `/api/v2/background-agent-jobs/health` | Job サブシステムのヘルス状態を取得 |
+| `GET` | `/api/v2/background-agent-jobs/:job_id/turns` | 特定の Job の Turn 履歴を取得 |
+| `POST` | `/api/v2/background-agent-jobs/:id/cancel` | Job をキャンセル |
+| `POST` | `/api/v2/background-agent-jobs/:id/complete` | Job を完了状態にする |
 
 キャンセルを実行すると Job は `stopped` に遷移し、実行中の処理に対して停止要求が送られます。後から遅延して届いた Worker の実行結果をコミットしてよいかどうかは、PostgreSQL 上の Job ステータス、attempt 識別子、および Turn リビジョンによって厳密に判定されます。
 

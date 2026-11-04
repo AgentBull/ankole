@@ -54,7 +54,7 @@ Ankole never interprets files inside a template as a Plugin activation contract.
 
 ### Built-in Packages
 
-Ankole ships six built-in Agent Plugins:
+Ankole ships seven built-in Agent Plugins:
 
 | ID | Member Skills | Shipped default |
 | --- | --- | --- |
@@ -64,6 +64,7 @@ Ankole ships six built-in Agent Plugins:
 | `brain` | `brain-learning`, `resolve-before-asking`, `idea-lineage`, `applied-reading` | Enabled |
 | `github` | `github` | Enabled |
 | `linear` | `linear` | Enabled |
+| `methodology` | `eli5` | Enabled |
 
 Member Skills live exclusively inside their parent Agent Plugin, while
 standalone Skills live under `app/library/skills`. Three packages have notable
@@ -82,10 +83,11 @@ internal conventions:
   main-only Skill; instead, `workspace-template` governs the Job's research
   lifecycle, Playbook routing, working state, Markdown semantic draft, and
   contract-defined artifacts.
-- **`github`**: The public `github` package owns repository webhook setup,
-  reconciliation, redelivery, and removal inside its `github-webhooks` Skill.
-  The Signals subsystem provides only the generic callback capability—it embeds
-  no GitHub-specific adapter and stores no mirror of GitHub hook state.
+- **`github`**: Its `github` Skill invokes the `github` Connector Toolkit
+  through `Ankole.Connectors`, while `Ankole.Plugins.GitHubAdapter`
+  (`github-adapter`) and `Ankole.Connectors` own GitHub App and OAuth
+  credentials, managed repository and organization webhook subscriptions
+  (`connector_triggers`), and Turn-scoped `GIT_ASKPASS` Git credentials.
 
 Research routing distinguishes two epistemic objects—not two urgency tiers, and
 not whether the reader plans to act afterward:
@@ -193,10 +195,21 @@ Skill summaries inside the Agent context of `workspace_open` and initial
 `turn_start` commands. See [Background Agent Job](BackgroundAgentJob.md) for the
 full Job lifecycle.
 
-### Change Capability Settings through the Console
+### Manage Agent Plugins and Skills in Pod and Console
 
-The Console API exposes site defaults, tenant defaults, and per-Agent effective capabilities
-through six JSON:API endpoints (`application/vnd.api+json`):
+`Ankole.AIAgent.Library.Skills` stores every tenant's Skill packages in `skills`
+(`source_kind` in `builtin`, `agent_plugin`, or `custom`, plus `enabled_for_all`
+and optimistic `revision`), package files in `skill_files`, and positive
+per-Agent Skill bindings in `agent_skills`. Authorized Pod members manage custom
+and shipped Skill packages, `enabled_for_all`, and `agent_skills` bindings in
+Pod under **Meta Ankole -> Skills** (`/api/v2/pod/meta/skills`), while Agent
+Plugin defaults live in `AppConfigure` under
+`ai_agent.library.agent_plugin_defaults` (`global`, `tenant:<id>`, and
+`agent:<uid>`).
+
+The Console API exposes Agent Plugin defaults, tenant Skill enablement, and
+per-Agent effective capabilities through six JSON:API endpoints
+(`application/vnd.api+json`):
 
 - `GET /api/v2/agent-library/capabilities`
 - `PUT /api/v2/agent-library/agent-plugins/:id`
@@ -205,31 +218,36 @@ through six JSON:API endpoints (`application/vnd.api+json`):
 - `PUT /api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id`
 - `PUT /api/v2/agents/:agent_uid/library-capabilities/skills/:id`
 
-Default reads accept `defaults_scope=global|tenant`, and default writes accept
-`{ "data": { "enabled": boolean, "defaults_scope": "global" | "tenant" } }`.
-Omitting the scope selects tenant inheritance. Site-default operations additionally
-require the corresponding AppConfigure read or update grants. Library validates
-catalog existence before storing a choice and broadcasts site changes to active
-tenants. Raw Console writes to the two AppConfigure default maps are rejected.
-The Library UI preserves the selected scope and tab through detail links.
+Capability reads and Agent Plugin default writes accept
+`defaults_scope=global|tenant` (defaulting to `tenant`; site-default Agent
+Plugin operations additionally require the corresponding `AppConfigure` grant on
+`ai_agent.library.agent_plugin_defaults`, and raw Console writes to
+`ai_agent.library.agent_plugin_defaults` are rejected). Library validates
+catalog existence before storing an Agent Plugin choice and broadcasts site
+changes to active tenants. Tenant-wide Skill writes (`PUT
+/api/v2/agent-library/skills/:id`) accept `{ "data": { "enabled": boolean,
+"base_revision": integer } }` and update `skills.enabled_for_all` through
+`Library.Skills.set_all/4`. The Library UI preserves the selected scope and tab
+through detail links.
 
-Per-Agent writes accept `{ "data": { "enabled": boolean | null } }` (where
-`null` clears the override and restores inheritance). Each capability row
-reports three boolean fields:
+Per-Agent Agent Plugin writes accept `{ "data": { "enabled": boolean | null } }`
+(where `null` clears the `agent:<uid>` override and restores inheritance), while
+per-Agent Skill writes accept `{ "data": { "enabled": boolean } }` and add or
+remove a positive `agent_skills` binding. Each capability row reports three
+boolean fields:
 
-- `global_default_enabled` (the default in the selected site or tenant context;
-  tenant context includes site inheritance)
+- `global_default_enabled` (for Agent Plugins, the default in the selected site
+  or tenant context including site inheritance; for Skills, the tenant's
+  `enabled_for_all` flag)
 - `override_enabled`
 - `effective_enabled`
 
-In responses, each Agent Plugin row nests its member Skills, while the top-level
-Skill list contains standalone and Agent-installed Skills. The Console renders
-Agent Plugins, standalone Skills, and installed Skills as distinct sections, and
-exposes Control Plane Plugins only at the deployment-instance (site) level.
-Each capability view reports errors from the queries that supply its available
-controls.
-The Console uses a tenant view for per-Agent overrides and one site view for
-shared defaults.
+In responses, each Agent Plugin row nests its `agent_plugin` member Skills,
+while the top-level Skill list contains standalone `builtin` and `custom`
+Skills. Control Plane Plugins appear only at the deployment-instance (site)
+level. Each capability view reports errors from the queries that supply its
+available controls, using a tenant view for per-Agent capabilities and a site or
+tenant view for defaults.
 
 ## Control Plane Plugins
 
@@ -255,12 +273,16 @@ Signal configuration references the shared credential through `authConfigId`,
 while login policy, directory synchronization, and message routing stay with
 their existing owners.
 
-The `connectors.connector` plugin contract contributes explicit `ToolSpec`
+The `connectors.connector` plugin contract—implemented by `lark-adapter`,
+`github-adapter`, and `linear-adapter`—contributes explicit `ToolSpec`
 declarations, upstream authentication callbacks, tool execution, and optional
 subscription reconciliation and event verification. The gateway resolves these
 callbacks through the Registry. The credential catalog reuses the plugin's
-configuration fields, while connector-only plugins declare their authentication
-forms directly. See [Connectors](Connectors.md) for storage and lifecycle rules.
+configuration fields, while connector-only plugins (`github-adapter` and
+`linear-adapter`, both compiled with `activation: :always`) declare their
+authentication forms directly. See [Connectors](Connectors.md) for the full
+`github-adapter` and `linear-adapter` specifications as well as shared
+credential storage and lifecycle rules.
 
 ### Fixed source builds
 
@@ -286,8 +308,13 @@ The devkit validates and applies the selected database migrations before startin
 Phoenix. Developers restart `bun dev` to apply migrations added during a running
 session.
 
-The six external provider clients live as internal modules of their respective
-Plugins, each with distinct module names and error structs. Once `Repo` and
+The public build compiles 15 Control Plane Plugins (`china-market-ai-providers`
+and `vercel-worker-provider` as optional Plugins, plus 13 `activation: :always`
+identity, messaging, and Connector adapters), while six enterprise IM and
+directory Plugins (`dingtalk-adapter`, `google-workspace-adapter`,
+`lark-adapter`, `microsoft365-adapter`, `slack-adapter`, and `wecom-adapter`)
+bundle generated OpenAPI provider clients as internal modules with distinct
+module names and error structs. Once `Repo` and
 AppConfigure finish starting, the active Plugin cohort starts each Plugin's
 caches, token supervisors, and persistent connections under supervision.
 
@@ -516,9 +543,12 @@ before starting the Plugin runtime supervisor.
 
 ### Keep Plugin Code inside Control-Plane Contracts
 
-Control Plane Plugins store all operator settings and encrypted secrets through
-`Ankole.AppConfigure` rather than maintaining a separate config store, and
-release builds fix the compiled module list before runtime configuration loads.
+Control Plane Plugins store behavior settings and optional-Plugin secrets
+through `Ankole.AppConfigure` while storing shared Connector, identity-provider,
+and messaging-binding credentials in `Ankole.Connectors`
+(`connector_auth_configs` and `connector_connected_accounts`), never maintaining
+a separate plugin-private database. Release builds fix the compiled module list
+before runtime configuration loads.
 Core control-plane domains own persistence, authorization, setup, supervision,
 and database commits; a Plugin implements only the atom-keyed callback contract
 defined by its calling subsystem.

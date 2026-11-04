@@ -390,7 +390,7 @@ defmodule Ankole.AgentWorkers do
 
   @doc "Issues a credential that can be sent again after a coordinator crash."
   def issue_credential(agent_uid, generation) do
-    token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    token = Ankole.Authn.SecretDigest.token()
 
     with {:ok, ciphertext} <-
            Ankole.SecretKeyBase.seal(token, "agent_worker_credential", [agent_uid, generation]) do

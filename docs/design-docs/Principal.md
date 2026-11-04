@@ -176,9 +176,11 @@ identifiers for reuse.
 - `created_by`: optional typed `ActorRef`.
 - `inserted_at` and `updated_at`.
 
-Runtime documents and settings—mission, soul, design, Brain memory, model
-profiles, and token quotas—live in their respective subsystems rather than on
-the `agents` or `principals` row.
+Runtime documents and settings—`AGENTS.md` and `DESIGN.md` contracts and Skills
+in `Ankole.AIAgent.Library`, Brain memory, model profiles, and token
+quotas—live in their respective subsystems rather than on the `agents` or
+`principals` row (aside from per-Agent model profile overrides under
+`agents.options["ai_agent"]`).
 
 ### System Principals
 
@@ -232,10 +234,10 @@ Each row contains:
 
 Provider namespaces and `external_id` values are strictly tenant-local:
 enterprise admission relies on immutable provider IDs, attested contact emails
-help match pending members when verifying personal credentials, and an opaque
-`uid` is never evidence that two external subjects represent the same person.
-Sign-in, directory sync, Signals identity admission, and manual Console reviews
-all write to this single table.
+help match pending members when verifying personal credentials, and a
+tenant-unique `uid` is never evidence that two external subjects represent the
+same person. Sign-in, directory sync, Signals identity admission, and manual
+Console reviews all write to this single table.
 
 ### Build-declared site sources
 
@@ -525,8 +527,7 @@ and `/api/v2/identity-providers` in the Site Console (and
 `/api/v2/pod/admin/identity-providers` in Pod settings):
 
 - The provider editor enables its fields after the adapter catalog and provider list initialize its draft. Background refreshes preserve the initialized draft.
-- Read responses redact stored secrets, and submitting a blank secret field
-  keeps the existing stored secret.
+- Credential-bearing identity providers store their application credentials in a shared `Ankole.Connectors` connection (`connector_auth_configs`), referenced by `authConfigId` through `Ankole.Connectors.LegacyConfig` while keeping provider behavior settings in `AppConfigure`. Read responses redact stored secrets, and submitting a blank secret field keeps the existing stored secret.
 - Approving a directory sync requires matching the current snapshot fingerprint
   and explicitly confirming user removals; reviewing a sync event checks both
   the provider ID and event ID.

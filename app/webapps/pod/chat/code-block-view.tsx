@@ -1,6 +1,7 @@
+import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { Button, cn, toast } from '@ankole/uikit'
 import { RiCheckLine, RiFileCopyLine, RiTextWrap } from '@remixicon/react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   EXTERNAL_TRANSLATION_GUARD_ATTRS,
@@ -13,8 +14,7 @@ export function CodeBlockView({ code, language }: { code: string; language?: str
   const [highlighted, setHighlighted] = useState<{ code: string; language: string; html: string }>()
   const settledCode = useDebouncedValue(code, 150)
   const [wrap, setWrap] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const [copied, markCopied] = useCopyFeedback(false)
   useEffect(() => {
     if (!language || ['text', 'txt', 'plaintext'].includes(language)) return
     let current = true
@@ -35,7 +35,6 @@ export function CodeBlockView({ code, language }: { code: string; language?: str
       current = false
     }
   }, [settledCode, language])
-  useEffect(() => () => clearTimeout(timer.current), [])
   const html = highlighted?.code === code && highlighted.language === language ? highlighted.html : undefined
   return (
     <div
@@ -61,9 +60,7 @@ export function CodeBlockView({ code, language }: { code: string; language?: str
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(code)
-                setCopied(true)
-                clearTimeout(timer.current)
-                timer.current = setTimeout(() => setCopied(false), 1500)
+                markCopied(true)
               } catch {
                 toast.error(t('pod.chat.copy_failed'))
               }

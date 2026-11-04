@@ -8,11 +8,7 @@ defmodule Ankole.Plugins.UTF16Text do
   """
 
   @spec units(String.t()) :: non_neg_integer()
-  def units(text) when is_binary(text) do
-    Enum.reduce(String.to_charlist(text), 0, fn codepoint, units ->
-      units + if(codepoint > 0xFFFF, do: 2, else: 1)
-    end)
-  end
+  defdelegate units(text), to: Ankole.Text, as: :utf16_length
 
   @spec slice(String.t(), non_neg_integer(), non_neg_integer()) :: String.t() | nil
   def slice(text, offset, length)

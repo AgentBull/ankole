@@ -77,21 +77,12 @@ defmodule DingTalkOpenAPI.TokenManager do
   end
 
   defp ensure_started(%Client{} = client) do
-    cache_namespace = Client.cache_namespace(client)
-
-    case Registry.lookup(DingTalkOpenAPI.TokenRegistry, cache_namespace) do
-      [{pid, _}] ->
-        pid
-
-      [] ->
-        case DynamicSupervisor.start_child(
-               DingTalkOpenAPI.TokenManager.Supervisor,
-               {__MODULE__, client}
-             ) do
-          {:ok, pid} -> pid
-          {:error, {:already_started, pid}} -> pid
-        end
-    end
+    TokenCache.ensure_started(
+      DingTalkOpenAPI.TokenRegistry,
+      DingTalkOpenAPI.TokenManager.Supervisor,
+      Client.cache_namespace(client),
+      {__MODULE__, client}
+    )
   end
 
   defp do_fetch(%Client{} = client, {:app, _ns} = key) do

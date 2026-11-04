@@ -372,8 +372,13 @@ defmodule Ankole.Pod.PagesTest do
                "node_view"
              )
 
-    assert {:ok, [%{system_key: "ankole_brain", role: "view"}]} =
-             Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid), %{scope: "space"})
+    reader = Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid)
+    assert {:ok, []} = Pages.list(reader, %{scope: "space"})
+
+    assert {:ok, %{system_key: "ankole_brain", parent_id: nil} = brain} =
+             Ankole.Brain.Namespace.root()
+
+    assert {:ok, %{role: "view"}} = Pages.get(reader, brain.id)
 
     assert {:ok, _} =
              Pages.authorize(

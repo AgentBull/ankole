@@ -9,7 +9,7 @@ import { podKeys, type PodAgent } from '../api'
 import { podConversations } from '../api/generated/sdk.gen'
 import { ChatAvatar } from './chat-avatar'
 import { ConversationGlyph, ConversationTitle, conversationPath } from './conversation-row'
-import { formatPageTimestamp } from '../content-list'
+import { formatRelativeTime } from '../../common/date-time'
 import { ContentError } from '../content-primitives'
 
 export function ChatHomeView({
@@ -88,7 +88,7 @@ export function ChatHomeView({
                     <span className="pod-chat-recent-title">
                       <ConversationTitle room={room} />
                     </span>
-                    <span className="pod-chat-subtle">{formatPageTimestamp(room.lastActivityAt, i18n.language)}</span>
+                    <span className="pod-chat-subtle">{formatRelativeTime(room.lastActivityAt, i18n.language)}</span>
                   </span>
                 </Link>
               ))}

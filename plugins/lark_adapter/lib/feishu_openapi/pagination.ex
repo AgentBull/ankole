@@ -1,4 +1,6 @@
 defmodule FeishuOpenAPI.Pagination do
+  import IMTransport.HTTP, only: [get_in_path: 2]
+
   @moduledoc """
   Lazy `Stream` helpers for paginated Feishu/Lark list endpoints.
 
@@ -195,16 +197,4 @@ defmodule FeishuOpenAPI.Pagination do
       end
     end)
   end
-
-  defp get_in_path(nil, _path), do: nil
-  defp get_in_path(map, []), do: map
-
-  defp get_in_path(map, [key | rest]) when is_map(map) do
-    case Map.fetch(map, key) do
-      {:ok, value} -> get_in_path(value, rest)
-      :error -> nil
-    end
-  end
-
-  defp get_in_path(_other, _path), do: nil
 end

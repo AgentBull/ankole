@@ -11,9 +11,9 @@ Always back up PostgreSQL (both the control-plane database and any physical Base
 
 | Data | Contents | Backup source |
 |---|---|---|
-| Control-plane PostgreSQL | Principals, Sessions, Jobs, Pod metadata and documents, provider configuration, encrypted credentials, generation and storage references | `pg_dump -Fc` or PITR |
-| Physical Base shards (`BASE_DB_URLS`) | Tenant physical Base table rows (in single-database deployments with `BASE_DB_URLS` unset, Base tables live in the control-plane database and one atomic `pg_dump` captures both) | `pg_dump -Fc` or PITR on every shard database |
-| Object store (file store) | Pod `file` pages, Pod and conversation attachments, compiled Applet bundles, published files, installed Skills | Compose `files_data`, the file-store PVC, or the S3 bucket |
+| Control-plane PostgreSQL | Principals, Sessions, Jobs, Pod and Unified Drive (`pages`) metadata and documents, Brain knowledge, Skill manifests/bindings and Agent contracts (`Ankole.AIAgent.Library`), provider and connector configurations, encrypted credentials, generation and storage references | `pg_dump -Fc` or PITR |
+| Physical Base shards (`BASE_DB_URLS`) | Tenant physical Base table rows (when `BASE_DB_URLS` is configured, back up every physical Base shard alongside the control-plane database; when `BASE_DB_URLS` is unset in single-database deployments, Base tables live in the control-plane database and one atomic `pg_dump` captures both) | `pg_dump -Fc` or PITR on every shard database |
+| Object store (file store) | Unified Drive blobs (`file_objects`), Pod and Applet files (`pod_files`, including document/Base assets, compiled Applet bundles, and custom emojis), Skill companion binaries (`skill_files`), frozen message and delivery attachments | Compose `files_data`, the file-store PVC, or the S3 bucket |
 | Agent Home | Workspaces, local packages, Codex threads in `/workspace/.codex` | Each provider's persistent volumes, shared directories, Drives, EFS, or Cloudflare R2 backups |
 | Deployment configuration and secrets | `ANKOLE_SECRET_BASE`, `ANKOLE_FUNCTION_RUNTIME_TOKEN`, `BASE_DB_URLS`, and other startup credentials | A separate secret manager |
 

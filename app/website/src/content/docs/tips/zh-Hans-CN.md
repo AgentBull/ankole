@@ -42,7 +42,7 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 - **为 `light` 绑定真正低延迟的高性价比模型**：该槽位专为高频、低风险的内部辅助路径设计，无需动用昂贵的大模型。
 - **按需配置 `vision_fallback`**：只有当 Agent 需要读取图片、且主模型自身不支持多模态视觉输入时才需填写；否则直接留空即可。
 - **独立按需开启 `web_search` 与 `web_fetch`**：两项能力彼此解耦，仅在 Agent 确实需要联网检索或抓取网页时再分别绑定。
-- **在 AppConfigure 中统一配置 Brain 检索模型**：站点级的 `brain.embedding_model` 决定全站所有 Agent 共用的向量嵌入模型，租户级的 `brain.rerank_model` 则控制当前租户的检索重排模型。若将嵌入模型留空，系统会停用向量语义检索；若将重排模型留空，则直接沿用多路召回融合后的初始排序。详见 [Brain](../brain/)。
+- **配合 AppConfigure 与 Model Profiles 配置 Brain 检索模型**：AppConfigure 中的站点级 `brain.embedding_model` 决定全站共用的向量嵌入模型，而 **Console → Model Profiles** 中的 `rerank` 槽位（`Site -> Pod -> ankole_brain`）则控制检索重排模型。若将嵌入模型留空，系统会停用向量语义检索；若未配置 `rerank`，则直接沿用多路召回融合后的初始排序。详见 [Brain](../brain/)。
 
 如果感觉某个 Agent 平时回复偏慢，往往是因为给它的 `primary` 槽位绑定了远超实际任务复杂度的重型模型。
 
@@ -80,7 +80,7 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 
 ## 从正确的长期文档调整 Agent
 
-调优 Agent 表现时，请对号入座修改对应的长期配置文档：职责范围或交付标准界定不清时改 `AGENTS.md`；沟通语气、行事分寸或推理习惯欠佳时改 `AGENTS.md`；生成的网页、演示文稿、报告或图表的视觉风格不统一时改 `DESIGN.md`。三份文档各司其职，请勿把行为准则硬塞进视觉设计规范里。
+调优 Agent 表现时，请在 **Meta Ankole → Agents** 中对号入座修改对应的长期契约：职责范围、交付标准、沟通语气或行事分寸需要调整时修改 `AGENTS.md`；生成的网页、演示文稿、报告或图表的视觉风格不统一时修改 `DESIGN.md`。两份文档各司其职，请勿把行为准则塞进视觉设计规范，也不要把视觉 Token 混入 `AGENTS.md`。
 
 ## 钉钉每个 agent 一个机器人
 

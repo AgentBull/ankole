@@ -8,7 +8,7 @@ export type CommandEnvOptions = {
 }
 
 /** The control plane checks names at storage and binding resolution. */
-const ENV_NAME_FORMAT = /^[A-Za-z_][A-Za-z0-9_]*$/
+export const ENV_NAME_FORMAT = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /**
  * Builds the complete environment of a command. The command does not inherit

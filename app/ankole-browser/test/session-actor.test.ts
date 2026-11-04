@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { BrowserMaterial, BrowserRequest } from '../src/protocol'
+import { BrowserMaterialSchema, type BrowserMaterial, type BrowserRequest } from '../src/protocol'
 import { ActiveBrowserLimiter } from '../src/daemon/active-browser-limiter'
 import { SessionActor } from '../src/daemon/session-actor'
 
@@ -12,6 +12,63 @@ afterEach(async () => {
 })
 
 describe('session actor lifecycle', () => {
+  test('accepts reordered material keys but rejects changes within the same generation', async () => {
+    const root = await mkdtemp('/tmp/ankole-browser-actor-')
+    roots.push(root)
+    const material = BrowserMaterialSchema.parse({
+      ...localMaterial(root),
+      backend: {
+        kind: 'remote_cdp',
+        endpoint: 'https://browser.example/cdp',
+        session_identity: 'session-1',
+        headers: { Authorization: 'Bearer test', 'X-Route': 'route-1' }
+      }
+    })
+    const actor = new SessionActor(material.route_id, 'default', new ActiveBrowserLimiter(1))
+    try {
+      const status = { name: 'status', args: {} } as const
+      await actor.dispatch(request(material, status))
+      const reordered = BrowserMaterialSchema.parse({
+        ...material,
+        backend: { ...material.backend, headers: { 'X-Route': 'route-1', Authorization: 'Bearer test' } }
+      })
+      await expect(actor.dispatch(request(reordered, status))).resolves.toHaveProperty('data')
+      await expect(actor.dispatch(request({ ...reordered, idle_ttl_ms: 30_000 }, status))).rejects.toThrow(
+        'browser material changed without a generation increase'
+      )
+    } finally {
+      await actor.close()
+    }
+  })
+
+  test('rejects header changes even when the JSON keys resemble React metadata', async () => {
+    const root = await mkdtemp('/tmp/ankole-browser-actor-')
+    roots.push(root)
+    const material = BrowserMaterialSchema.parse({
+      ...localMaterial(root),
+      backend: {
+        kind: 'remote_cdp',
+        endpoint: 'https://browser.example/cdp',
+        session_identity: 'session-1',
+        headers: { $$typeof: 'business', _owner: 'owner-1' }
+      }
+    })
+    const actor = new SessionActor(material.route_id, 'default', new ActiveBrowserLimiter(1))
+    try {
+      const status = { name: 'status', args: {} } as const
+      await actor.dispatch(request(material, status))
+      const changed = BrowserMaterialSchema.parse({
+        ...material,
+        backend: { ...material.backend, headers: { $$typeof: 'business', _owner: 'owner-2' } }
+      })
+      await expect(actor.dispatch(request(changed, status))).rejects.toThrow(
+        'browser material changed without a generation increase'
+      )
+    } finally {
+      await actor.close()
+    }
+  })
+
   test('purge clears retained material and evicts the disposable actor', async () => {
     const root = await mkdtemp('/tmp/ankole-browser-actor-')
     roots.push(root)

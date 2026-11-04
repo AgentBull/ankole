@@ -461,9 +461,9 @@ defmodule Ankole.Sessions.Tools.Session do
   defp time(nil), do: {:ok, nil}
 
   defp time(text) do
-    case DateTime.from_iso8601(text) do
-      {:ok, at, _offset} -> {:ok, at}
-      {:error, _} -> {:error, "since and until must be RFC 3339 times"}
+    case Ankole.Attrs.parse_datetime(text) do
+      %DateTime{} = at -> {:ok, at}
+      nil -> {:error, "since and until must be RFC 3339 times"}
     end
   end
 

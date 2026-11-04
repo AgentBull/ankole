@@ -893,21 +893,22 @@ fn leaf(unit: &Unit, applied: &[&str]) -> Node {
     }
 }
 
-pub fn print(root: &Element) -> String {
-    fn escape_into(value: &str, attribute: bool, out: &mut String) {
-        for c in value.chars() {
-            match c {
-                '&' => out.push_str("&amp;"),
-                '<' => out.push_str("&lt;"),
-                '>' => out.push_str("&gt;"),
-                '\r' => out.push_str("&#13;"),
-                '"' if attribute => out.push_str("&quot;"),
-                '\t' if attribute => out.push_str("&#9;"),
-                '\n' if attribute => out.push_str("&#10;"),
-                c => out.push(c),
-            }
+pub(super) fn escape_into(value: &str, attribute: bool, out: &mut String) {
+    for c in value.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '\r' => out.push_str("&#13;"),
+            '"' if attribute => out.push_str("&quot;"),
+            '\t' if attribute => out.push_str("&#9;"),
+            '\n' if attribute => out.push_str("&#10;"),
+            c => out.push(c),
         }
     }
+}
+
+pub fn print(root: &Element) -> String {
     fn write(node: &Element, out: &mut String) {
         out.push('<');
         out.push_str(&node.name);

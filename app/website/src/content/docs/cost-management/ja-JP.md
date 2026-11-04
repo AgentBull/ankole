@@ -11,26 +11,30 @@ Ankole の運用コストの大半はモデルのトークン消費によるも�
 
 ## レバー 1: model profile の階層
 
-Agent に用意された 8 つの組み込みプロファイルは、それぞれ異なる課金経路に対応しています（5 つが言語モデル用、残りの 3 つが Web 検索・Web 取得・画像生成用です）。
+モデルプロファイル（Model Profile）は **Console → Model Profiles** の 3 層疎継承チェーン（`Site -> Pod -> Agent/System`）に従って解決されます。各 Agent は 8 つの標準スロット（5 つの言語モデルスロットと `web_search`、`web_fetch`、`image_generate`）を持ち、Site・Pod および組み込みの `system` Principal（`ankole_brain`、`system`）はさらに 9 つ目の `rerank` スロットを持ちます。未指定のスロットは Pod と Site の既定値を継承し、さらに `coding -> heavy -> primary` と `light -> primary` のスロット間フォールバックが適用されます。
 
 | スロット | 使われる場面 | コスト上の位置づけ |
 |---|---|---|
 | `primary` | メインの推論モデル（大半の通常 turn で使用） | 単一項目として最大のコスト要因 |
-| `light` | 高頻度・低リスクな軽量処理 | 十分に安価なモデルを割り当てるべき枠 |
-| `heavy` | 難易度の高い統合・推論処理 | 高単価。`primary` が適切なら呼ばれる頻度は低い |
-| Background Agent Jobs（内部キーは `coding`） | すべての Background Agent Job | 長時間のバックグラウンド作業で使う Provider とモデルを決定 |
+| `light` | 高頻度・低リスクな軽量処理（未設定時は `primary` にフォールバック） | 大量処理が `primary` 単価にならないよう安価なモデルを割り当てる枠 |
+| `heavy` | 難易度の高い統合・推論処理や Dreaming | 高単価。`primary` が適切なら呼ばれる頻度は低い |
+| Background Agent Jobs（内部キーは `coding`） | すべての Background Agent Job（`coding -> heavy -> primary` でフォールバック） | 長時間のバックグラウンド作業で使う Provider とモデルを決定 |
 | `vision_fallback` | `primary` が画像入力に非対応のとき | 画像を扱う Agent にだけ設定する |
 | `web_search`、`web_fetch` | Web 検索・ページ取得ツール | レバー 3 を参照 |
 | `image_generate` | 画像生成ツール | 1 回あたりの単価が高いため、必要な Agent にだけ設定する |
+| `rerank`（Site / Pod / `system`） | Brain の想起再ランク付けと `/rerank` 既定経路 | 低コストで高速な rerank モデルを割り当てる枠 |
 
-Brain は、[AppConfigure](../app-configuration/) からサイト単位の embedding モデルとテナント単位の rerank モデルを参照します。また、テナント設定 `brain.maintainer_agent_uid` で指定された有効な Brain メンテナンス Agent の ID でモデル呼び出しを実行し、トークン使用量もその Agent に計上されます。具体的には、会話や Source からの知識抽出には `light` プロファイル、Dreaming や Skill 教訓の再確認には `heavy` プロファイル、URL Source の本文取得には `web_fetch` プロファイルが使われます（`web_fetch` が未設定の場合や Provider リクエストが失敗した場合は Source の取得に失敗します）。メンテナンス Agent を無効化すると、再有効化または別 Agent への変更を行うまで Brain のモデル呼び出しと URL Source 取得が停止します。選択中の Agent と各プロファイルの状態は **Brain → Health** で確認できます（詳細は [Brain](../brain/) を参照）。また、Pod Applet からの `ctx.ai` 呼び出しにはその Applet を作成した有効な Agent が使われ、プロファイル・利用枠・トークン消費もすべてその Agent に帰属します。
+control plane 内部サブシステムのモデル呼び出しは組み込みの `system` Principal のもとで実行されるため、バックグラウンド保守や Applet がフォアグラウンド Agent のトークンクォータを消費することはありません。
+
+- **`ankole_brain`**: Company Brain のすべてのモデル呼び出しを実行し、使用量を `ankole_brain` に計上します。会話や Source からの知識抽出には `light`（未設定時は `primary`）、Dreaming と Skill 教訓の再確認には `heavy`（未設定時は `primary`）、URL Source の本文取得には `web_fetch`、想起時の再ランク付けには `rerank` を解決し、embedding 生成には [AppConfigure](../app-configuration/) のサイト設定 `brain.embedding_model` を使用します。Brain 保守の予算帯を通常の Agent と分けたい場合は **Console → Model Profiles** で `ankole_brain` の各スロットを個別に上書きできます。各プロファイルの準備状態は **Brain → Health** で確認できます（詳細は [Brain](../brain/) を参照）。
+- **`system`（Pod Applet `ctx.ai`）**: Pod Applet からのステートレスな `ctx.ai` 呼び出しを `system` Principal として実行し、Pod/Site の有効な標準言語モデルプロファイル（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）を使用します。
 
 モデルプロファイルの見直しで特に効果が高いのは次の 2 点です。
 
-- **`light` には本当に安価な軽量モデルを割り当てる:** 高頻度で呼ばれる処理のための枠なので、`primary` と同価格帯のモデルを設定してしまうと枠を分けた意味がなくなります。
-- **`primary` は最初から最上位モデルにせず、標準クラスから始める:** 「想定よりコストが高い」と感じるケースの大半は、日常の定型作業に対して `primary` のモデルがオーバースペックになっていることが原因です。出力品質に不足を感じたときにだけ上位モデルへ引き上げてください。
+- **Site または Pod レベルで `light` に安価な軽量モデルを割り当てる:** `light` は未設定時に `primary` へフォールバックし、高頻度の補助処理や `ankole_brain` の知識抽出を担います。既定レイヤーで低コストモデルを設定しておけば、継承するすべての Agent と `ankole_brain` の消費をまとめて抑えられます。
+- **`primary` は最初から最上位モデルにせず、標準クラスから始める:** 「想定よりコストが高い」と感じるケースの大半は、日常の定型作業に対して `primary` のモデルがオーバースペックになっていることが原因です。出力品質に不足を感じた専門 Agent だけ `primary` や `heavy` を上位モデルへ上書きしてください。
 
-また、その Agent が使わない機能スロットは未設定のまま空けておきます。`vision_fallback` を空にしておけばフォールバック呼び出しは発生しません。`image_generate` は空でもメイン Provider がネイティブ画像生成に対応していればそれを利用できます。一方、Background Agent Jobs プロファイルだけは挙動が異なり、未設定の場合はその Agent の `heavy` プロファイルを使って AIGateway 経由で実行されます。バックグラウンドジョブを別 Provider や別コスト帯のモデルへ逃がしたい場合は、明示的に Background Agent Jobs プロファイルを設定してください。
+また、Pod や Agent が使わない機能スロットは未設定のまま空けておきます。`vision_fallback` を空にしておけばフォールバック呼び出しは発生しません。`image_generate` は空でもメイン Provider がネイティブ画像生成に対応していればそれを利用できます。一方、Background Agent Jobs（`coding`）が未設定の場合は `heavy -> primary` の順で AIGateway 経由のフォールバックが働くため、バックグラウンドジョブを別 Provider やコーディング特化モデルへ逃がしたい場合に `coding` を明示設定してください。
 
 ## レバー 2: reasoning effort
 
@@ -47,17 +51,20 @@ Codex の推論強度（`model_reasoning_effort`）に対応する Provider で�
 
 なお、AppConfigure の `agent_workers.rendered_fetch_idle_ttl_ms` キーは、レンダリング版 `web_fetch` で使用するブラウザサイドカーを未使用時に解放するまでのアイドル待機時間を制御するものです（URL レスポンスのキャッシュ設定ではありません）。
 
-## レバー 4: agent ループの予算
+## レバー 4: agent ループの予算とコールドウェイク・ローテーション
 
-テナントスコープ（`scope: :tenant`）の 3 つの AppConfigure キーを使うと、1 回の turn あたりの消費上限を制限できます。
+テナントスコープ（`scope: :tenant`）の [AppConfigure](../app-configuration/) キーを使うと、1 回の turn あたりの消費上限と、長期スレッドでのコールドキャッシュ再課金を制御できます。
 
 | キー | 制限する対象 |
 |---|---|
 | `ai_agent.max_iterations` | 1 turn あたりの Agent ループ最大反復回数 |
 | `ai_agent.max_output_tokens` | 1 回のモデル応答あたりの最大出力トークン数 |
 | `ai_agent.inactivity_timeout_ms` | 応答が途絶えた turn を回収・終了するまでの待機時間 |
+| `sessions.wake_recycle` | コールドウェイク会話ローテーションポリシー（`min_cold_gap_seconds`: `3600`、`min_context_tokens`: `128000`、`im_max_idle_seconds`: `259200`） |
 
 ツールを過剰に呼び続けるループを抑えるのが `max_iterations` です。2 回のツール実行で済む作業で 10 回ツールを呼べば、その分だけモデルへの往復リクエストが 10 回発生します。上限を適切に絞ることで、手持ちの情報から結論をまとめるよう Agent に促せます。また、`max_output_tokens` は 1 回あたりの長文出力を抑えます。これら `ai_agent.*` キーはテナント既定値（未上書き時はサイト既定値を継承）として、普段の標準的な turn が無理なく収まる値に設定してください。ごくまれな難問で上限に達し「ここまでに集まった情報からの暫定回答」になるケースは許容するのが現実的です。
+
+また、上流 Provider のプロンプトキャッシュが失効したあとに長大なモデル履歴をそのまま再開すると、次の turn で全履歴がキャッシュなし入力として再課金されます。`sessions.wake_recycle` はこの繰り返し課金を防ぎます。Session が `min_cold_gap_seconds`（既定 1 時間）以上アイドル状態になったあと `min_context_tokens`（既定 `128,000` トークン）以上の文脈を抱えて再開するとき、または外部チャットチャネルで `im_max_idle_seconds`（既定 72 時間）以上経過して再開するとき、Ankole は公開チャット履歴をそのまま保ちつつ、簡潔な `<wake-briefing>` を引き継いだ新しい AIGateway モデル会話ブランチへ切り替えます。
 
 ## レバー 5: Workflow の fanout とタスク試行
 

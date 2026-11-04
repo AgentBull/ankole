@@ -9,7 +9,7 @@ import * as T from '../core/types'
 import { markChange } from './attributes'
 import { editorPhrases } from './phrases'
 import * as S from './schema'
-import { connectedWidget, widgetBlock } from './widget'
+import { connectedWidget, toolbarButton as widgetToolbarButton, widgetBlock } from './widget'
 
 /** The languages Kirari can highlight, with the labels people expect to read in the menu. */
 const languageLabels: Readonly<Record<string, string>> = {
@@ -321,14 +321,8 @@ type CodeToolbarValue = {
 }
 
 function toolbarButton(text: string, title: string, action: string): HTMLButtonElement {
-  const button = document.createElement('button')
-  button.type = 'button'
-  button.className = `editor-code-${action}`
+  const button = widgetToolbarButton(text, title, `editor-code-${action}`)
   button.dataset.codeAction = action
-  button.textContent = text
-  button.title = title
-  button.setAttribute('aria-label', title)
-  button.tabIndex = 0
   return button
 }
 

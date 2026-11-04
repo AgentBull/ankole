@@ -229,8 +229,8 @@ export const deploymentTabs = [
     summary:
       '既存の Kubernetes クラスタでスケジューリングと HTTPS Ingress を活用したい場合は Helm chart を使用します。control plane は Kubernetes API を通じて Agent ごとに 1 つの Worker Pod を作成します。',
     prerequisites: [
-      'Kubernetes 1.27 以降および Helm 3 以降',
-      'Linux amd64 または arm64 ノード',
+      'Kubernetes 1.30 以降（ValidatingAdmissionPolicy 対応）および Helm 3 以降',
+      'カーネル FUSE を備え、FUSE デバイスプラグイン（smarter-devices/fuse、tools/deploy/kubernetes/fuse-device-plugin.yaml）で /dev/fuse を公開した Linux amd64 または arm64 ノード',
       "HTTPS Ingress と、共有 ReadWriteMany Home PVC および ReadWriteOnce キャッシュ PVC 用のストレージクラス"
     ],
     basic: {
@@ -405,7 +405,7 @@ export const deploymentTabs = [
         {
           title: 'Worker と Function Runtime のセキュリティプロファイルを確認する',
           body: [
-            'Worker Pod に特権的なカーネルケーパビリティは不要であり、コンテナ境界がそのまま各 Agent の分離境界となります。Helm chart は control plane に Pod・Secret・PVC を作成・削除できる namespace スコープの Role を付与する一方、Worker Pod には権限を持たない専用 ServiceAccount を割り当て、ankole-function-runtime はデータベース認証情報も ServiceAccount トークンも持たない状態で実行します。'
+            '各 Worker Pod は /dev/fuse（smarter-devices/fuse）経由で /drive をマウントします。信頼された root スーパーバイザーが SYS_ADMIN を使って FUSE マウントと実行マウント名前空間を分離したあと、Agent・ブラウザ・Codex の子プロセスはすべて空のケーパビリティセットと allowPrivilegeEscalation: false を持つ uid 1000 へ権限降格されます。Kubernetes 1.30+ では Helm chart の ValidatingAdmissionPolicy がこれらのケーパビリティを専用 Worker ServiceAccount のみに厳格制限し、特権コンテナ・ホスト名前空間・hostPath ボリュームを禁止したうえで、ankole-function-runtime はデータベース認証情報も ServiceAccount トークンも持たない状態で実行します。'
           ],
           fields: [
             {
@@ -418,6 +418,7 @@ export const deploymentTabs = [
               description: '任意。有効化すると、Worker Pod へのインバウンド接続を遮断して通信先を control plane・DNS・パブリックアドレスのみに制限し、ankole-function-runtime から functionRuntime.deniedCIDRs への通信も遮断します。'
             }
           ],
+          links: [{ label: 'WorkerProviders', href: '../worker-providers/' }],
           caution:
             'Worker コンテナは信頼されたファーストパーティのコンポーネントとして動作します。また、control plane は namespace 内で Pod や Secret を作成できる権限を持つため、特権基盤と同等に保護してください。'
         },
@@ -1357,16 +1358,16 @@ export const identityTabs = [
 ]
 
 export const modelAdvanced = {
-  title: '任意の Agent profile と Brain メンテナンス',
-  summary: '追加の能力 profile は必要な機能に応じて設定します。Brain の検索にはサイト単位の embedding モデルとテナント単位の rerank モデルが使われます。',
+  title: '任意の能力プロファイルと Brain のモデルプロファイル',
+  summary: '追加の能力スロットは必要な機能に応じて設定します。Company Brain は組み込みの ankole_brain システム Principal のもとで、疎なモデルプロファイルとサイト単位の embedding モデルを使って動作します。',
   steps: [
     {
-      title: '任意の Agent 能力 profile を追加する',
+      title: '任意の能力プロファイルを追加する',
       fields: [
         {
           name: 'Background Agent Jobs',
           description:
-            '永続的な Background Agent Jobs で使用する provider とモデルを選択します（内部では coding profile として保存されます）。'
+            '永続的な Background Agent Jobs で使用する provider とモデルを選択します（内部では coding プロファイルとして保存され、未設定時は heavy -> primary へフォールバックします）。'
         },
         {
           name: 'vision_fallback',
@@ -1383,23 +1384,19 @@ export const modelAdvanced = {
       ]
     },
     {
-      title: 'Brain メンテナンス Agent と検索モデルを選択する',
+      title: 'Company Brain（ankole_brain）と検索モデルを設定する',
       body: [
-        'Console → AppConfigure → Brain を開き、対象テナントとその Brain の保守を担う有効な Agent を選択します。Brain によるすべてのモデル呼び出しはこの Agent の ID で実行され、トークン使用量もこの Agent に計上されます。この Agent を無効化すると、再度有効化するか別の Agent に切り替えるまで、Brain のモデル呼び出しと URL Source の取得が停止します。モデル profile 自体はリンク先の Agent 詳細ページで編集してください。'
+        'Company Brain は組み込みの ankole_brain システム Principal として動作し、フォアグラウンド Agent のトークンクォータを消費しません。Console → Model Profiles の 3 層疎継承チェーン（Site -> Pod -> ankole_brain）でモデルプロファイルを解決し、知識抽出には light（未設定時は primary）、Dreaming と Skill 教訓の再確認には heavy（未設定時は primary）、URL Source 取得には web_fetch、想起の再ランク付けには rerank を使い、さらに AppConfigure のサイト単位 embedding モデルを組み合わせて検索します。'
       ],
       fields: [
         {
-          name: 'brain.maintainer_agent_uid',
+          name: 'ankole_brain（Model Profiles）',
           description:
-            '指定された Agent の light profile で知識抽出、heavy profile で Dreaming、web_fetch profile で URL Source の取得を行います。web_fetch が未設定の場合や Provider リクエストが失敗した場合は、URL Source の取得も失敗します。'
+            'Console → Model Profiles で ankole_brain の light、heavy、web_fetch、rerank スロットを設定または上書きします（未指定時は Pod・Site の既定値を継承します）。'
         },
         {
           name: 'brain.embedding_model',
-          description: 'サイト単位の設定です。ベクトル検索を有効化するため、Provider とモデルを選択して embedding の次元数を入力します。'
-        },
-        {
-          name: 'brain.rerank_model',
-          description: 'テナント単位の設定です。統合された検索候補を再ランキングします（未設定の場合は統合時のスコア順をそのまま維持します）。'
+          description: 'AppConfigure のサイト単位設定です。ベクトル検索を有効化するため、Provider とモデルを選択して embedding の次元数を入力します。'
         }
       ],
       links: [
@@ -2505,11 +2502,11 @@ export const signalAdvanced = {
 
 プライベートな Ankole デプロイメントインスタンスは、1 つの control plane と、Agent ごとに 1 つ割り当てられる Agent Computer Worker で構成されます。control plane は永続的なドメイン状態とプロセス監視を担う管理基盤であり、Worker は各 Agent 専用の仕事用コンピュータとして実行環境を提供します。
 
-人間が一人ひとり自分の業務用 PC を持つのと同じように、複数の Agent が 1 つの Worker を共有することはありません。Agent を作成すると、control plane がその Agent 専用の Worker を自動でプロビジョニングし、停止・置き換え・削除まで一貫して管理します。
+人間が一人ひとり自分の業務用 PC を持つのと同じように、複数の Agent が 1 つの Worker を共有することはありません。Agent を作成すると、control plane が割り当てられた [WorkerProvider](../worker-providers/) を通じてその Agent 専用の Worker を自動でプロビジョニングし、停止・置き換え・削除まで一貫して管理します。
 
 <DocsKnowledgeNote
   label="💡 知っていましたか？"
-  text="Worker のコンテナ（または Pod）そのものが唯一の分離境界です。Agent が実行するコマンド、ブラウザ操作は内側の追加サンドボックスなしでそのコンテナ内で直接動作し、特権的なカーネル権限も必要としません。Agent が自分の Worker 内にソフトウェアを入れたり環境を壊したりすることはあっても、別の Agent になりすますことはできません。また、規定時間内に準備完了にならない Worker は control plane が自動的に再構築します。"
+  text="各 Worker コンテナ（または Pod）は 1 体の Agent を分離します。信頼された root スーパーバイザーが /dev/fuse と SYS_ADMIN（Kubernetes 1.30+ クラスタでは ValidatingAdmissionPolicy により Worker ServiceAccount のみに制限）を使って /drive FUSE とマウント名前空間を分離し、Agent・ブラウザ・Codex の子プロセスはすべて空のケーパビリティセットを持つ uid 1000 で動作します。Agent が自身の永続 /workspace 内にパッケージをインストールすることはできても別の Agent になりすますことはできず、規定時間内に準備完了にならない Worker は control plane が自動的に再構築します。"
 />
 
 すべてのデプロイメントには、PostgreSQL、ドライブ用のファイルストア、および Agent ごとの永続 Home ストレージが必要です。Kubernetes の既定 Helm chart では、共有の ReadWriteMany Home PVC と、それとは別の ReadWriteOnce キャッシュ PVC を使用します（Home はバックアップ必須ですが、キャッシュは再構築可能なためバックアップ不要です）。
@@ -2600,21 +2597,19 @@ Ankole は組織内のプライベートデプロイメント向けに設計さ�
 
 ## 3. LLM Provider を追加して Agent を作成する
 
-Agent のモデルプロファイルは登録済みの LLM Provider を参照するため、先に LLM Provider を追加します。Console にサインインし、**Providers → New provider** を開いて provider の種類を選択し、安定した Provider ID、エンドポイント、および認証情報を入力して保存してください。
+モデルプロファイルは登録済みの LLM Provider を参照するため、先に Console の **Providers → New provider** で provider の種類を選択し、安定した Provider ID、エンドポイント、認証情報を入力して保存します。登録した認証情報は control plane 内で暗号化して保管されるため、デプロイ用の `.env` ファイルや Agent のワークスペースファイル内に API キーを書き込まないでください。
 
-登録した認証情報は control plane 内で暗号化して保管されます。デプロイ用の環境変数ファイルや Agent のファイル内に API key を書き込まないでください。
-
-続いて **Agents → New Agent** を開き、handle、表示名、Worker provider、および担当業務と完了条件を記した mission を設定します（不透明な Agent UID は Ankole が自動生成します）。
-
-Agent を作成したら、以下の 3 つのモデルプロファイルを設定します。
+次に **Console → Model Profiles** を開き、Site または Pod 既定の言語モデルスロットを設定します（`Site -> Pod -> Agent/System` の 3 層疎継承と、`coding -> heavy -> primary` および `light -> primary` のフォールバックが適用されます）。
 
 | プロファイル | 初回実行での用途 |
 |---|---|
-| `primary` | メインの対話・推論モデル |
-| `light` | 軽量かつ高頻度な処理用モデル |
-| `heavy` | 高度な統合・深い推論用モデル |
+| `primary` | メインの対話・推論モデル（必須。未設定時の `light` や `coding -> heavy` のフォールバック先） |
+| `light` | 高頻度・低コストな処理と `ankole_brain` の知識抽出 |
+| `heavy` | 高度な統合推論、Dreaming、Skill 教訓の再確認 |
 
-Agent を動かすにはこの 3 つすべてが必須です。最初の疎通確認では、動作実績のある同じ provider とモデルを 3 つすべてに割り当てて構いません。一通りの会話が通ることを確認してから、用途別にモデルを分けてください。
+最初の疎通確認では、Site または Pod 既定値の `primary` に動作実績のある provider とモデルを 1 つ割り当てるだけで全 Agent と `ankole_brain` が稼働可能になります。一通りの会話が通ることを確認してから、`light` と `heavy` を用途別の階層に分けてください。
+
+**Pod** ワークスペースでは、各内部メンバーに 1:1 の**個人アシスタント**が自動で用意され、**Pod Chat** からすぐに利用できます。チームで共有する専門の **AI 同僚**（Pod ルームや外部 IM ルーティング用）を作成する場合は、**Agents → New Agent** を開いてテナント内で意味のわかる小文字の `uid`（`research-analyst` など）、表示名、ロール、所有者、`WorkerProvider` を設定して保存します。Agent は個別スロットを上書きしないかぎり Site・Pod のモデルプロファイルを継承し、行動規範と視覚デザイン規則は **Meta Ankole → Agents** の `AGENTS.md` と `DESIGN.md` で管理します。
 
 <QuickstartDisclosure
   client:visible
@@ -2626,9 +2621,7 @@ Agent を動かすにはこの 3 つすべてが必須です。最初の疎通�
 
 ## 4. チャットチャンネルを接続して signal routing ルールを作成する
 
-Console で対象チャットプラットフォームの Control Plane Plugin を有効化し、プラットフォーム側で bot またはアプリケーションを作成します。サインイン（IdP）と同じプラットフォームを使う場合でも、IdP 用とチャット用でアプリは分けて作成してください。アプリを分離しておくことで、サインイン・ディレクトリ権限と bot 権限を最小限に保てるほか、認証情報のローテーションやアプリのバージョン公開も互いに影響せず行えます。
-
-通常、1 つのチャットアプリは 1 つの bot アカウントに対応します。複数の Agent で別々の bot 名・アイコン・権限を使い分けたい場合は、プラットフォーム側で Agent ごとにアプリを作成してください。アプリの準備ができたら、Console でルーティングルールを作成して対象の Agent に接続します。
+**Pod Chat** ではルーティングルールなしで個人アシスタントや AI 同僚とそのまま会話できます。外部 IM プラットフォームを接続する場合は、Console で対象プラットフォームの Control Plane Plugin を有効化してください。`Ankole.Connectors` に対応する **Lark / Feishu** などでは、**Pod → Connections**（`/connectors`）または Console に共有アプリケーション接続（`authConfigId`）を登録しておけば、同じ 1 つのアプリ接続を SSO、ディレクトリ同期、IM Signal ルーティング、MCP ツールキット、イベントトリガーでそのまま再利用でき、重複アプリの作成やシークレットの再入力は不要です。複数の AI 同僚ごとに別々の bot 名・アイコン・権限スコープを持たせたい場合は、Agent ごとに専用の bot 接続を用意して個別のルーティングルールで紐付けます。
 
 なお、Slack・Teams・Lark/Feishu・DingTalk・WeCom はエンタープライズ向けプラットフォームであり、発言者は IdP が同期した社員ディレクトリと照合されます。一方、Telegram・Discord・LINE・WhatsApp はコンシューマー向け IM のため社員レコードが存在せず、新しい送信者が話しかけた際は管理者が **アイデンティティ → 保留中のマッピング** で既存アカウントへ紐付けてから Agent の応答が始まります（WhatsApp のみ、携帯電話番号が既存アカウントと一致すれば自動マッピングされます）。また、Email では専用メールボックスを接続し、明示的に email identity が紐付けられた送信者からのメールのみを受け付けます。
 
@@ -2674,7 +2667,7 @@ Console で **Signal Routing → New routing rule** を開き、以下の項目�
 
 > @Ankole 何ができますか。どのチームにサービスを提供していますか？
 
-実際のモデルから最初の返信が返ってきたら、チームの運用に合わせて Agent の mission、使用モデル、およびグループチャットポリシーを調整してください。
+実際のモデルから最初の返信が返ってきたら、**Meta Ankole → Agents** で `AGENTS.md` と `DESIGN.md` の規約を整え、チームの運用に合わせてモデルプロファイル階層やグループチャットポリシーを調整してください。
 
 <span id="agent-not-replying" aria-hidden="true" />
 
@@ -2686,7 +2679,7 @@ Console で **Signal Routing → New routing rule** を開き、以下の項目�
 2. 対象のチャンネル、チーム、または会話に bot が招待・インストールされていること。
 3. 必要なメッセージ受信イベントと権限スコープがすべて有効になっていること。
 4. ルーティングルールが有効（enabled）で、意図した Agent を指していること。
-5. Agent に `primary`・`light`・`heavy` の 3 つのモデルプロファイルが設定されていること。
+5. Agent に有効な `primary` モデルプロファイルが解決されていること（**Console → Model Profiles** の Site/Pod 既定値または Agent 上書き）。
 6. LLM Provider の認証情報とモデル指定が有効であること。
 7. **Console → Workers** で対象 Agent の Worker が準備完了になっていること（未完了の場合は、同じ画面にバックエンドからのエラー理由が表示されます）。
 

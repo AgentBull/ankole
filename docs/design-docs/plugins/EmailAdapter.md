@@ -36,7 +36,11 @@ delivery route rather than owning the thread.
 
 Each binding configures `address`, `displayName`, `imapHost`, `imapPort`,
 `smtpHost`, `smtpPort`, `smtpSecurity`, `username`, encrypted `password`, and
-`senderAuthentication`. A given `(imapHost, username)` pair can belong to at
+`senderAuthentication`—storing mailbox credentials (`username`, `password`, and
+server connection metadata) in `Ankole.Connectors` (`connector_auth_configs`
+under the `imap_smtp` scheme, referenced via `authConfigId` through
+`Ankole.Connectors.LegacyConfig`) while keeping behavior settings in
+`AppConfigure`. A given `(imapHost, username)` pair can belong to at
 most one enabled Email binding, and all three group-message modes
 (`addressed_only`, `observe_all`, and `may_intervene`) are supported.
 
@@ -171,11 +175,14 @@ request without mirroring the held email.
 ## Materialize Attachments
 
 Once a message is admitted, `Conversations` commits a pending attachment
-projection—ensuring unmapped senders never write blobs—and the adapter writes
-each named or non-text MIME part to the file service under
-`inbox/<digest>/<name>` ([Files](../Files.md)) and updates the entry. Messages
-exceeding 25 MB are fetched as headers only, recording the subject, a size
-notice, and `size_limit_exceeded` metadata without downloading attachments.
+projection—ensuring unmapped senders never write file objects—and the adapter
+materializes each named or non-text MIME part through
+`Ankole.Conversations.Attachments` into unified Drive ([Files](../Files.md))—storing
+an immutable `file_objects` row, freezing `object_id` on `message_attachments`,
+and linking the file into the conversation root (`/drive/ChatDrive`)—and updates
+the entry. Messages exceeding 25 MB are fetched as headers only, recording the
+subject, a size notice, and `size_limit_exceeded` metadata without downloading
+attachments.
 
 ## Send Replies
 
@@ -188,8 +195,9 @@ intents address all current thread participants using the thread subject and
 
 Each outbound email derives a deterministic `Message-ID` from the Delivery
 intent key so mail clients deduplicate or thread retries cleanly, encodes prose
-as UTF-8 `text/plain`, and attaches files from the file service as
-`multipart/mixed` parts (permanently failing if total attachments exceed 20 MB).
+as UTF-8 `text/plain`, and reads immutable attachment bytes from `Ankole.Files`
+via `object_id` (`delivery_attachments`) to attach them as `multipart/mixed`
+parts (permanently failing if total attachments exceed 20 MB).
 
 SMTP connections verify the server's TLS certificate against the system CA store
 under both implicit TLS and `STARTTLS`. Because SMTP offers no post-`DATA`
@@ -213,7 +221,9 @@ other `5xx` responses fail permanently.
 
 ## Secrets
 
-`AppConfigure` encrypts `password` at rest and keeps it out of connection
+`Ankole.Connectors` encrypts `password` at rest in `connector_auth_configs`
+(referenced via `authConfigId` from the binding's `AppConfigure` configuration
+row) and keeps it out of connection
 status, logs, persisted error details, and raw payloads; public status views
 expose only the mailbox address, connection state, latest `UIDVALIDITY`, and
 bounded error codes.

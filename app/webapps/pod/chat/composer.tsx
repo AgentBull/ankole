@@ -1,3 +1,4 @@
+import { escapeRegExp } from '../../common/text'
 import { usePageMetadata } from '../use-page-metadata'
 import {
   Button,
@@ -638,7 +639,7 @@ export function Composer({
 }
 
 export function removePageMention(text: string, name: string) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const escaped = escapeRegExp(name)
   return text.replace(new RegExp(`@${escaped}(?![\\p{L}\\p{N}_])\\s?`, 'gu'), '')
 }
 

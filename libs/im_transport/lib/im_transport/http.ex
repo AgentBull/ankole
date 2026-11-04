@@ -27,6 +27,14 @@ defmodule IMTransport.HTTP do
     end
   end
 
+  @doc "Reads a map-only JSON path, returning nil when a component is absent."
+  def get_in_path(value, []), do: value
+
+  def get_in_path(map, [key | rest]) when is_map(map),
+    do: get_in_path(Map.get(map, key), rest)
+
+  def get_in_path(_value, _path), do: nil
+
   def retry_after(response) do
     case Req.Response.get_header(response, "retry-after") do
       [value | _rest] when is_binary(value) ->
@@ -43,7 +51,7 @@ defmodule IMTransport.HTTP do
   def filename_from_response(response) do
     case Req.Response.get_header(response, "content-disposition") do
       [value | _rest] when is_binary(value) ->
-        case Regex.run(~r/filename\*?=(?:UTF-8''|\")?([^\";]+)/i, value, capture: :all_but_first) do
+        case Regex.run(~r/filename\*?=(?:UTF-8'')?\"?([^\";]+)/i, value, capture: :all_but_first) do
           [filename] -> URI.decode(filename)
           _no_match -> nil
         end

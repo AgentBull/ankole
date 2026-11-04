@@ -19,7 +19,13 @@ Signal은 Session의 영속 입력함(inbox)이고, AIGateway Response 체인은
 
 모델 호출 경계마다 Sessions는 현재 Conversation의 Message 목록을 읽어 오며, 실제 모델 요청의 `metadata`에 마지막으로 읽은 위치를 남기고 현재 처리 중인 main 및 steer Message는 배경 문맥에서 제외합니다. 공유 대화 기록은 문맥 정보만 제공할 뿐 과거 메시지 작성자의 권한을 위임하지는 않으며, 권한 확인은 항상 현재 요청 주체를 기준으로 수행됩니다.
 
-Signal 완료 처리와 최종 답장 전송 의도는 하나의 트랜잭션으로 함께 커밋됩니다. 도중에 내부 방향 수정(steer)이 일어나더라도 답장 소유 주체는 그대로 유지되며, 메시지 철회나 재시도가 발생한 뒤에도 이미 실행된 도구 결과를 이어서 읽을 수 있습니다. 한편 `/compress` 명령은 피드백과 요약 checkpoint 저장만으로 완료되며 별도의 최종 모델 응답을 요구하지 않습니다.
+Signal 완료 처리와 최종 답장 전송 의도는 하나의 트랜잭션으로 함께 커밋됩니다. 도중에 내부 방향 수정(steer)이 일어나더라도 답장 소유 주체는 그대로 유지되며, 메시지 철회나 재시도가 발생한 뒤에도 이미 실행된 도구 결과를 이어서 읽을 수 있습니다. 공유 대화방의 일반 Agent 답장은 다른 Agent를 깨우지 않으며, 명시적인 Agent 간 협업은 `personal_assistant`가 소유자의 동결된 Human `WorkAccess` 아래에서 `send_to_agent`로 격리된 `agent_peer` 교환을 열어 `ai_colleague`에게 작업을 위임하는 방식으로 이루어집니다. 이때 동료 Agent의 `Clarify` 질문이나 `ActionCard`는 원래 대화방에 제로홉(zero-hop)으로 직접 투영되어 사용자의 응답이 동료 Agent를 곧바로 깨우며, 동료 Agent의 확정 답장은 원래 어시스턴트 Session에 영속 입력 Signal로 전달됩니다. 한편 `/compress` 명령은 피드백과 요약 checkpoint 저장만으로 완료되며 별도의 최종 모델 응답을 요구하지 않습니다.
+
+## 콜드 복귀 모델 대화 순환
+
+대화 접수 시점(`Ankole.Sessions.WakeRecycle`, `sessions.wake_recycle`로 설정)에 이전 AIGateway 모델 대화가 최소 한 번 이상의 Response를 완료했고, (a) 유휴 시간이 `min_cold_gap_seconds`(기본값 `3,600`초, 상위 프롬프트 캐시 만료 시점 이후) 이상이면서 누적 입력 컨텍스트가 `min_context_tokens`(기본값 `128,000` 토큰) 이상이거나, (b) 외부 IM 대화가 `im_max_idle_seconds`(기본값 `259,200`초 / 72시간) 이상 유휴 상태였다면 Ankole은 접수 트랜잭션 안에서 활성 모델 대화를 후속 브랜치로 자동 전환합니다.
+
+명시적 초기화(`command.new`), 대화형 카드 응답·콜백, 백그라운드 콜백 Signal(`background_agent_job.*` 및 `workflow.run.*`), 진행 중이거나 대기 중인 `BackgroundAgentJob`·`Workflow.Run` 또는 다른 실행 중 Signal이 있는 Session, 그리고 장애 재시도(`last_attempt_at != nil`)에서는 순환을 건너뜁니다. 순환 시 미해결 `InteractionState`와 `ActionCard` 체크포인트는 후속 브랜치로 이관하고 공개 `conversation_messages`는 그대로 보존하며, 후속 브랜치의 첫 모델 요청 직전에 `Sessions.WakeBriefing`이 최대 `8,000` `o200k_base` 토큰 한도의 결정론적 `<wake-briefing>` 블록(`<brain-memory>`, `<recent-messages>`, `<recent-actions>`, `<objects-in-play>`)을 주입합니다.
 
 ## Worker와 작업 식별자
 

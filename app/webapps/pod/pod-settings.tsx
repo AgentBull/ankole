@@ -1,3 +1,5 @@
+import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
+import { formatDateTime } from '../common/date-time'
 import { ConnectorConfigFields } from '../common/connector-config-fields'
 import {
   Badge,
@@ -29,7 +31,7 @@ import { RiCheckLine, RiFileCopyLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import type { BrowserSessionResponse } from '../common/api/generated/types.gen'
@@ -895,7 +897,7 @@ function Invitations({ model }: { model: Model }) {
                 <span>
                   {invitation.invited_email || t('pod.settings.link_invitation')} ·{' '}
                   {t(`pod.settings.role_${invitation.membership}`)} · {invitation.used_count}/
-                  {invitation.max_uses ?? '∞'} · {new Date(invitation.expires_at).toLocaleString()}
+                  {invitation.max_uses ?? '∞'} · {formatDateTime(invitation.expires_at, undefined, 'medium')}
                 </span>
                 {isRevoked && <Badge variant="secondary">{t('pod.settings.revoked')}</Badge>}
                 {isExpired && (
@@ -920,18 +922,9 @@ function Providers({ model }: { model: Model }) {
   useSignals()
   const { t, i18n } = useTranslation()
   const client = useQueryClient()
-  const [callbackCopied, setCallbackCopied] = useState(false)
-  const callbackCopiedTimer = useRef<number | null>(null)
+  const [callbackCopied, markCallbackCopied, resetCallbackCopied] = useCopyFeedback(false, 2000)
   const [customizeCallback, setCustomizeCallback] = useState(false)
 
-  useEffect(
-    () => () => {
-      if (callbackCopiedTimer.current !== null) {
-        window.clearTimeout(callbackCopiedTimer.current)
-      }
-    },
-    []
-  )
   const providers = useQuery({ queryKey: keys.providers, queryFn: () => api.podAdminIdentityProviders() })
   const connectorCatalog = useQuery({
     queryKey: ['connectors', authenticationRef() ?? '', podID() ?? '', 'catalog'],
@@ -976,11 +969,7 @@ function Providers({ model }: { model: Model }) {
       providers.data?.providers.map(provider => provider.provider_id) ?? []
     )
     model.enabled.value = true
-    if (callbackCopiedTimer.current !== null) {
-      window.clearTimeout(callbackCopiedTimer.current)
-      callbackCopiedTimer.current = null
-    }
-    setCallbackCopied(false)
+    resetCallbackCopied()
     setCustomizeCallback(false)
     save.reset()
     model.config.value = defaultConfig(item.fields)
@@ -990,15 +979,8 @@ function Providers({ model }: { model: Model }) {
   const copyCallbackURL = () => {
     void navigator.clipboard.writeText(callbackURL).then(
       () => {
-        if (callbackCopiedTimer.current !== null) {
-          window.clearTimeout(callbackCopiedTimer.current)
-        }
-        setCallbackCopied(true)
+        markCallbackCopied(true)
         toast.success(t('setup.oidc_callback_url_copied'))
-        callbackCopiedTimer.current = window.setTimeout(() => {
-          callbackCopiedTimer.current = null
-          setCallbackCopied(false)
-        }, 2000)
       },
       () => toast.error(t('setup.oidc_callback_url_copy_failed'))
     )
@@ -1037,7 +1019,7 @@ function Providers({ model }: { model: Model }) {
                     model.config.value = provider.config
                     model.enabled.value = provider.enabled === true
                     model.preservedSecrets.value = provider.stored_secret_paths
-                    setCallbackCopied(false)
+                    resetCallbackCopied()
                     setCustomizeCallback(false)
                     save.reset()
                   }}>
@@ -1128,7 +1110,7 @@ function Providers({ model }: { model: Model }) {
                     value={model.providerID.value}
                     onChange={event => {
                       save.reset()
-                      setCallbackCopied(false)
+                      resetCallbackCopied()
                       model.providerID.value = event.target.value
                     }}
                   />
@@ -1173,7 +1155,7 @@ function Providers({ model }: { model: Model }) {
                   disabled={save.isPending}
                   onClick={() => {
                     save.reset()
-                    setCallbackCopied(false)
+                    resetCallbackCopied()
                     setCustomizeCallback(false)
                     model.closeProviderEditor()
                   }}>

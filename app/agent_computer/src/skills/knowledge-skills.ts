@@ -1,5 +1,6 @@
+import { relativePathWithin } from '../core/path-boundary'
 import { chmod, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { isRecord } from '@agentbull/active-support'
 import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope_proto'
 import type { RPCRequester, TurnRPCFrame } from '../lanes/rpc_lane'
@@ -44,8 +45,8 @@ export async function materializeKnowledgeSkills(input: {
           throw new Error(`Invalid Skill bundle file: ${skill.skillName}`)
         }
         const target = resolve(directory, file.path)
-        const rel = relative(directory, target)
-        if (!rel || rel.startsWith('..') || rel.startsWith('/')) throw new Error('Skill file escapes its directory')
+        const rel = relativePathWithin(directory, target)
+        if (!rel) throw new Error('Skill file escapes its directory')
         await mkdir(dirname(target), { recursive: true })
         await writeFile(target, Buffer.from(file.content, 'base64'))
         await chmod(target, typeof file.mode === 'number' ? file.mode & 0o555 : 0o444)

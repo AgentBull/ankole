@@ -456,8 +456,8 @@ defmodule Ankole.AIGateway.ProviderConfigs.Credentials do
 
   defp normalize_disabled_at(value, entry, _existing)
        when is_binary(value) and is_map_key(entry, "disabled_at") do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> {:ok, DateTime.to_iso8601(datetime)}
+    case Ankole.Attrs.parse_datetime(value) do
+      %DateTime{} = datetime -> {:ok, DateTime.to_iso8601(datetime)}
       _error -> {:error, :invalid_credential_disabled_at}
     end
   end

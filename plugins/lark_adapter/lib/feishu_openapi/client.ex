@@ -298,7 +298,7 @@ defmodule FeishuOpenAPI.Client do
     fingerprint =
       :erlang.term_to_binary(%{
         app_id: app_id,
-        app_secret: secret_fingerprint(app_secret),
+        app_secret: IMTransport.TokenCache.secret_fingerprint(app_secret),
         app_type: app_type,
         domain: domain,
         base_url: base_url,
@@ -310,15 +310,4 @@ defmodule FeishuOpenAPI.Client do
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end
-
-  # The secret only contributes its hash to the namespace — never its plaintext.
-  # A closure secret is fingerprinted by function identity (`phash2`) rather than
-  # by invoking it: avoids reading the secret here, but means two closures that
-  # return the same secret get distinct namespaces (separate caches, still
-  # correct). Pass a string if you want closures to share a token cache.
-  defp secret_fingerprint(secret) when is_binary(secret),
-    do: {:binary, :crypto.hash(:sha256, secret)}
-
-  defp secret_fingerprint(fun) when is_function(fun, 0),
-    do: {:fun, :erlang.phash2(fun)}
 end

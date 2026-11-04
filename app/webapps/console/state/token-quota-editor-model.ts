@@ -1,3 +1,5 @@
+import { dateTimeLocalValue, instantFromDateTimeLocal } from '../../common/date-time'
+export { dateTimeLocalValue, instantFromDateTimeLocal } from '../../common/date-time'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { GetAgentTokenQuotaResponse, PutAgentTokenQuotaData } from '../api/v2/generated/types.gen'
 
@@ -21,29 +23,6 @@ export type TokenQuotaDraftError =
 export type TokenQuotaSubmission =
   | { ok: true; body: TokenQuotaWriteRequest }
   | { ok: false; error: TokenQuotaDraftError }
-
-// The field is a `datetime-local` control, so the draft holds the instant as
-// the browser's local wall-clock time without an offset. The control plane
-// stores a UTC instant; the two conversions below invert each other at second
-// precision.
-const dateTimeLocalPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/
-
-/** Formats a stored UTC instant as the local `datetime-local` value. */
-export function dateTimeLocalValue(instant: string): string {
-  const date = new Date(instant)
-  if (Number.isNaN(date.getTime())) return ''
-  const pad = (value: number) => String(value).padStart(2, '0')
-  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-  return `${day}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-}
-
-/** Parses a local `datetime-local` value into a UTC ISO 8601 instant. */
-export function instantFromDateTimeLocal(value: string): string | undefined {
-  const text = value.trim()
-  if (!dateTimeLocalPattern.test(text)) return undefined
-  const date = new Date(text)
-  return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
-}
 
 export function emptyTokenQuotaDraft(): TokenQuotaDraft {
   return { periodDays: '', periodStartAt: '', limitTokens: '' }

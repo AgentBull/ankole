@@ -1034,11 +1034,5 @@ defmodule Ankole.Sessions.WakeBriefing do
 
   defp non_empty(_), do: nil
 
-  defp xml_escape(value) when is_binary(value) do
-    value
-    |> String.replace("&", "&amp;")
-    |> String.replace("<", "&lt;")
-    |> String.replace(">", "&gt;")
-    |> String.replace("\"", "&quot;")
-  end
+  defp xml_escape(text), do: text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
 end

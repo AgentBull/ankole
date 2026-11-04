@@ -1,13 +1,11 @@
+import { dateTimeLocalValue } from '../../common/date-time'
 import { batch, createModel, signal } from '@preact/signals-react'
 import type { FieldType, Value } from '@ankole/applet-sdk/types'
 
 function formatFieldInput(value: Value, type: FieldType) {
   if (value === null) return ''
   if (type !== 'datetime') return String(value)
-  const date = new Date(String(value))
-  return Number.isFinite(date.getTime())
-    ? new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
-    : ''
+  return dateTimeLocalValue(String(value)).slice(0, 16)
 }
 export const FieldInputModel = createModel(() => {
   const draft = signal('')

@@ -55,7 +55,12 @@ Chat bindings configure these fields:
 
 Identity-provider configurations share the same `clientId` and `clientSecret`,
 using `oidc.*` keys for sign-in and `sync.*` keys for user and department
-imports.
+imports. Both `signals.dingtalk.bindings.<agent_uid>` and
+`principals.identity_providers.dingtalk.<id>` store `clientId` and encrypted
+`clientSecret` in a shared `Ankole.Connectors` connection
+(`connector_auth_configs`, referenced via `authConfigId` through
+`Ankole.Connectors.LegacyConfig`) while keeping behavior settings in
+`AppConfigure`.
 
 Each Agent may enable at most one DingTalk binding, and a single `clientId`
 cannot be assigned to two Agents; the binding save transaction enforces both
@@ -93,10 +98,13 @@ ignoring any callback that lacks `senderStaffId` and never treating an opaque
 encrypted DingTalk user token as a Principal identity.
 
 DingTalk delivers attachments as short-lived download codes. During ingress, the
-adapter downloads each attachment immediately and writes the bytes to the file
-service ([Files](../Files.md)); if downloading or storing fails, the adapter
-logs the error and records the message without attachment bytes, never
-persisting temporary download codes or ephemeral URLs.
+adapter downloads each attachment immediately and materializes the bytes through
+`Ankole.Conversations.Attachments` into unified Drive ([Files](../Files.md)),
+storing an immutable `file_objects` row, freezing `object_id` on
+`message_attachments`, and linking the file into the conversation root
+(`/drive/ChatDrive`); if downloading or storing fails, the adapter logs the
+error and records the message without attachment bytes, never persisting
+temporary download codes or ephemeral URLs.
 
 ## Send Replies
 
@@ -108,8 +116,10 @@ Prose text converts to DingTalk's Markdown dialect—splitting long replies acro
 multiple DingTalk messages when needed—while the Rust kernel uses CommonMark
 byte spans to keep fenced, indented, and inline code blocks untouched (live AI
 Card streams apply their own paging and rendering rules). Supported attachment
-types upload through DingTalk's media API, whereas unsupported file types fail
-before the adapter reads blob bytes. Recalling an outbound message requires the
+types read immutable bytes from `Ankole.Files` via `object_id`
+(`delivery_attachments`) and upload through DingTalk's media API, whereas
+unsupported file types fail before the adapter reads attachment bytes. Recalling
+an outbound message requires the
 `processQueryKey` returned when the adapter originally sent it; targets missing
 that key are rejected.
 
@@ -166,10 +176,12 @@ lifts a manual restriction, or disables members absent from a snapshot; see
 
 ## Restart and Recovery
 
-Across restarts, durable state lives in PostgreSQL: `AppConfigure` holds
-encrypted credentials, `Conversations` holds public Messages and Delivery
-intents, `Signals` holds accepted stimuli, `Sessions` drives execution recovery,
-and `Principals` / `AuthZ` store people, groups, memberships, and grants. Agent
+Across restarts, durable state lives in PostgreSQL: `Ankole.Connectors` holds
+encrypted DingTalk credentials while `AppConfigure` holds behavior settings,
+`Conversations` holds public Messages and Delivery intents, `Files` holds file
+objects and conversation Drive nodes, `Signals` holds accepted stimuli,
+`Sessions` drives execution recovery, and `Principals` / `AuthZ` store people,
+groups, memberships, and grants. Agent
 Computer never receives DingTalk credentials. When a control-plane node
 restarts, `ConnectionLifecycle` re-establishes Stream sockets automatically, and
 running a full directory sync repairs any suspected identity drift.

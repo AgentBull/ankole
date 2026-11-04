@@ -269,10 +269,6 @@ impl APIProtocol for OpenAIResponsesState {
         status: u16,
         body: Value,
     ) -> Result<Value, StreamError> {
-        if !(200..300).contains(&status) {
-            return Err(provider_body_error(status, body));
-        }
-        reject_provider_body_error(status, &body)?;
         let mut response = complete_response_resource(
             context,
             provider_object_body(status, body, "OpenAI Responses")?,

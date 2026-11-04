@@ -1,3 +1,4 @@
 export * from './client'
 export * from './errors'
 export * from './protocol'
+export { waitForExit } from './process'

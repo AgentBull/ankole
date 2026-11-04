@@ -229,8 +229,8 @@ export const deploymentTabs = [
     summary:
       'Use the Helm chart when you already operate Kubernetes and need cluster scheduling and an HTTPS Ingress. The control plane creates one Worker Pod for each Agent, through the Kubernetes API.',
     prerequisites: [
-      'Kubernetes 1.27 or later and Helm 3 or later',
-      'Linux amd64 or arm64 nodes',
+      'Kubernetes 1.30 or later (for ValidatingAdmissionPolicy) and Helm 3 or later',
+      'Linux amd64 or arm64 nodes with kernel FUSE and /dev/fuse exposed via the FUSE device plugin (smarter-devices/fuse, tools/deploy/kubernetes/fuse-device-plugin.yaml)',
       "An HTTPS Ingress and storage for the shared ReadWriteMany Agent Home claim and ReadWriteOnce cache claims"
     ],
     basic: {
@@ -405,7 +405,7 @@ export const deploymentTabs = [
         {
           title: 'Confirm the Worker and Function Runtime security profile',
           body: [
-            'Worker Pods need no extra kernel privileges: the container is the isolation boundary of each Agent. The chart gives the control plane a namespace Role that creates and deletes Pods, Secrets, and PVCs, gives Worker Pods their own unprivileged ServiceAccount, and runs ankole-function-runtime without database credentials or a ServiceAccount token.'
+            'Each Worker Pod mounts /drive via /dev/fuse (smarter-devices/fuse): its trusted root supervisor uses SYS_ADMIN to mount FUSE and isolate the execution mount namespace, then drops all Agent, browser, and Codex child processes to uid 1000 with empty capability sets and allowPrivilegeEscalation: false. On Kubernetes 1.30+, the chart ValidatingAdmissionPolicy restricts those capabilities strictly to the Worker ServiceAccount while forbidding privileged containers, host namespaces, and hostPath volumes, and runs ankole-function-runtime without database credentials or a ServiceAccount token.'
           ],
           fields: [
             {
@@ -419,6 +419,7 @@ export const deploymentTabs = [
                 'Optional. Worker Pods then accept no connection and reach only the control plane, DNS, and public addresses, while ankole-function-runtime blocks functionRuntime.deniedCIDRs.'
             }
           ],
+          links: [{ label: 'WorkerProviders', href: '../worker-providers/' }],
           caution:
             'A Worker container is a trusted, first-party component. The control plane holds a namespace Role that creates Pods and Secrets; protect it as a root-equivalent component.'
         },
@@ -1358,16 +1359,16 @@ export const identityTabs = [
 ]
 
 export const modelAdvanced = {
-  title: 'Optional Agent profiles and Brain maintenance',
-  summary: 'Configure Agent capability profiles only where needed. Brain uses a site embedding model and a tenant rerank model.',
+  title: 'Optional capability profiles and Brain Model Profiles',
+  summary: 'Configure optional capability slots only where needed. Company Brain runs under the built-in ankole_brain system Principal using sparse Model Profiles plus a site embedding model.',
   steps: [
     {
-      title: 'Add optional Agent capability profiles',
+      title: 'Add optional capability profiles',
       fields: [
         {
           name: 'Background Agent Jobs',
           description:
-            'Selects the provider and model for durable Background Agent Jobs (stored as the coding profile).'
+            'Selects the provider and model for durable Background Agent Jobs (stored as the coding profile; falls back through heavy -> primary when unset).'
         },
         {
           name: 'vision_fallback',
@@ -1384,23 +1385,19 @@ export const modelAdvanced = {
       ]
     },
     {
-      title: 'Select the Brain maintainer and retrieval models',
+      title: 'Configure Company Brain (ankole_brain) and retrieval models',
       body: [
-        'Open Console → AppConfigure → Brain, choose a tenant, and select an active Agent to run Brain maintenance for that tenant. Brain executes all of its model calls as this Agent and attributes usage to it; disabling the Agent pauses Brain model calls and URL Source fetching until you re-enable or replace it. Edit its model profiles directly from the linked Agent page.'
+        'Company Brain runs under the built-in ankole_brain system Principal without consuming any foreground Agent token quota. It resolves sparse Model Profiles (Site -> Pod -> ankole_brain) in Console → Model Profiles—using light (fallback primary) for extraction, heavy (fallback primary) for Dreaming and Skill lesson review, web_fetch for URL Sources, and rerank for recall reranking—alongside the site embedding model in AppConfigure.'
       ],
       fields: [
         {
-          name: 'brain.maintainer_agent_uid',
+          name: 'ankole_brain (Model Profiles)',
           description:
-            'Uses the selected Agent’s light profile for extraction, heavy for Dreaming, and web_fetch for URL Sources; if web_fetch is unbound or the upstream Provider call fails, Ankole rejects the URL Source fetch.'
+            'Configure or override light, heavy, web_fetch, and rerank for ankole_brain in Console → Model Profiles (unset slots inherit Pod and Site defaults).'
         },
         {
           name: 'brain.embedding_model',
-          description: 'Site setting. Enables vector retrieval. Select a Provider and model, and enter its embedding dimensions.'
-        },
-        {
-          name: 'brain.rerank_model',
-          description: 'Tenant setting. Reranks fused search results. Leave it empty to keep the fusion order.'
+          description: 'Site setting in AppConfigure. Enables vector retrieval; select a Provider and model, and enter its embedding dimensions.'
         }
       ],
       links: [
@@ -2507,11 +2504,11 @@ export const signalAdvanced = {
 
 Every private Ankole deployment runs one control plane alongside a dedicated Agent Computer Worker for each Agent: the control plane owns durable domain state and supervision, while each Worker provides an isolated execution environment that acts as that Agent's personal work computer.
 
-Agents never share a Worker, just as human teammates each use their own workstation. Whenever you create an Agent, the control plane provisions its Worker automatically and manages stopping, replacing, and deleting that Worker throughout its lifecycle.
+Agents never share a Worker, just as human teammates each use their own workstation. Whenever you create an Agent, the control plane provisions its Worker automatically through the assigned [WorkerProvider](../worker-providers/) and manages stopping, replacing, and deleting that Worker throughout its lifecycle.
 
 <DocsKnowledgeNote
   label="💡 Did you know?"
-  text="A Worker's container or Pod is its sole isolation boundary: the Agent's shell commands and browser run directly inside it without an inner sandbox or elevated kernel privileges. While an Agent can install packages on its own Worker—or even break it—it can never act as another Agent, and the control plane automatically rebuilds any Worker that fails to become ready in time."
+  text="Each Worker container or Pod isolates one Agent: its trusted root supervisor uses /dev/fuse and SYS_ADMIN (constrained to the Worker ServiceAccount by Kubernetes 1.30+ ValidatingAdmissionPolicy on clusters) to mount /drive FUSE and isolate the mount namespace, while dropping all Agent, browser, and Codex child processes to uid 1000 with empty capability sets. An Agent can install packages in its persistent /workspace without ever acting as another Agent, and the control plane automatically rebuilds any Worker that fails to become ready in time."
 />
 
 Every deployment requires PostgreSQL, a control-plane file store, and persistent storage for each Agent Home. In Kubernetes, the default Helm chart provisions a shared `ReadWriteMany` claim for Agent Homes alongside separate `ReadWriteOnce` cache claims—always back up Agent Homes, whereas cache claims are rebuildable.
@@ -2603,17 +2600,19 @@ When enabling an enterprise adapter for the first time, restart the control plan
 
 ## 3. Add an LLM Provider and create an Agent
 
-Because an Agent's model profiles reference an existing LLM Provider, register the provider first: sign in to the Console, open **Providers → New provider**, pick the provider kind, assign a stable Provider ID, enter its endpoint and credentials, and save. Ankole encrypts provider credentials inside the control plane—never place them in deployment `.env` files or Agent workspace files.
+Register your LLM Provider first: sign in to the Console, open **Providers → New provider**, pick the provider kind, assign a stable Provider ID, enter its endpoint and credentials, and save. Ankole encrypts provider credentials inside the control plane—never place them in deployment `.env` files or Agent workspace files.
 
-Next, open **Agents → New Agent**, enter a handle, display name, Worker provider, and a mission defining the Agent's responsibilities and acceptance criteria (Ankole assigns its opaque UID automatically), then bind the three required model profiles:
+Next, open **Console → Model Profiles** to set your Site or Pod defaults across the core language-model slots (`Site -> Pod -> Agent/System`, with cross-slot fallbacks `coding -> heavy -> primary` and `light -> primary`):
 
 | Profile | First-run use |
 |---|---|
-| `primary` | Main reasoning model |
-| `light` | Short and frequent work |
-| `heavy` | Hard synthesis |
+| `primary` | Main reasoning model (required; `light` and `coding -> heavy` fall back here when unset) |
+| `light` | High-volume, low-cost turns and `ankole_brain` extraction |
+| `heavy` | Complex synthesis, Dreaming, and Skill lesson review |
 
-All three profiles must be bound before the Agent can run. For your initial test, bind the same known-good provider and model to all three slots, then split tiers once the end-to-end conversation path works.
+Binding a known-good provider and model to `primary` at the Site or Pod level makes every Agent and `ankole_brain` ready to run right away; split `light` and `heavy` onto dedicated tiers once your end-to-end conversation path works.
+
+Inside **Pod**, every internal member automatically receives a 1:1 **Personal Assistant** in **Pod Chat**. To create a shared specialist **AI Colleague** (for Pod rooms or external IM routing), open **Agents → New Agent**, set a meaningful lowercase tenant-scoped `uid` (such as `research-analyst`), display name, role, owner, and `WorkerProvider`, and save. Agents inherit your Site and Pod Model Profiles unless you override specific slots on the Agent, while behavioral and visual rules live in `AGENTS.md` and `DESIGN.md` under **Meta Ankole → Agents**.
 
 <QuickstartDisclosure
   client:visible
@@ -2625,7 +2624,7 @@ All three profiles must be bound before the Agent can run. For your initial test
 
 ## 4. Connect a chat channel and create its signal routing rule
 
-Enable your chat platform's Control Plane Plugin in the Console, then create the bot application on that platform. Even when your IdP and chat channel use the same vendor, register separate apps for each role so SSO/directory scopes, bot scopes, credential rotations, and app releases stay cleanly isolated. Because each chat app carries one bot identity, create separate chat apps whenever multiple Agents need distinct names, avatars, or permission scopes, then bind each app to its target Agent via a routing rule.
+Members can chat with their Personal Assistant and AI Colleagues in **Pod Chat** immediately without a routing rule. To connect an external IM platform, enable its Control Plane Plugin in the Console. On platforms supported by `Ankole.Connectors`—such as **Lark / Feishu**—registering a shared application connection (`authConfigId`) in **Pod → Connections** (`/connectors`) or Console lets you reuse that single app across SSO, directory sync, IM Signal routing, MCP Toolkits, and event triggers without creating duplicate apps or re-entering secrets. Whenever multiple AI Colleagues need distinct bot identities, avatars, or permission scopes, register dedicated bot connections for each Agent and bind them via separate routing rules.
 
 How Ankole resolves chat senders depends on the platform category:
 
@@ -2673,7 +2672,7 @@ Invite the bot into a test conversation and, in group chats, start with an expli
 
 > @Ankole What can you do, and which team are you serving?
 
-Once you receive the first live reply, refine the Agent's mission, model tiers, and group-message policy for production use.
+Once you receive the first live reply, refine the Agent's `AGENTS.md` and `DESIGN.md` contracts in **Meta Ankole → Agents**, tune its Model Profile tiers, and adjust the group-message policy for production use.
 
 <span id="agent-not-replying" aria-hidden="true" />
 
@@ -2685,7 +2684,7 @@ Walk through each boundary in order:
 2. The bot is installed in the target channel, team, or conversation.
 3. All required message event subscriptions and OAuth scopes are active.
 4. The signal routing rule is enabled and targets the intended Agent.
-5. The Agent has `primary`, `light`, and `heavy` model profiles bound.
+5. An effective `primary` Model Profile resolves for the Agent (via Site/Pod defaults in **Console → Model Profiles** or Agent overrides).
 6. The LLM Provider credential and model selector are valid.
 7. The Agent's Worker shows as Ready under **Console → Workers** (otherwise, inspect the backend failure reason displayed there).
 

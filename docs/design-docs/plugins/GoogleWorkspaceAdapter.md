@@ -27,7 +27,10 @@ runs pick up directory changes.
 ## Settings
 
 `Ankole.Plugins.GoogleWorkspaceAdapter.Config` validates provider settings, and
-`AppConfigure` encrypts all secret fields at rest:
+`Ankole.Connectors.LegacyConfig` stores Google credentials (`clientID`,
+`clientSecret`, and `serviceAccountKey`) encrypted at rest in
+`Ankole.Connectors` (`connector_auth_configs`, referenced via `authConfigId`)
+while keeping OIDC and sync behavior settings in `AppConfigure`:
 
 | Field | Purpose |
 | --- | --- |

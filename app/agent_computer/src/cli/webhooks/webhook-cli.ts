@@ -1,4 +1,4 @@
-import { positiveInteger } from '../primitives'
+import { assertOnlyOptions, helpRequested, positiveInteger } from '../primitives'
 import { WEBHOOK_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime_env'
 import { WebhookCLICommand, type WebhookCLICommand as WebhookCLICommandValue } from './webhook-cli-protocol'
 import { requestSocketLineBridge } from '../../core/socket-line-bridge'
@@ -82,9 +82,7 @@ Commands
  * arrives as \`['create', '--help']\` and must short-circuit before option
  * parsing and before the turn-socket requirement.
  */
-export function helpRequested(args: string[]): boolean {
-  return args.some(arg => arg === '--help' || arg === '-h')
-}
+export { helpRequested } from '../primitives'
 
 if (import.meta.main) {
   installStdoutEpipeGuard(process.stdout)
@@ -118,7 +116,11 @@ export function commandFromArgs(args: string[]): WebhookCLICommandValue {
   const options = parseOptions(rest)
 
   if (operation === 'create') {
-    assertOnlyOptions(options, ['--label', '--mode', '--expires-at', '--automation-job-id'])
+    assertOnlyOptions(
+      options,
+      ['--label', '--mode', '--expires-at', '--automation-job-id'],
+      'unknown webhook CLI option:'
+    )
     return WebhookCLICommand.parse({
       operation,
       label: requiredOption(options, '--label'),
@@ -133,7 +135,7 @@ export function commandFromArgs(args: string[]): WebhookCLICommandValue {
   }
 
   if (operation === 'list') {
-    assertOnlyOptions(options, ['--limit'])
+    assertOnlyOptions(options, ['--limit'], 'unknown webhook CLI option:')
     const rawLimit = options.get('--limit')
     return WebhookCLICommand.parse({
       operation,
@@ -142,7 +144,7 @@ export function commandFromArgs(args: string[]): WebhookCLICommandValue {
   }
 
   if (operation === 'cancel') {
-    assertOnlyOptions(options, ['--id'])
+    assertOnlyOptions(options, ['--id'], 'unknown webhook CLI option:')
     return WebhookCLICommand.parse({
       operation,
       webhook_endpoint_id: requiredOption(options, '--id')
@@ -150,12 +152,6 @@ export function commandFromArgs(args: string[]): WebhookCLICommandValue {
   }
 
   throw new Error('webhook CLI operation must be create, list, or cancel')
-}
-
-function assertOnlyOptions(options: Map<string, string>, allowed: string[]): void {
-  for (const name of options.keys()) {
-    if (!allowed.includes(name)) throw new Error(`unknown webhook CLI option: ${name}`)
-  }
 }
 
 function parseOptions(args: string[]): Map<string, string> {

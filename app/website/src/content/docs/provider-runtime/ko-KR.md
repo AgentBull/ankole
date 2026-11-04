@@ -13,9 +13,9 @@ resolver, provider 모듈, kernel은 각자 한 단계씩만 전담합니다. re
 
 `Ankole.AIGateway.Resolver`는 요청의 `model` 필드를 구체적인 provider 런타임 맵으로 변환합니다. 이 단계에서 `primary`, `web_search.default`, 또는 명시적인 `provider_id/model` 같은 호출 주체별 selector가 실제 provider ID, provider 종류, 업스트림 모델 이름, 해석된 런타임 설정으로 결정됩니다.
 
-Agent에는 `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`까지 총 8개의 내장 모델 프로필이 있습니다. 이 중 `coding`은 화면에서 Background Agent Jobs로 표시되는 프로필의 내부 API 및 저장소 이름입니다. 앞의 5개 프로필은 언어 모델을 지정하고, 뒤의 3개 프로필은 각각 웹 검색, 웹 페이지 읽기, 이미지 생성 기능을 지정합니다.
+Agent에는 `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`까지 총 8개의 내장 모델 프로필이 있으며, 이 중 `coding`은 화면에서 Background Agent Jobs로 표시되는 프로필의 내부 API 및 저장소 이름입니다. 개별 덮어쓰기가 없는 슬롯은 **Console → Model Profiles**에서 `Site -> Pod -> Agent` 순서로 희소 상속되며, Site·Pod·`system` Principal(`ankole_brain`, `system`)에는 아홉 번째 내장 슬롯인 `rerank`가 함께 제공됩니다.
 
-Embedding과 rerank는 개별 Agent 프로필에 속하지 않으므로, AIGateway에서 직접 호출할 때는 명시적인 `provider_id/model` selector를 전달해야 합니다. Brain의 경우 [AppConfigure](../app-configuration/)의 `brain.embedding_model`에서 사이트 단위 embedding 모델을 읽고, `brain.rerank_model`에서 테넌트 단위 rerank 모델을 읽습니다. 검색 동작에 미치는 영향은 [Brain](../brain/)을 참조하십시오.
+Embedding은 개별 Agent 프로필에 속하지 않으므로 AIGateway에서 직접 호출할 때는 명시적인 `provider_id/model` selector를 전달해야 하며, Brain은 [AppConfigure](../app-configuration/)의 `brain.embedding_model`에서 사이트 전역 embedding 모델을 읽습니다. Rerank의 경우 `ankole_brain`은 유효 `rerank` 슬롯(`Site -> Pod -> ankole_brain`)을 해석하고 Agent 및 Human의 rerank 호출은 Pod의 `rerank` 슬롯을 사용합니다. 검색 동작에 미치는 영향은 [Brain](../brain/)을 참조하십시오.
 
 대상 provider 행이 결정되면 resolver는 풀에서 사용 가능한 자격 증명(credential) 하나를 고릅니다. 이때 스레드 고정성(thread affinity)이 행에 설정된 `fill_first`, `round_robin`, `least_used`, `random` 분배 전략보다 우선 적용되며, 선택된 자격 증명 ID는 이후 실패 처리 경로 전체로 전달되도록 런타임 맵에 기록됩니다. ChatGPT 구독 OAuth 멤버를 사용하는 경우에는 provider 행 잠금 안에서 만료가 임박했거나 이미 만료된 토큰을 갱신합니다. 갱신이 영구적으로 실패하면 해당 멤버를 `dead`로, 일시적으로 실패하면 `exhausted`로 표시한 뒤 사용 가능한 다음 멤버로 넘어갑니다.
 

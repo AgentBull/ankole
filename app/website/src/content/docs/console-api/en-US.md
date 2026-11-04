@@ -39,11 +39,20 @@ Every active Agent needs at least one model behind it, wired through AIGateway's
 | `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | Poll one device login |
 | `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | Complete the browser-paste fallback |
 | `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Add an Enterprise access token |
-| `GET` | `/api/v2/agents/:agent_uid/model-profiles` | List an agent's model profiles |
-| `PUT` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | Create or replace a profile |
-| `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | Remove a profile |
+| `GET` | `/api/v2/model-profiles` | Read Pod or Site default model profiles and provider-hosted switches |
+| `PUT` | `/api/v2/model-profiles/:profile` | Set a Pod or Site default model profile |
+| `DELETE` | `/api/v2/model-profiles/:profile` | Remove a Pod or Site default model profile (`?defaults_scope=`) |
+| `PUT` | `/api/v2/model-profiles/provider-hosted` | Set Pod or Site provider-hosted capability switches |
+| `GET` | `/api/v2/system-principals` | List registered system-service Principals (such as `ankole_brain` and `system`) |
+| `GET` | `/api/v2/system-principals/:uid/model-profiles` | Read model-profile overrides and effective values for a system Principal |
+| `PUT` | `/api/v2/system-principals/:uid/model-profiles/:profile` | Set a fixed-slot model override for a system Principal |
+| `DELETE` | `/api/v2/system-principals/:uid/model-profiles/:profile` | Delete a system Principal override and restore Pod/Site inheritance |
+| `GET` | `/api/v2/agents/:agent_uid/model-profiles` | Read an Agent's model-profile overrides, inherited values, and effective profiles |
+| `PUT` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | Set an Agent fixed-slot override or custom profile |
+| `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | Delete an Agent profile override or custom profile |
+| `PUT` | `/api/v2/agents/:agent_uid/provider-hosted` | Set provider-hosted capability overrides for one Agent |
 
-Provider credentials stay encrypted as pool members inside the control plane—never inside an Agent's Worker environment. Model profiles bind an Agent to a provider row and model, leaving AIGateway to pick a healthy pool member while API read projections expose only non-secret account metadata, health state, rate-limit status, and usage totals.
+Provider credentials stay encrypted as pool members inside the control plane—never inside an Agent's Worker environment. Model profiles layer Site defaults, Pod defaults, and per-Agent or system-service Principal overrides (`ankole_brain` for Brain extraction, Dreaming, embeddings, and rerank; `system` for Pod Applet model calls and internal tenant operations), leaving AIGateway to pick a healthy pool member while API read projections expose only non-secret account metadata, health state, rate-limit status, and usage totals.
 
 ### Agents and their capabilities
 
@@ -56,6 +65,7 @@ The Agent is the central identity that capabilities, profiles, and routing rules
 | `GET` | `/api/v2/agents/:agent_uid` | Read one agent |
 | `PATCH` | `/api/v2/agents/:agent_uid` | Update an agent |
 | `POST` | `/api/v2/agents/:agent_uid/enable` | Re-enable a disabled agent |
+| `POST` | `/api/v2/agents/:agent_uid/rename` | Rename a disabled agent after its Worker exits |
 | `DELETE` | `/api/v2/agents/:agent_uid` | Disable an active agent, or permanently delete a disabled one |
 
 ### Worker providers
@@ -74,15 +84,17 @@ When creating an Agent, you assign one Worker provider permanently—the binding
 
 ### Signal routing rules
 
-A signal routing rule (`Signal Binding` in the API schema) connects an external channel adapter to an Agent so incoming messages and events can wake it:
+A signal routing rule (`Signal Binding` in the API schema) connects an external channel adapter either to one AI Colleague (`ai_colleague` mode) or—for shared Lark/Feishu and Slack Personal Assistant Bots—to each matched sender's Personal Assistant (`sender_personal_assistant` mode with `agent_uid` set to `null`):
 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/api/v2/signal-adapters` | List adapters that this deployment instance declared |
 | `GET` | `/api/v2/signal-bindings` | List routing rules; `?agent=` filters to one Agent |
-| `PUT` | `/api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | Create or replace a routing rule |
-| `PATCH` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | Update a routing rule |
-| `DELETE` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | Disable a routing rule |
+| `GET` | `/api/v2/signal-bindings/:id` | Read one routing rule |
+| `PUT` | `/api/v2/signal-bindings/:adapter_id/:binding_name` | Create or re-enable a routing rule |
+| `PATCH` | `/api/v2/signal-bindings/:id` | Update a routing rule |
+| `DELETE` | `/api/v2/signal-bindings/:id` | Disable a routing rule |
+| `POST` | `/api/v2/agents/:agent_uid/signal-deliveries/requeue` | Requeue failed outbound signal deliveries |
 | `GET` | `/api/v2/conversations/:conversation_id/standing-orders` | Read one Conversation's standing orders |
 | `PUT` | `/api/v2/conversations/:conversation_id/standing-orders` | Replace one Conversation's standing orders |
 
@@ -173,10 +185,10 @@ Alongside configuration, `/api/v2` provides operational read surfaces across eve
 
 - **Agents in flight**: `/api/v2/agents/:agent_uid/sessions`, plus per-Agent cron schedule and checkback management (list routes are tenant-wide with an `?agent=` filter).
 - **Workers**: `/api/v2/agent-workers` lists the current Worker state for each Agent.
-- **Agent drives**: `/api/v2/agents/:agent_uid/files` lists and deletes files, `/api/v2/agents/:agent_uid/file-moves` moves or renames a file, `POST /api/v2/agents/:agent_uid/files` uploads multipart files, and `GET /api/v2/agents/:agent_uid/files/content` streams file bytes—all governed by the same browser session, CSRF check, tenant header, and AuthZ file permissions on the control-plane file store.
+- **Unified Drive**: `GET /api/v2/drive/:tenant_id/nodes` lists tenant roots or folder children, `POST /api/v2/drive/:tenant_id/nodes` creates pages or empty files, `PATCH /api/v2/drive/:tenant_id/nodes/:id` moves or renames a node, and `DELETE /api/v2/drive/:tenant_id/nodes/:id` moves a subtree to Trash, paired with native binary routes `POST /api/v2/drive/:tenant_id/uploads` (multipart upload) and `GET /api/v2/drive/:tenant_id/nodes/:id/content` (byte-stream download)—all authorized against `site_console:drive` under the same browser session and CSRF checks without requiring an online Worker.
 - **Jobs**: `/api/v2/background-agent-jobs` lists, inspects, and cancels Background Agent Jobs.
 - **AI activity**: `/api/v2/ai-gateway/conversations` lists stateful model threads and their per-turn messages.
-- **Principals, AuthZ, and OIDC clients**: `/api/v2/principals` (including `PATCH /api/v2/principals/:uid/membership`, `POST /api/v2/principals/:uid/access-disables`, and `POST /api/v2/principals/:uid/access-restorations`), `/api/v2/principal-groups`, `/api/v2/permission-grants`, and `/api/v2/oidc-clients`—see [Principal and AuthZ](../principal-authz/).
+- **Principals, AuthZ, and OIDC clients**: `/api/v2/principals` (including `POST /api/v2/principals/:uid/rename`, `PATCH /api/v2/principals/:uid/membership`, `POST /api/v2/principals/:uid/access-disables`, and `POST /api/v2/principals/:uid/access-restorations`), `/api/v2/principal-groups`, `/api/v2/permission-grants`, and `/api/v2/oidc-clients`—see [Principal and AuthZ](../principal-authz/).
 
 ## A note on what is not here
 

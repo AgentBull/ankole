@@ -1,3 +1,4 @@
+export { cronEditorLabels } from '../common/cron-editor-labels'
 import {
   Badge,
   Button,
@@ -14,10 +15,8 @@ import {
   FieldError,
   FieldLabel,
   Textarea,
-  cn,
-  type CronEditorLabels
+  cn
 } from '@ankole/uikit'
-import type { TFunction } from 'i18next'
 import {
   RiBracesLine,
   RiAlertLine,
@@ -526,6 +525,25 @@ export function LabeledField({
 }
 
 /** Readable, selectable presentation for values that are immutable in this editor. */
+export function DetailFact({
+  label,
+  value,
+  mono = false,
+  className
+}: {
+  label: string
+  value: ReactNode
+  mono?: boolean
+  className?: string
+}) {
+  return (
+    <div className={cn('grid content-start gap-1 bg-card px-4 py-3', className)}>
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={cn('break-all text-sm', mono && 'font-mono text-xs leading-5')}>{value}</dd>
+    </div>
+  )
+}
+
 export function ReadOnlyValue({ children, mono = false }: { children: ReactNode; mono?: boolean }) {
   return (
     <div
@@ -616,35 +634,6 @@ export function JSONField({
       />
     </LabeledField>
   )
-}
-
-export function cronEditorLabels(t: TFunction): CronEditorLabels {
-  return {
-    mode: t('common.cron_mode'),
-    modes: {
-      every_minutes: t('common.cron_mode_every_minutes'),
-      hourly: t('common.cron_mode_hourly'),
-      daily: t('common.cron_mode_daily'),
-      weekly: t('common.cron_mode_weekly'),
-      monthly: t('common.cron_mode_monthly'),
-      custom: t('common.cron_mode_custom')
-    },
-    interval: t('common.cron_interval'),
-    minute: t('common.cron_minute'),
-    time: t('common.cron_time'),
-    weekday: t('common.cron_weekday'),
-    weekdays: [
-      t('common.cron_weekday_sun'),
-      t('common.cron_weekday_mon'),
-      t('common.cron_weekday_tue'),
-      t('common.cron_weekday_wed'),
-      t('common.cron_weekday_thu'),
-      t('common.cron_weekday_fri'),
-      t('common.cron_weekday_sat')
-    ],
-    dayOfMonth: t('common.cron_day_of_month'),
-    expression: t('common.cron_expression')
-  }
 }
 
 /** Button that opens a confirmation dialog before running a destructive action. */

@@ -31,7 +31,11 @@ delivery route rather than owning the Slack channel.
 | Identity configuration | `principals.identity_providers.slack.<id>` |
 | Provider library | `plugins/slack_adapter/lib/slack_openapi` |
 
-The Signal adapter supports all three group-message modes (`addressed_only`,
+The Signal adapter supports both `ai_colleague` bindings (routing to one AI
+Colleague) and `sender_personal_assistant` shared Bot bindings (`agent_uid = nil`,
+defaulting to `signal.channel.kind == 'im_dm'` and `unmatched_sender_policy = "manual_review"`,
+resolving each matched active member and routing DMs to their Personal Assistant).
+It supports all three group-message modes (`addressed_only`,
 `observe_all`, and `may_intervene`), inbound capabilities `entry_receive`,
 `entry_removed`, `reaction_add`, `reaction_remove`, and `action_event`, and
 outbound capabilities `post_entry`, `reply_entry`, `edit_entry`, `delete_entry`,
@@ -54,7 +58,13 @@ Chat bindings configure these fields:
 
 Identity-provider configurations store `clientID`, `clientSecret`, optional
 `teamID`, plus `botToken` and `appToken` for directory sync, using `oidc.*` and
-`sync.*` keys to govern login and directory imports. Linking `identityProvider`
+`sync.*` keys to govern login and directory imports. Both
+`signals.slack.bindings.<id>` and `principals.identity_providers.slack.<id>`
+store their Slack application and bot credentials in a shared
+`Ankole.Connectors` connection (`connector_auth_configs`, referenced via
+`authConfigId` through `Ankole.Connectors.LegacyConfig` and reserving both the
+verified Slack `app_id` and OAuth `clientID`) while keeping behavior settings in
+`AppConfigure`. Linking `identityProvider`
 selects which Slack workspace namespace resolves inbound message authors;
 bindings with no Slack identity provider—or set explicitly to `:standalone`—use
 the default `slack-main` namespace.
@@ -103,10 +113,12 @@ send messages (`message.im` and `im:*` scopes deliver DM events, whereas the
 App Home toggle unlocks the DM composer in Slack clients).
 
 For inbound file attachments, the adapter first writes a durable `pending`
-attachment projection with a stable numeric attachment ID, downloads the file
-into the file service ([Files](../Files.md)), and marks the attachment
-`complete` (or `failed` while retaining the Slack file metadata without local
-bytes). When a user mentions the Agent and refers to an earlier upload without
+attachment projection with a stable numeric attachment ID, materializes the
+bytes through `Ankole.Conversations.Attachments` into unified Drive
+([Files](../Files.md))—storing an immutable `file_objects` row, freezing
+`object_id` on `message_attachments`, and linking the file into the conversation
+root (`/drive/ChatDrive`)—and marks the attachment `complete` (or `failed` while
+retaining the Slack file metadata without local bytes). When a user mentions the Agent and refers to an earlier upload without
 re-attaching it, the adapter can reuse up to three files uploaded by that same
 sender in the same channel within the previous 120 seconds. Background startup
 and refresh jobs sync channel metadata and `AuthZ` memberships into PostgreSQL
@@ -129,10 +141,11 @@ superseded controls; because Slack message blocks lack inline text-input
 submission, free-text clarifications prompt the user to reply directly in the
 Slack thread.
 
-Each Delivery intent can include one outbound file attachment, uploaded via
-Slack's three-step external upload flow (`files.getUploadURLExternal`, byte
-upload, and `files.completeUploadExternal`) alongside the separate text/Block
-Kit message. Transient transport, `429` rate-limit, and `5xx` errors follow the
+Each Delivery intent can include one outbound file attachment, reading immutable
+bytes from `Ankole.Files` via `object_id` (`delivery_attachments`) and uploading
+them via Slack's three-step external upload flow (`files.getUploadURLExternal`,
+byte upload, and `files.completeUploadExternal`) alongside the separate
+text/Block Kit message. Transient transport, `429` rate-limit, and `5xx` errors follow the
 standard retry schedule, whereas deterministic Slack errors—such as a missing
 `files:write` scope—block the intent for operator repair (recording the Slack
 error code and required scope without storing the raw payload). Because
@@ -167,10 +180,11 @@ user-group event omits member IDs).
 
 ## Restart and Recovery
 
-PostgreSQL persists encrypted tokens in `AppConfigure`, public Messages and
-Delivery intents in `Conversations`, accepted stimuli in `Signals`, execution
-state in `Sessions`, and people, groups, memberships, and grants in `Principals`
-and `AuthZ`. Control-plane restarts automatically reconnect Socket Mode clients
+PostgreSQL persists encrypted Slack credentials in `Ankole.Connectors` and
+behavior settings in `AppConfigure`, public Messages and Delivery intents in
+`Conversations`, file objects and conversation Drive nodes in `Files`, accepted
+stimuli in `Signals`, execution state in `Sessions`, and people, groups,
+memberships, and grants in `Principals` and `AuthZ`. Control-plane restarts automatically reconnect Socket Mode clients
 and refresh cached channel metadata; operators run a full directory sync
 whenever Slack and Ankole may have drifted.
 

@@ -1,5 +1,10 @@
 import { jsonObject, type JsonObject } from '@agentbull/active-support'
-import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../../common/text-sanitize'
+import {
+  sanitizeBinaryOutput,
+  truncateUTF8Safe,
+  truncateUTF8WithMarker,
+  utf8ByteLength
+} from '../../../common/text-sanitize'
 import { redactText, redactionMarker, sensitiveKey } from '../../../common/content-redaction'
 
 // Bound and redact runtime payloads before they become durable Job history.
@@ -50,11 +55,9 @@ function sanitizeValue(value: unknown, state: SanitizeState, depth = 0, key?: st
 }
 
 function sanitizeMapKey(value: string, state: SanitizeState): string {
-  const key = sanitizeBinaryOutput(value)
+  const key = truncateUTF8WithMarker(sanitizeBinaryOutput(value), maxMapKeyBytes)
   if (key !== value) state.truncated = true
-  if (utf8ByteLength(key) <= maxMapKeyBytes) return key
-  state.truncated = true
-  return `${truncateUTF8Safe(key, maxMapKeyBytes - utf8ByteLength(truncationMarker))}${truncationMarker}`
+  return key
 }
 
 function sanitizeString(value: string, state: SanitizeState): string {

@@ -22,7 +22,7 @@ Ankole のセキュリティ設計を貫く基本原則は、**「デフォル�
 
 ## 面 2:Agent が使う credential
 
-Agent のツールが利用する外部サービスの認証情報は、Console の **Environment variables** でシークレット保存を有効にして登録してください。あわせて利用可能な対象を絞り込み、定期的にローテーションを行います。
+GitHub、Lark/Feishu、Slack、Linear、およびリモート Skill MCP（`streamable_http`）などの外部連携には、まず **Pod → Connections**（`Ankole.Connectors`）の利用を優先してください。上流の OAuth トークンやアプリ認証情報は control plane 内で暗号化保持されたまま Worker コンテナへは渡されず、control plane が MCP リクエストを中継したり、`GIT_ASKPASS` のような turn 限定の一時ヘルパーを注入したりします。Worker 内のカスタム CLI やスクリプトで直接必要になる API キーに限って Console の **Environment variables**（`WorkerEnv`）でシークレット保存を有効にして登録し、対象範囲を絞って定期的にローテーションしてください。
 
 - **保存済みの値をむやみに再表示しない。** 認証情報をローテーションする際は、古い値を開いて確認するのではなく、新しい値をそのまま上書き入力してください。詳しくは [Environment variables](../worker-env/) を参照してください。
 - **可能なかぎりシークレットを Agent 単位にスコープする。** グローバルスコープのシークレットは全 Agent に渡されますが、Agent 単位のシークレットは対象の 1 体だけに渡されます。複数の Agent で本当に共有する必要がある場合を除き、Agent 単位での設定を優先してください。
@@ -44,7 +44,7 @@ Agent のツールが利用する外部サービスの認証情報は、Console 
 各チャットアダプターや Identity Provider は、連携用の認証情報（`appID`/`appSecret`、`botToken`/`appToken`、`clientId`/`clientSecret`、Entra ID の `appPassword`、Google Workspace の `serviceAccountKey` など）を保持しています。定期的なローテーションに加え、漏えいの疑いがある場合はただちに更新してください。
 
 - **先に外部 Provider 側でローテーションし、続けて Ankole 側を更新する。** 外部 Provider の管理コンソールで新しい認証情報を発行して古いものを失効させ、その直後に Ankole 側の設定を更新してください。順番を逆にして、Ankole 側だけ書き換えたまま Provider 側で古い認証情報を有効なまま残すと、悪用可能な隙を残すことになります。
-- **用途に合った Console 画面で管理する。** Agent のツールが使う認証情報は **Environment variables** に登録しますが、チャットチャネルや Identity Provider の認証情報はそれぞれの専用設定ページで管理・ローテーションします。
+- **プラットフォームやコネクターの認証情報を WorkerEnv に入れない。** 再利用可能な外部サービス連携は **Pod → Connections** で管理し、チャットチャネルや Identity Provider の認証情報はそれぞれの専用 Console ページで管理・ローテーションします。**Environment variables**（`WorkerEnv`）は Worker ローカルの CLI やスクリプト用シークレットに限定してください。
 - **ディレクトリ同期用の認証情報も同じ重要度で扱う。** Google Workspace の `serviceAccountKey` と `adminEmail` や、Microsoft Graph 連携用の Entra ID アプリ認証情報は、組織ディレクトリ全体を読み取れる強い権限を持っています。チャットボットのトークンと同等以上に厳重にローテーションを管理してください。
 
 ## 面 5:最小限のネットワーク入り口
@@ -58,12 +58,12 @@ Ankole の運用にはいくつかの通信経路が必要ですが、すべて�
 
 ## 面 6:Worker コンテナ、Function Runtime、コントロールプレーン
 
-各 Agent には専用の Worker コンテナ（または Pod）が 1 つずつ割り当てられ、異なる Agent 間で Worker、キャッシュディスク、認証情報を共有することはありません。また、ステートレスな TypeScript プログラム（Workflow、PTC、Applet バックエンド）は独立した `ankole-function-runtime` サービス上で実行され、データベース認証情報も Kubernetes の ServiceAccount トークンも持ちません。隔離境界となるのはコンテナそのものです。Worker 内のコマンド、Codex app-server、ブラウザーは内側サンドボックスなしの Worker ユーザー権限で動作し、Agent プロセスは Linux ケーパビリティおよび `sudo` 権限を持たない `uid 1000` で実行されます。
+各 Agent には専用の Worker コンテナ（または Pod）が 1 つずつ割り当てられ、異なる Agent 間で Worker、キャッシュディスク、認証情報を共有することはありません。一方、ステートレスな TypeScript プログラム（Workflow オーケストレーター、PTC、Pod Applet バックエンド、Automation Job を含む公開済み Applet Action、およびホスト MCP 呼び出し）は独立した `ankole-function-runtime` サービス上で実行され、データベース認証情報も Kubernetes の ServiceAccount トークンも持ちません。各 Worker コンテナ・Pod 内では、`root` スーパーバイザー（`ankole-worker-supervisor` と FUSE ヘルパー `ankole-rclone`）がプライベートな mount / PID 名前空間内に限って `/dev/fuse` と `SYS_ADMIN` を保持して `/drive` をマウントし、Agent の子プロセスを起動する前にすべての Linux ケーパビリティを破棄します。Worker 内のシェルコマンド、Codex `app-server`、Chromium はすべて空のケーパビリティセットかつ `sudo` 権限なしの `uid 1000`（`gid 1000`）で実行されます。
 
-- **コマンドは `sudo` なしの `uid 1000` で動作する。** 自身の Home 配下にユーザーレベルのパッケージを追加することはできますが、OS のシステムパッケージは変更できません。なお、同一 Agent 内の複数 Session は同じファイルシステムとプロセス空間を共有します。
-- **Worker の認証情報は単一の Agent だけに紐づく。** Worker は接続用認証情報をメモリ上にのみ保持し、子コマンドの環境変数からは除外します。別の Agent の認証情報や、すでに入れ替えられた旧世代 Worker の認証情報では接続できません。
+- **コマンドはケーパビリティおよび `sudo` なしの `uid 1000` で動作する。** `/workspace` 配下にユーザーレベルのパッケージを追加したり、許可された `/drive` マウントを読み書きしたりすることはできますが、FUSE マウントの変更や OS のシステムパッケージ導入はできません。なお、同一 Agent 内の複数 Session は同じファイルシステムとプロセス空間を共有します。
+- **Worker の認証情報は単一の Agent 世代だけに紐づく。** Worker スーパーバイザーは RuntimeFabric および Drive VFS 用の認証情報をメモリ上にのみ保持し、子コマンドの環境変数からは除外します。別の Agent の認証情報や、すでに入れ替えられた旧世代 Worker の認証情報では接続できません。
 - **コントロールプレーンをホスト root 相当の重要コンポーネントとして保護する。** コントロールプレーンは Docker ソケット、または Pod・Secret・PVC を作成・削除できる Kubernetes Namespace Role を通じて Worker を管理します。特に Docker ソケットへのアクセス権は、ホスト OS の root 権限と同等である点に留意してください。
-- **Kubernetes 環境では gVisor を併用する。** Kubernetes Provider YAML の `podTemplate.spec.runtimeClassName` に、クラスターの gVisor RuntimeClass（例：`gvisor`）を指定します。設定を変更すると、そのプール内の Worker はアイドル時に順次新しい構成へ入れ替わります。Helm の `worker.runtimeClassName` は初回起動時に自動生成される Provider の初期値として使われるため、インポート完了後は Console 側から Provider 設定を編集してください。
+- **Kubernetes 環境では gVisor を併用する。** Kubernetes `WorkerProvider` YAML の `podTemplate.spec.runtimeClassName` に、クラスターの gVisor RuntimeClass（例：`gvisor`）を指定します。設定を変更すると、そのプロバイダー配下の Worker はアイドル時に順次新しい構成へ入れ替わります。Helm の `worker.runtimeClassName` は初回起動時に自動生成される Provider の初期値として使われるため、インポート完了後は Console 側から Provider 設定を編集してください。
 - **Worker と `ankole-function-runtime` の通信可能範囲を制限する。** Docker Compose 環境では、Worker コンテナは `ankole_workers` ブリッジに、`ankole-function-runtime` は `ankole_functions` ブリッジに接続され、どちらもコントロールプレーンとインターネットへは通信できますが、内部の `ankole_backend` ネットワーク上にある PostgreSQL へは到達できません。クラウド VM 上で動かす場合は、インスタンスメタデータの hop limit を `1` に設定するか、コンテナから `169.254.169.254` への経路を遮断してください。Helm 環境では、`networkPolicy.enabled` を有効にすることで Worker Pod へのインバウンド接続がすべて遮断され、アウトバウンドもコントロールプレーン、DNS、および `networkPolicy.workerDeniedCIDRs` 以外のパブリックアドレスのみに制限されます。さらに専用の `NetworkPolicy` によって、`ankole-function-runtime` もコントロールプレーンからの受信と `functionRuntime.deniedCIDRs`（プライベート帯域およびメタデータ CIDR）を除くパブリック送信のみに制限されます。あわせて、クラスタノード側のインスタンスメタデータ hop limit も `1` に設定してください。
 
 ## 監査の姿勢

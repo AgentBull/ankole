@@ -17,9 +17,9 @@
 
 </div>
 
-Ankole is an open-source workspace (**Pod**) and runtime for AI-native teams. In one browser workspace, people and AI Agents share collaborative **Documents** and **Slides**, relational **Base** tables, on-demand **Applets** with stateless cloud backends, and multiplayer multi-Agent **Pod Chat**, while Slack, Lark/Feishu, Microsoft Teams, DingTalk, WeCom, and email connect as external channels.
+Ankole is an open-source workspace (**Pod**) and multi-agent runtime for AI-native teams. In one browser workspace, people, each member's **Personal Assistant**, and specialist **AI Colleagues** share collaborative **Documents** and **Slides**, relational **Base** tables, on-demand **Applets** (with stateless cloud backends and deterministic **Applet Actions**), multiplayer **Pod Chat** with peer-to-peer Agent delegation, and **Meta Ankole** (**Company Brain**, shared **Skills**, and **`AGENTS.md` / `DESIGN.md`** contracts)—while unified **Connectors** link Slack, Lark/Feishu, Microsoft Teams, DingTalk, WeCom, GitHub, Linear, and email.
 
-Ankole organizes company work into **human-in-the-loop operational loops**. Agents monitor data, build internal tools, and run long tasks in dedicated Linux containers; people supply real-world context and approve high-impact actions on **Choice Cards**. Shared **Company Brain** memory, **Skill Lessons**, passwordless authentication, and four-tier permissions ship in the Apache-2.0 self-hosted core.
+Ankole organizes company work into **human-in-the-loop operational loops**. Published **Applet Actions** execute routine schedules, webhooks, and table triggers at zero LLM token cost, while Agents run open-ended work in dedicated Linux containers and ask people to decide on **Choice Cards** or approve privileged writes on **Action Approval Cards**. Everything ships in the Apache-2.0 self-hosted core.
 
 <p align="center">
   <a href="https://x.com/AgentBullLab/status/2108582424959721707/video/1">
@@ -29,7 +29,7 @@ Ankole organizes company work into **human-in-the-loop operational loops**. Agen
 
 ## Quick start
 
-With Docker Compose, you can run a complete Ankole deployment on a single Linux, macOS, or Windows host—bringing up PostgreSQL 18, `ankole-function-runtime` (stateless Applet and program isolates), database migrations, the control plane, and Caddy HTTPS. Before starting, make sure you have:
+With Docker Compose, you can run a complete Ankole deployment on a single Linux, macOS, or Windows host—bringing up PostgreSQL 18, `ankole-function-runtime` (stateless Applet backends, published Applet Actions, and deterministic program isolates), database migrations, the control plane, and Caddy HTTPS. Before starting, make sure you have:
 
 - Docker configured for Linux `amd64` or `arm64` containers, with enough memory and disk for PostgreSQL, file storage, and one dedicated Worker container per active Agent.
 - A trusted host where Ankole may mount `/var/run/docker.sock` to launch Worker containers (mounting the Docker socket grants root-equivalent access on the host).
@@ -91,38 +91,39 @@ See the full [quick start](https://ankole.agentbull.com/en-US/docs/quickstart/) 
 
 ## Inside a Pod
 
-Each organization or team works in an isolated **Pod** that combines five modules:
+Each organization or team works in an isolated **Pod** organized around `Home`, `Chat`, and `Meta Ankole`:
 
-- **Workspace Pages (`Pod Home`)**: Shared **Space** and personal **Private** page trees with subpages and permission-scoped full-text search.
-  - **Documents**: People and Agents edit documents together without stealing cursors. Embedded report snapshots freeze historical numbers so later table updates do not alter past weekly or monthly reports.
-  - **Base**: Multi-table relational databases with grid, kanban, and gallery views, formulas, relations, and attachments. Small tables open inline; large tables scale to `100,000+` rows on sharded PostgreSQL storage. People, Agents, and Applets read and write the same live records.
-  - **Applets**: Agents generate custom React tools and optional stateless TypeScript backends (`Function Runtime`) from plain-language rules. Deterministic UI actions—such as calculators, filters, mobile inspection forms, and dispatch consoles—run as ordinary code with **zero LLM token spend**. Each Applet runs in an isolated frame and runtime under the current user's permissions, and engineers can export its complete frontend and backend project source (`applet pull`) at any time.
-  - **Files and Slides**: In-browser previews for PDFs, slide decks, spreadsheets, images, audio, and video, referenceable with `@` from pages and chats.
-- **Multiplayer Multi-Agent `Pod Chat` and Page Chat**: Direct chats expand seamlessly into group rooms with colleagues and multiple specialized Agents, supporting `@Agent`, `@person`, and `@page` mentions. Each Agent carries its own **ambient intervention** toggle: when turned off, human-to-human discussion spends zero model tokens, and Agent replies never wake other Agents. At decision points, Agents post **Choice Cards** (`1–4` options plus free-form input) that lock on the first authorized response and record who made the call. While a run is active, you can edit queued follow-up messages or **Steer** the Agent mid-execution without starting over, and open side-by-side **Page Chat** scoped to the current page's permissions.
-- **Company Brain and Skill Lessons**:
-  - **Company Brain** links pages, Base records, Applets, files, Pod Chats, and external threads into a tenant-scoped knowledge graph. Every claim keeps its source, timestamp, holder, audience, and epistemic status—separating **objective facts**, **unverified hypotheses**, **AI inferences**, and **human decisions**. Repeated citations do not turn an unverified guess into a fact, conflicting claims are flagged for human review, and AI inferences never overwrite Base records.
-  - **Skill Lessons** attach cited, human-reviewable operational guardrails from real corrections and incidents to built-in or custom **Skills**, so future runs inherit team rules.
-- **External Connectors and Background Loops**: Shared connectors integrate stores, warehouses, ERPs, ticketing tools, and chat platforms across Applets, Chat, and triggers. External systems remain authoritative for external state: mutations require a real connector call and receipt rather than a manual table edit, and high-impact actions pause on a Choice Card for approval. External chat messages (`Externals`) stay archived by connection, room, and thread without cross-room leaks. Schedules, webhooks, and events wake Agents or scripts while people are offline; tasks sleep while waiting for approvals or replies and resume from PostgreSQL after crashes.
+- **Workspace Pages (`Pod Home`)**: Shared **Space** and personal **Private** page trees with subpages, readable `<title-slug>-<short-id>` URLs, and permission-scoped full-text search.
+  - **Documents**: People and Agents edit documents together without stealing cursors, link teammates and pages inline with `@` mentions, embed live Base views and subpages, review specifics in multimodal version-bound **anchored comments** (with `@Agent` wakeups on paragraphs, code lines, CSV rows, and media timestamps), and restore from automatic `30`-day version history.
+  - **Base**: Multi-table relational databases with grid, kanban, and gallery views, formulas, relations, attachments, business-key upserts, and change triggers. Small tables open inline; large tables scale to `100,000+` rows on sharded PostgreSQL storage. People, Agents, and Applets read and write the same live records.
+  - **Applets and Applet Actions**: Agents generate custom React tools and stateless TypeScript backends (`Function Runtime`) from plain-language rules. Interactive queries run under the caller's permissions (`AnkoleRuntime`) while publisher-declared administrative paths (`AnkoleRuntime.admin`) support controlled frontline submissions. **Published Applet Actions** execute resumable schedules, webhooks, Base change triggers, and Connector events as deterministic code with **zero LLM token spend**, and engineers can export complete frontend and backend source (`applet pull`) at any time.
+  - **Files, Slides, and Unified Drive**: In-browser previews and anchored comments for PDFs, slide decks, spreadsheets, code, images, audio, and video; Agents mount authorized pages and files directly at `/drive` over FUSE.
+- **Personal Assistants, AI Colleagues, and `Pod Chat`**: Every member gets a dedicated **Personal Assistant** (`New Chat`) that projects the member's collaboration permissions, while specialist **AI Colleagues** keep persistent 1:1 threads and role-scoped permissions—adding people to any 1:1 thread creates a **new group chat** so private history stays private. Through **peer-to-peer A2A delegation** (`send_to_agent`), a Personal Assistant delegates specialist work to AI Colleagues in isolated background rooms and relays clarification prompts directly back to you with zero hops. Rooms support `@Agent`, `@person`, and `@page` mentions, per-Agent **ambient intervention** toggles (zero model spend during human-only discussion, and Agent replies never wake other Agents), **Choice Cards** and **Action Approval Cards** (`propose_action_card`), mid-run **Steer**, multi-message share images and Document export, plus a **private Assistant sidebar** on every page.
+- **`Meta Ankole`: Company Brain, Skills, and Agent Contracts**:
+  - **Company Brain** links Space pages (with opt-in **Learn business facts**), Base records, Applets, files, Pod Chats, and external threads into an interactive tenant-scoped knowledge graph with ontology categories and `200`-snapshot history. Every claim keeps its source, timestamp, holder, audience, and epistemic status—separating **objective facts**, **unverified hypotheses**, **AI inferences**, and **human decisions**, flagging contradictions, never overwriting Base records, and running background extraction and Dreaming under the dedicated `ankole_brain` service principal.
+  - **Skills and `AGENTS.md` / `DESIGN.md` Contracts**: Teams co-author custom **Skills** alongside built-in and plugin Skills, Agents record cited **Skill Lessons** guardrails without mutating shared `SKILL.md` sources, and global or per-Agent `AGENTS.md` and `DESIGN.md` contracts align behavior and visual design across every Agent.
+- **Unified Connectors and Background Loops**: The Pod **Connectors** vault manages app credentials and employee PKCE OAuth accounts in one place—reused across Enterprise SSO, external chat (`Externals`), Applets, Turn-scoped Git, and a stateless control-plane **MCP gateway** (Lark/Feishu IM/Approvals/Tasks/Calendar, GitHub, Linear, and remote HTTP MCP servers) so raw secrets never enter Worker or Applet sandboxes. External systems remain authoritative for external state, and high-impact mutations pause for human approval. Published **Applet Actions**, **Background Agent Jobs**, and cold-wake session rotation keep work running across restarts while people are offline.
 - **Passwordless Sign-In and Enterprise Governance**:
   - **Passwordless authentication**: Personal **Email OTP** and **Enterprise SSO** (Lark/Feishu, Slack, Microsoft Entra ID, Google Workspace, DingTalk, WeCom), domain allowlists, optional SSO enforcement for members, multi-Pod switching with per-tab identity isolation, and last-admin lockout protection.
-  - **Four-tier page and data permissions** (responsive at `500,000` pages): **Can view** (read-only), **Can submit data** (submit records and attachments through frontline Applets without viewing confidential linked tables, altering schemas, or reading Applet source and secrets), **Can edit** (edit documents, Base schemas, and Applets; export Applet source), and **Full access** (manage sharing, delete tables, and administer Trash).
-  - **Three security boundaries**: ① **`Human ∩ Agent` permission intersection** on human-triggered turns so nobody can read unauthorized data through an Agent (only admin-authorized unattended tasks use the Agent's own Principal, with per-Agent spend quotas); ② **Guest isolation** (no Private space, directory, settings, or shared internal Company Brain memory); ③ **Suspend vs. Offboard** (suspending freezes sign-in and personal keys for leave; offboarding revokes access, stops owned schedules and jobs, and releases the corporate email and phone so a later hire with the same address receives a clean identity).
+  - **Two-level sharing and permissions** (`self` vs. subtree `container` for individuals and groups, responsive at `500,000` pages): **Can view** (read-only), **Can submit data** (submit records and attachments through frontline Applets without viewing confidential linked tables, altering schemas, or reading Applet source and secrets), **Can edit** (edit documents, Base schemas, and Applets; export Applet source), and **Full access** (manage sharing, delete tables, and administer Trash), plus independent **comment** access.
+  - **Three security boundaries**: ① **Role-true Agent authority and room audience intersection** — each member's Personal Assistant projects its owner's collaboration permissions (excluding console admin privileges), specialist AI Colleagues act within their own granted permissions and request human sign-off via **Action Approval Cards** (`propose_action_card`) for out-of-scope writes, and conversation and Company Brain disclosures enforce **`requester ∩ Agent ∩ room recipients`** intersection so shared rooms never leak restricted data; ② **Guest isolation** (no Private space, Personal Assistant, directory, settings, or internal Company Brain); ③ **Suspend vs. Offboard** (suspending freezes sign-in and personal keys for leave; offboarding disables the Personal Assistant, revokes personal OAuth connector accounts, stops owned jobs, and releases the corporate email and phone so a later hire with the same address receives a clean identity).
 
 ## Example operational loops
 
 | Scenario | How it runs in Ankole |
 | --- | --- |
 | **Frontline mobile inspection Applet** | Tell an Agent the inspection rules on a BOM **Base**. It publishes a mobile Applet where factory inspectors hold **Can submit data** to upload batch photos and pass rates without seeing confidential supplier tier pricing. |
-| **Cross-warehouse fulfillment loop** | A scheduled Agent checks warehouse inventory, ocean transit dates, and campaign schedules, refreshes the operations dashboard Applet, and posts a **Choice Card** in the logistics room before sending transfer commands through the warehouse connector. |
-| **Batch quality circuit breaker** | Whenever a new warranty ticket arrives, an Agent inspects the batch; if one factory batch crosses the defect threshold, the Agent traces inspection records and remaining stock through **Company Brain** and posts an approval card to hold inventory and file a supplier claim. |
-| **Repository bug fix and pull request** | Mention `@Ankole` with an issue number. The Agent runs Codex in an isolated **Agent Computer Worker** container with configured repository credentials and returns the pull request. |
-| **Deep Research and weekly review decks** | Run **Deep Research** across isolated contexts to test competing hypotheses with citations, or schedule a Monday morning **Slides** draft and snapshot report from live channel metrics. |
+| **Cross-warehouse fulfillment loop** | A scheduled Applet Action and specialist Agent check warehouse inventory, ocean transit dates, and campaign schedules, refresh the operations dashboard Applet, and post a **Choice Card** in the logistics room before sending transfer commands through the warehouse connector. |
+| **Batch quality circuit breaker** | Whenever a new warranty ticket arrives, a Base trigger inspects the batch; if one factory batch crosses the defect threshold, the Agent traces inspection records and remaining stock through **Company Brain** and posts an approval card to hold inventory and file a supplier claim. |
+| **Repository bug fix and pull request** | Mention `@Ankole` with an issue number. The Agent runs Codex in an isolated **Agent Computer Worker** container with Turn-scoped Connector Git credentials and returns the pull request. |
+| **Deep Research and weekly review decks** | Run **Deep Research** across isolated contexts to test competing hypotheses with citations, or schedule a Monday morning **Slides** draft and archived weekly report page from live channel metrics. |
 
 ## Works with
 
 | Area | Supported |
 | --- | --- |
-| Workspace (`Pod`) | Collaborative Documents, Base relational tables (grid, kanban, gallery; inline and sharded PostgreSQL), custom React + TypeScript Applets (`Function Runtime`), File and Slides previews, multiplayer Pod Chat |
+| Workspace (`Pod`) | Collaborative Documents, Base relational tables (grid, kanban, gallery; inline and sharded PostgreSQL), custom React + TypeScript Applets and Applet Actions (`Function Runtime`), File and Slides previews with anchored comments, Personal Assistants & Pod Chat, `Meta Ankole` (`Company Brain`, `Skills`, `AGENTS.md` / `DESIGN.md`) |
+| Connectors and MCP toolkits | Unified credential and PKCE OAuth vault (`Ankole.Connectors`), stateless control-plane MCP gateway for Lark/Feishu (IM, Approvals, Tasks, Calendar), GitHub, Linear, and remote HTTP MCP servers, plus Turn-scoped Git credentials |
 | External chat and email | Slack, Microsoft Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, email |
 | Sign-in and directory sync | Passwordless Email OTP (SMTP), Lark/Feishu, Slack, Microsoft Entra ID, Google Workspace, DingTalk, WeCom (OIDC/OAuth SSO and directory sync) |
 | Models | OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, AgentBull Cloud, ChatGPT subscriptions, and any OpenAI-compatible endpoint (including self-hosted models). The China-market plugin adds Volcengine Ark, Alibaba Cloud DashScope CN, Z.AI Coding Plan, and Xiaomi MiMo. |
@@ -132,15 +133,15 @@ Each organization or team works in an isolated **Pod** that combines five module
 
 ## How it works
 
-One Ankole site deployment can host one or more isolated tenants. Each tenant owns its Pod pages, Base records (on tenant-assigned Base shards), Principals, Agents, Company Brain, and channel connections, while site operators manage shared model providers, Worker providers, and infrastructure.
+One Ankole site deployment can host one or more isolated tenants. Each tenant owns its Pod pages, Base records (on tenant-assigned Base shards), Principals, Personal Assistants and AI Colleagues, Company Brain, Skills, and Connectors, while site operators manage shared model providers, Worker providers, and infrastructure.
 
 Ankole consists of five runtime parts:
 
-- **Control plane** (Elixir, Phoenix, and OTP): Owns durable state, supervision, and commit authority—including Pod workspaces, Principals and AuthZ, configuration, Conversations, Signals, Schedules, Sessions, Background Agent Jobs, Workflows, Company Brain, and AIGateway.
-- **Function Runtime** (`ankole-function-runtime`): Runs stateless Edge Runtime isolates for Pod Applet backend routes and deterministic TypeScript (`PTC` and `Workflow`) programs. It stores no durable state.
-- **Agent Computer Workers** (Bun and TypeScript, one Linux container per Agent): Execute commands, browsers, Codex, MCP servers, Skills, and Automation scripts. The control plane starts a Worker on Docker, Kubernetes, or a cloud provider only when work requires a computer.
-- **Kernel** (Rust via Rustler and Node-API): Provides cryptography, opaque UIDs and short URLs, CEL permission evaluation, Markdown/Markdoc and UTF-16 page diffing, and AI transport.
-- **PostgreSQL 18+ and file storage**: PostgreSQL stores control-plane domain facts and sharded physical Base tables (`BASE_DB_URLS`). The file store holds Pod files, compiled Applet bundles, Agent drives, and attachments; each Agent's Home (`/workspace`) persists across container replacements while `/var/cache/ankole` stays rebuildable.
+- **Control plane** (Elixir, Phoenix, and OTP): Owns durable state, supervision, and commit authority—including Pod workspaces, `Meta Ankole` (`Library` and `Company Brain`), Principals and AuthZ, `Connectors` (credential vault and stateless MCP gateway), configuration, Conversations, Signals, Schedules, `AutomationJobs` (published Applet Action orchestrator), Sessions, Background Agent Jobs, Workflows, and AIGateway.
+- **Function Runtime** (`ankole-function-runtime`): Runs stateless Edge Runtime isolates for Pod Applet backend routes, **published Applet Actions**, and deterministic TypeScript (`PTC` and `Workflow`) programs, calling back through the control-plane host and MCP bridge without holding durable state or raw secrets.
+- **Agent Computer Workers** (Bun and TypeScript, one Linux container per Agent): Execute commands, browsers, Codex, local MCP servers, and Skills, mounting authorized Pod pages and files at `/drive` over FUSE and authenticating Git per Turn via the control plane. The control plane starts a Worker on Docker, Kubernetes, or a cloud provider only when work requires a computer.
+- **Kernel** (Rust via Rustler and Node-API): Provides cryptography, tenant-scoped UIDs and short URLs, CEL permission evaluation, Page XML / OKF Markdown / WebDAV VFS codecs, UTF-16 page diffing, and AI transport.
+- **PostgreSQL 18+ and unified Drive storage**: PostgreSQL stores control-plane domain facts and sharded physical Base tables (`BASE_DB_URLS`). Unified Drive blob storage holds Pod files, compiled Applet bundles, and attachments; each Agent's Home (`/workspace`) persists across container replacements while `/var/cache/ankole` stays rebuildable.
 
 <details>
 <summary>Architecture diagram</summary>
@@ -153,34 +154,35 @@ flowchart TB
 
   subgraph Control["Control Plane (Elixir / Phoenix / OTP) · state and commit authority"]
     direction TB
-    Pod["Pod & Conversations<br/>Pages · Docs · Base · Applets · Pod Chat · Delivery"]
-    Platform["Principal / AuthZ / AppConfigure<br/>Passwordless · 4-tier Pod ACLs · Plugins"]
-    Signals["Signals & Schedule<br/>single intake · routing · cron · checkbacks"]
+    Pod["Pod & Conversations<br/>Pages · Docs · Base · Applets · Pod Chat · A2A"]
+    Platform["Principal / AuthZ / Connectors<br/>Passwordless · Pod ACLs · OAuth vault & MCP gateway"]
+    Signals["Signals, Schedule & AutomationJobs<br/>intake · cron · webhooks · Base & Connector triggers"]
     Runtime["Sessions & Jobs<br/>Agent loop · Background Agent Jobs · Workflows"]
-    Brain["Company Brain<br/>claims · provenance · Dreaming · Skill Lessons"]
+    Meta["Meta Ankole & Company Brain<br/>Knowledge Graph · Skills · AGENTS.md & DESIGN.md"]
     AI["AIGateway<br/>model routing · session state · credentials"]
   end
 
-  Fabric["RuntimeFabric<br/>Phoenix Channels · bounded RPC · file relay"]
-  Workers["Agent Computer Workers · one per Agent<br/>commands · Codex · Automation<br/>Skills · MCP · browser · terminal"]
-  FnRuntime["Function Runtime · stateless isolates<br/>Applet backends · PTC & Workflow programs"]
-  Providers["AI & Web providers<br/>LLM · embedding · rerank · image · search"]
+  Fabric["RuntimeFabric<br/>Phoenix Channels · bounded RPC · FUSE & file relay"]
+  Workers["Agent Computer Workers · one per Agent<br/>commands · Codex · /drive FUSE<br/>Skills · MCP · browser · terminal"]
+  FnRuntime["Function Runtime · stateless isolates<br/>Applet backends · Applet Actions · PTC & Workflows"]
+  Providers["AI, Web & SaaS upstreams<br/>LLM · embedding · rerank · search · Lark / GitHub / Linear"]
 
   PG[("PostgreSQL 18+ · durability boundary<br/>control-plane facts · physical Base shards")]
-  Files[("File store · durability boundary<br/>Pod files · Applet bundles · Agent drives")]
+  Files[("Unified Drive storage · durability boundary<br/>Pod files · Applet bundles · attachments")]
   Homes[("Agent Home · durability boundary<br/>one per Agent · /workspace · Codex threads")]
 
   External -->|"workspace, webhooks, admin"| Control
   Pod -->|"triggers"| Signals
   Signals -->|"admitted work"| Runtime
   Platform --> Runtime
-  Runtime <--> Brain
+  Runtime <--> Meta
   Runtime --> AI
-  Control -->|"isolated TS calls"| FnRuntime
+  Control <-->|"host & MCP bridge"| FnRuntime
   Control -->|"live execution"| Fabric
   Fabric <--> Workers
   Workers -->|"Codex Responses API"| AI
   AI -->|"upstream calls"| Providers
+  Platform -->|"proxied MCP & Git"| Providers
   Control -.-> PG
   Control -.-> Files
   Workers -.-> Homes

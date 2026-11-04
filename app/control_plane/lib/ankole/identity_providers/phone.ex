@@ -1,9 +1,20 @@
 defmodule Ankole.IdentityProviders.Phone do
   @moduledoc """
-  Phone normalization for identity providers that accept Chinese national numbers.
+  Phone normalization for identity providers.
   """
 
   alias Ankole.Kernel, as: NativeKernel
+
+  @doc "Normalizes an international number; invalid or absent numbers return nil."
+  @spec normalize_e164(String.t() | nil) :: String.t() | nil
+  def normalize_e164(nil), do: nil
+
+  def normalize_e164(phone) when is_binary(phone) do
+    case NativeKernel.phone_normalize_e164(String.trim(phone)) do
+      normalized when is_binary(normalized) -> normalized
+      {:error, _reason} -> nil
+    end
+  end
 
   @doc """
   Tries the supplied number, then adds +86 to an 11-digit number that starts with 1.

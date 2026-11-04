@@ -39,11 +39,20 @@ Console 的配置管理、聚合状态视图及可审计的密钥读取操作统
 | `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | 轮询设备码登录授权状态 |
 | `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | 提交浏览器回跳链接以完成登录 |
 | `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | 直接录入 ChatGPT Enterprise 访问令牌 |
-| `GET` | `/api/v2/agents/:agent_uid/model-profiles` | 列出指定 Agent 的全部模型档案 |
-| `PUT` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | 创建或更新指定名称的模型档案 |
-| `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | 删除指定的模型档案 |
+| `GET` | `/api/v2/model-profiles` | 读取 Pod 或站点级默认模型档案及托管能力开关 |
+| `PUT` | `/api/v2/model-profiles/:profile` | 设置 Pod 或站点级默认模型档案 |
+| `DELETE` | `/api/v2/model-profiles/:profile` | 移除 Pod 或站点级默认模型档案（通过 `?defaults_scope=` 指定作用域） |
+| `PUT` | `/api/v2/model-profiles/provider-hosted` | 设置 Pod 或站点级的 Provider 托管能力开关 |
+| `GET` | `/api/v2/system-principals` | 列出已注册的系统服务主体（如 `ankole_brain` 与 `system`） |
+| `GET` | `/api/v2/system-principals/:uid/model-profiles` | 读取指定系统主体的模型档案覆盖值与最终生效配置 |
+| `PUT` | `/api/v2/system-principals/:uid/model-profiles/:profile` | 为指定系统主体设置固定槽位模型覆盖 |
+| `DELETE` | `/api/v2/system-principals/:uid/model-profiles/:profile` | 删除系统主体覆盖配置并恢复继承 Pod/站点默认值 |
+| `GET` | `/api/v2/agents/:agent_uid/model-profiles` | 读取指定 Agent 的模型档案覆盖值、继承值与最终生效配置 |
+| `PUT` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | 设置 Agent 的固定槽位覆盖或自定义模型档案 |
+| `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | 删除指定的 Agent 档案覆盖或自定义模型档案 |
+| `PUT` | `/api/v2/agents/:agent_uid/provider-hosted` | 设置单个 Agent 的 Provider 托管能力覆盖开关 |
 
-上游 Provider 的密钥以加密池成员的形式保存在控制面内，绝不会注入 Agent 运行环境。模型档案只需将 Agent 绑定到某条 Provider 记录与模型名，运行时由 AIGateway 在该 Provider 的凭据池内自动挑选健康成员；接口响应仅返回脱敏后的账号标识、健康状态、配额窗口与用量统计。
+上游 Provider 的密钥以加密池成员的形式保存在控制面内，绝不会注入 Agent 运行环境。模型档案按“站点默认值 → Pod 默认值 → Agent 或系统服务主体覆盖值”分层解析（其中 `ankole_brain` 用于 Brain 知识提取、Dreaming、向量嵌入与重排，`system` 用于 Pod Applet 模型调用及租户内部运维任务），运行时由 AIGateway 在该 Provider 的凭据池内自动挑选健康成员；接口响应仅返回脱敏后的账号标识、健康状态、配额窗口与用量统计。
 
 ### agent 及其能力
 
@@ -56,6 +65,7 @@ Agent 是系统的核心工作主体，绝大多数运维配置都围绕它展�
 | `GET` | `/api/v2/agents/:agent_uid` | 读取单个 Agent 的详情 |
 | `PATCH` | `/api/v2/agents/:agent_uid` | 更新 Agent 属性 |
 | `POST` | `/api/v2/agents/:agent_uid/enable` | 重新启用已停用的 Agent |
+| `POST` | `/api/v2/agents/:agent_uid/rename` | 在已停用 Agent 的 Worker 退出后重命名其 UID |
 | `DELETE` | `/api/v2/agents/:agent_uid` | 对启用态 Agent 执行时将其停用；对已停用 Agent 执行时将其永久删除 |
 
 ### Worker provider
@@ -74,15 +84,17 @@ Agent 是系统的核心工作主体，绝大多数运维配置都围绕它展�
 
 ### 信号路由规则
 
-信号路由规则（在 API Schema 中称为 `Signal Binding`）用于将外部渠道适配器与目标 Agent 连接起来，使外部消息与事件能够送达该 Agent：
+信号路由规则（在 API Schema 中称为 `Signal Binding`）可将外部渠道适配器路由到指定的 AI 同事（`ai_colleague` 模式），或在飞书/Lark 与 Slack 共享个人助理机器人场景下按已匹配发送者路由至各自的个人助理（`sender_personal_assistant` 模式，`agent_uid` 为 `null`）：
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | `GET` | `/api/v2/signal-adapters` | 列出当前实例已注册的信号适配器 |
 | `GET` | `/api/v2/signal-bindings` | 列出信号路由规则（支持 `?agent=` 按单个 Agent 过滤） |
-| `PUT` | `/api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 创建或全量替换一条路由规则 |
-| `PATCH` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | 局部更新路由规则配置 |
-| `DELETE` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | 停用指定路由规则 |
+| `GET` | `/api/v2/signal-bindings/:id` | 读取单条信号路由规则 |
+| `PUT` | `/api/v2/signal-bindings/:adapter_id/:binding_name` | 创建或重新启用一条路由规则 |
+| `PATCH` | `/api/v2/signal-bindings/:id` | 更新路由规则配置 |
+| `DELETE` | `/api/v2/signal-bindings/:id` | 停用指定路由规则 |
+| `POST` | `/api/v2/agents/:agent_uid/signal-deliveries/requeue` | 重新入队投递失败的出站信号消息 |
 | `GET` | `/api/v2/conversations/:conversation_id/standing-orders` | 读取指定 Conversation 的频道常驻指令 |
 | `PUT` | `/api/v2/conversations/:conversation_id/standing-orders` | 替换指定 Conversation 的频道常驻指令 |
 
@@ -173,10 +185,10 @@ Control Plane Plugin 是编译进控制面发布包的第一方扩展模块，�
 
 - **活跃会话与定时调度**：`/api/v2/agents/:agent_uid/sessions` 查看会话列表，配合各 Agent 名下的 Cron 定时计划与 Checkback 管理路由（租户级列表端点支持传入 `agent` 参数按单个 Agent 筛选）。
 - **Worker 实例状态**：`/api/v2/agent-workers` 列出各 Agent 关联的 Worker 实例就绪与运行状态。
-- **Agent 云盘文件**：`/api/v2/agents/:agent_uid/files` 列出与删除云盘文件，`/api/v2/agents/:agent_uid/file-moves` 移动或重命名路径；`POST /api/v2/agents/:agent_uid/files` 通过 `multipart/form-data` 上传文件，`GET /api/v2/agents/:agent_uid/files/content` 下载原始文件字节。这两个原生二进制端点复用完全相同的浏览器会话、CSRF 校验、租户切换与文件权限控制，底层存储由控制面统一托管。
+- **统一云盘（Unified Drive）**：通过 `GET /api/v2/drive/:tenant_id/nodes` 列出租户各空间根目录或子节点，`POST /api/v2/drive/:tenant_id/nodes` 创建页面或空文件，`PATCH /api/v2/drive/:tenant_id/nodes/:id` 移动或重命名节点，`DELETE /api/v2/drive/:tenant_id/nodes/:id` 将子树移入回收站；配合原生二进制路由 `POST /api/v2/drive/:tenant_id/uploads`（`multipart/form-data` 上传）与 `GET /api/v2/drive/:tenant_id/nodes/:id/content`（字节流下载），无需在线 Worker 即可在相同浏览器会话、CSRF 校验与 `site_console:drive` 权限下管理租户文件。
 - **后台长任务**：`/api/v2/background-agent-jobs` 支持列表查询、单任务详情读取与任务取消。
 - **AI 网关对话记录**：`/api/v2/ai-gateway/conversations` 支持按模型会话回溯完整消息与工具调用明细。
-- **主体身份、AuthZ 权限与 OIDC 客户端**：涵盖 `/api/v2/principals`（含成员身份调整 `PATCH /api/v2/principals/:uid/membership`、账号禁用 `POST /api/v2/principals/:uid/access-disables` 与恢复访问 `POST /api/v2/principals/:uid/access-restorations`）、`/api/v2/principal-groups`、`/api/v2/permission-grants` 以及 `/api/v2/oidc-clients`。完整的权限判定规则请参阅 [主体与 AuthZ](../principal-authz/)。
+- **主体身份、AuthZ 权限与 OIDC 客户端**：涵盖 `/api/v2/principals`（含主体重命名 `POST /api/v2/principals/:uid/rename`、成员身份调整 `PATCH /api/v2/principals/:uid/membership`、账号禁用 `POST /api/v2/principals/:uid/access-disables` 与恢复访问 `POST /api/v2/principals/:uid/access-restorations`）、`/api/v2/principal-groups`、`/api/v2/permission-grants` 以及 `/api/v2/oidc-clients`。完整的权限判定规则请参阅 [主体与 AuthZ](../principal-authz/)。
 
 ## 关于这里不包含什么
 

@@ -283,11 +283,14 @@ redacts the injected credential from these diagnostics. HTTP 401 responses,
 including OAuth-style error bodies, preserve their status so the Toolkit gateway
 can use the shared credential recovery path.
 
-`Ankole.Files.HTTP` owns the shared HTTP/file bridge. Uploading a `file_ref`
-authorizes and resolves an immutable File object in a short transaction, releases
-the database connection, then uploads in 8 MiB chunks. `Ankole.Files.download_http`
-streams a response into the existing File object store and commits the reference
-through Pod Files. Neither direction assembles a large file in memory. JSON
+`Ankole.Files.HTTP` owns the shared HTTP/file bridge alongside
+`Ankole.Connectors.Files`. Uploading a `file_ref` (`HTTP.upload` or
+`Connectors.Files.multipart`) authorizes and resolves the `pod_files` entry via
+`Ankole.Pod.Files` and its immutable `file_objects` row in a short read, releases
+the database connection, and streams the upload in 8 MiB chunks. `HTTP.download`
+streams an HTTP response into `file_objects` and commits the `pod_files`
+reference through `Ankole.Pod.Files.upload/8`. Neither direction assembles a
+large file in memory. JSON
 requests and responses are each limited to 5,000,000 bytes; UTF-8 validation runs
 on the complete buffered response, so split multibyte characters remain valid.
 The bridge decodes gzip and deflate JSON responses with the same limit on decoded

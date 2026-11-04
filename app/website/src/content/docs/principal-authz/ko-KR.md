@@ -11,9 +11,9 @@ order: 106
 
 ## Principal: 하나의 책임 주체
 
-Principal은 사람, Agent, 시스템 서비스가 공통으로 사용하는 영속적 책임 주체입니다. 모든 Principal은 정확히 하나의 테넌트에 소속되며 전역적으로 고유한 불투명 `uid`를 가집니다. `principals` 테이블 행에서 `type`은 `:human`, `:agent`, `:system` 중 하나이고 `status`는 `:active` 또는 `:disabled`이며, `:human` 주체는 `:member` 또는 `:guest` 값을 갖는 `membership` 필드를 가집니다(`:agent`와 `:system`은 `nil`).
+Principal은 사람, Agent, 시스템 서비스가 공통으로 사용하는 영속적 책임 주체입니다. 모든 Principal은 정확히 하나의 테넌트에 소속되며 `(tenant_id, uid)`로 식별됩니다(여기서 `uid`는 `alex.smith`나 `research-analyst`처럼 해당 테넌트 안에서 고유하고 의미가 드러나는 소문자 이름입니다). `principals` 테이블 행에서 `type`은 `:human`, `:agent`, `:system` 중 하나이고 `status`는 `:active` 또는 `:disabled`이며, `:human` 주체는 `:member` 또는 `:guest` 값을 갖는 `membership` 필드를 가집니다(`:agent`와 `:system`은 `nil`).
 
-사람(`:human`) Principal에는 `HumanUser` 행 하나와 0개 이상의 사이트 범위 `SiteCredential` 행(`principal_site_credentials`, 검증된 이메일 OTP 주소 등), 그리고 0개 이상의 테넌트 범위 `ExternalIdentity` 행(`principal_external_identities`, 외부 Identity Provider에서 연동된 계정)이 연결됩니다. Agent Principal에는 `Agent` 행 하나가 연결됩니다. 이처럼 모든 행위 주체를 단일 테이블로 통합해 두었기 때문에 감사 로그, grant, 그룹 멤버십이 모두 동일한 형태의 Principal `uid`를 가리키며 책임 추적 경로가 하나로 유지됩니다.
+사람(`:human`) Principal에는 `HumanUser` 행 하나와 0개 이상의 사이트 범위 `SiteCredential` 행(`principal_site_credentials`, 검증된 이메일 OTP 주소 등), 그리고 0개 이상의 테넌트 범위 `ExternalIdentity` 행(`principal_external_identities`, 외부 Identity Provider에서 연동된 계정)이 연결됩니다. Agent Principal에는 `:personal_assistant`(활성 내부 Human `member`마다 `<owner_uid>_assistant`로 1:1 프로비저닝) 또는 `:ai_colleague`(공유 전문 Agent) 하위 유형을 가진 `Agent` 행 하나가 연결됩니다. System Principal은 Ankole의 닫힌 내부 서비스 레지스트리에 등록된 `system`(무상태 Pod Applet `ctx.ai` 및 내부 런타임 작업)과 `ankole_brain`(Company Brain 사실 추출, Dreaming, Skill 교훈 재검토, URL Source 수집, 리랭크)이며, 로그인하거나 이름을 바꿀 수 없고 Worker도 호스팅하지 않습니다. 모든 행위 주체를 단일 테이블로 통합해 감사 로그, grant, 그룹 멤버십이 일관되게 추적되며, 감사 기록이 남는 테넌트 내 UID 이름 변경(`POST /api/v2/principals/:uid/rename` 및 활성 Worker가 없는 비활성 Agent용 `POST /api/v2/agents/:uid/rename`)을 실행하면 grant·그룹 멤버십·Brain 경로 및 멘션·Base 참조가 원자적으로 함께 갱신됩니다.
 
 사람 Principal의 `membership` 구분은 테넌트 내 협업 범위를 결정합니다. 내부 구성원인 `member`는 계산형 그룹인 `all_humans`에 포함되지만, 외부 참여자인 `guest`는 명시적인 Pod 페이지 공유나 Agent grant가 있어야만 접근할 수 있고 내장 관리자 그룹(`siteadmin`, `pod_admin`) 참여나 Private 루트를 소유할 수 없으며 Brain의 `world` 범위 지식도 조회할 수 없습니다.
 
@@ -46,7 +46,7 @@ Principal group은 여러 Principal에 grant를 묶어서 부여하기 위한 �
 
 AuthZ가 단순한 권고가 아니라 실질적인 강제력을 갖는 이유는 control plane과 kernel이 역할을 명확히 나누어 수행하기 때문입니다.
 
-- **control plane은 영속 상태, Ash 인가, 스냅샷 구성을 담당합니다.** 보호 대상 액션은 `Ankole.AuthZ.Extension`으로 규칙을 선언하고, `Ankole.AuthZ.Authorizer`는 `%Ankole.AuthZ.Actor{principal, turn_authority, authn}`의 실행 주체를 검사합니다. Agent 턴은 Agent 자신의 리소스 권한을 사용합니다. 검증된 인증 정보는 `context.request.authn`에 담기며, 해당 Agent에 적용되는 grant의 CEL 조건을 평가합니다. `turn_authority`와 `WorkAccess`는 지시가 여전히 유효한지 별도로 확인합니다.
+- **control plane은 영속 상태, Ash 인가, 스냅샷 구성을 담당합니다.** 보호 대상 액션은 `Ankole.AuthZ.Extension`으로 규칙을 선언하고, `Ankole.AuthZ.Authorizer`는 `%Ankole.AuthZ.Actor{principal, turn_authority, authn}`의 실행 주체를 검사합니다. Unified Drive, Pod Docs·Base, `all_humans` 같은 협업 리소스에서는 **개인 어시스턴트(`personal_assistant`)**의 `Principals.authority_uid/1`이 소유자(사람)의 `owner_principal_uid`로 해석되어 소유자의 협업 권한을 투영하는 반면, `site_console:**` 및 `tenant_console:**` 검사에서는 항상 어시스턴트 자신의 Principal을 평가해 관리자 권한이 전이되지 않으며 감사 기록·사용량 귀속·전용 Worker 루트도 어시스턴트 자신의 `uid`에 귀속됩니다. 반면 **AI 동료(`ai_colleague`)**는 Drive, Pod, Workflow, 스케줄, Background Agent Job 전반에서 Agent 자신의 Principal grant로만 실행되며, 사람의 승인이 필요한 작업에서는 Pod 대화방에 `propose_action_card`를 게시하고 Brain 회상 및 다자간 대화방 지식 공개 시 요청자·Agent·(`strict` 모드일 때) 모든 참여자의 도달 가능 audience 교집합을 강제합니다. 검증된 인증 정보는 `context.request.authn`에 담기며, 적용되는 grant의 CEL 조건을 평가하고 `turn_authority`와 `WorkAccess`가 지시 권한의 유효성을 별도로 확인합니다.
 - **kernel과 PostgreSQL은 결정론적 규칙 평가를 맡습니다.** 일반 권한 검사에서는 `Ankole.AuthZ.Snapshot`이 단일 SQL 쿼리로 Principal, 그룹 멤버십, 후보 grant를 읽어 오고, 이어서 Rust kernel이 리소스 패턴 매칭과 computed 그룹 판별, CEL 조건 평가를 수행합니다. Drive 노드 권한의 경우 Rust kernel에서 요청 의존 CEL 조건을 먼저 한 번 평가한 뒤, PostgreSQL의 `WITH RECURSIVE`(`UNION` 최소 고정점) 쿼리로 5비트 ACL 앵커 그래프(`node_view=1`, `node_contribute=2`, `node_edit=4`, `node_manage=8`, `node_comment=16`; 역할 마스크 `view=1`, `contribute=19`, `edit=23`, `manage=31`) 상의 직접 grant, 그룹, 컨테이너 상속, Userset 간선을 결합해 최종 권한을 산출합니다.
 
 `Ankole.AuthZ` 모듈은 용도에 따라 `authorize(subject, resource, action, context)`, 불리언을 반환하는 `allowed?/4`, 단일 작업의 상세 결정 맵을 반환하는 `authorize_decision/4`, 한 리소스에 대한 여러 작업을 한꺼번에 평가하는 `authorize_all_decision/4`, 하나의 스냅샷으로 여러 리소스·작업 쌍을 검사하는 `authorize_checks/3`, Drive 컨텍스트 전용인 `evaluate_drive_context/2` 진입점을 제공합니다. 어느 진입점도 호출자가 자체적으로 주장하는 권한 정보를 신뢰하지 않습니다.
@@ -85,6 +85,7 @@ Principal, 그룹, grant 관리 기능(`site_console:**`)은 `/api/v2` 아래의
 | `POST` | `/api/v2/principals` | human 내부 멤버 Principal 사전 생성 |
 | `GET` | `/api/v2/principals/:uid` | 단일 Principal 조회 |
 | `PATCH` | `/api/v2/principals/:uid` | human Principal 프로필(`display_name`) 수정 |
+| `POST` | `/api/v2/principals/:uid/rename` | human Principal의 테넌트 범위 `uid` 이름 변경(비활성 Agent는 `POST /api/v2/agents/:uid/rename`) |
 | `PATCH` | `/api/v2/principals/:uid/membership` | human Principal의 `membership`(`member` 또는 `guest`) 변경 |
 | `GET` | `/api/v2/principals/:uid/access` | human 접근 상태, 제한 사항 및 복구 검토 투영 조회 |
 | `POST` | `/api/v2/principals/:uid/access-disables` | human Principal 일시 중지(`suspended`) 또는 퇴사 처리(`offboarded`) |

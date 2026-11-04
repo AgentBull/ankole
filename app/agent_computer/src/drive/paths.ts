@@ -1,3 +1,4 @@
+import { nodeErrorCode } from '../common/errors'
 import { lstat, readlink, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { pathIsWithin } from '../core/path-boundary'
@@ -46,7 +47,7 @@ export async function resolveScopedDrivePath(
       try {
         info = await lstat(current)
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return join(current, ...remaining)
+        if (nodeErrorCode(error) === 'ENOENT') return join(current, ...remaining)
         throw error
       }
       if (info.isSymbolicLink()) {

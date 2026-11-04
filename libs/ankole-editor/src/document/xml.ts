@@ -65,7 +65,7 @@ const escapes: Record<string, string> = {
   '\r': '&#13;'
 }
 
-function xmlEscape(value: string, attribute = false): string {
+export function xmlEscape(value: string, attribute = false): string {
   return value.replace(attribute ? /[&<>"\t\r\n]/g : /[&<>\r]/g, character => escapes[character]!)
 }
 

@@ -778,6 +778,8 @@ defmodule Ankole.Sessions.ToolsTest do
   end
 
   defp task_run(parent, workflow_id, schema \\ %{"type" => "boolean"}) do
+    Ankole.SessionsCase.stub_workflow_drivers(%{id: workflow_id, agent_uid: parent.agent_uid})
+
     {:ok, %{new_calls: [call]}} =
       Ankole.Workflow.Replay.commit_replay_pending(
         workflow_id,

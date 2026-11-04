@@ -17,9 +17,9 @@ order: 120
 
 ツールの種類ごとに、実際の処理を担う実行主体が分かれています。
 
-- **コントロールプレーンのドメインツール：** Session 内の計画管理、スケジュール、Background Agent Job、Workflow、Skill の読み取り、およびドメイン層の Web 操作は、コントロールプレーン内の各所有モジュールが直接実行します。
+- **コントロールプレーンのドメインツール：** Session 内の計画管理、スケジュール、Background Agent Job、Workflow、Skill の読み取り（`skill_view`）、Brain ツール、Pod・Unified Drive ツール（`reply_attachment` を含む）、`propose_action_card` 対話承認カード、`send_to_agent` による同僚委任、および設定済みの `web_search` / `web_fetch` 操作は、コントロールプレーン内の各所有モジュールが直接実行します。
 - **Worker の環境ツール：** ファイルやシェルなどの計算機操作は RuntimeFabric 経由でその Agent 専用の Worker へ委譲されます。最初の環境ツール呼び出しが行われた時点で Session ワークスペースが開かれます。実行スロットとプロセス状態は Worker 側が管理し、永続化すべき実行結果はコントロールプレーン側が管理します。
-- **MCP 連携 Skill：** Worker の `command` ツールと `mcporter` を組み合わせて実行します。
+- **MCP 連携 Skill：** 呼び出しスコープの設定ファイルのもとで Worker の `command` ツールと `mcporter` を組み合わせて実行します。組み込み Toolkit を使う `connector` および `streamable_http` の Skill MCP 依存先は、turn 限定の短命内部トークンを用いてコントロールプレーンの `Ankole.Connectors` MCP ゲートウェイ経由で中継され（上流の認証情報はコントロールプレーン内に保持されます）、`stdio` の MCP サーバーは Worker ローカルで起動します。
 - **Provider ホスト型ツール：** 選択したモデルが宣言している機能に従い、AIGateway 経由で実行します。
 
 Driver は各ツールの宣言に従い、並列または順次でツールを実行します。永続状態を伴う変更では `Ankole.Sessions.Receipts` を用い、ドメインデータの更新とツール実行結果を単一のトランザクションでコミットします。出力内容は次のモデル推論ラウンドで使えるよう AIGateway に保存されます。また、実行途中に Worker との接続が切れた場合、結果が確定していない環境操作については、各ツールで宣言された再試行契約に従って Driver が処理します。

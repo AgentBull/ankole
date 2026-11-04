@@ -705,8 +705,9 @@ defmodule Ankole.AIGateway.ToolContract do
        }),
        do: description || default_namespace_description(namespace)
 
-  defp public_path(nil, name), do: name
-  defp public_path(namespace, name), do: "#{namespace}.#{name}"
+  @doc false
+  def public_path(nil, name), do: name
+  def public_path(namespace, name), do: "#{namespace}.#{name}"
 
   defp codec("function"), do: :json
   defp codec("custom"), do: :text

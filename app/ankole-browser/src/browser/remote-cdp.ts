@@ -1,6 +1,7 @@
+import { atomicJSON } from '../files'
 import { deepString } from '@agentbull/active-support'
-import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
 import { chromium, type Browser } from 'playwright-core'
 import type { BrowserMaterial, RemoteSessionRequestBackendSchema } from '../protocol'
 import { BrowserDataError, isFileNotFound } from '../errors'
@@ -131,16 +132,4 @@ function redactEndpoint(endpoint: string): string {
   } catch {
     return '[redacted]'
   }
-}
-
-async function atomicJSON(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  const temporary = `${path}.${crypto.randomUUID()}.tmp`
-  const file = await open(temporary, 'w', 0o600)
-  try {
-    await file.writeFile(`${JSON.stringify(value)}\n`)
-  } finally {
-    await file.close()
-  }
-  await rename(temporary, path)
 }

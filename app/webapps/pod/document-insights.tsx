@@ -1,3 +1,4 @@
+import { formatDateTime } from '../common/date-time'
 import { Badge, Button, Dialog, DialogContent, DialogTitle, SwitchRow } from '@ankole/uikit'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { RefObject } from 'react'
@@ -31,8 +32,7 @@ export function DocumentInsights({
       ])
     }
   })
-  const date = (value: string) =>
-    new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  const date = (value: string) => formatDateTime(value, i18n.language)
   return (
     <Dialog open onOpenChange={open => !open && close()}>
       <DialogContent
@@ -118,9 +118,7 @@ function DocumentViewers({ pageID }: { pageID: string }) {
                 <PersonRow
                   person={person}
                   subtitle={t('pod.document.last_viewed', {
-                    time: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(
-                      new Date(visited_at)
-                    )
+                    time: formatDateTime(visited_at, i18n.language)
                   })}
                 />
               </li>

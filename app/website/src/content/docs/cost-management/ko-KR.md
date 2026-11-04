@@ -11,26 +11,30 @@ Ankole에서 발생하는 지출의 대부분은 모델 토큰 비용이며, 통
 
 ## 레버 1: model-profile 계층
 
-내장된 8개의 Agent 프로필은 서로 다른 과금 경로를 제어합니다. 그중 5개는 언어 모델을 선택하고, 나머지 3개는 웹 검색, 웹 페이지 가져오기, 이미지 생성 기능을 연결합니다.
+모델 프로필(Model Profile)은 **Console → Model Profiles**의 3계층 희소 상속 체인(`Site -> Pod -> Agent/System`)을 따라 해석됩니다. 각 Agent는 8개의 기본 슬롯(언어 모델 5개와 `web_search`, `web_fetch`, `image_generate`)을 제공하며, Site·Pod 및 내장 `system` Principal(`ankole_brain`, `system`)은 아홉 번째 `rerank` 슬롯을 추가로 제공합니다. 비워 둔 슬롯은 Pod와 Site 기본값을 상속하며 `coding -> heavy -> primary` 및 `light -> primary` 슬롯 간 폴백이 적용됩니다.
 
 | 슬롯 | 실행 시점 | 비용 레버 |
 |---|---|---|
 | `primary` | 주력 추론 모델 — 대부분의 일반 턴 | 단일 최대 비용 항목 |
-| `light` | 대량 처리·저위험 경로 | 저렴한 모델을 연결해야 함 |
-| `heavy` | 고난도 종합(synthesis) 작업 | 단가가 높음. `primary`가 적절히 설정되어 있으면 드물게 호출됨 |
-| Background Agent Jobs(내부 키 `coding`) | 모든 Background Agent Job | 장기 백그라운드 작업에 사용할 프로바이더와 모델 선택 |
+| `light` | 대량 처리·저위험 경로(미설정 시 `primary`로 폴백) | 대량 작업이 `primary` 단가로 과금되지 않도록 저렴한 모델을 연결해야 함 |
+| `heavy` | 고난도 종합(synthesis) 작업 및 Dreaming | 단가가 높음. `primary`가 적절히 설정되어 있으면 드물게 호출됨 |
+| Background Agent Jobs(내부 키 `coding`) | 모든 Background Agent Job(`coding -> heavy -> primary` 폴백) | 장기 백그라운드 작업에 사용할 프로바이더와 모델 선택 |
 | `vision_fallback` | `primary` 모델이 이미지를 처리할 수 없을 때 | Agent가 이미지를 읽어야 할 때만 바인딩 |
 | `web_search`, `web_fetch` | 웹 도구 | 레버 3 참조 |
 | `image_generate` | 이미지 생성 | 호출당 단가가 높음. 실제로 사용할 때만 바인딩 |
+| `rerank`(Site / Pod / `system`) | Brain 회상 재순위화 및 `/rerank` 기본 경로 | 빠르고 저렴한 전용 리랭커 모델 연결 권장 |
 
-Brain은 [AppConfigure](../app-configuration/)에서 사이트 단위 임베딩 모델과 테넌트 단위 재순위화(rerank) 모델을 읽어 사용합니다. 테넌트 설정 `brain.maintainer_agent_uid`로 해당 테넌트의 활성 Brain 유지보수 Agent를 지정하면, 모든 Brain 모델 호출이 이 Agent의 ID로 실행되고 토큰 사용량도 이 Agent에 귀속됩니다. 이때 대화 및 Source에서의 지식 추출에는 해당 Agent의 `light` 프로필을, Dreaming과 Skill 교훈 재검토에는 `heavy` 프로필을, URL Source 가져오기에는 `web_fetch` 프로필을 사용합니다. `web_fetch`가 설정되어 있지 않거나 프로바이더 요청이 실패하면 URL Source 가져오기도 실패합니다. 또한 유지보수 Agent를 비활성화하면 다시 활성화하거나 다른 Agent로 교체할 때까지 Brain의 모델 호출과 URL Source 가져오기가 모두 중단됩니다. **Brain → 상태** 화면에서 현재 지정된 Agent와 각 프로필의 연결 상태를 확인할 수 있습니다(자세한 동작은 [Brain](../brain/) 참조). 한편 Pod Applet의 `ctx.ai` 호출은 해당 Applet을 생성한 Agent를 통해 실행됩니다. 따라서 해당 Agent가 활성 상태여야 하며, 모델 프로필과 할당량 및 토큰 사용량도 모두 그 Agent에 귀속됩니다.
+컨트롤 플레인 서브시스템의 모델 호출은 내장 `system` Principal 명의로 실행되므로 백그라운드 유지보수나 Applet이 포그라운드 Agent의 토큰 할당량을 소모하지 않습니다.
+
+- **`ankole_brain`**: 모든 Company Brain 모델 호출을 실행하고 사용량을 `ankole_brain`에 기록합니다. 대화 및 Source 사실 추출에는 `light`(미설정 시 `primary`), Dreaming과 Skill 교훈 재검토에는 `heavy`(미설정 시 `primary`), URL Source 가져오기에는 `web_fetch`, 회상 재순위화에는 `rerank` 프로필을 해석하며, 임베딩 생성에는 [AppConfigure](../app-configuration/)의 사이트 단위 `brain.embedding_model` 키를 읽습니다. Brain 유지보수 예산을 포그라운드 Agent와 분리하고 싶다면 **Console → Model Profiles**에서 `ankole_brain`의 각 슬롯을 개별 재정의할 수 있으며, **Brain → 상태** 화면에서 프로필 준비 상태를 확인할 수 있습니다(자세한 동작은 [Brain](../brain/) 참조).
+- **`system`(Pod Applet `ctx.ai`)**: 무상태 Pod Applet `ctx.ai` 호출을 `system` Principal로 실행하며 유효 Pod/Site 언어 모델 프로필(`primary`, `light`, `heavy`, `coding`, `vision_fallback`)을 사용합니다.
 
 가장 효과가 큰 두 가지 절감 조치는 다음과 같습니다.
 
-- **`light`에는 저렴한 모델을 연결하세요.** 이 슬롯은 호출 빈도가 높은 대량 처리 경로를 위해 마련되어 있습니다. `light`에 `primary`와 비슷한 단가의 모델을 연결하면 슬롯을 분리한 의미가 사라집니다.
-- **`primary`는 일단 낮은 단계에서 시작하고, 꼭 필요할 때만 높이세요.** 유독 비용이 많이 나오는 Agent를 살펴보면 실제 맡은 업무에 비해 과도하게 무거운 모델이 `primary`에 연결된 경우가 많습니다. 결과 품질상 상위 모델이 꼭 필요할 때만 단계를 올리세요.
+- **Site 또는 Pod 수준에서 `light`에 저렴한 모델을 연결하세요.** `light`는 비워 두면 `primary`로 폴백하며, 대량 보조 경로와 `ankole_brain` 사실 추출을 모두 담당합니다. 기본 계층에서 경량 모델을 지정해 두면 이를 상속하는 모든 Agent와 `ankole_brain`의 비용이 함께 절감됩니다.
+- **`primary`는 균형 잡힌 등급에서 시작하고, 꼭 필요한 전문 Agent만 상향하세요.** 유독 비용이 많이 나오는 Agent를 살펴보면 실제 맡은 업무에 비해 과도하게 무거운 모델이 `primary`에 연결된 경우가 많습니다. 결과 품질상 상위 모델이 꼭 필요한 전문 Agent에만 `primary`나 `heavy`를 재정의하세요.
 
-Agent가 쓰지 않는 슬롯은 바인딩을 해제해 두세요. 예를 들어 `vision_fallback`을 비워 두면 해당 경로로는 호출 자체가 일어나지 않습니다. 다만 `image_generate` 프로필은 비워 두더라도 주 프로바이더가 네이티브 이미지 생성을 지원한다고 선언하면 해당 기능을 사용할 수 있습니다. Background Agent Jobs 역시 별도 프로필을 지정하지 않으면 AIGateway를 통해 Agent의 `heavy` 프로필로 폴백하여 실행되므로, 백그라운드 작업에 별도의 프로바이더나 모델을 지정하고 싶을 때 이 프로필을 구성하세요.
+Pod나 Agent가 쓰지 않는 선택적 capability 슬롯은 비워 두세요. 예를 들어 `vision_fallback`을 비워 두면 해당 경로로는 호출 자체가 일어나지 않습니다. 다만 `image_generate` 프로필은 비워 두더라도 주 프로바이더가 네이티브 이미지 생성을 지원한다고 선언하면 해당 기능을 사용할 수 있습니다. Background Agent Jobs(`coding`) 역시 비워 두면 AIGateway를 통해 `heavy -> primary` 순서로 폴백하여 실행되므로, 백그라운드 작업에 전용 코딩 모델이나 구독 풀을 지정하고 싶을 때 `coding` 슬롯을 구성하세요.
 
 ## 레버 2: reasoning effort
 
@@ -47,17 +51,20 @@ Codex 추론 강도 설정을 지원하는 프로바이더에서 `model_reasonin
 
 참고로 `agent_workers.rendered_fetch_idle_ttl_ms` AppConfigure 키는 렌더링 기반 `web_fetch`에 쓰이는 유휴 브라우저 사이드카 라우트를 정리하기까지의 대기 시간(idle timeout)을 제어할 뿐, URL 응답 캐시로 동작하지는 않습니다.
 
-## 레버 4: agent-loop 예산
+## 레버 4: agent-loop 예산 및 콜드 웨이크 세션 회전
 
-세 가지 테넌트 범위(`scope: :tenant`) AppConfigure 키로 단일 턴에서 지출할 수 있는 상한을 제어합니다.
+테넌트 범위(`scope: :tenant`) [AppConfigure](../app-configuration/) 키는 단일 턴 지출 상한을 제어하고 장기 스레드에서 프롬프트 캐시 만료 후 전체 이력이 반복 재과금되는 현상을 방지합니다.
 
-| 키 | 제한 대상 |
+| 키 | 제어 대상 |
 |---|---|
 | `ai_agent.max_iterations` | 턴당 에이전트 루프의 최대 반복(iteration) 횟수 |
 | `ai_agent.max_output_tokens` | 턴당 최대 출력 토큰 수 |
 | `ai_agent.inactivity_timeout_ms` | 무응답 상태인 턴을 회수하기까지의 유휴 허용 시간 |
+| `sessions.wake_recycle` | 콜드 웨이크 모델 대화 회전 정책(`min_cold_gap_seconds`: `3600`, `min_context_tokens`: `128000`, `im_max_idle_seconds`: `259200`) |
 
 불필요하게 길어지는 에이전트 루프를 잡아 주는 핵심 키는 `max_iterations`입니다. 도구를 두 번만 호출하면 끝날 일에 열 번씩 도구를 호출하면 모델 호출도 열 번 발생합니다. 이 상한을 낮추면 Agent가 제한된 횟수 안에 결론을 정리하도록 유도할 수 있습니다. `max_output_tokens`는 한 번에 생성하는 응답 길이를 제한합니다. 이 `ai_agent.*` 키들은 테넌트 범위 기본값(`scope: :tenant`, 테넌트 재정의가 없으면 사이트 기본값 상속)으로 동작합니다. 평소 일반적인 턴의 길이에 맞춰 설정하되, 복잡한 턴이 반복 상한에 도달하면 “지금까지 확보한 정보를 바탕으로 정리한 최종 답변” 형태로 마무리될 수 있다는 점을 감안하세요.
+
+한편 업스트림 프로바이더의 프롬프트 캐시가 만료된 뒤 거대한 누적 컨텍스트를 그대로 재개하면 다음 턴에서 전체 입력 토큰이 캐시 미적용 단가로 다시 청구됩니다. `sessions.wake_recycle`은 이러한 콜드 캐시 재과금을 막아 줍니다. Session이 `min_cold_gap_seconds`(기본 `1`시간) 이상 유휴 상태였다가 `min_context_tokens`(기본 `128,000` 토큰) 이상의 컨텍스트로 깨어나거나, 외부 메신저 채널에서 `im_max_idle_seconds`(기본 `72`시간) 이상 지난 뒤 재개되면, Ankole은 공개 채팅방 메시지 기록을 그대로 유지한 채 핵심 맥락을 담은 `<wake-briefing>`으로 새 AIGateway 모델 대화 브랜치를 시작합니다.
 
 ## 레버 5: Workflow fanout 및 task 시도
 

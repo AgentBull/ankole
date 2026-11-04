@@ -33,7 +33,17 @@ The current modules are:
   bounded retries and per-call timeouts. Large writes consume local files or
   acknowledged binary streams in 8 MiB chunks, though some backends buffer the
   full object. Byte-range reads return only the requested bytes to the caller.
-- `page_document/knowledge/` - deterministic OKF Markdown and YAML conversion for knowledge pages.
+- `page_document/knowledge/` - deterministic OKF Markdown and YAML conversion
+  and 3-way block and metadata merge for knowledge pages.
+- `vfs/` - stateless codecs for the Drive WebDAV boundary: WebDAV `PROPFIND`
+  validation and `multistatus` XML encoding, VFS path-segment and RFC 9110
+  `Range` header codecs, 3-way knowledge merge and anchored Markdown document
+  reconciliation (with `page_document/vfs.rs`), and Base tabular dot-directory
+  query pipelines, chunked CSV/TSV/JSON/JSONL imports and exports, field-CAS
+  record patches, and replay-stable UUIDv7 import IDs.
+- `markdown.rs` - source-byte range extraction for inline code and fenced or
+  indented code blocks, plus idempotent repair of common model-emitted Markdown
+  defects outside code, math, links, HTML, and wikilinks.
 - `model_image/` - validation and conversion of model images.
 - `signals/` - CEL routing-policy evaluation against a supplied context.
 - `page_document/` - page XML validation, canonical conversion, search text

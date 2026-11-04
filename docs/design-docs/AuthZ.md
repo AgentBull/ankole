@@ -35,10 +35,12 @@ authorization batches preserve that distinction for each resource.
 The assistant remains the executing Principal for audit attribution, runtime
 ownership and usage. Its private runtime root is distinct from the owner's Pod
 private tree, and its own root grants remain available for execution.
-`turn_authority`, `WorkAccess`, and
-Automation Job attempt checks validate that the instruction is still current,
-including its Human status and access version. These instruction checks do not
-add a second resource subject.
+`turn_authority`, `WorkAccess`, and `AttemptAccess` validate that an
+instruction or running attempt remains current: `WorkAccess` checks Human status
+and `access_version` at admission, while `AttemptAccess` fences running Applet
+Action attempts (`AutomationJobs`) by `run_id` and attempt UUID against run
+cancellation or lease replacement. These instruction checks do not add a second
+resource subject.
 
 At compile time, resources declare authorization rules through
 `Ankole.AuthZ.Extension` (`authz` blocks), specifying the scope, target

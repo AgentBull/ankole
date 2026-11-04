@@ -868,9 +868,10 @@ Whenever `apply` throws, the current document remains untouched. Revision number
 | `@ankole/block-editor` | `BlockEditor`, `useEditor`, and type `EditorHandle` |
 | `@ankole/block-editor/document` | `parseMarkdown`, `printMarkdown`, `parseXml`, `printXml`, `resourceContent`, `resourceText` |
 | `@ankole/block-editor/editor` | `editorPhrases`, `PageSession`, `PageCollaboration`, `remoteSelections`, `insertEmbed`, `commitMention`, `insertMention`, `mentionField`, `insertImage`, `insertResource`, `toggleFormat`, `undo`, `commentSelection`, `trackCommentSelection`, `commentRanges`, `revealComment`, `EditorSelection`, and types `EditorLabels`, `Editor`, `EditorHost`, `EmbedAttributes`, `MentionTarget`, `MentionCategory`, `MentionSession`, `MentionItem`, `MentionQueryResult`, `MountMentionOptions`, `ResourceAttributes`, `ResourceKind`, `PageChanges`, `RemoteSelection`, `CommentSelection`, `CommentRange` |
+| `@ankole/block-editor/reader` | `KnowledgeReader` and type `KnowledgeReaderProps` |
 | `@ankole/block-editor/styles.css` | Styles scoped to the editor and its overlays |
 
-Host applications—including the Pod web app, Worker tools, and the embedding playground—import exclusively from these four entry points (for example, the embedding playground builds its custom toolbar with `useEditor`, `toggleFormat`, and `undo`), whereas internal package modules and tests use relative imports. Hosts read snapshots with `PageSession.read()` and perform revision-checked whole-page replacements with `PageSession.apply()`.
+Host applications—including the Pod web app, Worker tools, and the embedding playground—import exclusively from these five entry points (for example, the embedding playground builds its custom toolbar with `useEditor`, `toggleFormat`, and `undo`), whereas internal package modules and tests use relative imports. Hosts read snapshots with `PageSession.read()` and perform revision-checked whole-page replacements with `PageSession.apply()`.
 
 Passing the optional `host` prop to `BlockEditor` wires `EditorHost` integration hooks:
 

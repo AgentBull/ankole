@@ -176,7 +176,7 @@ fn inline_xml<'a>(node: &'a AstNode<'a>) -> Result<String> {
         NodeValue::Text(value) => mention_text(value),
         NodeValue::SoftBreak => "\n".into(),
         NodeValue::LineBreak => "<br/>".into(),
-        NodeValue::Code(code) => format!("<code>{}</code>", escape(&code.literal)),
+        NodeValue::Code(code) => format!("<code>{}</code>", escape(&code.literal, false)),
         NodeValue::HtmlInline(value) => value.clone(),
         NodeValue::Strong | NodeValue::Emph | NodeValue::Strikethrough => {
             let tag = match data.value {
@@ -193,9 +193,9 @@ fn inline_xml<'a>(node: &'a AstNode<'a>) -> Result<String> {
         }
         NodeValue::Link(link) => {
             if let Some(page) = link.url.strip_prefix("ankole:page/") {
-                format!("<mention page=\"{}\"/>", escape(page))
+                format!("<mention page=\"{}\"/>", escape(page, true))
             } else if let Some(uid) = link.url.strip_prefix("ankole:principal/") {
-                format!("<mention principal=\"{}\"/>", escape(uid))
+                format!("<mention principal=\"{}\"/>", escape(uid, true))
             } else {
                 let children = node
                     .children()
@@ -204,8 +204,8 @@ fn inline_xml<'a>(node: &'a AstNode<'a>) -> Result<String> {
                     .join("");
                 format!(
                     "<a href=\"{}\" title=\"{}\">{children}</a>",
-                    escape(&link.url),
-                    escape(&link.title)
+                    escape(&link.url, true),
+                    escape(&link.title, true)
                 )
             }
         }
@@ -219,9 +219,9 @@ fn inline_xml<'a>(node: &'a AstNode<'a>) -> Result<String> {
                 .collect::<String>();
             format!(
                 "<img src=\"{}\" alt=\"{}\" title=\"{}\"/>",
-                escape(&image.url),
-                escape(&alt),
-                escape(&image.title)
+                escape(&image.url, true),
+                escape(&alt, true),
+                escape(&image.title, true)
             )
         }
         value => return Err(format!("unsupported knowledge Markdown inline: {value:?}")),
@@ -238,19 +238,20 @@ fn mention_text(value: &str) -> String {
     let mut offset = 0;
     for capture in MENTION.captures_iter(value) {
         let whole = capture.get(0).expect("full match");
-        out.push_str(&escape(&value[offset..whole.start()]));
-        out.push_str(&escape(&capture[1]));
-        out.push_str(&format!("<mention principal=\"{}\"/>", escape(&capture[2])));
+        out.push_str(&escape(&value[offset..whole.start()], false));
+        out.push_str(&escape(&capture[1], false));
+        out.push_str(&format!(
+            "<mention principal=\"{}\"/>",
+            escape(&capture[2], true)
+        ));
         offset = whole.end();
     }
-    out.push_str(&escape(&value[offset..]));
+    out.push_str(&escape(&value[offset..], false));
     out
 }
 
-pub(super) fn escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+fn escape(value: &str, attribute: bool) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    tree::escape_into(value, attribute, &mut escaped);
+    escaped
 }

@@ -27,7 +27,7 @@ defmodule Ankole.Pod.Files.Content do
   end
 
   def commit_in_tx(actor, id, stored, attrs \\ %{}) do
-    require_transaction!(:commit_in_tx)
+    Repo.require_transaction!({__MODULE__, :commit_in_tx})
 
     with {:ok, actor} <- actor(actor),
          {:ok, node} <- Nodes.lock(id),
@@ -72,7 +72,7 @@ defmodule Ankole.Pod.Files.Content do
   def authorize_write(_actor, _node), do: {:error, :not_a_file}
 
   def create_conversation_file_in_tx(conversation_id, name, stored, attrs \\ %{}) do
-    require_transaction!(:create_conversation_file_in_tx)
+    Repo.require_transaction!({__MODULE__, :create_conversation_file_in_tx})
 
     with {:ok, root} <- Nodes.ensure_conversation_root_in_tx(conversation_id),
          {:ok, object} <- Objects.complete_in_tx(stored) do
@@ -84,7 +84,7 @@ defmodule Ankole.Pod.Files.Content do
   end
 
   def create_private_file_in_tx(uid, name, stored, attrs \\ %{}) do
-    require_transaction!(:create_private_file_in_tx)
+    Repo.require_transaction!({__MODULE__, :create_private_file_in_tx})
 
     with {:ok, root} <- Nodes.ensure_private_root_in_tx(uid),
          :ok <- Paths.lock_root(root.id),
@@ -120,10 +120,5 @@ defmodule Ankole.Pod.Files.Content do
   def actor(uid) when is_binary(uid) do
     with {:ok, principal} <- Ankole.Principals.get_principal(uid),
          do: {:ok, Actor.new(principal)}
-  end
-
-  defp require_transaction!(operation) do
-    unless Repo.in_transaction?(),
-      do: raise(Ankole.Errors.Framework.TransactionRequired, operation: {__MODULE__, operation})
   end
 end

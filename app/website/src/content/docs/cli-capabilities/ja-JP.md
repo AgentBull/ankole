@@ -5,7 +5,7 @@ section: Developer guide
 order: 114
 ---
 
-Ankole の機能の中には、モデルに直接公開するツール定義ではなく、Agent Computer 上のシェルコマンド（CLI）として提供されているものがあります。Agent は `kubectl` を使うのと同じ感覚でシェルからこれらを呼び出します。`ankole-pod`（`pages.*`、`base.*`、`applet build|publish|pull`）、`ankole-files`、`ankole-browser`、Webhook エンドポイント操作コマンド、および automation job 操作コマンドはいずれもこの形態をとっています。
+Ankole の機能の中には、モデルに直接公開するツール定義ではなく、Agent Computer 上のシェルコマンド（CLI）として提供されているものがあります。Agent は `kubectl` を使うのと同じ感覚でシェルからこれらを呼び出します。`ankole-pod`（`pages.*`、`base.*`、`applet build|publish|pull`、`jobs`）、`ankole-files`、`ankole-browser`、および Webhook エンドポイント操作コマンドはいずれもこの形態をとっています。
 
 このページでは、どのような機能を CLI として実装すべきかという基準と、ツール登録・Skill インデックス・システムプロンプトへの常駐記述なしに Agent が機能を正確に見つけて使えるようにする「段階的開示アーキテクチャ」について説明します。
 

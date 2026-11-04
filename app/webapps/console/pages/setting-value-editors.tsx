@@ -1,3 +1,4 @@
+import { recordValue, safeJsonParse } from '@agentbull/active-support'
 import {
   CreatableCombobox,
   Input,
@@ -180,13 +181,7 @@ function DurationSettingEditor({ item, value, onChange }: SettingValueEditorProp
 
 function LimitsSettingEditor({ item, value, onChange }: SettingValueEditorProps) {
   const { t } = useTranslation()
-  let draft: Record<string, unknown> = {}
-  try {
-    const parsed = JSON.parse(value)
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) draft = parsed
-  } catch {
-    /* The field keeps invalid drafts visible. */
-  }
+  const draft = recordValue(safeJsonParse(value).unwrapOr(undefined)) ?? {}
   const fields = Object.keys(item.value && typeof item.value === 'object' ? item.value : draft).sort((a, b) =>
     a === 'window_seconds' ? -1 : b === 'window_seconds' ? 1 : a.localeCompare(b)
   )

@@ -4,7 +4,7 @@ import { isRecord, ms } from '@agentbull/active-support'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { TOML } from 'bun'
-import { errorMessage } from '../../../common/errors'
+import { nodeErrorCode, errorMessage } from '../../../common/errors'
 
 type TomlTable = Record<string, unknown>
 
@@ -98,7 +98,7 @@ function readToml(path: string): TomlTable {
     if (!isRecord(parsed)) throw new Error('TOML root must be a table')
     return parsed
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return {}
+    if (nodeErrorCode(error) === 'ENOENT') return {}
     throw new Error(`invalid Codex project config ${path}: ${errorMessage(error)}`)
   }
 }

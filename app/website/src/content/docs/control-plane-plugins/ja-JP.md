@@ -37,13 +37,14 @@ Control Plane Plugins はリリースビルドにコンパイルされるファ�
 
 ## サブシステム契約とサイト拡張ポイント
 
-`Ankole.Plugins.Contracts` には 5 種類のサブシステムアダプター契約が定義されています。各契約は起動時の `validate` に加え、必要に応じてアクティブ状態の反映（`refresh`）や無効化防止ガード（`veto_disable`）を備えています。
+Control Plane Plugins は 6 種類のサブシステムアダプター契約（`Ankole.Plugins.Contracts` および `Ankole.Connectors.Registry`）を宣言でき、起動時の `validate` に加えてアクティブ状態の反映（`refresh`）や無効化防止ガード（`veto_disable`）を組み合わせます。
 
 - **`signals.adapter`** — `Ankole.Signals.Adapters` で検証されるメッセージング・イベントアダプターを宣言し、Signal Bindings および Conversations の配信で利用できるようにします。
 - **`signals.webhook_handler`** — `/webhooks/v1/:handler_id/:instance_id/:kind` で受け付ける HTTP Webhook ハンドラーを宣言します（`Ankole.Signals.WebhookHandlers` が検証）。
-- **`principals.identity_provider`** — エンタープライズ Identity Provider およびディレクトリ同期アダプターを宣言します（`Ankole.IdentityProviders` が検証）。
+- **`principals.identity_provider`** — エンタープライズ Identity Provider およびディレクトリ同期アダプターを宣言します（`Ankole.IdentityProviders` が検証し、テナントの Identity Provider 設定が残っている間は `veto_disable` で無効化を拒否します）。
 - **`ai_gateway.provider`** — `Ankole.AIGateway.Providers` で検証されるモデルプロバイダーアダプターを宣言し、`refresh` によってアクティブな宣言を AI Gateway に公開します。
-- **`agent_workers.provider_kind`** — Agent Worker のインフラ種別（`Ankole.AgentWorkers.ProviderKind`）を宣言します。`refresh` で発見済み・アクティブな仕様を公開するとともに、いずれかのテナントに対象種別の割り当て済み Worker レコードが残っている間は `veto_disable`（`Ankole.AgentWorkers.Providers.veto_disable_in_tx/2`）によってプラグインの無効化を拒否します。
+- **`agent_workers.provider_kind`** — Agent Worker のインフラ種別（`Ankole.AgentWorkers.ProviderKind`）を宣言し、起動時に検証したうえで `refresh` により発見済み・アクティブな仕様を公開します。
+- **`connectors.connector`** — `Ankole.Connectors` が提供する統合プラットフォームコネクターを宣言し、共有アプリケーション認証情報（`authConfigId`）、個人 OAuth フロー、外部イベントトリガー、内部 MCP ツールキット（`ToolSpec`）を提供します。`lark-adapter`、`github-adapter`、`linear-adapter` が実装しており、このうち `github-adapter` と `linear-adapter` は `activation: :always` を宣言しています。
 
 さらにサイトビルド全体では、ファーストパーティ拡張向けにコンパイル時・サイトスコープの拡張ポイントも用意されています。
 
@@ -80,7 +81,7 @@ Control Plane Plugins はリリースビルドにコンパイルされるファ�
 
 ## 責務の境界
 
-Control Plane Plugins は control plane と同一の BEAM ノードおよび信頼ドメイン内で動作します。一方、Agent Computer Worker 上で動くツールや Skill はここには含まれず、[Agent Library](../agent-library/) 側で管理されます。control plane 側のアダプターと関連する Agent Plugin は、それぞれ独立した有効化状態を持ちます。
+Control Plane Plugins は control plane と同一の BEAM ノードおよび信頼ドメイン内で動作します。`connectors.connector`（`Ankole.Connectors`）を通じて公開される内部 MCP ツールキットを除き、Agent Computer Worker 側の Skill やワークスペーステンプレートはここには含まれず **Meta Ankole**（[Agent Library](../agent-library/)）側で管理されます。control plane 側のアダプターと関連する Agent Plugin は、それぞれ独立した有効化状態を持ちます。
 
 ## 次のステップ
 

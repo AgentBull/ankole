@@ -14,8 +14,14 @@ defmodule Ankole.Pod.Pages.Mentions do
   @max_candidates_limit 30
   @default_candidates_limit 20
   @max_resolve_ids 200
+  @doc false
+  def principal_uids(xml) do
+    ~r/<mention\s+principal="([^"]+)"\s*\/>/
+    |> Regex.scan(xml, capture: :all_but_first)
+    |> List.flatten()
+  end
+
   @page_mention_regex ~r/<mention\s+page="([^"]+)"\s*\/>/
-  @principal_mention_regex ~r/<mention\s+principal="([^"]+)"\s*\/>/
 
   def candidates(%AuthZ.Actor{} = actor, opts \\ %{}) when is_map(opts) do
     Repo.transact_repeatable_read_only(fn -> candidates_in_tx(actor, opts) end)
@@ -115,9 +121,7 @@ defmodule Ankole.Pod.Pages.Mentions do
       |> Enum.take(@max_resolve_ids)
 
     principal_uids =
-      @principal_mention_regex
-      |> Regex.scan(xml, capture: :all_but_first)
-      |> List.flatten()
+      principal_uids(xml)
       |> Enum.uniq()
       |> Enum.take(@max_resolve_ids)
 
@@ -696,18 +700,7 @@ defmodule Ankole.Pod.Pages.Mentions do
           status in [:ok, :trashed],
           do: Map.fetch!(pages_by_id, id)
 
-    doc_ids = for %{type: type, id: id} <- accessible_pages, type in [:doc, :knowledge], do: id
-
-    excerpts_by_id =
-      if doc_ids == [] do
-        %{}
-      else
-        PageContent
-        |> Ash.Query.filter(page_id in ^doc_ids)
-        |> Ash.Query.select([:page_id, :plain_text])
-        |> Ankole.Ash.read!()
-        |> Map.new(fn row -> {row.page_id, excerpt_text(row.plain_text)} end)
-      end
+    excerpts_by_id = Ankole.Pod.Pages.Queries.excerpts_by_id(accessible_pages)
 
     file_ids = for %{type: :file, id: id} <- accessible_pages, do: id
     files_by_id = Files.primary_files_by_page(file_ids)
@@ -787,9 +780,7 @@ defmodule Ankole.Pod.Pages.Mentions do
       texts = [if(content, do: content.content, else: "") | Enum.map(comments, &(&1.body || ""))]
 
       Enum.reduce(texts, MapSet.new(), fn text, acc ->
-        @principal_mention_regex
-        |> Regex.scan(text, capture: :all_but_first)
-        |> List.flatten()
+        principal_uids(text)
         |> Enum.reduce(acc, &MapSet.put(&2, &1))
       end)
     else
@@ -966,14 +957,6 @@ defmodule Ankole.Pod.Pages.Mentions do
       end
     end
   end
-
-  defp excerpt_text(text) when is_binary(text) do
-    text
-    |> String.trim()
-    |> String.slice(0, 300)
-  end
-
-  defp excerpt_text(_text), do: ""
 
   defp normalize_category(value) when value in [:all, "all", nil, ""], do: {:ok, :all}
   defp normalize_category(value) when value in [:page, "page"], do: {:ok, :page}

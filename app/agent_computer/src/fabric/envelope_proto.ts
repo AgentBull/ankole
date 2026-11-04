@@ -8,7 +8,7 @@ import {
   type FetchRuntimeConfig,
   type TurnModelRef as TurnModelRefMessage
 } from './generated/ankole/runtime_fabric/v1/envelope_pb'
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { isRecord, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { Buffer } from 'node:buffer'
 
 type JSONValue = string | number | boolean | null | JSONValue[] | JSONObject
@@ -99,7 +99,7 @@ export function jsonFromBytes(bytes: Uint8Array): JSONValue | undefined {
 export function jsonObjectFromBytes(bytes: Uint8Array, field: string): JSONObject | undefined {
   const value = jsonFromBytes(bytes)
   if (value === undefined) return undefined
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error(`${field} must decode to a JSON object`)
   }
   return value as JSONObject

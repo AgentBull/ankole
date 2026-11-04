@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
   @moduledoc false
 
   alias Ankole.IdentityProviders.Directory, as: IdentityDirectory
-  alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.IdentityProviders.Phone
   alias Ankole.Plugins.GoogleWorkspaceAdapter.Config
   alias Ankole.Plugins.MapHelpers
   alias GoogleOpenAPI.Auth
@@ -301,15 +301,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
       %{"type" => "mobile"} = phone -> MapHelpers.optional_text(phone, "value")
       _other -> nil
     end)
-    |> case do
-      nil ->
-        nil
-
-      phone ->
-        case NativeKernel.phone_normalize_e164(String.trim(phone)) do
-          normalized when is_binary(normalized) -> normalized
-          {:error, _reason} -> nil
-        end
-    end
+    |> Phone.normalize_e164()
   end
 end

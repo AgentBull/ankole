@@ -17,9 +17,9 @@ Each `Ankole.Sessions.Tool` struct defines the model-visible JSON Schema, execut
 
 Each tool executes at the runtime boundary that owns its state:
 
-- **Control-plane domain tools** handle Session planning, schedules, Background Agent Jobs, Workflows, Skill loading, and configured `web_search` / `web_fetch` providers.
+- **Control-plane domain tools** handle Session planning, schedules, Background Agent Jobs, Workflows, Skill loading (`skill_view`), Brain tools, Pod and Unified Drive tools (including `reply_attachment`), `propose_action_card` interactive approvals, `send_to_agent` peer delegation, and configured `web_search` / `web_fetch` providers.
 - **Worker computer tools** run on the Agent's Worker over RuntimeFabric; the first environment call in a Session opens that Session's workspace, with the Worker managing its concurrency slot and child processes while the control plane commits durable results.
-- **MCP-backed Skills** invoke `mcporter` on the Worker through the `command` tool.
+- **MCP-backed Skills** invoke `mcporter` on the Worker through the `command` tool using an invocation-scoped config: `connector` (built-in Toolkits) and `streamable_http` Skill MCP dependencies route through the control-plane `Ankole.Connectors` MCP gateway with a short-lived turn-scoped internal token—keeping upstream credentials inside the control plane—while `stdio` MCP servers launch locally inside the Worker.
 - **Provider-hosted tools** execute through AIGateway whenever the selected model declares support for them.
 
 The Driver dispatches calls in parallel or sequentially according to each tool's concurrency metadata. Tools with durable control-plane side effects run through `Ankole.Sessions.Receipts` so the domain write and tool receipt commit together in PostgreSQL, and AIGateway stores the resulting tool output for the next model turn. If a Worker disconnects mid-execution, the Driver resolves the interrupted environment call using the tool's declared retry policy.

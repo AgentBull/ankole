@@ -79,7 +79,9 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
         end
 
       request
-      |> UniversalAIRequest.put_provider_options(normalize_provider_options(provider_options))
+      |> UniversalAIRequest.put_provider_options(provider_options)
+      |> UniversalAIRequest.rename_provider_option("serviceTier", "service_tier")
+      |> UniversalAIRequest.rename_provider_option("promptCacheKey", "prompt_cache_key")
       |> put_protocol_headers(ctx, protocol, websocket?)
       |> UniversalAIRequest.bearer_auth(ctx.settings[:access_token])
     end
@@ -116,7 +118,7 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
     headers =
       ctx
       |> UniversalAIRequest.raw_headers()
-      |> UniversalAIRequest.put_header("Authorization", bearer(ctx.settings[:access_token]))
+      |> UniversalAIRequest.bearer_auth(ctx.settings[:access_token])
       |> maybe_put_account_header(ctx.settings)
       |> maybe_put_identity_headers(ctx.settings, %{})
       |> maybe_put_fedramp(ctx.settings)
@@ -220,19 +222,6 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
   defp accept_header(true), do: "text/event-stream"
   defp accept_header(false), do: "application/json"
 
-  defp normalize_provider_options(options) do
-    options
-    |> rename_option("serviceTier", "service_tier")
-    |> rename_option("promptCacheKey", "prompt_cache_key")
-  end
-
-  defp rename_option(options, source, target) do
-    case Map.pop(options, source) do
-      {nil, options} -> options
-      {value, options} -> Map.put(options, target, value)
-    end
-  end
-
   defp api_key_auth?(settings),
     do: settings[:auth_type] in ["enterprise_access_token", "api_key"]
 
@@ -250,10 +239,6 @@ defmodule Ankole.AIGateway.Providers.ChatGPTSubscription do
   end
 
   defp text?(value), do: is_binary(value) and String.trim(value) != ""
-
-  defp bearer(nil), do: nil
-  defp bearer(""), do: nil
-  defp bearer(value), do: "Bearer #{String.replace_prefix(value, "Bearer ", "")}"
 
   defp default_user_agent do
     {os_family, os_name} = :os.type()

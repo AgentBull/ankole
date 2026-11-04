@@ -940,14 +940,9 @@ defmodule Ankole.Sessions.Prompt.Input do
     end)
   end
 
-  defp zoned(value, zone) when is_binary(value) do
-    with {:ok, at, _} <- DateTime.from_iso8601(value),
-         {:ok, local} <- Ankole.TimeZone.shift(at, if(zone == "UTC", do: "Etc/UTC", else: zone)),
-         do: Calendar.strftime(local, "%Y-%m-%d %H:%M"),
-         else: (_ -> nil)
-  end
+  defp zoned(value, zone),
+    do: Ankole.TimeZone.format_instant(value, zone, "%Y-%m-%d %H:%M")
 
-  defp zoned(_, _), do: nil
   defp text_part(text), do: %{"type" => "input_text", "text" => text}
 
   defp object(value, path) do

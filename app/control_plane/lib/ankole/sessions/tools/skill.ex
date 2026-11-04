@@ -109,11 +109,5 @@ defmodule Ankole.Sessions.Tools.Skill do
     end
   end
 
-  defp escape(text),
-    do:
-      text
-      |> String.replace("&", "&amp;")
-      |> String.replace("\"", "&quot;")
-      |> String.replace("<", "&lt;")
-      |> String.replace(">", "&gt;")
+  defp escape(text), do: text |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
 end

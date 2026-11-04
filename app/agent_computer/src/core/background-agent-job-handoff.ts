@@ -1,3 +1,4 @@
+import { isLength } from '@agentbull/active-support'
 import { utf8ByteLength } from '../common/text-sanitize'
 
 export const BACKGROUND_AGENT_JOB_HANDOFF_MAX_PATHS = 32
@@ -42,7 +43,7 @@ export function boundedBackgroundAgentJobPaths(
     serializedBytes += addedBytes
   }
 
-  const declaredTotal = nonnegativeSafeInteger(declared.totalCount)
+  const declaredTotal = isLength(declared.totalCount) ? declared.totalCount : undefined
   const totalCount = Math.max(observedCount + invalidCount, declaredTotal ?? 0)
   return {
     total_count: totalCount,
@@ -59,8 +60,4 @@ export function mergeBackgroundAgentJobPathHandoffs(
     totalCount: left.total_count + right.total_count,
     truncated: left.truncated || right.truncated
   })
-}
-
-function nonnegativeSafeInteger(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 }

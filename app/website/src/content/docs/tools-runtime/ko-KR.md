@@ -15,10 +15,10 @@ order: 120
 
 ## 소유자에서 실행
 
-- Session 계획(`todo`), 스케줄, Background Agent Job, Workflow, Skill 조회(`skill_view`), 도메인 Web 도구는 제어 플레인 내 각 소유 도메인 모듈이 직접 실행합니다.
-- 컴퓨터 환경 작업은 RuntimeFabric을 거쳐 해당 Agent의 Worker에 위임합니다. 환경 작업을 처음 실행할 때 Session workspace가 열리며, 실행 슬롯과 프로세스 상태는 Worker가 관리하고 영속 결과는 제어 플레인이 소유합니다.
-- MCP 기반 Skill은 Worker의 컴퓨터 `command` 도구와 mcporter CLI를 통해 실행됩니다.
-- Provider hosted 도구는 AIGateway를 통해 실행되며, 선택한 모델이 선언한 지원 기능을 따릅니다.
+- **제어 플레인 도메인 도구:** Session 계획(`todo`), 스케줄, Background Agent Job, Workflow, Skill 조회(`skill_view`), Brain 도구, Pod 및 통합 드라이브 도구(`reply_attachment` 포함), `propose_action_card` 대화형 승인 카드, `send_to_agent` 동료 위임, 구성된 `web_search` / `web_fetch` 도구는 제어 플레인 내 각 소유 도메인 모듈이 직접 실행합니다.
+- **Worker 컴퓨터 환경 도구:** 파일 및 셸 등의 컴퓨터 환경 작업은 RuntimeFabric을 거쳐 해당 Agent의 Worker에 위임합니다. 환경 작업을 처음 실행할 때 Session workspace가 열리며, 실행 슬롯과 프로세스 상태는 Worker가 관리하고 영속 결과는 제어 플레인이 소유합니다.
+- **MCP 기반 Skill:** 호출 범위 설정을 바탕으로 Worker의 컴퓨터 `command` 도구와 `mcporter` CLI를 통해 실행됩니다. 내장 Toolkit을 쓰는 `connector` 및 `streamable_http` 방식의 Skill MCP 의존성은 턴 범위 단기 내부 토큰을 사용해 제어 플레인의 `Ankole.Connectors` MCP 게이트웨이를 경유하므로 상위 자격 증명이 제어 플레인 안에 안전하게 남으며, `stdio` 방식의 MCP 서버는 Worker 로컬에서 실행됩니다.
+- **Provider hosted 도구:** AIGateway를 통해 실행되며, 선택한 모델이 선언한 지원 기능을 따릅니다.
 
 Driver는 도구 선언에 따라 병렬 또는 순차 실행을 스케줄링합니다. 영속 상태 변경이 수반되는 도구는 `Ankole.Sessions.Receipts`를 사용해 도메인 데이터 변경과 실행 결과를 단일 트랜잭션으로 함께 커밋하고, AIGateway는 다음 모델 반복에서 참조할 도구 출력을 저장합니다. 실행 도중 Worker 연결이 끊기면 Driver는 도구에 선언된 재시도 계약에 따라 결과 확인이 불확실한 환경 작업을 처리합니다.
 

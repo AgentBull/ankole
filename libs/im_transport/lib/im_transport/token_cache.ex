@@ -48,6 +48,26 @@ defmodule IMTransport.TokenCache do
     expires_at_ms - System.monotonic_time(:millisecond) - @refresh_lead_ms
   end
 
+  @doc "Fingerprints a credential without invoking secret closures."
+  def secret_fingerprint(secret) when is_binary(secret),
+    do: {:binary, :crypto.hash(:sha256, secret)}
+
+  def secret_fingerprint(fun) when is_function(fun, 0), do: {:fun, :erlang.phash2(fun)}
+
+  @doc "Finds or starts a token manager registered under the credential key."
+  def ensure_started(registry, supervisor, key, child_spec) do
+    case Registry.lookup(registry, key) do
+      [{pid, _value}] ->
+        pid
+
+      [] ->
+        case DynamicSupervisor.start_child(supervisor, child_spec) do
+          {:ok, pid} -> pid
+          {:error, {:already_started, pid}} -> pid
+        end
+    end
+  end
+
   @doc "Creates a public named ETS table when the name is free."
   @spec ensure_table(atom()) :: atom()
   def ensure_table(table) when is_atom(table) do

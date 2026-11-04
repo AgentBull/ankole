@@ -381,7 +381,7 @@ Applet publication binds all object references and its manifest atomically.
 Custom emoji have no node owner and survive individual page purge. These
 resources are accessible through `ankole-pod`, including `applet pull`.
 
-## Skills and Automation
+## Skills, Contracts, and Brain Projections
 
 `/drive/Skills` contains the current Agent's enabled packages from the Library
 domain. `/drive/AGENTS.md` and `/drive/DESIGN.md` contain its effective composed

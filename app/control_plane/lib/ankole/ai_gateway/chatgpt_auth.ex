@@ -809,12 +809,7 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
     end)
   end
 
-  defp optional_text(map, key) do
-    case required_text(map, key) do
-      {:ok, value} -> value
-      {:error, _reason} -> nil
-    end
-  end
+  defp optional_text(map, key), do: Ankole.Plugins.MapHelpers.optional_text(map, key)
 
   defp missing_key("refresh_token"), do: :missing_refresh_token
   defp missing_key(key), do: {:missing, key}

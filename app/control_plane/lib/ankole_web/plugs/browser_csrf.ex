@@ -45,8 +45,7 @@ defmodule AnkoleWeb.Plugs.BrowserCSRF do
   end
 
   defp same_origin?(conn) do
-    origin =
-      URI.to_string(%URI{scheme: Atom.to_string(conn.scheme), host: conn.host, port: conn.port})
+    origin = AnkoleWeb.Plugs.RequestHost.origin(conn)
 
     get_req_header(conn, "origin") in [[], [origin]]
   end

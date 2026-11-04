@@ -6,7 +6,7 @@ import type { BrowserRuntime } from '../browser-runtime'
 import { Drive } from '../drive/drive'
 import type { ActiveTurn } from './active_turns'
 import type { WorkerConfig } from './config'
-import { workerLogger } from './logging'
+import { turnOperation, workerLogger } from './logging'
 import { requestAIGatewayAPIKey, throwingRPCRequester } from './rpc_requests'
 import { prepareTurnWorkspace } from './workspace'
 
@@ -61,12 +61,5 @@ export async function executeActiveTurn(
     })
   } finally {
     cliBridges.close()
-  }
-}
-
-function turnOperation(signalID: string): { id: string; producer: string } {
-  return {
-    id: signalID,
-    producer: 'ankole-worker/turn'
   }
 }

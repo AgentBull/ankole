@@ -1,3 +1,4 @@
+import { formatRelativeTime } from '../common/date-time'
 import { formatFileBytes } from '../common/file-format'
 import { usePageHref, usePageMetadata, usePageTransliteration } from './use-page-metadata'
 import { pageMetadata } from './state/page-metadata'
@@ -37,33 +38,6 @@ import {
   type MentionStore,
   type PageCandidate
 } from './state/document-mentions'
-
-function formatRelativeTime(iso: string | null | undefined, locale: string): string {
-  if (!iso) return ''
-  const timestamp = Date.parse(iso)
-  if (Number.isNaN(timestamp)) return ''
-  const diffSeconds = Math.round((timestamp - Date.now()) / 1000)
-  const absSeconds = Math.abs(diffSeconds)
-  try {
-    const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
-    if (absSeconds < 60) return rtf.format(diffSeconds, 'second')
-    const diffMinutes = Math.round(diffSeconds / 60)
-    if (Math.abs(diffMinutes) < 60) return rtf.format(diffMinutes, 'minute')
-    const diffHours = Math.round(diffMinutes / 60)
-    if (Math.abs(diffHours) < 24) return rtf.format(diffHours, 'hour')
-    const diffDays = Math.round(diffHours / 24)
-    if (Math.abs(diffDays) < 7) return rtf.format(diffDays, 'day')
-    const date = new Date(timestamp)
-    const sameYear = date.getFullYear() === new Date().getFullYear()
-    return new Intl.DateTimeFormat(locale, {
-      month: 'short',
-      day: 'numeric',
-      ...(sameYear ? {} : { year: 'numeric' })
-    }).format(date)
-  } catch {
-    return iso.slice(0, 10)
-  }
-}
 
 function pageLocationPath(
   page: {

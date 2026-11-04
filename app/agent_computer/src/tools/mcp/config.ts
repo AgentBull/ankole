@@ -1,3 +1,5 @@
+import { ENV_NAME_FORMAT } from '../../core/execution/command-env'
+import { pathIsWithin } from '../../core/path-boundary'
 import { readFile, realpath } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { YAML } from 'bun'
@@ -12,7 +14,7 @@ import {
 } from '../../skills/effective-skill'
 import { utf8ByteLength } from '../../common/text-sanitize'
 import { compareCodePointStrings } from '../../common/ordering'
-import { errorMessage } from '../../common/errors'
+import { nodeErrorCode, errorMessage } from '../../common/errors'
 
 const MAX_METADATA_BYTES = 64 * 1024
 const MAX_ENABLED_SKILLS = 128
@@ -27,7 +29,7 @@ const ServerName = z
     message: 'server name must not contain control characters'
   })
 const Description = z.string().trim().min(1).max(1024)
-const EnvironmentVariableName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
+const EnvironmentVariableName = z.string().regex(ENV_NAME_FORMAT)
 const ToolFilter = z.array(z.string().min(1).max(1024)).max(MAX_FILTERED_TOOLS_PER_SERVER)
 const MCPProtocolVersion = z.enum(['auto', 'legacy', '2026-07-28'])
 const HTTPURL = z
@@ -192,7 +194,7 @@ async function readSkillMCPDependencies(
   try {
     content = await readFile(metadataPath, 'utf8')
   } catch (error) {
-    if (isMissingFileError(error)) return { skillName, dependencies: [] }
+    if (nodeErrorCode(error) === 'ENOENT') return { skillName, dependencies: [] }
     throw new Error(`failed to read MCP metadata for Skill ${skillName}: ${errorMessage(error)}`)
   }
 
@@ -201,7 +203,7 @@ async function readSkillMCPDependencies(
   }
 
   const [realSkillRoot, realMetadataPath] = await Promise.all([realpath(skillRoot), realpath(metadataPath)])
-  if (realMetadataPath !== realSkillRoot && !realMetadataPath.startsWith(`${realSkillRoot}/`)) {
+  if (!pathIsWithin(realSkillRoot, realMetadataPath)) {
     throw new Error(`MCP metadata for Skill ${skillName} escapes its source directory`)
   }
 
@@ -289,8 +291,4 @@ function serverConnectionIdentity(server: MCPServerConfig): string {
 
 function normalizedToolFilter(tools: string[] | undefined): string[] | null {
   return tools ? [...new Set(tools)].sort(compareCodePointStrings) : null
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return error instanceof Error && 'code' in error && error.code === 'ENOENT'
 }

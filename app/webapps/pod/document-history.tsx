@@ -1,3 +1,4 @@
+import { formatDateTime } from '../common/date-time'
 import { Badge, Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
 import { RiCloseLine, RiDownloadLine, RiHistoryLine } from '@remixicon/react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -73,8 +74,7 @@ export function DocumentHistory({
       void client.invalidateQueries({ queryKey: contentKeys.page(detail.page.id) })
     }
   })
-  const date = (value: string) =>
-    new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  const date = (value: string) => formatDateTime(value, i18n.language)
   const exportSnapshot = useMutation({
     mutationFn: () =>
       detail.page.type === 'knowledge'

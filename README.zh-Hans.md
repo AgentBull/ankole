@@ -17,9 +17,9 @@
 
 </div>
 
-Ankole 是一套开源的企业数字总部（在线工作空间 **Pod**）与多智能体运行时。在同一个浏览器空间里，团队成员与 AI 同事（Agent）共用**协同文档**与**演示稿**、**实时业务多维表（Base）**、按需生成且自带无状态云后台的**业务小应用（Applet）**，以及**多人多 AI 协作聊天室（Pod Chat）**；飞书、Slack、Microsoft Teams、钉钉、企业微信和电子邮件作为外部通知与消息入口接入。
+Ankole 是一套开源的企业数字总部（在线工作空间 **Pod**）与多智能体运行时。在同一个浏览器空间里，团队成员、每位成员专属的**个人助理（Personal Assistant）**与职能 **AI 同事（AI Colleague）** 共用**协同文档**与**演示稿**、**实时业务多维表（Base）**、按需生成且自带无状态云后台与确定性自动动作的**业务小应用（Applet）**、支持跨 AI 对等委托的**协作聊天室（Pod Chat）**，以及沉淀组织认知与规矩的 **`Meta Ankole`**（**企业大脑**、共享**技能库**与 **`AGENTS.md` / `DESIGN.md`** 规范）；统一**连接器（Connectors）**打通飞书、Slack、Microsoft Teams、钉钉、企业微信、GitHub、Linear 和电子邮件。
 
-Ankole 将企业日常运作组织为**一系列有人把关的业务闭环（Loop）**：常规的数据巡检、工具搭建与跨系统流转由 AI 在独立 Linux 容器中持续推进，人类聚焦于提供线下真实上下文，并在关键节点通过**选择卡**一键拍板。共享**企业大脑（Company Brain）**、**技能实战经验沉淀（Skill Lessons）**、全套免密码认证与四档数据权限均完整内置在 Apache 2.0 开源自托管内核中。
+Ankole 将企业日常运作组织为**一系列有人把关的业务闭环（Loop）**：常规的定时同步、Webhook 回调与表格变更联动由已发布的**小应用动作（Applet Actions）**零大模型 Token 消耗确定性执行；开放式的分析与工具搭建由 AI 在独立 Linux 容器中持续推进；人类聚焦于提供线下真实上下文，并在关键节点通过**选择卡**或**操作审批卡**拍板。全部能力均完整内置在 Apache 2.0 开源自托管内核中。
 
 <p align="center">
   <a href="https://x.com/AgentBullLab/status/2108582424959721707/video/1">
@@ -29,7 +29,7 @@ Ankole 将企业日常运作组织为**一系列有人把关的业务闭环（Lo
 
 ## 快速开始
 
-借助 Docker Compose，你可以在单台 Linux、macOS 或 Windows 主机上拉起完整的 Ankole 部署，一次启动 PostgreSQL 18、`ankole-function-runtime`（无状态小应用与脚本隔离运行时）、数据库迁移、控制面以及负责 HTTPS 的 Caddy。开始前请准备：
+借助 Docker Compose，你可以在单台 Linux、macOS 或 Windows 主机上拉起完整的 Ankole 部署，一次启动 PostgreSQL 18、`ankole-function-runtime`（无状态小应用云后台、小应用动作与确定性程序隔离运行时）、数据库迁移、控制面以及负责 HTTPS 的 Caddy。开始前请准备：
 
 - 可运行 Linux `amd64` 或 `arm64` 容器的 Docker 环境，并为 PostgreSQL、文件存储及每个活跃 Agent 独占的 Worker 容器预留充足内存和磁盘空间。
 - 受信任的宿主机环境，允许控制面通过 `/var/run/docker.sock` 按需创建 Worker 容器（挂载该 Socket 等同于授予宿主机 root 权限）。
@@ -91,38 +91,39 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./ankole-loca
 
 ## Pod 在线办公室的五大模块
 
-每个企业或独立团队拥有隔离的 **Pod 工作空间**，内置五个互相打通的模块：
+每个企业或独立团队拥有隔离的 **Pod 工作空间**，围绕 `Home`、`Chat` 与 `Meta Ankole` 组织为五个互相打通的模块：
 
-- **空间主页（`Pod Home`）**：左侧目录区分团队共享**工作区**与员工**私人区**，支持任意层级子页面与严格按权限过滤的秒级全文检索。
-  - **协同文档（`Doc`）**：人与多位 Agent 可同时编辑同一篇文档且互不抢光标；文档内嵌的历史报告快照会定格当时的结论数字，后续实时业务表更新不会篡改往期周报或月报。
-  - **实时多维表（`Base`）**：支持多子表、表格/看板/画廊视图、公式、跨表关联与附件。小表即点即开，大表通过物理分片 PostgreSQL 流畅承载单表 **10 万行以上**业务记录；人手动点改、Agent 更新与小应用读写共用同一份实时数据。
-  - **业务小应用（`Applet`）**：用自然语言讲清业务规则，Agent 几分钟即可构建并发布带 React 界面与可选无状态 TypeScript 云后台（`Function Runtime`）的定制工具。算价拉滑块、列表筛选、驻厂手机填单等常规界面交互直接运行普通程序代码，**零大模型 Token 消耗**。每个小应用在独立环境与当前操作人权限下运行，故障互不连坐；研发团队随时可通过 `applet pull` 一键导出完整前后端源码与工程配置，绝无平台黑盒锁定。
-  - **空间文件与演示稿（`File` / `Slides`）**：浏览器内直接预览 PDF、演示稿、电子表格、图片与音视频，支持在任意页面和聊天室中 `@` 引用。
-- **多人多 AI 团队聊天（`Pod Chat`）与页面边看边聊**：单聊可随时拉同事或其他专职 Agent 升级为群聊，支持 `@Agent`、`@同事`、`@页面`。每位 Agent 均配有独立的**「允许旁听主动插话」**开关——关闭时同事之间的讨论不消耗任何模型算力，且系统保证 **Agent 的回复绝不会唤醒其他 Agent**，从根源上杜绝死循环互聊。遇到决策节点时，Agent 会发出含 `1~4` 个选项（支持自由补充）的**选择卡**，首位有权限的成员点选后全群立即锁定并记录拍板人。任务执行期间，既可随时修改排队中的待发消息，也能点击**「立即补充（Steer）」**中途纠偏而无需重跑；任意页面右侧还可展开继承该页权限的讨论栏。
-- **企业大脑（`Company Brain`）与技能经验沉淀（`Skill Lessons`）**：
-  - **企业大脑**在权限边界内自动串联文档、多维表、小应用、文件、群聊与外部消息，为每条记录保留出处、时间、持有者与可见范围，严格区分**客观事实**、**待验证假设**、**AI 推测**与**人工拍板结论**。未经证实的推测不会因多次引用变成事实，前后矛盾的说法自动标出待审，AI 推测也绝不会擅自覆盖多维表里的真实业务状态。
-  - **技能实战经验（`Skill Lessons`）**将日常踩坑与人工纠偏沉淀为附带案例出处的规则笔记（人工随时可审阅修订），让通用技能越用越懂团队规矩。
-- **统一外部连接器与后台持续运行**：连接器打通电商平台、海外仓、ERP、工单与聊天软件，供小应用按钮、聊天派活与自动触发共用。外部状态以**真实回执**为准（改表备注不等于外部退款或锁库成功），高风险外部动作先发选择卡等负责人确认；来自飞书、企微或 Slack 的外部消息（`Externals`）按连接、群组与会话串归档且严格隔离可见范围。定时与事件触发让长任务在合上电脑后继续推进，等待审批或外部回复时安静休眠，崩溃重启后从 PostgreSQL 精确恢复。
+- **空间主页（`Pod Home`）**：左侧目录区分团队共享**工作区**与员工**私人区**，支持任意层级子页面、易读的 `<title-slug>-<short-id>` 链接以及严格按权限过滤的秒级全文检索。
+  - **协同文档（`Doc`）**：人与多位 Agent 可同时编辑同一篇文档且互不抢光标；支持行内 `@` 引用同事与关联页面、嵌入多维表实时视图与子页面列表；支持在正文段落、代码行、CSV 数据行及音视频时间点上打多模态版本绑定的**锚点批注**并直接 `@Agent` 唤醒处理；每次修改自动保留 `30` 天历史版本供对比恢复。
+  - **实时多维表（`Base`）**：支持多子表、表格/看板/画廊视图、公式、跨表关联、附件、按业务主键自动去重更新（Upsert）与数据变更触发器。小表即点即开，大表通过物理分片 PostgreSQL 流畅承载单表 **10 万行以上**业务记录；人手动点改、Agent 更新与小应用读写共用同一份实时数据。
+  - **业务小应用与自动动作（`Applet` & `Applet Actions`）**：用自然语言讲清业务规则，Agent 几分钟即可构建并发布带 React 界面与无状态 TypeScript 云后台（`Function Runtime`）的定制工具。常规查询按当前操作人权限（`AnkoleRuntime`）运行，一线受限填报等场景支持通过发布者显式声明的受控管理通道（`AnkoleRuntime.admin`）执行；**已发布的小应用动作（Applet Actions）**绑定定时计划、Webhook、多维表变更或连接器事件后，可分片续跑并**零大模型 Token 消耗**确定性执行。研发团队随时可通过 `applet pull` 一键导出完整前后端源码与工程配置，绝无黑盒锁定。
+  - **空间文件、演示稿与统一云盘（`File` / `Slides` / `Drive`）**：浏览器内直接预览并对 PDF、演示稿、电子表格、代码、图片与音视频打锚点批注；Agent 在容器内通过 `/drive` FUSE 挂载直接读写授权范围内的页面与文件。
+- **个人助理、职能 AI 同事与团队聊天（`Pod Chat`）**：每位正式成员自带专属**个人助理**（`新建对话`默认入口，投影成员本人的日常协作权限），职能 **AI 同事**则拥有固定的一对一单聊与独立的岗位权限——向任意单聊添加成员都会**新建独立群聊**，确保原有私聊记录绝不外泄。通过**对等 A2A 委托**（`send_to_agent`），个人助理可在后台独立房间委托职能 AI 同事协同推进专业任务，并将澄清提问**零中转**直接透传回当前对话。群聊支持 `@Agent`、`@同事`、`@页面` 与单 Agent 独立的**「允许旁听主动插话」**开关（关闭时人类讨论零模型消耗，且 Agent 回复绝不唤醒其他 Agent），提供**选择卡**、跨权限写入时的**操作审批卡**（`propose_action_card`）、中途纠偏 **Steer**、多选消息长图分享与导出文档，并在每个页面右侧提供仅本人可见的**私人助理栏**。
+- **`Meta Ankole`：企业大脑、技能中心与 Agent 规范**：
+  - **企业大脑（`Company Brain`）**将开启“提炼业务事实”的空间页面、多维表记录、小应用、文件、群聊与外部消息织成可交互的租户级知识图谱（支持本体分类与 `200` 个历史版本留存），为每条记录保留出处、时间、持有者与可见范围，严格区分**客观事实**、**待验证假设**、**AI 推测**与**人工拍板结论**，自动标出前后矛盾且绝不擅自覆盖多维表业务状态；后台提炼与夜间梳理（Dreaming）统一由内置的 `ankole_brain` 系统服务主体运行。
+  - **技能中心与 `AGENTS.md` / `DESIGN.md` 规范**：正式成员可协同编写团队自定义 **Skill**，Agent 在实战中沉淀附带出处的 **Skill Lessons** 避坑提醒而不篡改共享 `SKILL.md` 源文件；全局与单 Agent 的 `AGENTS.md` 和 `DESIGN.md` 规范让所有 Agent 的行为准则与视觉风格保持一致。
+- **统一外部连接器（`Connectors`）与后台持续运行**：Pod 连接器保险箱统一托管企业应用凭据与员工自助扫码授权的个人账号（PKCE OAuth），供企业 SSO、外部消息接入（`Externals`）、小应用后台、单回合 Git 鉴权以及控制面无状态 **MCP 网关**（原生覆盖飞书消息/审批/任务/日历、GitHub、Linear 及远程 HTTP MCP 服务）共用，真实密钥永不进入 Worker 或小应用沙箱。外部状态以真实回执为准，高风险动作需经人工确认；已发布的**小应用动作**、**后台长任务（Background Agent Jobs）**与空闲会话冷唤醒轮转保障合上电脑后业务持续推进。
 - **免密码登录与企业级安全治理**：
   - **免密码登录与标签页身份隔离**：支持个人**邮箱验证码**与**企业统一登录（SSO）**并存、邮箱域名白名单、强制正式员工走企业 SSO，以及多空间秒切与浏览器不同标签页身份互不串号；内置最后一位真人管理员防删与防锁死保护。
-  - **四档页面与数据权限**（空间达 **50 万页面**仍即时鉴权）：**仅查看**、**可提交数据**（专为一线填报设计：可经小应用提交单据和附件，但无法查看单独保密的底价关联表、无法改动表结构、也看不到小应用源码与密钥）、**可编辑**（编辑文档与表结构、发布及导出小应用源码）、**完全控制 / 可管理**（管理分享权限、删表与回收站）。
-  - **三条企业安全红线**：① **防借 AI 越权**——员工发起的交互任务严格取 **`员工权限 ∩ Agent 权限`** 交集，仅管理员授权的公司级无人值守任务使用 Agent 自身权限，并支持单 Agent 周期花费封顶；② **外部访客严密隔离**——无私人区、看不到通讯录与后台设置、自动屏蔽公司内部公共记忆；③ **暂停与离职分离**——临时停职可一键冻结并恢复，正式离职除切断一切访问与名下定时任务外，还会**自动释放占用的公司邮箱与手机号**，避免后续同名新员工串号。
+  - **两级分享与页面权限**（支持仅本页 `self` 或含子页面树 `container` 按个人/用户组授权，空间达 **50 万页面**仍即时鉴权）：**仅查看**、**可提交数据**（专为一线填报设计：可经小应用提交单据和附件，但无法查看单独保密的底价关联表、改动表结构或读取小应用源码与密钥）、**可编辑**（编辑文档与表结构、发布及导出小应用源码）、**完全控制 / 可管理**（管理分享权限、删表与回收站），并支持独立的**可批注**权限控制。
+  - **三条企业安全红线**：① **角色真实授权与会话受众交集**——员工个人助理严格投影本人日常协作权限（剥离管理台特权），职能 AI 同事按自身岗位授权执行并在超权限写入时递交**操作审批卡**由有权限的负责人放行，会话与企业大脑记忆披露严格执行 **`发起人 ∩ Agent ∩ 房间全体成员`** 交集以防群聊泄密；② **外部访客严密隔离**——无私人区、无个人助理、看不到通讯录与后台设置、自动屏蔽公司内部公共记忆；③ **暂停与离职分离**——临时停职可一键冻结并恢复，正式离职除停用个人助理、吊销名下全部个人外部连接器授权与定时任务外，还会**自动释放占用的公司邮箱与手机号**，避免后续同名新员工串号。
 
 ## 典型业务闭环与研发场景
 
 | 场景 | Ankole 如何闭环运行 |
 | --- | --- |
 | **驻厂手机验货台与采购底价隔离** | 对着 BOM **多维表**口述规则生成手机验货**小应用**：给驻厂员开**可提交数据**权限拍照录抽检结果，同时将代工厂阶梯底价子表设为仅老板与采购可见。 |
-| **多渠道库存与海运船期补货巡检** | 定时 Agent 核对海外仓库存、海运在途船期与营销排期，刷新经营驾驶舱小应用；发现断货风险即在调度群发出跨仓调拨**选择卡**，主管点选后经连接器下发真实仓库指令。 |
-| **售后批次质量熔断闭环** | 新增返修工单实时触发核查；同一生产批次故障达阈值时，顺着**企业大脑**拉出出厂验货单与未发库存并发出紧急选择卡，确认后同步锁库、发起索赔并更新质检标准文档。 |
-| **代码仓库缺陷修复与自动提 PR** | 在聊天室 `@Ankole` 指定 Issue 编号，Agent 在隔离的 **Agent Computer Worker** 容器中调用 Codex 与预配仓库凭证完成修复、测试并返回 PR 链接。 |
-| **多假设深度研究与周会汇报生成** | 调用 **Deep Research** 在多个隔离上下文中搜证检验正反假设并输出带引证报告；或每周一晨自动拉取真实经营数据起草复盘**演示稿**与定格历史数字的周报。 |
+| **多渠道库存与海运船期补货巡检** | 定时小应用动作与专职 Agent 核对海外仓库存、海运在途船期与营销排期，刷新经营驾驶舱小应用；发现断货风险即在调度群发出跨仓调拨**选择卡**，主管点选后经连接器下发真实仓库指令。 |
+| **售后批次质量熔断闭环** | 新增返修工单经多维表触发器实时核查；同一生产批次故障达阈值时，Agent 顺着**企业大脑**拉出出厂验货单与未发库存并发出紧急审批卡，确认后同步锁库、发起索赔并更新质检标准文档。 |
+| **代码仓库缺陷修复与自动提 PR** | 在聊天室 `@Ankole` 指定 Issue 编号，Agent 在隔离的 **Agent Computer Worker** 容器中通过连接器单回合 Git 凭据调用 Codex 完成修复、测试并返回 PR 链接。 |
+| **多假设深度研究与周会汇报生成** | 调用 **Deep Research** 在多个隔离上下文中搜证检验正反假设并输出带引证报告；或每周一晨自动拉取真实经营数据起草复盘**演示稿**并归档独立周报页面。 |
 
 ## 支持生态
 
 | 类别 | 支持范围 |
 | --- | --- |
-| 在线工作空间（`Pod`） | 协同文档、多维表 Base（表格/看板/画廊视图；内联与物理分片 PostgreSQL）、React + TypeScript 定制小应用 Applet（`Function Runtime`）、文件与演示稿预览、多人多 AI 聊天室 Pod Chat |
+| 在线工作空间（`Pod`） | 协同文档、多维表 Base（表格/看板/画廊视图；内联与物理分片 PostgreSQL）、React + TypeScript 定制小应用与小应用动作（`Function Runtime`）、带锚点批注的文件与演示稿预览、个人助理与 Pod Chat、`Meta Ankole`（企业大脑、技能库、`AGENTS.md` / `DESIGN.md`） |
+| 连接器与 MCP 工具网关 | 统一应用凭据与个人 PKCE OAuth 保险箱（`Ankole.Connectors`）、控制面无状态 MCP 网关（飞书 / Lark 消息、审批、任务、日历，GitHub，Linear，远程 HTTP MCP 服务）及单回合 Git 凭据代理 |
 | 外部聊天与邮件 | 飞书 / Lark、Slack、Microsoft Teams、钉钉、企业微信、Telegram、Discord、LINE、WhatsApp、电子邮件 |
 | 登录与组织架构同步 | 免密邮箱验证码（SMTP）、飞书 / Lark、Slack、Microsoft Entra ID、Google Workspace、钉钉、企业微信（OIDC/OAuth SSO 与组织目录同步） |
 | 模型 | OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter、AgentBull Cloud、ChatGPT 订阅，以及任意兼容 OpenAI API 的端点（含自托管模型）。中国市场插件另支持火山引擎 Ark、阿里云百炼中国区、Z.AI Coding Plan 与小米 MiMo。 |
@@ -132,15 +133,15 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./ankole-loca
 
 ## 工作原理
 
-一套 Ankole 站点部署可以承载一个或多个数据隔离的租户。每个租户拥有独立的 Pod 页面、多维表数据（存放在租户分配的物理 Base 分片库）、人员与 Agent 主体、企业大脑和外部渠道连接；站点运维人员统一管理共享的模型提供商、Worker 提供商与基础设施。
+一套 Ankole 站点部署可以承载一个或多个数据隔离的租户。每个租户拥有独立的 Pod 页面、多维表数据（存放在租户分配的物理 Base 分片库）、人员主体、个人助理与职能 AI 同事、企业大脑、技能库和连接器；站点运维人员统一管理共享的模型提供商、Worker 提供商与基础设施。
 
 Ankole 运行时由五个核心部分组成：
 
-- **控制面**（Elixir、Phoenix 与 OTP）：掌握持久化状态、进程监督树与事务提交权，统筹管理 Pod 工作空间、身份与权限（Principal / AuthZ）、系统配置、会话与消息、信号路由、定时计划、Sessions 主循环、后台长任务、Workflow、企业大脑，以及统一调度上游模型的 AIGateway。
-- **Function Runtime**（`ankole-function-runtime`）：在无状态 Edge Runtime 隔离环境中运行 Pod 小应用的云端后端接口与确定性 TypeScript（`PTC` 与 `Workflow`）程序，自身不保存任何持久化状态。
-- **Agent Computer Worker**（Bun 与 TypeScript，每个 Agent 独占一个 Linux 容器）：承载命令行、浏览器、Codex、MCP 服务、Skill 与 Automation 脚本。仅当任务确实需要电脑环境时，控制面才会在 Docker、Kubernetes 或云平台上按需拉起对应的 Worker。
-- **Kernel**（Rust，经 Rustler 与 Node-API 加载）：提供密码学原语、不透明 UID 与短链接编解码、CEL 权限求值、Markdown/Markdoc 解析、UTF-16 页面差分，以及底层 AI 网络传输。
-- **PostgreSQL 18+ 与文件存储**：PostgreSQL 保存全部控制面业务数据与物理分片多维表（`BASE_DB_URLS`）；文件存储托管 Pod 文件、小应用构建产物、Agent 云盘与会话附件；每个 Agent 的 `/workspace` 主目录（Agent Home）在容器重建后持久保留，而 `/var/cache/ankole` 缓存目录可随时销毁重建。
+- **控制面**（Elixir、Phoenix 与 OTP）：掌握持久化状态、进程监督树与事务提交权，统筹管理 Pod 工作空间、`Meta Ankole`（`Library` 与企业大脑）、身份与权限（Principal / AuthZ）、连接器保险箱与无状态 MCP 网关（`Connectors`）、系统配置、会话与消息、信号路由、定时计划、`AutomationJobs`（已发布小应用动作编排）、Sessions 主循环、后台长任务、Workflow，以及统一调度上游模型的 AIGateway。
+- **Function Runtime**（`ankole-function-runtime`）：在无状态 Edge Runtime 隔离环境中运行 Pod 小应用的云端后端接口、**已发布的小应用动作（Applet Actions）**与确定性 TypeScript（`PTC` 与 `Workflow`）程序，通过控制面宿主与 MCP 桥接回访业务能力，自身不保存持久化状态或原始密钥。
+- **Agent Computer Worker**（Bun 与 TypeScript，每个 Agent 独占一个 Linux 容器）：承载命令行、浏览器、Codex、本地 MCP 服务与 Skill，通过 `/drive` FUSE 挂载读写授权范围内的空间页面与文件，并按回合经控制面完成 Git 鉴权。仅当任务确实需要电脑环境时，控制面才会在 Docker、Kubernetes 或云平台上按需拉起对应的 Worker。
+- **Kernel**（Rust，经 Rustler 与 Node-API 加载）：提供密码学原语、租户内 UID 与短链接编解码、CEL 权限求值、Page XML / OKF Markdown / WebDAV VFS 编解码、UTF-16 页面差分，以及底层 AI 网络传输。
+- **PostgreSQL 18+ 与统一 Drive 存储**：PostgreSQL 保存全部控制面业务数据与物理分片多维表（`BASE_DB_URLS`）；统一 Drive 对象存储托管 Pod 文件、小应用构建产物与会话附件；每个 Agent 的 `/workspace` 主目录（Agent Home）在容器重建后持久保留，而 `/var/cache/ankole` 缓存目录可随时销毁重建。
 
 <details>
 <summary>架构图</summary>
@@ -153,34 +154,35 @@ flowchart TB
 
   subgraph Control["Control Plane (Elixir / Phoenix / OTP) · 持久状态与事务提交权"]
     direction TB
-    Pod["Pod 与 Conversations<br/>页面 · 文档 · 多维表 · 小应用 · Pod Chat · 投递"]
-    Platform["Principal / AuthZ / AppConfigure<br/>免密认证 · 四档页面权限 · 控制面插件"]
-    Signals["Signals 与 Schedule<br/>统一事件入口 · 路由 · Cron · Checkback"]
+    Pod["Pod 与 Conversations<br/>页面 · 文档 · 多维表 · 小应用 · Pod Chat · A2A"]
+    Platform["Principal / AuthZ / Connectors<br/>免密认证 · 页面权限 · OAuth 保险箱与 MCP 网关"]
+    Signals["Signals、Schedule 与 AutomationJobs<br/>事件入口 · Cron · Webhook · 多维表与连接器触发"]
     Runtime["Sessions 与 Jobs<br/>主 Agent 循环 · 后台长任务 · Workflow"]
-    Brain["Company Brain<br/>断言与出处 · Dreaming · Skill Lessons"]
+    Meta["Meta Ankole 与 Company Brain<br/>知识图谱 · 技能中心 · AGENTS.md 与 DESIGN.md"]
     AI["AIGateway<br/>模型路由 · 会话状态 · 加密凭证"]
   end
 
-  Fabric["RuntimeFabric<br/>Phoenix Channels · 有界 RPC · 文件中继"]
-  Workers["Agent Computer Worker · 每个 Agent 独占<br/>环境命令 · Codex · Automation 脚本<br/>Skill · MCP · 浏览器 · 终端"]
-  FnRuntime["Function Runtime · 无状态隔离环境<br/>小应用云后台 · PTC 与 Workflow 脚本"]
-  Providers["AI 与联网服务商<br/>LLM · Embedding · Rerank · 图像 · 搜索"]
+  Fabric["RuntimeFabric<br/>Phoenix Channels · 有界 RPC · FUSE 与文件中继"]
+  Workers["Agent Computer Worker · 每个 Agent 独占<br/>环境命令 · Codex · /drive FUSE<br/>Skill · MCP · 浏览器 · 终端"]
+  FnRuntime["Function Runtime · 无状态隔离环境<br/>小应用云后台 · 小应用动作 · PTC 与 Workflow"]
+  Providers["AI、联网与外部 SaaS 服务<br/>LLM · Embedding · Rerank · 搜索 · 飞书 / GitHub / Linear"]
 
   PG[("PostgreSQL 18+ · 持久化存储<br/>控制面业务数据 · 物理 Base 分片库")]
-  Files[("文件存储 · 持久化存储<br/>Pod 文件 · 小应用产物 · Agent 云盘")]
+  Files[("统一 Drive 存储 · 持久化存储<br/>Pod 文件 · 小应用产物 · 会话附件")]
   Homes[("Agent Home · 持久化存储<br/>每个 Agent 一份 · /workspace · Codex 线程")]
 
   External -->|"空间操作、回调与管理"| Control
   Pod -->|"触发事件"| Signals
   Signals -->|"准入分发"| Runtime
   Platform --> Runtime
-  Runtime <--> Brain
+  Runtime <--> Meta
   Runtime --> AI
-  Control -->|"隔离 TS 调用"| FnRuntime
+  Control <-->|"宿主与 MCP 桥接"| FnRuntime
   Control -->|"实时执行"| Fabric
   Fabric <--> Workers
   Workers -->|"Codex Responses API"| AI
   AI -->|"上游调用"| Providers
+  Platform -->|"代签 MCP 与 Git"| Providers
   Control -.-> PG
   Control -.-> Files
   Workers -.-> Homes

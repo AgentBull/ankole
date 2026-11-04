@@ -7,24 +7,24 @@ order: 52
 
 Every Agent owns a dedicated Worker and persistent Home directory mounted at `/workspace`. Operators configure Worker providers in the Console—combining a platform type, YAML settings, and separately encrypted credentials—and bind each Agent to its provider at creation time (an immutable choice). Create separate Worker providers whenever you need distinct machine sizes or regions.
 
-## Worker pools
+## WorkerProviders
 
-Each Worker provider defines one site-scoped Worker pool with a platform kind, YAML configuration, and encrypted platform credentials. Agents across different tenants can share the same Worker pool while retaining strictly isolated Workers, persistent Homes, caches, and Worker credentials:
+Each `WorkerProvider` defines one site-scoped compute provider with a platform kind, YAML configuration, and encrypted platform credentials. Agents across different tenants can share the same `WorkerProvider` while retaining strictly isolated Workers, persistent Homes, caches, and Worker credentials:
 
 1. Open **Console → Settings → Worker providers** and click **New Worker provider**.
-2. Select the platform type and start from its YAML template, configuring the Worker image, compute size, storage mounts, and control-plane endpoints for the pool.
+2. Select the platform type and start from its YAML template, configuring the Worker image, compute size, storage mounts, and control-plane endpoints for the provider.
 3. Enter the platform credentials in the dedicated secret fields, save the provider, and run its availability check.
-4. Mark one pool as the site default, or pick a pool explicitly whenever you create an Agent—if neither is set, Ankole rejects Agent creation.
+4. Mark one `WorkerProvider` as the site default, or pick a provider explicitly whenever you create an Agent—if neither is set, Ankole rejects Agent creation.
 
-At most one pool can be marked as the site default, and changing that default affects only newly created Agents while existing Agents keep their assigned provider. Create multiple pools—even of the same platform kind—when you want separate instance sizes or regions. Once saved, a provider's ID, platform type, and storage location, as well as each Agent's provider assignment, are immutable, and Ankole prevents deleting a pool while any Agent Worker row still references it.
+At most one `WorkerProvider` can be marked as the site default, and changing that default affects only newly created Agents while existing Agents keep their assigned provider. Create multiple providers—even of the same platform kind—when you want separate instance sizes or regions. Once saved, a provider's ID, platform type, and storage location, as well as each Agent's provider assignment, are immutable, and Ankole prevents deleting a provider while any Agent Worker row still references it.
 
-A Worker pool tells the control plane how to provision compute on your chosen platform; it never shares one Agent's Worker with another Agent. See [Agents](../agents/) for creating Agents and [Agent Computer Worker](../agent-computer-worker/) for runtime execution and crash recovery.
+A `WorkerProvider` tells the control plane how to provision compute on your chosen platform; it never shares one Agent's Worker with another Agent. See [Agents](../agents/) for creating Agents and [Agent Computer Worker](../agent-computer-worker/) for runtime execution and crash recovery.
 
 ## One Agent, one Worker
 
-Creating an Agent persists its provider binding and Worker record without booting a container or VM immediately. Instead, the control plane starts the Worker on demand as soon as an environment tool, Codex Job, or Automation Job needs a computer, while pure conversational and Workflow model calls run directly in the control plane without touching a Worker.
+Creating an Agent persists its provider binding and Worker record without booting a container or VM immediately. Instead, the control plane starts the Worker on demand as soon as an interactive environment tool or Background Agent Job (`Codex`) needs a computer, while pure conversational and Workflow model calls run in the control plane and Automation Jobs execute published Applet Actions inside `ankole-function-runtime` without touching a Worker.
 
-Concurrent Sessions and Jobs belonging to the same Agent share that Agent's Worker while isolating their files under separate workspace subdirectories in `/workspace`. Each open environment workspace or active Codex turn occupies one slot up to `ANKOLE_MAX_CONCURRENT_SLOTS`—adding more Worker pools or creating additional Agents does not expand an existing Agent's Worker slots or its per-Agent Background Agent Job cap.
+Concurrent Sessions and Jobs belonging to the same Agent share that Agent's Worker while isolating their files under separate workspace subdirectories in `/workspace`. Each open environment workspace or active Codex turn occupies one slot up to `ANKOLE_MAX_CONCURRENT_SLOTS`—adding more `WorkerProvider`s or creating additional Agents does not expand an existing Agent's Worker slots or its per-Agent Background Agent Job cap.
 
 ## View Workers
 
@@ -57,7 +57,7 @@ See [WorkerProviders and cache disks](../worker-providers/) for detailed platfor
 
 On Vercel, keep `sessionTimeoutSeconds` within your plan's ceiling (`86400` seconds by default, or `2700` seconds on accounts capped at 45 minutes). On AWS Lambda MicroVMs, budget memory quota across active Workers, suspended Workers, and storage-deletion helper instances alike. On Alibaba Function Compute, resuming a paused Worker invokes the OSS reconnection helper bundled in the Worker image, so always upgrade the Worker image and control plane in lockstep.
 
-Persistent Home (`/workspace`, including Codex threads under `/workspace/.codex`) survives instance deletion and image upgrades, whereas the SQLite cache under `/var/cache/ankole/codex` is rebuildable and cleared on explicit Worker rebuilds. Keep off-host backups of both persistent Home and the [Agent drive](../file-management/): Docker local volumes cannot survive losing the Docker host, and Cloudflare Workers can lose writes made since the prior R2 snapshot if evicted abruptly by the platform.
+Persistent Home (`/workspace`, including Codex threads under `/workspace/.codex`) survives instance deletion and image upgrades, whereas the SQLite cache under `/var/cache/ankole/codex` is rebuildable and cleared on explicit Worker rebuilds. Keep off-host backups of both persistent Home and [Unified Drive](../file-management/): Docker local volumes cannot survive losing the Docker host, and Cloudflare Workers can lose writes made since the prior R2 snapshot if evicted abruptly by the platform.
 
 ## Release, replacement, and deletion
 

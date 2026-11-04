@@ -658,11 +658,7 @@ defmodule Ankole.Pod.Files do
 
   @doc false
   def commit_files_in_tx(node_id, upserts, deletes \\ []) do
-    unless Repo.in_transaction?(),
-      do:
-        raise(Ankole.Errors.Framework.TransactionRequired,
-          operation: {__MODULE__, :commit_files_in_tx}
-        )
+    Repo.require_transaction!({__MODULE__, :commit_files_in_tx})
 
     with {:ok, current} <- list_files(node_id),
          :ok <- remove_files(current, deletes) do

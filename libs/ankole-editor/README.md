@@ -49,6 +49,7 @@ Import only from the public entry points:
 | `@ankole/block-editor` | React editor component and current-editor hook |
 | `@ankole/block-editor/document` | Markdown and XML readers and writers |
 | `@ankole/block-editor/editor` | Page sessions, collaboration, host types, and editing commands |
+| `@ankole/block-editor/reader` | Lightweight read-only `KnowledgeReader` component for validated knowledge XML |
 | `@ankole/block-editor/styles.css` | Styles scoped to the editor and its overlays |
 
 In the host's Tailwind CSS entry file, import UI Kit styles before editor

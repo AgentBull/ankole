@@ -11,9 +11,9 @@ order: 106
 
 ## 主体：统一的问责身份
 
-人员、Agent 与系统服务共享同一套持久、可问责的主体模型。每个 Principal 严格归属于单个租户，持有全局唯一的不透明标识符 `uid`。`principals` 表记录了主体的类型 `type`（`:human`、`:agent` 或 `:system`）、状态 `status`（`:active` 或 `:disabled`），以及仅针对 `:human` 生效的成员身份 `membership`（`:member` 或 `:guest`，`:agent` 与 `:system` 固定为 `nil`）。
+人员、Agent 与系统服务共享同一套持久、可问责的主体模型。每个 Principal 严格归属于单个租户，并以 `(tenant_id, uid)` 作为唯一标识，其中 `uid` 是租户内唯一、语义清晰的小写名称（例如 `alex.smith` 或 `research-analyst`）。`principals` 表记录了主体的类型 `type`（`:human`、`:agent` 或 `:system`）、状态 `status`（`:active` 或 `:disabled`），以及仅针对 `:human` 生效的成员身份 `membership`（`:member` 或 `:guest`，`:agent` 与 `:system` 固定为 `nil`）。
 
-在关联关系上，一个人员主体对应一条 `HumanUser` 记录、零至多条站点级 `SiteCredential` 记录（存于 `principal_site_credentials`，如通过校验的邮箱验证码地址），以及零至多条租户级 `ExternalIdentity` 记录（存于 `principal_external_identities`，来自外部联邦身份源）；一个 Agent 主体则对应一条 `Agent` 记录。所有类型的主体收敛在同一张核心表中，使整套问责体系完全统一：每一条审计日志、授权规则与权限组成员关系都直接指向同一个稳定的 Principal `uid`。
+在关联关系上，一个人员主体对应一条 `HumanUser` 记录、零至多条站点级 `SiteCredential` 记录（存于 `principal_site_credentials`，如通过校验的邮箱验证码地址），以及零至多条租户级 `ExternalIdentity` 记录（存于 `principal_external_identities`，来自外部联邦身份源）；一个 Agent 主体对应一条 `Agent` 记录，子类型为 `:personal_assistant`（为每位启用态内部人类成员按 1:1 开通，初始 UID 为 `<owner_uid>_assistant`）或 `:ai_colleague`（共享专业岗位 Agent）。系统主体来自 Ankole 封闭维护的内部服务注册表——`system`（无状态 Pod Applet `ctx.ai` 与内部运行时操作）与 `ankole_brain`（企业大脑事实抽取、Dreaming、技能教训复审、URL Source 抓取与重排）——不支持登录、不可重命名，也不运行 Worker。所有类型的主体收敛在同一张核心表中，使审计日志、授权规则与权限组成员关系完全统一；同时，面向人员主体（`POST /api/v2/principals/:uid/rename`）和已停用且无活跃 Worker 的 Agent 主体（`POST /api/v2/agents/:uid/rename`）的留痕租户内重命名操作会在单事务内原子重写权限授权、组成员关系、Brain 路径与提及引用以及多维表关联。
 
 人员的 `membership` 属性界定了租户内的协作边界：内部成员（`member`）会自动纳入计算式权限组 `all_humans`；外部访客（`guest`）则必须获得显式的 Pod 页面共享或 Agent 授权才能访问对应资源，且不可加入内置管理员组（`siteadmin` 或 `pod_admin`）、没有 Private 根目录，也不会获得 Brain 的 `world` 范围。
 
@@ -46,7 +46,7 @@ order: 106
 
 控制面与 Rust Kernel 职责分明，共同确保 AuthZ 成为不可绕过的硬性执行边界：
 
-- **控制面负责维护持久状态、执行 Ash 授权检查并组装快照。** 受保护的动作通过 `Ankole.AuthZ.Extension` 声明规则，`Ankole.AuthZ.Authorizer` 根据 `%Ankole.AuthZ.Actor{principal, turn_authority, authn}` 校验执行主体。Agent 回合使用 Agent 自己的资源权限。经验证的认证事实写入 `context.request.authn`，适用于该 Agent 的 grant 提供 CEL 条件。`turn_authority` 与 `WorkAccess` 分别检查指令是否仍然有效。
+- **控制面负责维护持久状态、执行 Ash 授权检查并组装快照。** 受保护的动作通过 `Ankole.AuthZ.Extension` 声明规则，`Ankole.AuthZ.Authorizer` 根据 `%Ankole.AuthZ.Actor{principal, turn_authority, authn}` 校验执行主体。访问统一云盘（Unified Drive）、Pod 文档与多维表以及 `all_humans` 等协作资源时，**个人助理（`personal_assistant`）**通过 `Principals.authority_uid/1` 解析为其人类主人的 `owner_principal_uid` 以投射主人的协作权限，但对 `site_console:**` 与 `tenant_console:**` 管理面资源始终按个人助理自身主体求值以防管理权限外溢，且审计轨迹、用量归属与私有 Worker 根目录仍绑定在个人助理自身的 `uid` 名下。**AI 同事（`ai_colleague`）**则在云盘、Pod、Workflow、计划任务与后台 Agent 任务中严格凭借自身主体授权运行，遇到需人工审批的操作时通过 `propose_action_card` 发起交互式审批卡片，并在 Brain 召回与多人房间披露时强制求取提问者、Agent 以及（`strict` 模式下）全体房间成员可见范围的交集。经验证的认证事实写入 `context.request.authn`，适用的 grant 提供 CEL 条件，`turn_authority` 与 `WorkAccess` 则独立核验指令授权仍然有效。
 - **Rust Kernel 与 PostgreSQL 负责确定性规则求值。** 执行常规权限检查时，`Ankole.AuthZ.Snapshot` 通过单条 SQL 一次性加载主体状态、所属权限组与候选授权规则，随后交由 Rust Kernel 完成资源模式匹配、动态组判定与 CEL 条件求值。对于 Drive 节点访问控制，系统采用 5 位 ACL 锚点图（`node_view=1`、`node_contribute=2`、`node_edit=4`、`node_manage=8`、`node_comment=16`；角色掩码为 `view=1`、`contribute=19`、`edit=23`、`manage=31`）：先在 Rust Kernel 中一次性求值与当前请求相关的 CEL 条件，再由 PostgreSQL 通过 `WITH RECURSIVE`（`UNION` 最小不动点）合并直接授权、权限组继承、容器子树继承与 Userset 传递边。
 
 `Ankole.AuthZ` 对外暴露的公开调用入口包括：`authorize(subject, resource, action, context)`、返回布尔值的 `allowed?/4`、返回单动作完整决策 Map 的 `authorize_decision/4`、针对同一资源批量校验多个动作的 `authorize_all_decision/4`、基于单次快照并行校验多组独立“资源 + 动作”对的 `authorize_checks/3`，以及用于求值 Drive 访问上下文的 `evaluate_drive_context/2`。所有入口均自行核查底层快照，绝不采信调用方自报的权限声明。
@@ -85,6 +85,7 @@ AuthZ 之所以无法被 Agent 绕过，是因为运行时在每一道关键入�
 | `POST` | `/api/v2/principals` | 预创建人类内部成员主体 |
 | `GET` | `/api/v2/principals/:uid` | 读取单个主体详情 |
 | `PATCH` | `/api/v2/principals/:uid` | 更新人类主体资料（`display_name`） |
+| `POST` | `/api/v2/principals/:uid/rename` | 重命名人类主体的租户内 `uid`（已停用 Agent 使用 `POST /api/v2/agents/:uid/rename`） |
 | `PATCH` | `/api/v2/principals/:uid/membership` | 修改人类主体的 `membership`（`member` 或 `guest`） |
 | `GET` | `/api/v2/principals/:uid/access` | 查看人类访问状态、限制项与恢复审查投影 |
 | `POST` | `/api/v2/principals/:uid/access-disables` | 暂停（`suspended`）或离职解绑（`offboarded`）人类主体 |

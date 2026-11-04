@@ -1,6 +1,6 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { parse, stringify } from 'yaml'
-import { recordValue } from '@agentbull/active-support'
+import { isEqual, recordValue, safeJsonParse } from '@agentbull/active-support'
 import type { DocumentDraftModel } from './document-draft'
 
 export type KnowledgeMetadata = Record<string, unknown>
@@ -42,7 +42,10 @@ export const KnowledgeDraftModel = createModel(() => {
     }
   })
   const dirty = computed(
-    () => editing.value && (parsed.value.error !== null || JSON.stringify(parsed.value.metadata) !== baseMetadata.value)
+    () =>
+      editing.value &&
+      (parsed.value.error !== null ||
+        !isEqual(parsed.value.metadata, safeJsonParse(baseMetadata.value).unwrapOr(undefined)))
   )
   const replace = (metadata: KnowledgeMetadata) => {
     entries.value = Object.entries(metadata)
@@ -69,7 +72,7 @@ export const KnowledgeDraftModel = createModel(() => {
       return true
     },
     saved(submitted: KnowledgeMetadata, confirmed: KnowledgeMetadata = submitted) {
-      if (JSON.stringify(parsed.value.metadata) === JSON.stringify(submitted)) replace(confirmed)
+      if (isEqual(parsed.value.metadata, submitted)) replace(confirmed)
       baseMetadata.value = JSON.stringify(
         Object.fromEntries(Object.entries(confirmed).sort(([a], [b]) => a.localeCompare(b)))
       )

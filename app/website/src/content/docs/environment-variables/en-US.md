@@ -50,7 +50,7 @@ Ankole reads these non-secret tuning variables at process startup for the contro
 
 ## File store (process start)
 
-`ANKOLE_FILES_STORE` configures `Ankole.ObjectStore`, which backs each Agent's drive (attachments, generated images, sent files, installed Skills, Automation Job scripts, and saved files) along with Pod `file` pages, Pod document/Base/Chat attachments, and compiled Applet bundles. Workers never receive object-store credentials; all file bytes stream through the control plane. See [Control-plane drive and object storage](../drive-storage/) for all supported OpenDAL backends (`fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, and `webdav`).
+`ANKOLE_FILES_STORE` configures `Ankole.ObjectStore`, which backs Unified Drive immutable objects (`file_objects` across Pod spaces, member private spaces, Agent drives, and conversation files), Pod and Applet assets (`pod_files`, including document and Base assets, compiled Applet bundles, and custom emojis), Skill companion binaries (`skill_files`), and frozen message or delivery attachments. Workers never receive object-store credentials; all file bytes stream through the control plane. See [Control-plane drive and object storage](../drive-storage/) for all supported OpenDAL backends (`fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, and `webdav`).
 
 | Variable | Required | Meaning |
 |---|---|---|

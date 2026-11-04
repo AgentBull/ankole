@@ -1,3 +1,5 @@
+import { isTextFile, TEXT_PREVIEW_BYTES } from '../common/file-preview'
+import { readPrefix } from '../common/browser-files'
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
 import { RiFileLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
@@ -21,18 +23,11 @@ export function attachmentPreviewKind(name: string, type?: string) {
   if (mime === 'application/pdf') return 'pdf'
   if (/\.(xlsx?|csv|tsv|ods)$/i.test(name) || mime?.includes('spreadsheet')) return 'spreadsheet'
   if (/\.pptx$/i.test(name) || mime?.includes('presentationml')) return 'presentation'
-  if (
-    mime?.startsWith('text/') ||
-    ['application/json', 'application/xml', 'application/javascript'].includes(mime ?? '') ||
-    /\.(txt|md|json|xml|ya?ml|[cm]?[jt]sx?|py|exs?|rs|go|rb|sh|css|html|sql|toml)$/i.test(name)
-  ) {
-    return 'text'
-  }
+  if (isTextFile(name, mime)) return 'text'
   return undefined
 }
 
 const transport = createClientConfig({}).fetch!
-const TEXT_BYTES = 64 * 1024
 const IMAGE_BYTES = 16 * 1024 * 1024
 
 export function AttachmentPreview({
@@ -162,7 +157,7 @@ function PreviewContent({
         await response.body?.cancel()
         throw new Error(t('pod.chat_attachments.preview_unavailable'))
       }
-      const result = await readPrefix(response, image ? IMAGE_BYTES : TEXT_BYTES, signal)
+      const result = await readPrefix(response, image ? IMAGE_BYTES : TEXT_PREVIEW_BYTES, signal)
       if (image) {
         if (result.truncated) throw new Error(t('pod.chat_attachments.preview_too_large'))
         return { image: new Blob([result.bytes], { type: mime }), text: '', truncated: false }
@@ -209,37 +204,4 @@ function PreviewImage({ blob, name }: { blob: Blob; name: string }) {
   ) : (
     <ImageZoomView src={url} alt={name} onError={() => setFailed(true)} />
   )
-}
-
-/** Read a bounded prefix and cancel the rest, including a response without a length header. */
-async function readPrefix(response: Response, limit: number, signal: AbortSignal) {
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('The attachment response has no body')
-  const chunks: Uint8Array[] = []
-  let length = 0
-  let truncated = false
-  try {
-    while (true) {
-      signal.throwIfAborted()
-      const { done, value } = await reader.read()
-      if (done) break
-      const part = value.slice(0, limit - length)
-      chunks.push(part)
-      length += part.length
-      if (part.length < value.length) {
-        truncated = true
-        break
-      }
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined)
-    reader.releaseLock()
-  }
-  const bytes = new Uint8Array(length)
-  let offset = 0
-  for (const part of chunks) {
-    bytes.set(part, offset)
-    offset += part.length
-  }
-  return { bytes, truncated }
 }

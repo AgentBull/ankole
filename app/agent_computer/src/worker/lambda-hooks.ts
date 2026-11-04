@@ -1,3 +1,4 @@
+import { isRecord } from '@agentbull/active-support'
 import { rm } from 'node:fs/promises'
 
 // Lambda snapshots this process before it receives an Agent contract.
@@ -20,7 +21,7 @@ let termination: Promise<void> | undefined
 function contract(payload: string): Record<string, string> {
   if (Buffer.byteLength(payload) > 4096) throw new Error('Contract exceeds 4096 bytes')
   const value: unknown = JSON.parse(payload)
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new Error('Contract must be an object')
   }
   for (const [key, entry] of Object.entries(value)) {

@@ -33,8 +33,11 @@ delivery route rather than owning the WhatsApp thread.
 
 Each binding configures the Meta App ID, encrypted App secret, encrypted webhook
 verify token, WhatsApp phone number ID, and encrypted permanent System User
-access token, calling Meta's Graph API directly over `Req` without a WhatsApp
-SDK or On-Premises API deployment.
+access token—storing the credentials and public identifiers in
+`Ankole.Connectors` (`connector_auth_configs`, referenced via `authConfigId`
+through `Ankole.Connectors.LegacyConfig` while behavior settings stay in
+`AppConfigure`)—and calls Meta's Graph API directly over `Req` without a
+WhatsApp SDK or On-Premises API deployment.
 
 Every conversation binds to the specific `phoneNumberId` that received its
 messages (encoded inside `provider_conversation_id`). If an operator later
@@ -138,20 +141,22 @@ name and normalized phone number without storing the message body, whereas
 Inside the webhook transaction, `Conversations` commits admitted media messages
 with pending attachment rows—ensuring unmapped senders never trigger
 downloads—and spawns a supervised background task to resolve the temporary media
-URL (which expires 5 minutes after lookup), download the bytes into the file
-service ([Files](../Files.md)), and finalize the entry without delaying the
-`200` webhook acknowledgement:
+URL (which expires 5 minutes after lookup), materialize the bytes through
+`Ankole.Conversations.Attachments` into unified Drive ([Files](../Files.md))—storing
+an immutable `file_objects` row, freezing `object_id` on `message_attachments`,
+and linking the file into the conversation root (`/drive/ChatDrive`)—and
+finalize the entry without delaying the `200` webhook acknowledgement:
 
 - If the background task cannot start, the webhook fails so Meta redelivers
   against the already committed pending observation.
-- On redelivery, the adapter keeps any attachment that this Agent already
-  materialized and re-fetches anything still missing (including downloads from
-  earlier tasks whose liveness cannot be proved); `Conversations` never replaces
-  an already materialized file path for that Agent with a pathless update, and
-  reassigning a route to another Agent fetches that Agent's own copy.
-- Files up to Ankole's 25 MB download cap are stored locally; larger files
-  retain their provider metadata plus `provider_download_limit` without creating
-  a local file path or claiming local readability.
+- On redelivery, `Ankole.Conversations.Attachments` keeps any attachment whose
+  stored `object_id` is already satisfied on the shared Message and re-fetches
+  anything still missing (including downloads from earlier tasks whose liveness
+  cannot be proved), never replacing an already materialized attachment
+  reference with an unmaterialized update.
+- Files up to Ankole's 25 MB download cap are stored in unified Drive; larger
+  files retain their provider metadata plus `provider_download_limit` without
+  creating a conversation Drive file or claiming local readability.
 
 ## Send Replies and Actions
 
@@ -182,7 +187,8 @@ created entry ID remains the first chunk):
   emitting `signal.action.invoked` (stale tokens or replies quoting an earlier
   text chunk quietly no-op).
 
-Outbound attachments upload first via `POST /<version>/<phoneNumberId>/media`
+Outbound attachments read immutable bytes from `Ankole.Files` via `object_id`
+(`delivery_attachments`), upload first via `POST /<version>/<phoneNumberId>/media`,
 and then send by media ID under Meta's per-type constraints:
 
 | Message type | Accepted content | Size limit |
@@ -241,9 +247,10 @@ remain safely retryable). Graph API and HTTP errors classify into three buckets:
 
 Asynchronous `failed` status webhooks arriving after an HTTP-accepted send are
 logged for diagnostics only, since the Delivery intent has already settled as
-confirmed. `AppConfigure` encrypts the App secret, verify token, and System User
-access token at rest and keeps them out of logs, error rows, and stored raw
-payloads.
+confirmed. `Ankole.Connectors` encrypts the App secret, verify token, and System
+User access token at rest in `connector_auth_configs` (referenced via
+`authConfigId` from the binding's `AppConfigure` configuration row) and keeps
+them out of logs, error rows, and stored raw payloads.
 
 ## Tests
 

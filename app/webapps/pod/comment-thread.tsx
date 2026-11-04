@@ -1,3 +1,5 @@
+import { escapeRegExp } from '../common/text'
+import { composingKey } from '@ankole/uikit/lib/keyboard'
 import {
   Badge,
   Button,
@@ -299,10 +301,6 @@ function CommentEntry({
   )
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 function hasMentionToken(body: string, token: string): boolean {
   if (!token) return false
   const re = new RegExp(`(?<![\\p{L}\\p{N}_-])@${escapeRegExp(token)}(?![\\p{L}\\p{N}_-])`, 'iu')
@@ -476,6 +474,7 @@ export function CommentComposer({
           updateMentionFromInput(next, event.target.selectionStart, event.target.selectionEnd)
         }}
         onKeyDown={event => {
+          if (composingKey(event.nativeEvent)) return
           if (mentionMatch && matchingAgents.length > 0) {
             if (event.key === 'ArrowDown') {
               event.preventDefault()

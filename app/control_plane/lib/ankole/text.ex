@@ -68,6 +68,29 @@ defmodule Ankole.Text do
     end
   end
 
+  @spec chunk_graphemes(String.t(), pos_integer()) :: [String.t()]
+  def chunk_graphemes("", limit) when is_integer(limit) and limit > 0, do: [""]
+
+  def chunk_graphemes(text, limit) when is_integer(limit) and limit > 0 do
+    text |> String.graphemes() |> Enum.chunk_every(limit) |> Enum.map(&Enum.join/1)
+  end
+
+  @spec grapheme_prefix(String.t(), non_neg_integer()) :: String.t()
+  def grapheme_prefix(text, max_bytes), do: take_graphemes(text, max_bytes, [])
+
+  defp take_graphemes(_text, 0, parts),
+    do: parts |> Enum.reverse() |> IO.iodata_to_binary()
+
+  defp take_graphemes(text, remaining, parts) do
+    case String.next_grapheme(text) do
+      {grapheme, rest} when byte_size(grapheme) <= remaining ->
+        take_graphemes(rest, remaining - byte_size(grapheme), [grapheme | parts])
+
+      _ ->
+        parts |> Enum.reverse() |> IO.iodata_to_binary()
+    end
+  end
+
   @spec utf16_length(String.t()) :: non_neg_integer()
   def utf16_length(text),
     do:

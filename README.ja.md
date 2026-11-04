@@ -17,9 +17,9 @@
 
 </div>
 
-Ankole は、AI ネイティブなチームのためのオープンソースのオンラインワークスペース（**Pod**）兼マルチエージェントランタイムです。1 つのブラウザー上のワークスペースで、メンバーと AI Agent が**共同編集ドキュメント**や**スライド**、リレーショナルな業務テーブル（**Base**）、ステートレスなクラウドバックエンド付きのカスタム業務ツール（**Applet**）、および複数人・複数 Agent 参加の **Pod Chat** を共有します。Slack、Lark/Feishu、Microsoft Teams、DingTalk、WeCom、メールは外部チャネルとして接続されます。
+Ankole は、AI ネイティブなチームのためのオープンソースのオンラインワークスペース（**Pod**）兼マルチエージェントランタイムです。1 つのブラウザー上のワークスペースで、メンバー、各メンバー専属の**パーソナルアシスタント（Personal Assistant）**、および職能別の **AI 同僚（AI Colleague）** が、**共同編集ドキュメント**や**スライド**、リレーショナルな業務テーブル（**Base**）、ステートレスなクラウドバックエンドと決定論的な自動アクション（**Applet Actions**）を備えたカスタム業務ツール（**Applet**）、ピアツーピアの Agent 間委任に対応する **Pod Chat**、さらに組織の知識と規約を集約する **`Meta Ankole`**（**Company Brain**、共有 **Skill**、**`AGENTS.md` / `DESIGN.md`**）を共有します。Slack、Lark/Feishu、Microsoft Teams、DingTalk、WeCom、GitHub、Linear、メールは統合**コネクター（Connectors）**として接続されます。
 
-単発のプロンプトや野放しの完全自動化ではなく、Ankole は日々の業務を**人が要所で判断する業務ループ（Loop）**として構成します。データの監視、社内ツールの構築、専用 Linux コンテナーでの長時間ジョブは Agent が継続実行し、現場の文脈の付与や高リスク操作の承認は人間が**選択カード（Choice Card）**で行います。共有の **Company Brain**、**Skill 教訓（Skill Lessons）**、パスワードレス認証、4 段階のデータ権限はすべて Apache 2.0 のセルフホスト版コアに含まれています。
+単発のプロンプトや野放しの完全自動化ではなく、Ankole は日々の業務を**人が要所で判断する業務ループ（Loop）**として構成します。定型のスケジュール実行や Webhook・テーブル更新トリガーは公開済みの **Applet Actions** が LLM トークン消費ゼロで決定論的に処理し、社内ツールの構築や専用 Linux コンテナーでの高度な調査・長時間ジョブは Agent が継続実行します。現場の文脈の付与や重要操作の承認は人間が**選択カード（Choice Card）**や**操作承認カード（Action Approval Card）**で行います。すべての機能は Apache 2.0 のセルフホスト版コアに含まれています。
 
 <p align="center">
   <a href="https://x.com/AgentBullLab/status/2108582424959721707/video/1">
@@ -29,7 +29,7 @@ Ankole は、AI ネイティブなチームのためのオープンソースの�
 
 ## クイックスタート
 
-Docker Compose を使うと、Linux、macOS、Windows の 1 台のホストに完全な環境をデプロイできます。スタックには PostgreSQL 18、`ankole-function-runtime`（Applet とスクリプトのステートレス分離実行環境）、データベースマイグレーション、Control Plane、HTTPS サーバーの Caddy が含まれます。必要なもの：
+Docker Compose を使うと、Linux、macOS、Windows の 1 台のホストに完全な環境をデプロイできます。スタックには PostgreSQL 18、`ankole-function-runtime`（Applet バックエンド、Applet Actions、決定論的プログラムのステートレス分離実行環境）、データベースマイグレーション、Control Plane、HTTPS サーバーの Caddy が含まれます。必要なもの：
 
 - Linux の `amd64` または `arm64` コンテナーを実行できる Docker と、PostgreSQL、ファイルストレージ、および稼働する Agent ごとに 1 つの Worker コンテナー分のメモリーとディスク。
 - Ankole に Docker ソケットへのアクセスを許可できるホスト。Control Plane は `/var/run/docker.sock` を通じて Worker コンテナーを作成します（このソケットへのアクセスはホストの root 権限と同等です）。
@@ -91,38 +91,39 @@ https://ankole.agentbull.com/ja-JP/docs/quickstart/index.md を使って、Ankol
 
 ## Pod を構成する 5 つのモジュール
 
-各企業やチームは独立した **Pod** を持ち、互いに連携する 5 つのモジュールを利用できます：
+各企業やチームは独立した **Pod** を持ち、`Home`・`Chat`・`Meta Ankole` を軸に連携する 5 つのモジュールを利用できます：
 
-- **ワークスペースページ（`Pod Home`）**：チーム共有の**スペース**と個人の**プライベート**に分かれた階層ディレクトリと、閲覧権限に厳密に従う高速全文検索を備えます。
-  - **共同編集ドキュメント（`Doc`）**：人と Agent がカーソルを奪い合わずに同じドキュメントを同時編集できます。埋め込まれたレポートスナップショットは当時の数値を固定するため、後から元テーブルが更新されても過去の週次・月次報告の数値が書き換わりません。
-  - **リレーショナル業務テーブル（`Base`）**：複数サブテーブル、グリッド・カンバン・ギャラリービュー、数式、リレーション、添付ファイルに対応します。小規模な表は即座に開き、大規模な表は物理シャーディングされた PostgreSQL 上で単一テーブル **10 万行以上**でも軽快に動作し、人・Agent・Applet が同じリアルタイムデータを読み書きします。
-  - **オンデマンド業務アプレット（`Applet`）**：業務ルールを自然言語で伝えるだけで、Agent が React フロントエンドと任意のステートレス TypeScript バックエンド（`Function Runtime`）を持つ業務ツールを構築・公開します。原価計算スライダー、絞り込み、スマホからの現場検品フォームなどの定型 UI 操作は通常のプログラムとして動くため、**LLM トークンを一切消費しません**。各 Applet は分離された環境と操作者の権限で動作し、エンジニアは `applet pull` でフロントエンド・バックエンドの全ソースコードと設定をいつでもエクスポートできます。
-  - **ファイルとスライド（`File` / `Slides`）**：PDF、プレゼンテーション、スプレッドシート、画像、音声・動画をブラウザー内でプレビューでき、どのページやチャットからも `@` で参照できます。
-- **マルチプレイヤー・マルチ Agent チャット（`Pod Chat`）とページチャット**：1 対 1 の会話からいつでも同僚や別の専門 Agent を招いてグループチャットに拡張でき、`@Agent`、`@メンバー`、`@ページ` に対応します。各 Agent には独立した**「会話への自発的な割り込み許可」**スイッチがあり、オフにしておけば人間同士の議論でトークンを消費せず、**Agent の返信が別の Agent を自動起動しない**ため無限ループも起きません。判断が必要な場面では Agent が `1〜4` 個の選択肢（自由入力可）を持つ**選択カード**を出し、権限を持つ最初の 1 人が選ぶと即座にロックして決定者を記録します。実行中のジョブに対する送信待ちキューの編集や、やり直さずに軌道修正する **Steer（即時補足）**、ページの閲覧権限と連動する右サイドバーの**ページチャット**も備えています。
-- **Company Brain と Skill 教訓（`Skill Lessons`）**：
-  - **Company Brain** は、ドキュメント、Base レコード、Applet、ファイル、Pod Chat、外部スレッドを権限境界内で自動的に関連付けます。すべての Claim に出所、日時、保有者、公開範囲、および認識上の区分を記録し、**客観的事実**、**未検証の仮説**、**AI の推測**、**人が下した決定**を厳密に区別します。未検証の推測が何度も引用されても事実には昇格せず、矛盾する記述は自動検知して人の確認を促し、AI の推測が Base の業務レコードを勝手に書き換えることもありません。
-  - **Skill 教訓（`Skill Lessons`）**は、日々の修正やトラブル対応から得られた注意点を事例付きのルールとして **Skill** に蓄積し（人がいつでも確認・編集可能）、チーム全体の知見として次の実行に引き継ぎます。
-- **外部システムコネクターとバックグラウンド継続実行**：共通コネクターが EC カート、倉庫システム、既存 ERP、チケット管理、チャットツールを Applet・チャット・自動トリガーへ接続します。外部システムの状態は**実際の API 応答と受領証**を正とし（表のメモ変更だけでは外部返金や在庫ロック完了とみなさない）、影響の大きい外部操作は選択カードで責任者の承認を待ちます。Lark/Feishu、WeCom、Slack などから届く外部メッセージ（`Externals`）は接続・ルーム・スレッド単位で整理され、ルーム間の情報漏洩を防ぎます。スケジュールや Webhook により PC を閉じた後もバックグラウンドで処理が進み、承認や外部返信待ちの間はスリープし、障害後も PostgreSQL から復旧します。
+- **ワークスペースページ（`Pod Home`）**：チーム共有の**スペース**と個人の**プライベート**に分かれた階層ディレクトリ、読みやすい `<title-slug>-<short-id>` URL、閲覧権限に厳密に従う高速全文検索を備えます。
+  - **共同編集ドキュメント（`Doc`）**：人と Agent がカーソルを奪い合わずに同時編集でき、`@` によるメンバーやページのインライン参照、Base ビューやサブページの埋め込みに対応します。段落・コード行・CSV 行・音声動画タイムスタンプに紐づくマルチモーダルな**アンカー付きコメント**（`@Agent` 起動対応）で議論でき、`30` 日間の自動バージョン履歴からいつでも比較・復元できます。
+  - **リレーショナル業務テーブル（`Base`）**：複数サブテーブル、グリッド・カンバン・ギャラリービュー、数式、リレーション、添付ファイル、業務キーによる自動名寄せ更新（Upsert）、データ変更トリガーに対応します。小規模な表は即座に開き、大規模な表は物理シャーディングされた PostgreSQL 上で単一テーブル **10 万行以上**でも軽快に動作します。
+  - **オンデマンド業務アプレットと自動アクション（`Applet` & `Applet Actions`）**：業務ルールを自然言語で伝えるだけで、Agent が React フロントエンドとステートレス TypeScript バックエンド（`Function Runtime`）を持つ業務ツールを構築・公開します。通常の参照・操作は利用者の権限（`AnkoleRuntime`）で動き、現場からの限定送信などは公開者が明示した管理経路（`AnkoleRuntime.admin`）で安全に処理されます。公開済みの **Applet Actions** は Cron・Webhook・Base 変更・コネクターイベントを契機にスライス単位で再開可能に動作し、**LLM トークン消費ゼロ**で定型処理を実行します。エンジニアは `applet pull` で全ソースコードと設定をいつでもエクスポートできます。
+  - **ファイル、スライド、統合ドライブ（`File` / `Slides` / `Drive`）**：PDF、プレゼンテーション、スプレッドシート、コード、画像、音声・動画をブラウザー内でプレビュー・コメントでき、Agent は `/drive` の FUSE マウントを通じて許可されたページやファイルを直接読み書きします。
+- **パーソナルアシスタント、AI 同僚、マルチプレイヤー `Pod Chat`**：すべての正規メンバーに専属の**パーソナルアシスタント**（`New Chat` の既定相手、本人の日常コラボ権限を投影）が付き、職能別の **AI 同僚**は固有の 1 対 1 スレッドと役割別の権限を持ちます（1 対 1 会話に他のメンバーを追加すると**新しいグループチャット**が作られ、既存の個別履歴は秘匿されます）。**ピアツーピア A2A 委任**（`send_to_agent`）により、パーソナルアシスタントが裏側の専用ルームで専門の AI 同僚に作業を委任し、確認質問があれば中継なしで元の会話へ直接届けます。`@Agent`・`@メンバー`・`@ページ` 参照、Agent ごとの**自発的な割り込み許可**スイッチ（オフ時は人間同士の議論でトークン消費ゼロ、Agent の返信が他 Agent を起動しない）、**選択カード**と権限外変更時の**操作承認カード**（`propose_action_card`）、実行中の軌道修正 **Steer**、複数メッセージの画像共有・ドキュメント書き出し、および各ページ右側の**個人専用アシスタントパネル**を備えています。
+- **`Meta Ankole`：Company Brain、Skill センター、Agent 規約**：
+  - **Company Brain** は、「業務事実の抽出」を有効にしたスペースページ、Base レコード、Applet、ファイル、Pod Chat、外部スレッドを対話型のナレッジグラフ（オントロジー分類・最大 `200` 世代の履歴保持）として結び付けます。すべての Claim に出所・日時・保有者・公開範囲を記録して**客観的事実**・**未検証の仮説**・**AI の推測**・**人の決定**を厳密に区別し、矛盾を自動検知し、Base の業務レコードを勝手に書き換えません。裏側の抽出や Dreaming は専用の `ankole_brain` システム主体が実行します。
+  - **Skill センターと `AGENTS.md` / `DESIGN.md` 規約**：組み込み・プラグイン Skill に加えてメンバーが独自 **Skill** を共同編集でき、Agent は共有 `SKILL.md` を書き換えずに事例付きの **Skill 教訓（`Skill Lessons`）**を蓄積します。全体および Agent 個別の `AGENTS.md` と `DESIGN.md` により、行動規範とデザイン品質を全社で統一できます。
+- **統合コネクター（`Connectors`）とバックグラウンド継続実行**：Pod のコネクター保管庫がアプリ認証情報とメンバー個人の PKCE OAuth 連携を一元管理し、エンタープライズ SSO、外部チャット（`Externals`）、Applet、Turn 単位の Git 認証、および Control Plane のステートレス **MCP ゲートウェイ**（Lark/Feishu の IM・承認・タスク・カレンダー、GitHub、Linear、リモート HTTP MCP サーバー）で安全に共有します（生の秘密鍵を Worker や Applet サンドボックスに渡しません）。定型処理は **Applet Actions**、長時間の調査・推論は **Background Agent Jobs** とアイドル時のコールドウェイク・ローテーションが継続実行します。
 - **パスワードレス認証とエンタープライズ権限ガバナンス**：
   - **パスワードレス認証とタブ単位の ID 分離**：個人の**メール OTP** と企業の **SSO**（Lark/Feishu、Slack、Microsoft Entra ID、Google Workspace、DingTalk、WeCom）の併用、メールドメイン許可リスト、正規メンバーへの SSO 強制、複数 Pod の切り替えとブラウザーのタブごとの ID 分離、最後の有人管理者の削除・ロックアウト防止を備えます。
-  - **4 段階のページ・データ権限**（**50 万ページ**規模でも即座に判定）：**閲覧可能**（読み取り専用）、**データを送信可能**（現場入力向け：Applet からレコード追加や写真添付はできるが、別管理の仕入原価テーブルの閲覧、列構造の変更、Applet ソースや認証情報の閲覧は不可）、**編集可能**（ドキュメントや Base 構造の編集、Applet の公開・ソース書き出し）、**フルアクセス**（共有設定、テーブル削除、ゴミ箱管理）。
-  - **3 つのセキュリティ境界**：① **AI 経由の権限昇格防止**——人が起点の対話やタスクは厳密に **`人の権限 ∩ Agent の権限`** の共通部分のみで動作し、管理者が承認した無人ジョブのみが Agent 自身の主体で動作（Agent 単位の予算上限付き）。② **外部ゲスト隔離**——プライベート領域なし、社内名簿・設定・社内共有 Company Brain へのアクセスを遮断し、明示的に共有されたページのみ表示。③ **一時停止と退職処理の分離**——休職時は一時停止で即時凍結・復帰でき、正式な退職処理では全アクセスと所有スケジュールの停止に加えて**社内メールアドレスと電話番号の紐付けを自動解放**し、同名の後任者に前任者のデータが混ざるのを防ぎます。
+  - **2 階層共有とページ権限**（当該ページのみ `self` または配下サブツリー全体 `container` を個人・グループに付与可能、**50 万ページ**規模でも即座に判定）：**閲覧可能**、**データを送信可能**（現場入力向け：Applet からレコード追加や添付送信はできるが、別管理の仕入原価テーブル閲覧や列構造変更、ソース・秘密情報の閲覧は不可）、**編集可能**、**フルアクセス**の 4 段階に加え、独立した**コメント権限**を制御できます。
+  - **3 つのセキュリティ境界**：① **役割に忠実な Agent 権限とルーム参加者積集合**——メンバーのパーソナルアシスタントは本人の日常コラボ権限を投影（管理コンソール特権は除外）し、職能別の AI 同僚は自身の付与権限で動作して権限外の変更時は**操作承認カード**で有権者の承認を求め、会話および Company Brain の情報開示は **`依頼者 ∩ Agent ∩ ルーム全員`** の共通部分に厳密制限してグループチャットからの情報漏洩を防ぎます。② **外部ゲスト隔離**——プライベート領域・パーソナルアシスタントなし、社内名簿・設定・社内 Company Brain を遮断し、明示的に共有されたページのみ表示。③ **一時停止と退職処理の分離**——休職時は一時停止で即時凍結・復帰でき、正式な退職処理ではパーソナルアシスタントの無効化、個人 OAuth コネクター連携と所有ジョブの失効に加えて**社内メールアドレスと電話番号の紐付けを自動解放**します。
 
 ## 業務ループと開発タスクの例
 
 | シナリオ | Ankole での動き |
 | --- | --- |
 | **現場スマホ検品 Applet と原価の秘匿** | BOM の **Base** に対して検品ルールを伝え、スマホ用検品 **Applet** を公開。工場の検査員には**データを送信可能**権限だけを付与して写真と合格率を登録させ、工場別の段階仕入単価テーブルは経営陣と購買のみ閲覧可能に保ちます。 |
-| **複数倉庫の在庫監視と補充ループ** | 定期実行 Agent が倉庫在庫、海上輸送の到着予定日、施策スケジュールを照合して経営ダッシュボード Applet を更新。欠品リスクを検知すると物流ルームに倉庫間転送の**選択カード**を出し、承認後にコネクター経由で出荷指示を送ります。 |
-| **ロット品質サーキットブレーカー** | 修理受付の追加イベントで Agent が起動。同一製造ロットの不良件数が閾値を超えると、**Company Brain** から出荷検査記録と未出荷在庫をたどり、在庫ロックと工場へのクレーム起票をまとめた承認カードを提示します。 |
-| **リポジトリの Issue 修正と PR 作成** | チャットで `@Ankole` に Issue 番号を伝えると、隔離された **Agent Computer Worker** コンテナー内で事前設定済みのリポジトリ認証情報を使って Codex を実行し、PR リンクを返します。 |
-| **競合仮説の Deep Research と週次レビュー資料** | 分離された複数コンテキストで証拠を集めて仮説を検証する **Deep Research** レポートを作成したり、毎週月曜朝に実績データから定例用の**スライド**下書きと数値固定スナップショット付き週報を自動生成します。 |
+| **複数倉庫の在庫監視と補充ループ** | 定期実行の Applet Action と担当 Agent が倉庫在庫、海上輸送の到着予定日、施策スケジュールを照合して経営ダッシュボード Applet を更新。欠品リスクを検知すると物流ルームに倉庫間転送の**選択カード**を出し、承認後にコネクター経由で出荷指示を送ります。 |
+| **ロット品質サーキットブレーカー** | 修理受付の追加を Base トリガーで検知。同一製造ロットの不良件数が閾値を超えると、Agent が **Company Brain** から出荷検査記録と未出荷在庫をたどり、在庫ロックと工場へのクレーム起票をまとめた承認カードを提示します。 |
+| **リポジトリの Issue 修正と PR 作成** | チャットで `@Ankole` に Issue 番号を伝えると、隔離された **Agent Computer Worker** コンテナー内でコネクターの Turn 限定 Git 認証情報を使って Codex を実行し、PR リンクを返します。 |
+| **競合仮説の Deep Research と週次レビュー資料** | 分離された複数コンテキストで証拠を集めて仮説を検証する **Deep Research** レポートを作成したり、毎週月曜朝に実績データから定例用の**スライド**下書きとアーカイブ週報ページを自動生成します。 |
 
 ## 対応プラットフォーム
 
 | 分野 | 対応範囲 |
 | --- | --- |
-| ワークスペース（`Pod`） | 共同編集ドキュメント、リレーショナルテーブル Base（グリッド / カンバン / ギャラリー、インラインおよび物理シャード PostgreSQL）、React + TypeScript 製カスタム Applet（`Function Runtime`）、ファイル・スライドプレビュー、マルチプレイヤー Pod Chat |
+| ワークスペース（`Pod`） | 共同編集ドキュメント、リレーショナルテーブル Base（グリッド / カンバン / ギャラリー、インラインおよび物理シャード PostgreSQL）、React + TypeScript 製カスタム Applet と Applet Actions（`Function Runtime`）、アンカー付きコメント対応のファイル・スライドプレビュー、パーソナルアシスタントと Pod Chat、`Meta Ankole`（`Company Brain`、`Skills`、`AGENTS.md` / `DESIGN.md`） |
+| コネクターと MCP ツールキット | アプリ認証・個人 PKCE OAuth 統合保管庫（`Ankole.Connectors`）、Lark/Feishu（IM・承認・タスク・カレンダー）・GitHub・Linear・リモート HTTP MCP サーバー向け Control Plane ステートレス MCP ゲートウェイ、Turn 単位の Git 認証ヘルパー |
 | 外部チャットとメール | Slack、Microsoft Teams、Lark/Feishu、DingTalk、WeCom、Telegram、Discord、LINE、WhatsApp、メール |
 | サインインとディレクトリ同期 | パスワードレスメール OTP（SMTP）、Lark/Feishu、Slack、Microsoft Entra ID、Google Workspace、DingTalk、WeCom（OIDC/OAuth SSO と組織ディレクトリ同期） |
 | モデル | OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter、AgentBull Cloud、ChatGPT サブスクリプション、OpenAI API 互換の任意のエンドポイント（自社ホストモデルを含む）。中国市場向けプラグインで Volcengine Ark、Alibaba Cloud DashScope CN、Z.AI Coding Plan、Xiaomi MiMo にも対応。 |
@@ -132,15 +133,15 @@ https://ankole.agentbull.com/ja-JP/docs/quickstart/index.md を使って、Ankol
 
 ## 仕組み
 
-1 つの Ankole サイトには、分離された複数のテナントをホストできます。各テナントは独自の Pod ページ、Base レコード（テナントに割り当てられた物理 Base シャードに保存）、Principal、Agent、Company Brain、外部チャネル接続を持ち、サイト運用者が共有のモデルプロバイダー、Worker プロバイダー、基盤を管理します。
+1 つの Ankole サイトには、分離された複数のテナントをホストできます。各テナントは独自の Pod ページ、Base レコード（テナントに割り当てられた物理 Base シャードに保存）、Principal、パーソナルアシスタントと AI 同僚、Company Brain、Skill、コネクターを持ち、サイト運用者が共有のモデルプロバイダー、Worker プロバイダー、基盤を管理します。
 
 Ankole は 5 つのランタイム要素で構成されます：
 
-- **Control Plane**（Elixir、Phoenix、OTP）：永続状態、スーパービジョン、コミット権限を保持し、Pod ワークスペース、Principal / AuthZ、設定、Conversations、Signals、Schedule、Sessions、Background Agent Jobs、Workflow、Company Brain、AIGateway を動かします。
-- **Function Runtime**（`ankole-function-runtime`）：Pod Applet のバックエンドルートと決定論的 TypeScript（`PTC` および `Workflow`）プログラムをステートレスな Edge Runtime 分離環境で実行します。永続状態は保持しません。
-- **Agent Computer Worker**（Bun と TypeScript、Agent ごとに 1 つの Linux コンテナー）：コマンド、ブラウザー、Codex、MCP サーバー、Skill、Automation スクリプトを実行します。Control Plane はコンピューターが必要な作業のときだけ Docker、Kubernetes、またはクラウド基盤上で Worker を起動します。
-- **Kernel**（Rust、Rustler と Node-API 経由でロード）：暗号処理、不透明 UID と短縮 URL、CEL 権限評価、Markdown/Markdoc 解析と UTF-16 ページ差分、AI 通信を担います。
-- **PostgreSQL 18+ とファイルストレージ**：PostgreSQL が Control Plane の永続ドメインデータと物理シャード化された Base テーブル（`BASE_DB_URLS`）を保存します。ファイルストアは Pod ファイル、ビルド済み Applet バンドル、Agent ドライブ、添付ファイルを保持し、各 Agent の `/workspace`（Agent Home）はコンテナー置換後も永続化されます（`/var/cache/ankole` は再構築可能）。
+- **Control Plane**（Elixir、Phoenix、OTP）：永続状態、スーパービジョン、コミット権限を保持し、Pod ワークスペース、`Meta Ankole`（`Library` と `Company Brain`）、Principal / AuthZ、`Connectors`（資格情報保管庫とステートレス MCP ゲートウェイ）、設定、Conversations、Signals、Schedule、`AutomationJobs`（公開済み Applet Actions のオーケストレーション）、Sessions、Background Agent Jobs、Workflow、AIGateway を動かします。
+- **Function Runtime**（`ankole-function-runtime`）：Pod Applet のバックエンドルート、**公開済み Applet Actions**、および決定論的 TypeScript（`PTC`・`Workflow`）プログラムをステートレスな Edge Runtime 分離環境で実行し、Control Plane のホスト・MCP ブリッジ経由で連携します（永続状態や生の秘密鍵は保持しません）。
+- **Agent Computer Worker**（Bun と TypeScript、Agent ごとに 1 つの Linux コンテナー）：コマンド、ブラウザー、Codex、ローカル MCP サーバー、Skill を実行し、許可された Pod ページやファイルを `/drive` に FUSE マウントして Turn ごとに Control Plane 経由で Git 認証を行います。コンピューターが必要な作業のときだけ Docker、Kubernetes、またはクラウド基盤上で Worker を起動します。
+- **Kernel**（Rust、Rustler と Node-API 経由でロード）：暗号処理、テナントスコープの UID と短縮 URL、CEL 権限評価、Page XML / OKF Markdown / WebDAV VFS コーデック、UTF-16 ページ差分、AI 通信を担います。
+- **PostgreSQL 18+ と統合 Drive ストレージ**：PostgreSQL が Control Plane の永続ドメインデータと物理シャード化された Base テーブル（`BASE_DB_URLS`）を保存します。統合 Drive オブジェクトストレージは Pod ファイル、ビルド済み Applet バンドル、添付ファイルを保持し、各 Agent の `/workspace`（Agent Home）はコンテナー置換後も永続化されます（`/var/cache/ankole` は再構築可能）。
 
 <details>
 <summary>アーキテクチャ図</summary>
@@ -153,34 +154,35 @@ flowchart TB
 
   subgraph Control["Control Plane (Elixir / Phoenix / OTP) · 永続状態とコミット権限"]
     direction TB
-    Pod["Pod & Conversations<br/>ページ · ドキュメント · Base · Applet · Pod Chat · 配信"]
-    Platform["Principal / AuthZ / AppConfigure<br/>パスワードレス認証 · 4 段階 Pod 権限 · Plugins"]
-    Signals["Signals & Schedule<br/>単一受付 · ルーティング · Cron · Checkback"]
+    Pod["Pod & Conversations<br/>ページ · ドキュメント · Base · Applet · Pod Chat · A2A"]
+    Platform["Principal / AuthZ / Connectors<br/>パスワードレス認証 · Pod 権限 · OAuth 保管庫と MCP ゲートウェイ"]
+    Signals["Signals, Schedule & AutomationJobs<br/>イベント受付 · Cron · Webhook · Base & コネクタートリガー"]
     Runtime["Sessions & Jobs<br/>Agent ループ · Background Agent Jobs · Workflow"]
-    Brain["Company Brain<br/>Claim と出所 · Dreaming · Skill Lessons"]
+    Meta["Meta Ankole & Company Brain<br/>ナレッジグラフ · Skills · AGENTS.md & DESIGN.md"]
     AI["AIGateway<br/>モデルルーティング · セッション状態 · 認証情報"]
   end
 
-  Fabric["RuntimeFabric<br/>Phoenix Channels · 上限付き RPC · ファイル中継"]
-  Workers["Agent Computer Worker · Agent ごとに 1 つ<br/>コマンド · Codex · Automation<br/>Skills · MCP · ブラウザー · ターミナル"]
-  FnRuntime["Function Runtime · ステートレス分離実行<br/>Applet バックエンド · PTC & Workflow"]
-  Providers["AI・Web プロバイダー<br/>LLM · Embedding · Rerank · 画像 · 検索"]
+  Fabric["RuntimeFabric<br/>Phoenix Channels · 上限付き RPC · FUSE & ファイル中継"]
+  Workers["Agent Computer Worker · Agent ごとに 1 つ<br/>コマンド · Codex · /drive FUSE<br/>Skills · MCP · ブラウザー · ターミナル"]
+  FnRuntime["Function Runtime · ステートレス分離実行<br/>Applet バックエンド · Applet Actions · PTC & Workflow"]
+  Providers["AI・Web・外部 SaaS<br/>LLM · Embedding · Rerank · 検索 · Lark / GitHub / Linear"]
 
   PG[("PostgreSQL 18+ · 永続性の境界<br/>Control Plane の永続データ · 物理 Base シャード")]
-  Files[("ファイルストア · 永続性の境界<br/>Pod ファイル · Applet バンドル · Agent ドライブ")]
+  Files[("統合 Drive ストレージ · 永続性の境界<br/>Pod ファイル · Applet バンドル · 添付ファイル")]
   Homes[("Agent Home · 永続性の境界<br/>Agent ごとに 1 つ · /workspace · Codex スレッド")]
 
   External -->|"ワークスペース・Webhook・管理"| Control
   Pod -->|"トリガー"| Signals
   Signals -->|"受け付けた作業"| Runtime
   Platform --> Runtime
-  Runtime <--> Brain
+  Runtime <--> Meta
   Runtime --> AI
-  Control -->|"分離 TS 呼び出し"| FnRuntime
+  Control <-->|"ホスト・MCP ブリッジ"| FnRuntime
   Control -->|"ライブ実行"| Fabric
   Fabric <--> Workers
   Workers -->|"Codex Responses API"| AI
   AI -->|"上流呼び出し"| Providers
+  Platform -->|"代理 MCP・Git"| Providers
   Control -.-> PG
   Control -.-> Files
   Workers -.-> Homes
