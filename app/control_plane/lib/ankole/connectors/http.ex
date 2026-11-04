@@ -111,22 +111,31 @@ defmodule Ankole.Connectors.HTTP do
 
   def decode(%{status: status, headers: headers} = response, opts) do
     unknown? = status >= 500 and not Keyword.get(opts, :idempotent, false)
+    details = error_body(Map.get(response, :body, ""))
+
+    code =
+      cond do
+        unknown? -> "upstream_outcome_unknown"
+        status == 429 -> "upstream_rate_limited"
+        true -> "upstream_rejected"
+      end
 
     {:error,
      %{
-       code:
-         cond do
-           unknown? -> "upstream_outcome_unknown"
-           status == 429 -> "upstream_rate_limited"
-           true -> "upstream_rejected"
-         end,
+       code: code,
+       message: error_message(details) || code,
        status: status,
        request_sent: true,
-       details: error_body(Map.get(response, :body, "")),
+       details: details,
        retryable: not unknown? and (status == 429 or status >= 500),
        retryAfterSeconds: retry_after(header(headers, "retry-after"))
      }}
   end
+
+  defp error_message(%{"message" => message}) when is_binary(message), do: message
+  defp error_message(%{"msg" => message}) when is_binary(message), do: message
+  defp error_message(message) when is_binary(message), do: message
+  defp error_message(_), do: nil
 
   defp error_body(""), do: nil
 
@@ -138,7 +147,7 @@ defmodule Ankole.Connectors.HTTP do
   end
 
   @doc false
-  def redact_credentials(value, headers) do
+  def redact_credentials(value, headers, extra_secrets \\ []) do
     secrets =
       Enum.flat_map(headers, fn {name, secret} ->
         if String.downcase(name) in [
@@ -152,7 +161,8 @@ defmodule Ankole.Connectors.HTTP do
           []
         end
       end)
-      |> Enum.reject(&(&1 == ""))
+      |> Enum.concat(extra_secrets)
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
       |> Enum.uniq()
 
     redact(value, secrets)

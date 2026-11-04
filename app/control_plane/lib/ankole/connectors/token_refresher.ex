@@ -34,7 +34,7 @@ defmodule Ankole.Connectors.TokenRefresher do
         result =
           with {:ok, secret} <- Credentials.secret(config),
                {:ok, credentials} <- Credentials.account_credentials(row),
-               do: adapter.refresh_token(config, secret, credentials)
+               do: refresh_token(adapter, config, secret, credentials)
 
         case finish(config, row, result) do
           {:ok, {:refresh_failed, reason}} -> {:error, reason}
@@ -53,6 +53,13 @@ defmodule Ankole.Connectors.TokenRefresher do
         error
     end
   end
+
+  defp refresh_token(adapter, config, secret, %{"refresh_token" => token} = credentials)
+       when is_binary(token) and token != "",
+       do: adapter.refresh_token(config, secret, credentials)
+
+  defp refresh_token(_adapter, _config, _secret, _credentials),
+    do: {:error, :oauth_reauthorization_required}
 
   def invalidate(config, account, token) do
     Repo.transact_top_level(fn ->

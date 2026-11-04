@@ -1,5 +1,5 @@
-defmodule Ankole.Plugins.LinearAdapter.Tools do
-  @moduledoc "The supported Linear MCP contract. Upstream catalog changes require an explicit contract update."
+defmodule Ankole.Plugins.LinearAdapter.Tools.Definitions do
+  @moduledoc false
   alias Ankole.Connectors.ToolSpec
 
   def tools do
@@ -240,4 +240,13 @@ defmodule Ankole.Plugins.LinearAdapter.Tools do
 
   defp integers(fields), do: Enum.map(fields, &{&1, %{"type" => "integer"}})
   defp booleans(fields), do: Enum.map(fields, &{&1, %{"type" => "boolean"}})
+end
+
+defmodule Ankole.Plugins.LinearAdapter.Tools do
+  @moduledoc "The supported Linear MCP contract. Upstream catalog changes require an explicit contract update."
+  alias Ankole.Connectors.ToolSpec
+
+  @tools Enum.map(Ankole.Plugins.LinearAdapter.Tools.Definitions.tools(), &ToolSpec.compile/1)
+
+  def tools, do: @tools
 end

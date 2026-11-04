@@ -262,7 +262,10 @@ capability frames itself. Protocol discovery requires a valid signed context;
 tool discovery and calls recheck current Principal, Page, and Turn or Attempt
 authority. Notifications receive an empty HTTP 202 response. A GET route can call only tools declaring
 `readOnlyHint: true`. Connector `ToolSpec` schemas validate both input and output;
-fields marked `int64` or `uint64` become decimal strings.
+fields marked `int64` or `uint64` become decimal strings. Plugins resolve static
+ToolSpec schemas at compile time while exposing the original declarations to
+tool discovery and generated clients. Skill calls validate arguments against the schema
+returned by their selected server.
 
 The internal gateway implements stateless MCP `2026-07-28`, including
 `server/discover`, complete result envelopes, and cache metadata. Its pure Elixir
@@ -274,6 +277,11 @@ an unknown outcome instead of silently replaying the write. Idle sessions expire
 and close after ten minutes. A completed tool response with `isError: true`
 remains a tool error; it does not imply an unknown write outcome. Text-only
 results retain their content without inventing structured output.
+HTTP and JSON-RPC failures retain the upstream status, message, and error details
+so callers can correct invalid arguments or recover authorization. The gateway
+redacts the injected credential from these diagnostics. HTTP 401 responses,
+including OAuth-style error bodies, preserve their status so the Toolkit gateway
+can use the shared credential recovery path.
 
 `Ankole.Files.HTTP` owns the shared HTTP/file bridge. Uploading a `file_ref`
 authorizes and resolves an immutable File object in a short transaction, releases

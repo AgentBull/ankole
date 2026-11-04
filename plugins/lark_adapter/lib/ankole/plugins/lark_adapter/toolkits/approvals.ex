@@ -1409,35 +1409,37 @@ defmodule Ankole.Plugins.LarkAdapter.Toolkits.Approvals do
                }
              ]
              """)
-  def tools do
-    Enum.map(@contracts, fn contract ->
-      %ToolSpec{
-        toolkit: "lark_approvals",
-        name: contract["name"],
-        description: contract["description"],
-        input_schema: contract["input_schema"],
-        output_schema: contract["output_schema"],
-        operation: contract["operation"],
-        subject_policy:
-          if(contract["bound"],
-            do: :human_authority,
-            else: :any_principal
-          ),
-        upstream_auth: auth(contract),
-        scopes: contract["scopes"],
-        annotations:
-          ToolSpec.annotations(
-            contract["read_only"],
-            contract["idempotent"],
-            contract["destructive"]
-          )
-      }
-    end)
-  end
+  @tools Enum.map(@contracts, fn contract ->
+           %ToolSpec{
+             toolkit: "lark_approvals",
+             name: contract["name"],
+             description: contract["description"],
+             input_schema: contract["input_schema"],
+             output_schema: contract["output_schema"],
+             operation: contract["operation"],
+             subject_policy:
+               if(contract["bound"],
+                 do: :human_authority,
+                 else: :any_principal
+               ),
+             upstream_auth:
+               case contract do
+                 %{"user_oauth" => true} -> :human_oauth_token
+                 %{"bound" => true} -> :app_token_with_bound_user
+                 %{"name" => "approvals_upload_file"} -> :app_token
+                 %{"name" => "approvals_list_tasks"} -> :adaptive_token
+                 _ -> :app_token
+               end,
+             scopes: contract["scopes"],
+             annotations:
+               ToolSpec.annotations(
+                 contract["read_only"],
+                 contract["idempotent"],
+                 contract["destructive"]
+               )
+           }
+           |> ToolSpec.compile()
+         end)
 
-  defp auth(%{"user_oauth" => true}), do: :human_oauth_token
-  defp auth(%{"bound" => true}), do: :app_token_with_bound_user
-  defp auth(%{"name" => "approvals_upload_file"}), do: :app_token
-  defp auth(%{"name" => "approvals_list_tasks"}), do: :adaptive_token
-  defp auth(_), do: :app_token
+  def tools, do: @tools
 end

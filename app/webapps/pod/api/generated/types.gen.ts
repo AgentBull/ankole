@@ -6568,8 +6568,9 @@ export type UnbindPodCredentialResponse = UnbindPodCredentialResponses[keyof Unb
 export type PodEventBindingsData = {
   body?: never
   path?: never
-  query: {
-    config_ref: string
+  query?: {
+    config_ref?: string
+    job_id?: number
   }
   url: '/api/v2/pod/signal-bindings'
 }

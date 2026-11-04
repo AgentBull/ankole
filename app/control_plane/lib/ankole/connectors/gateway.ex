@@ -1,6 +1,6 @@
 defmodule Ankole.Connectors.Gateway do
   @moduledoc "Serves the same stateless MCP contract to Workers and Function Runtime."
-  alias Ankole.Connectors.{Registry, RemoteMCP, ToolSpec}
+  alias Ankole.Connectors.{Credentials, OAuth, Registry, RemoteMCP, ToolSpec}
 
   def request(target, %{"method" => method} = request, context, options) do
     params = request["params"] || %{}
@@ -73,7 +73,8 @@ defmodule Ankole.Connectors.Gateway do
   defp call({:toolkit, id}, name, args, context, options) when is_binary(name) and is_map(args) do
     with {:ok, adapter, spec, args, credentials} <-
            prepare_toolkit(id, name, args, context, options),
-         {:ok, result} <- adapter.call(spec, args, Map.merge(credentials, context)),
+         {:ok, result, _used_context} <-
+           invoke_toolkit(adapter, spec, args, Map.merge(credentials, context)),
          {:ok, result} <- validate_output(spec, result) do
       {:ok, result_content(int64_strings(result, spec.output_schema, spec.output_schema))}
     end
@@ -117,6 +118,78 @@ defmodule Ankole.Connectors.Gateway do
   end
 
   defp call(_, _, _, _, _), do: {:error, :invalid_request}
+
+  @doc false
+  def invoke_toolkit(adapter, spec, args, context) do
+    case adapter.call(spec, args, context) do
+      {:ok, result} ->
+        {:ok, result, context}
+
+      {:error, %{status: 401} = error} ->
+        recover_token(adapter, spec, args, context, error)
+
+      result ->
+        result
+    end
+  end
+
+  defp recover_token(adapter, spec, args, context, error) do
+    case Credentials.refresh_rejected_token(
+           context.auth_config,
+           context.account,
+           context.access_token,
+           adapter
+         ) do
+      {:ok, token} ->
+        if ToolSpec.retry_safe?(spec) do
+          retry_toolkit(adapter, spec, args, %{context | access_token: token})
+        else
+          {:error,
+           Map.merge(error, %{
+             retryable: true,
+             message: "The connection was refreshed. Retry this operation."
+           })}
+        end
+
+      {:error, :oauth_reauthorization_required} ->
+        OAuth.consent_required(context.auth_config.slug, spec.scopes, %{
+          "toolkit" => spec.toolkit,
+          "subject_kind" => (context.account && context.account.subject_kind) || "app"
+        })
+
+      {:error, reason} when reason in [:oauth_refresh_failed, :oauth_refresh_cooling_down] ->
+        {:error,
+         %{
+           code: Atom.to_string(reason),
+           message: "The connection could not be refreshed. Retry shortly.",
+           retryable: true,
+           retryAfterSeconds: 30,
+           request_sent: true
+         }}
+
+      result ->
+        result
+    end
+  end
+
+  defp retry_toolkit(adapter, spec, args, context) do
+    case adapter.call(spec, args, context) do
+      {:ok, result} ->
+        {:ok, result, context}
+
+      {:error, %{status: 401}} = error ->
+        Credentials.invalidate_access_token(
+          context.auth_config,
+          context.account,
+          context.access_token
+        )
+
+        error
+
+      result ->
+        result
+    end
+  end
 
   defp prepare_toolkit(id, name, args, context, options) do
     with {:ok, adapter, specs} <- Registry.toolkit(id),

@@ -15,22 +15,20 @@ defmodule WeComOpenAPI.Bot.ClientTest do
   test "connects to the WeCom gateway when its HTTP/1 upgrade headers are case-sensitive" do
     parent = self()
     {server, port} = FakeWsServer.start(parent, require_wecom_header_case: true)
+    on_exit(fn -> send(server, :close) end)
 
-    {:ok, pid} =
-      Client.start_link(
-        bot_id: "bot-1",
-        secret: "secret-1",
-        dispatcher: Dispatcher.new(),
-        ws_url: "ws://127.0.0.1:#{port}/",
-        auto_reconnect: false
+    pid =
+      start_supervised!(
+        {Client,
+         [
+           bot_id: "bot-1",
+           secret: "secret-1",
+           dispatcher: Dispatcher.new(),
+           ws_url: "ws://127.0.0.1:#{port}/",
+           auto_reconnect: false
+         ]},
+        restart: :temporary
       )
-
-    Process.unlink(pid)
-
-    on_exit(fn ->
-      Process.exit(pid, :shutdown)
-      if Process.alive?(server), do: send(server, :close)
-    end)
 
     assert_receive {:ws_upgraded, ^server}, 2_000
     assert_receive {:client_frame, %{"cmd" => "aibot_subscribe"} = auth}, 2_000
@@ -51,14 +49,19 @@ defmodule WeComOpenAPI.Bot.ClientTest do
   defp start_connected(dispatcher) do
     parent = self()
     {server, port} = FakeWsServer.start(parent)
+    on_exit(fn -> send(server, :close) end)
 
-    {:ok, pid} =
-      Client.start_link(
-        bot_id: "bot-1",
-        secret: "secret-1",
-        dispatcher: dispatcher,
-        ws_url: "ws://127.0.0.1:#{port}/",
-        auto_reconnect: false
+    pid =
+      start_supervised!(
+        {Client,
+         [
+           bot_id: "bot-1",
+           secret: "secret-1",
+           dispatcher: dispatcher,
+           ws_url: "ws://127.0.0.1:#{port}/",
+           auto_reconnect: false
+         ]},
+        restart: :temporary
       )
 
     assert_receive {:ws_upgraded, ^server}, 2_000
@@ -103,11 +106,6 @@ defmodule WeComOpenAPI.Bot.ClientTest do
       end)
 
     {pid, server} = start_connected(dispatcher)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: Client.stop(pid)
-      send(server, :close)
-    end)
 
     # Inbound message callback reaches the dispatcher with routing fields.
     send(
@@ -157,14 +155,8 @@ defmodule WeComOpenAPI.Bot.ClientTest do
   end
 
   test "an ACK timeout fails queued replies before the req_id can be reused" do
-    {pid, server} = start_connected(Dispatcher.new())
-    Process.unlink(pid)
+    {pid, _server} = start_connected(Dispatcher.new())
     monitor = Process.monitor(pid)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: Client.stop(pid)
-      send(server, :close)
-    end)
 
     first = Task.async(fn -> Bot.reply_markdown(pid, "same-request", "first") end)
     assert_receive {:client_frame, %{"cmd" => "aibot_respond_msg"}}, 2_000
@@ -180,11 +172,6 @@ defmodule WeComOpenAPI.Bot.ClientTest do
 
   test "proactive send uses a fresh req_id and surfaces non-zero ack errcodes" do
     {pid, server} = start_connected(Dispatcher.new())
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: Client.stop(pid)
-      send(server, :close)
-    end)
 
     task = Task.async(fn -> Bot.send_markdown(pid, "chat-1", 2, "hello") end)
 
@@ -209,11 +196,6 @@ defmodule WeComOpenAPI.Bot.ClientTest do
 
   test "media upload runs init, ordered chunks, and finish" do
     {pid, server} = start_connected(Dispatcher.new())
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: Client.stop(pid)
-      send(server, :close)
-    end)
 
     content = :crypto.strong_rand_bytes(700 * 1024)
     task = Task.async(fn -> Bot.upload_media(pid, "file", "big.bin", content) end)
@@ -263,7 +245,6 @@ defmodule WeComOpenAPI.Bot.ClientTest do
 
   test "stops as connection_contended on disconnected_event instead of reconnecting" do
     {pid, server} = start_connected(Dispatcher.new())
-    Process.unlink(pid)
     ref = Process.monitor(pid)
 
     send(
@@ -280,23 +261,26 @@ defmodule WeComOpenAPI.Bot.ClientTest do
     )
 
     assert_receive {:DOWN, ^ref, :process, ^pid, {:shutdown, :connection_contended}}, 2_000
-    send(server, :close)
   end
 
   test "stops as auth error when the subscribe ack is rejected" do
     parent = self()
     {server, port} = FakeWsServer.start(parent)
+    on_exit(fn -> send(server, :close) end)
 
-    {:ok, pid} =
-      Client.start_link(
-        bot_id: "bot-1",
-        secret: "wrong",
-        dispatcher: Dispatcher.new(),
-        ws_url: "ws://127.0.0.1:#{port}/",
-        auto_reconnect: false
+    pid =
+      start_supervised!(
+        {Client,
+         [
+           bot_id: "bot-1",
+           secret: "wrong",
+           dispatcher: Dispatcher.new(),
+           ws_url: "ws://127.0.0.1:#{port}/",
+           auto_reconnect: false
+         ]},
+        restart: :temporary
       )
 
-    Process.unlink(pid)
     ref = Process.monitor(pid)
 
     assert_receive {:client_frame, %{"cmd" => "aibot_subscribe"} = auth}, 2_000
@@ -312,6 +296,5 @@ defmodule WeComOpenAPI.Bot.ClientTest do
     )
 
     assert_receive {:DOWN, ^ref, :process, ^pid, {:shutdown, %Error{reason: :auth}}}, 2_000
-    send(server, :close)
   end
 end

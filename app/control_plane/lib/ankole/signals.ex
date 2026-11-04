@@ -7,7 +7,11 @@ defmodule Ankole.Signals do
   steps that the generic action of another domain calls in its own transaction.
   """
   defdelegate put_event_binding(actor, attrs), to: Ankole.Signals.EventBindings, as: :put
-  defdelegate list_event_bindings(actor, ref), to: Ankole.Signals.EventBindings, as: :list
+
+  defdelegate list_event_bindings(actor, ref, job_id \\ nil),
+    to: Ankole.Signals.EventBindings,
+    as: :list
+
   defdelegate root_signal_id(id), to: Ankole.Signals.Dispatch
 
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]

@@ -1,5 +1,16 @@
 # Changelog
 
+## Version 2.0.0-alpha.52 (2026-11-04)
+
+- Recover rejected Connector tokens through the shared credential owner and
+  retry safe operations once. Preserve Git authentication and require explicit
+  retry for writes whose effects cannot safely be repeated.
+- Keep remote MCP and event-subscription error details available for diagnosis.
+  Let members repair a subscription and return to the same Applet Job, preserving
+  their authorization and source-selection context.
+- Add platform setup guidance to connection forms and load a Job's event
+  subscriptions in one request.
+
 ## Version 2.0.0-alpha.51 (2026-11-04)
 
 - Keep OfficeCLI on the release tested with the Worker image by disabling its

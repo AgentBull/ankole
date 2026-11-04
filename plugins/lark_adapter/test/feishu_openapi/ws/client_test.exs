@@ -153,12 +153,7 @@ defmodule FeishuOpenAPI.WS.ClientTest do
         ]
       )
 
-    {:ok, pid} =
-      Client.start_link(client: client, dispatcher: Dispatcher.new(), auto_reconnect: true)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
-    end)
+    pid = start_supervised!({Client, client: client, dispatcher: Dispatcher.new()})
 
     wait_until(fn ->
       state = :sys.get_state(pid)
@@ -248,13 +243,12 @@ defmodule FeishuOpenAPI.WS.ClientTest do
         ]
       )
 
-    {:ok, pid} =
-      Client.start_link(client: client, dispatcher: Dispatcher.new(), auto_reconnect: false)
+    pid =
+      start_supervised!(
+        {Client, client: client, dispatcher: Dispatcher.new(), auto_reconnect: false}
+      )
 
-    on_exit(fn ->
-      if Process.alive?(pid), do: Client.stop(pid)
-      send(server, :close)
-    end)
+    on_exit(fn -> send(server, :close) end)
 
     assert_receive {:websocket_frame, ^server, {:ok, payload}}, 1_000
     assert {:ok, frame} = Frame.decode(payload)

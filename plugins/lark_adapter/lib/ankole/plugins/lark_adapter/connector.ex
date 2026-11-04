@@ -158,12 +158,18 @@ defmodule Ankole.Plugins.LarkAdapter.Connector do
           context.access_token
         )
 
-        error
+        redact_error(error, context.access_token)
+
+      {:error, _} = error ->
+        redact_error(error, context.access_token)
 
       result ->
         result
     end
   end
+
+  defp redact_error({:error, reason}, token),
+    do: {:error, HTTP.redact_credentials(reason, headers(token))}
 
   def find_tool(name), do: Enum.find(tools(), &(&1.name == name))
 
@@ -173,16 +179,23 @@ defmodule Ankole.Plugins.LarkAdapter.Connector do
          {:ok, token} <-
            Ankole.Connectors.Credentials.subscription_token(config, account, __MODULE__, desired?),
          {:ok, path} <- subscription_path(trigger, desired?),
-         {:ok, response} <-
-           Ankole.Files.HTTP.request("POST", base_url(config) <> path, headers(token), "{}",
-             idempotent: true
-           ),
-         {:ok, result} <- HTTP.decode(response, idempotent: true),
-         {:ok, _} <- unwrap(result) do
+         {:ok, _} <- subscription_request(config, token, path) do
       {:ok, %{external_subscription_id: if(desired?, do: trigger.scope_key)}}
-    else
-      {:error, _} = error -> error
-      _ -> {:error, :subscription_rejected}
+    end
+  end
+
+  defp subscription_request(config, token, path) do
+    result =
+      with {:ok, response} <-
+             Ankole.Files.HTTP.request("POST", base_url(config) <> path, headers(token), "{}",
+               idempotent: true
+             ),
+           {:ok, result} <- HTTP.decode(response, idempotent: true),
+           do: unwrap(result)
+
+    case result do
+      {:error, reason} -> {:error, HTTP.redact_credentials(reason, headers(token))}
+      result -> result
     end
   end
 
@@ -481,12 +494,14 @@ defmodule Ankole.Plugins.LarkAdapter.Connector do
   def unwrap(%{"code" => 0, "data" => data}), do: {:ok, data}
   def unwrap(%{"code" => 0} = data), do: {:ok, Map.drop(data, ["code", "msg"])}
 
-  def unwrap(%{"code" => code}),
+  def unwrap(%{"code" => code} = response),
     do:
       {:error,
        %{
          code: "upstream_rejected",
          upstream_code: code,
+         message: response["msg"],
+         details: response["error"],
          retryable: code in [99_991_663, 99_991_668, 99_991_677]
        }}
 

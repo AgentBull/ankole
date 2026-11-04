@@ -417,7 +417,7 @@ defmodule Ankole.Pod.RPCBroker do
     do: Ankole.Signals.put_event_binding(actor, params)
 
   defp dispatch("bindings.list", actor, params, _ctx),
-    do: Ankole.Signals.list_event_bindings(actor, params["config_ref"])
+    do: Ankole.Signals.list_event_bindings(actor, params["config_ref"], params["job_id"])
 
   defp dispatch("jobs.configure", actor, params, _ctx),
     do: Ankole.AutomationJobs.configure_applet_job(actor, params["page_id"], params["id"], params)

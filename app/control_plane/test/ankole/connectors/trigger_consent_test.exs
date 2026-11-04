@@ -10,6 +10,9 @@ defmodule Ankole.Connectors.TriggerConsentTest do
     def init(owner), do: owner
 
     def call(conn, owner) do
+      authorization = get_req_header(conn, "authorization")
+      status = if authorization == ["Bearer http-denied-token"], do: 403, else: 200
+
       body =
         case conn.request_path do
           "/open-apis/authen/v2/oauth/token" ->
@@ -34,10 +37,19 @@ defmodule Ankole.Connectors.TriggerConsentTest do
 
           "/open-apis/calendar/v4/calendars/primary/events/subscription" ->
             send(owner, {:calendar_subscribed, get_req_header(conn, "authorization")})
-            %{"code" => 0, "data" => %{}}
+
+            if authorization in [["Bearer denied-token"], ["Bearer http-denied-token"]] do
+              %{
+                "code" => 99_991_672,
+                "msg" => "Enable calendar permission for #{List.first(authorization)}",
+                "error" => %{"permission" => "calendar:calendar.event:read"}
+              }
+            else
+              %{"code" => 0, "data" => %{}}
+            end
         end
 
-      conn |> put_resp_content_type("application/json") |> send_resp(200, Torque.encode!(body))
+      conn |> put_resp_content_type("application/json") |> send_resp(status, Torque.encode!(body))
     end
   end
 
@@ -166,6 +178,69 @@ defmodule Ankole.Connectors.TriggerConsentTest do
                "scope_key" => "primary",
                "connected_account_id" => account.id
              })
+  end
+
+  test "a failed subscription retains the provider diagnosis and explicit retry clears it", ctx do
+    {:ok, account} =
+      Accounts.put_human_tokens(
+        ctx.config.id,
+        ctx.member.uid,
+        %{"access_token" => "denied-token"},
+        %{granted_scopes: ["calendar:calendar.event:read"]}
+      )
+
+    {:ok, trigger} =
+      Triggers.create(ctx.member, %{
+        "auth_config_id" => ctx.config.id,
+        "trigger_type" => "lark_calendar",
+        "scope_key" => "primary",
+        "connected_account_id" => account.id
+      })
+
+    %{principal: agent} = agent_fixture()
+    Ankole.ConversationsFixtures.grant_chat(ctx.member.uid, agent.uid)
+
+    {:ok, _} =
+      Ankole.Signals.EventBindings.put(Ankole.AuthZ.Actor.new(ctx.member), %{
+        "config_ref" => trigger.config_ref,
+        "agent_uid" => agent.uid,
+        "target" => %{"conversation_id" => Ankole.Kernel.gen_uuid_v7()}
+      })
+
+    assert {:ok, %{status: "degraded", last_error: error}} = Triggers.reconcile(trigger.id)
+    assert error["code"] == "upstream_rejected"
+    assert error["upstream_code"] == 99_991_672
+    assert error["operation"] == "reconcile"
+    assert error["message"] =~ "Enable calendar permission"
+    refute error["message"] =~ "denied-token"
+    assert error["details"] == %{"permission" => "calendar:calendar.event:read"}
+
+    {:ok, _} =
+      Accounts.put_human_tokens(
+        ctx.config.id,
+        ctx.member.uid,
+        %{"access_token" => "http-denied-token"},
+        %{granted_scopes: ["calendar:calendar.event:read"]}
+      )
+
+    assert {:ok, _} = Triggers.retry(ctx.member, trigger.id)
+    assert {:ok, %{status: "degraded", last_error: error}} = Triggers.reconcile(trigger.id)
+    assert error["status"] == 403
+    assert error["message"] =~ "Enable calendar permission"
+    refute error["message"] =~ "http-denied-token"
+    assert error["details"]["error"] == %{"permission" => "calendar:calendar.event:read"}
+    assert error["details"]["msg"] == error["message"]
+
+    {:ok, _} =
+      Accounts.put_human_tokens(
+        ctx.config.id,
+        ctx.member.uid,
+        %{"access_token" => "calendar-token"},
+        %{granted_scopes: ["calendar:calendar.event:read"]}
+      )
+
+    assert {:ok, _} = Triggers.retry(ctx.member, trigger.id)
+    assert {:ok, %{status: "active", last_error: nil}} = Triggers.reconcile(trigger.id)
   end
 
   test "subscription lists batch account authorization and retain subscriptions needing repair",

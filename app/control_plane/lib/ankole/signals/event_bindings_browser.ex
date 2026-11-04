@@ -25,7 +25,8 @@ defmodule Ankole.Signals.EventBindingsBrowser do
 
   actions do
     action :list, :map do
-      argument(:config_ref, :string, allow_nil?: false)
+      argument(:config_ref, :string)
+      argument(:job_id, :integer)
 
       constraints(
         fields: [
@@ -39,7 +40,11 @@ defmodule Ankole.Signals.EventBindingsBrowser do
 
       run(fn input, context ->
         Ankole.Pod.APIError.result(
-          EventBindings.list(context.actor, input.arguments.config_ref),
+          EventBindings.list(
+            context.actor,
+            Map.get(input.arguments, :config_ref),
+            Map.get(input.arguments, :job_id)
+          ),
           &%{bindings: &1}
         )
       end)

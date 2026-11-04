@@ -1,6 +1,7 @@
 import { createServer } from 'node:http'
 import { expect, test } from '@playwright/test'
 import { login, request, state } from './fixtures'
+import { pageRoute } from './routes'
 
 test.use({ actionTimeout: 15_000 })
 
@@ -33,6 +34,32 @@ test('administrator configures a connection and member can retry the same progre
     await admin.getByRole('option', { name: 'GitHub', exact: true }).click()
     await dialog.getByRole('combobox', { name: '认证方式', exact: true }).click()
     await admin.getByRole('option', { name: /Oauth2/i }).click()
+    await dialog.getByText('如何配置平台应用', { exact: true }).click()
+    await expect(
+      dialog.getByText(
+        '在 GitHub 开发者设置中创建 OAuth App，登记下方的回调地址，然后填写 Client ID 和 Client Secret。'
+      )
+    ).toBeVisible()
+    await expect(dialog.getByRole('link', { name: '打开平台开发者设置 ↗' })).toHaveAttribute(
+      'href',
+      'https://github.com/settings/developers'
+    )
+    await expect(dialog.getByRole('link', { name: '自动化使用指南 ↗' })).toHaveAttribute(
+      'href',
+      'https://ankole.agentbull.com/zh-Hans-CN/docs/automation-jobs/'
+    )
+    await admin.setViewportSize({ width: 390, height: 844 })
+    await expect.poll(() => dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    await dialog.evaluate(element => element.scrollTo({ top: 0 }))
+    await admin.screenshot({ path: '/tmp/ankole-connectors-setup-mobile.png', fullPage: true, animations: 'disabled' })
+    await dialog.getByRole('button', { name: '保存', exact: true }).scrollIntoViewIfNeeded()
+    await expect(dialog.getByRole('button', { name: '保存', exact: true })).toBeInViewport()
+    await admin.screenshot({
+      path: '/tmp/ankole-connectors-setup-mobile-save.png',
+      fullPage: true,
+      animations: 'disabled'
+    })
+    await admin.setViewportSize({ width: 1280, height: 960 })
     const catalog = await request<{ oauth_callback_url: string }>(admin, '/connectors')
     await expect(dialog.getByLabel('OAuth 回调地址')).toHaveValue(catalog.oauth_callback_url)
     await expect(dialog.getByText('连接账户前，请在外部应用的开发者后台将此地址登记为授权回调地址。')).toBeVisible()
@@ -84,6 +111,14 @@ test('administrator configures a connection and member can retry the same progre
       expect(new URL(member.url()).searchParams.get('scopes')).toBe('repo workflow')
     }
     await member.screenshot({ path: '/tmp/ankole-connectors-product-consent.png', fullPage: true })
+    intent.searchParams.set('subject_kind', 'app')
+    intent.searchParams.set('scopes', 'repo read:org')
+    await admin.goto(intent.href)
+    await card.getByRole('button', { name: '授权应用账户', exact: true }).click()
+    await admin.waitForURL(url => url.searchParams.get('connector_error') === 'oauth_authorization_cancelled')
+    expect(new URL(admin.url()).searchParams.get('subject_kind')).toBe('app')
+    expect(new URL(admin.url()).searchParams.get('scopes')).toBe('repo read:org')
+    expect(requests.at(-1)!.searchParams.get('scope')?.split(' ')).toEqual(expect.arrayContaining(['repo', 'read:org']))
   } finally {
     await adminContext.close()
     await memberContext.close()
@@ -237,6 +272,7 @@ test('administrator adds sign-in credentials to the same Slack application witho
 test('member starts a personal calendar subscription, cancels then completes consent and resumes the same draft', async ({
   browser
 }) => {
+  test.skip(!state.actions, 'Start the real fixture with POD_BROWSER_ACTIONS=true')
   const provider = await connectorProvider()
   const adminContext = await browser.newContext()
   const memberContext = await browser.newContext()
@@ -245,6 +281,9 @@ test('member starts a personal calendar subscription, cancels then completes con
   const slug = `calendar-${Date.now()}`
   const calendar = `feishu.cn_${slug}@group.calendar.feishu.cn`
   const authorizations: URL[] = []
+  const pageID = state.actions!.page_id
+  const jobName = `Personal calendar ${slug}`
+  let jobID: number | undefined
   await member.route('https://accounts.feishu.cn/open-apis/authen/v1/authorize?*', async route => {
     const url = new URL(route.request().url())
     authorizations.push(url)
@@ -267,8 +306,21 @@ test('member starts a personal calendar subscription, cancels then completes con
     await adminDialog.getByLabel('App Secret', { exact: false }).fill('browser-calendar-secret')
     await adminDialog.getByRole('button', { name: '保存', exact: true }).click()
     await expect(adminDialog).toBeHidden()
-    await member.goto(`${state.base_url}/connectors`)
+    await member.goto(state.base_url + pageRoute(pageID))
     await login(member, state.member)
+    await expect(member.getByRole('button', { name: '自动化', exact: true })).toBeVisible()
+    const { job } = await request<{ job: { id: number } }>(member, `/pages/${pageID}/jobs`, 'POST', {
+      action_key: 'capture',
+      label: jobName,
+      authorization_kind: 'human',
+      config: {}
+    })
+    jobID = job.id
+    await member.getByRole('button', { name: '自动化', exact: true }).click()
+    await member.getByRole('combobox', { name: '自动化任务', exact: true }).click()
+    await member.getByRole('option', { name: jobName, exact: true }).click()
+    await member.getByRole('link', { name: '打开外部连接', exact: true }).click()
+    expect(new URL(member.url()).searchParams.get('automation_job')).toBe(String(jobID))
     const card = member.locator('[data-slot="card"]').filter({ has: member.getByText(slug, { exact: true }) })
     await card.getByRole('button', { name: '添加事件订阅', exact: true }).click()
     const dialog = member.getByRole('dialog')
@@ -281,6 +333,9 @@ test('member starts a personal calendar subscription, cancels then completes con
     await expect(dialog.getByLabel('Calendar ID', { exact: true })).toHaveValue(calendar)
     await expect(dialog.getByRole('combobox', { name: '事件类型', exact: true })).toContainText('Personal calendar')
     await expect(dialog.getByRole('button', { name: '授权并继续', exact: true })).toBeEnabled()
+    await expect.poll(() => dialog.evaluate(element => element.contains(document.activeElement))).toBe(true)
+    expect(new URL(member.url()).searchParams.get('automation_page')).toBe(pageID)
+    expect(new URL(member.url()).searchParams.get('automation_job')).toBe(String(jobID))
     await member.screenshot({
       path: '/tmp/ankole-connectors-product-calendar-draft.png',
       fullPage: true,
@@ -288,6 +343,8 @@ test('member starts a personal calendar subscription, cancels then completes con
     })
     await dialog.getByRole('button', { name: '授权并继续', exact: true }).click()
     await expect(dialog.getByText('账户已授权，请确认后添加订阅。')).toBeVisible()
+    expect(new URL(member.url()).searchParams.get('automation_page')).toBe(pageID)
+    expect(new URL(member.url()).searchParams.get('automation_job')).toBe(String(jobID))
     await expect(dialog.getByLabel('Calendar ID', { exact: true })).toHaveValue(calendar)
     await expect(dialog.getByRole('combobox', { name: '个人账户', exact: true })).toContainText('browser-lark-employee')
     const created = member.waitForResponse(
@@ -297,7 +354,7 @@ test('member starts a personal calendar subscription, cancels then completes con
     await dialog.getByRole('button', { name: '添加事件订阅', exact: true }).click()
     expect((await created).ok()).toBe(true)
     await expect(dialog).toBeHidden()
-    await expect(member.getByText(`lark_calendar · ${calendar}`, { exact: true })).toBeVisible()
+    await expect(member.getByText(`Personal calendar · ${calendar}`, { exact: true })).toBeVisible()
     expect(authorizations).toHaveLength(2)
     for (const authorization of authorizations) {
       expect(authorization.searchParams.get('scope')?.split(' ')).toContain('calendar:calendar.event:read')
@@ -315,14 +372,40 @@ test('member starts a personal calendar subscription, cancels then completes con
       'Bearer browser-lark-user-token'
     )
     const result = await request<{
-      triggers: { scope_key: string; trigger_type: string; connected_account_id: string }[]
+      triggers: {
+        id: string
+        config_ref: string
+        scope_key: string
+        trigger_type: string
+        connected_account_id: string
+      }[]
     }>(member, '/connectors/triggers')
     expect(result.triggers.find(item => item.scope_key === calendar)).toMatchObject({
       trigger_type: 'lark_calendar',
       connected_account_id: expect.any(String)
     })
+    const subscription = result.triggers.find(item => item.scope_key === calendar)!
+    await member
+      .getByRole('status')
+      .filter({ hasText: '订阅已创建。' })
+      .getByRole('link', { name: '返回自动化并选择此来源', exact: true })
+      .click()
+    await expect(dialog.getByRole('combobox', { name: '自动化任务', exact: true })).toContainText(jobName)
+    await expect(dialog.getByRole('combobox', { name: '事件来源', exact: true })).toContainText(calendar)
+    await expect(dialog.getByRole('button', { name: '关联事件', exact: true })).toBeEnabled()
+    await member.screenshot({
+      path: '/tmp/ankole-connectors-automation-return.png',
+      fullPage: true,
+      animations: 'disabled'
+    })
+    const initialBindings = await request<{ bindings: { automation_job_id: number }[] }>(
+      member,
+      `/signal-bindings?config_ref=${encodeURIComponent(subscription.config_ref)}`
+    )
+    expect(initialBindings.bindings.some(binding => binding.automation_job_id === jobID)).toBe(false)
+    await dialog.getByRole('link', { name: '打开外部连接', exact: true }).click()
     const subscriptionCard = member.locator('[data-slot="card"]').filter({
-      has: member.getByText(`lark_calendar · ${calendar}`, { exact: true })
+      has: member.getByText(`Personal calendar · ${calendar}`, { exact: true })
     })
     await card.getByRole('button', { name: '断开账户', exact: true }).click()
     await subscriptionCard.getByRole('button', { name: '授权并继续', exact: true }).click()
@@ -358,7 +441,42 @@ test('member starts a personal calendar subscription, cancels then completes con
     expect(authorizations).toHaveLength(3)
     await expect(subscriptionCard.getByText('已暂停', { exact: true })).toBeVisible()
     await member.screenshot({ path: '/tmp/ankole-connectors-product-calendar.png', fullPage: true })
+    await subscriptionCard.getByRole('link', { name: '返回自动化并选择此来源', exact: true }).click()
+    await expect(dialog.getByRole('combobox', { name: '自动化任务', exact: true })).toContainText(jobName)
+    const unavailableSource = new URL(member.url())
+    unavailableSource.searchParams.set('connector_source', 'connector://unavailable/source')
+    await member.goto(unavailableSource.href)
+    await expect(
+      dialog.getByText('此事件来源不可用或其连接已停用。请前往「外部连接」检查，或选择其他来源。')
+    ).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '关联事件', exact: true })).toHaveCount(0)
+    await dialog.getByRole('combobox', { name: '事件来源', exact: true }).click()
+    await member
+      .getByRole('option', { name: `Personal calendar application · Personal calendar · ${calendar}`, exact: true })
+      .click()
+    await dialog.getByRole('button', { name: '关联事件', exact: true }).click()
+    await expect(dialog.getByRole('button', { name: '已关联', exact: true })).toBeVisible()
+    const connected = await request<{ bindings: { automation_job_id: number; enabled: boolean }[] }>(
+      member,
+      `/signal-bindings?config_ref=${encodeURIComponent(subscription.config_ref)}`
+    )
+    expect(connected.bindings.filter(binding => binding.enabled).map(binding => binding.automation_job_id)).toEqual([
+      jobID
+    ])
+    await request(member, `/pages/${pageID}/jobs/${jobID}`, 'DELETE')
+    jobID = undefined
+    await member.reload()
+    await expect(
+      dialog.getByText('此任务不存在或你已无权访问。你可以在「外部连接」查看订阅，或自行选择其他任务。')
+    ).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '关联事件', exact: true })).toHaveCount(0)
+    await member.goto(
+      `${state.base_url}${pageRoute(pageID)}?automation_job=${state.actions!.job_id}&connector_source=${encodeURIComponent(subscription.config_ref)}`
+    )
+    await expect(dialog.getByText('当前任务仅供查看。关联事件或修改触发规则需要此任务的管理权限。')).toBeVisible()
+    await expect(dialog.getByRole('button', { name: '关联事件', exact: true })).toHaveCount(0)
   } finally {
+    if (jobID) await request(member, `/pages/${pageID}/jobs/${jobID}`, 'DELETE')
     await adminContext.close()
     await memberContext.close()
     await provider.close()

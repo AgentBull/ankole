@@ -101,6 +101,91 @@ defmodule Ankole.Signals.DispatchTest do
     %{actor: actor, agent: agent, source: source, reference: reference}
   end
 
+  test "Job binding projection preserves target and source access without per-source requests" do
+    owner = actor_fixture(human_fixture().principal.uid)
+    reader = actor_fixture(human_fixture().principal.uid)
+
+    {:ok, page} =
+      Pages.create(owner, %{type: "applet", private_owner_uid: Ankole.AuthZ.Actor.uid(owner)})
+
+    {:ok, private_source} =
+      Pages.create(owner, %{type: "applet", private_owner_uid: Ankole.AuthZ.Actor.uid(owner)})
+
+    publish_applet_fixture(
+      %{actor: owner, page: page},
+      "export default {actions:{work:{handler:()=>true}}}"
+    )
+
+    {:ok, job} =
+      AutomationJobs.create_applet_job(owner, page.id, "work", %{authorization_kind: "service"})
+
+    {:ok, other_job} =
+      AutomationJobs.create_applet_job(owner, page.id, "work", %{authorization_kind: "service"})
+
+    {:ok, visible} =
+      Signals.put_event_binding(owner, %{
+        config_ref: "applet://#{page.id}",
+        automation_job_id: job.id
+      })
+
+    {:ok, hidden} =
+      Signals.put_event_binding(owner, %{
+        config_ref: "applet://#{private_source.id}",
+        automation_job_id: job.id
+      })
+
+    {:ok, _} =
+      Signals.put_event_binding(owner, %{
+        config_ref: "applet://#{page.id}",
+        automation_job_id: other_job.id
+      })
+
+    assert {:error, :forbidden} = Signals.list_event_bindings(reader, nil, job.id)
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: Ankole.AuthZ.Actor.uid(reader),
+        resource_pattern: "drive:**:#{page.id}:**",
+        action: "node_view"
+      })
+
+    assert {:ok, [actual]} = Signals.list_event_bindings(reader, nil, job.id)
+    assert actual.id == visible.id
+
+    assert {:ok, %{bindings: [listed]}} =
+             Ankole.Ash.run_action(Signals.EventBindingsBrowser, :list, %{job_id: job.id},
+               actor: reader,
+               authorize?: true
+             )
+
+    assert listed.id == visible.id
+
+    assert {:ok, %{bindings: source_bindings}} =
+             Ankole.Ash.run_action(
+               Signals.EventBindingsBrowser,
+               :list,
+               %{config_ref: visible.config_ref},
+               actor: reader,
+               authorize?: true
+             )
+
+    assert MapSet.new(source_bindings, & &1.automation_job_id) ==
+             MapSet.new([job.id, other_job.id])
+
+    assert {:ok, all} = Signals.list_event_bindings(owner, nil, job.id)
+    assert MapSet.new(all, & &1.id) == MapSet.new([visible.id, hidden.id])
+
+    assert {:error, :invalid_signal_source} =
+             Signals.list_event_bindings(owner, visible.config_ref, job.id)
+
+    other = create_tenant()
+
+    Repo.with_tenant(other.id, fn ->
+      other_actor = actor_fixture(human_fixture().principal.uid)
+      assert {:error, :not_found} = Signals.list_event_bindings(other_actor, nil, job.id)
+    end)
+  end
+
   defp post_final_reply(event) do
     statement = %Ankole.Conversations.Statement{
       signal: event,

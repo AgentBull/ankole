@@ -1,12 +1,13 @@
 defmodule Ankole.Connectors.Jobs.RefreshAccounts do
-  @moduledoc "Refreshes idle OAuth connections before their refresh grant expires."
+  @moduledoc "Refreshes idle OAuth connections and removes expired authorization sessions."
   use Ankole.Job, tenancy: :site, queue: :default, max_attempts: 3
   require Ash.Query
-  alias Ankole.Connectors.{ConnectedAccount, Registry, Store, TokenRefresher}
+  alias Ankole.Connectors.{ConnectedAccount, OAuth, Registry, Store, TokenRefresher}
 
   @impl Ankole.Job
   def run(_job) do
-    threshold = DateTime.add(DateTime.utc_now(), 7 * 86_400)
+    now = DateTime.utc_now()
+    threshold = DateTime.add(now, 7 * 86_400)
 
     ConnectedAccount
     |> Ash.Query.for_read(:across_tenants)
@@ -22,6 +23,8 @@ defmodule Ankole.Connectors.Jobs.RefreshAccounts do
       end)
     end)
 
-    :ok
+    fn -> OAuth.cleanup_expired(now) end
+    |> Ankole.Tenants.map_all()
+    |> Ankole.Tenants.fanout_result()
   end
 end

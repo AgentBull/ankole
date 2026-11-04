@@ -13,13 +13,14 @@ defmodule Ankole.Connectors.GitCredentials do
              params["account"]
            ),
          {:ok, owner, repo} <- repository(params["url"], adapter.web_url(credentials.auth_config)),
-         {:ok, _} <-
-           adapter.call(
+         {:ok, _, used_context} <-
+           Ankole.Connectors.Gateway.invoke_toolkit(
+             adapter,
              tool,
              %{"owner" => owner, "repo" => repo},
              Map.merge(credentials, context)
            ) do
-      {:ok, %{username: "x-access-token", password: credentials.access_token}}
+      {:ok, %{username: "x-access-token", password: used_context.access_token}}
     else
       nil -> {:error, :toolkit_not_found}
       error -> error

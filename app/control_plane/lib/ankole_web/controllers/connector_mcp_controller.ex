@@ -83,14 +83,6 @@ defmodule AnkoleWeb.ConnectorMCPController do
   defp error(reason) when is_atom(reason),
     do: %{code: Atom.to_string(reason), message: Atom.to_string(reason), retryable: false}
 
-  defp error({:mcp_protocol, status, _}),
-    do: %{
-      code: "upstream_mcp_error",
-      message: "Upstream MCP request failed",
-      status: status,
-      retryable: status in [429, 502, 503, 504]
-    }
-
   defp error(reason) when is_binary(reason),
     do: %{code: "invalid_request", message: reason, retryable: false}
 

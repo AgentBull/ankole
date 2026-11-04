@@ -34591,23 +34591,27 @@ defmodule Ankole.Plugins.GitHubAdapter.Tools do
              ]
              """)
 
-  def tools do
-    Enum.map(@contracts, fn contract ->
-      read_only = Map.get(contract, "read_only", contract["operation"]["method"] == "GET")
+  @tools Enum.map(@contracts, fn contract ->
+           read_only = Map.get(contract, "read_only", contract["operation"]["method"] == "GET")
 
-      %ToolSpec{
-        toolkit: "github",
-        name: contract["name"],
-        description: contract["description"],
-        input_schema: contract["input_schema"],
-        output_schema: contract["output_schema"],
-        operation: contract["operation"],
-        upstream_auth: :adaptive_token,
-        scopes:
-          if(contract["name"] == "repos_put_content", do: ["repo", "workflow"], else: ["repo"]),
-        annotations:
-          ToolSpec.annotations(read_only, false, contract["operation"]["method"] == "DELETE")
-      }
-    end)
-  end
+           %ToolSpec{
+             toolkit: "github",
+             name: contract["name"],
+             description: contract["description"],
+             input_schema: contract["input_schema"],
+             output_schema: contract["output_schema"],
+             operation: contract["operation"],
+             upstream_auth: :adaptive_token,
+             scopes:
+               if(contract["name"] == "repos_put_content",
+                 do: ["repo", "workflow"],
+                 else: ["repo"]
+               ),
+             annotations:
+               ToolSpec.annotations(read_only, false, contract["operation"]["method"] == "DELETE")
+           }
+           |> ToolSpec.compile()
+         end)
+
+  def tools, do: @tools
 end

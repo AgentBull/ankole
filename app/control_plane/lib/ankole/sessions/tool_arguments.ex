@@ -14,12 +14,13 @@ defmodule Ankole.Sessions.ToolArguments do
     end
   end
 
-  def validate(schema, value) do
-    schema =
-      ExJsonSchema.Schema.resolve(
-        Map.put(schema, "$schema", "http://json-schema.org/draft-07/schema#")
-      )
+  def resolve(schema) do
+    ExJsonSchema.Schema.resolve(
+      Map.put(schema, "$schema", "http://json-schema.org/draft-07/schema#")
+    )
+  end
 
+  def validate(%ExJsonSchema.Schema.Root{} = schema, value) do
     case ExJsonSchema.Validator.validate(schema, value) do
       :ok ->
         {:ok, value}
@@ -28,4 +29,6 @@ defmodule Ankole.Sessions.ToolArguments do
         {:error, Enum.map_join(errors, "; ", fn {message, path} -> "#{path}: #{message}" end)}
     end
   end
+
+  def validate(schema, value), do: validate(resolve(schema), value)
 end

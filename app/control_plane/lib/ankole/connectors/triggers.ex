@@ -421,17 +421,33 @@ defmodule Ankole.Connectors.Triggers do
           {:ok, updated}
         end
 
-      {:error, _reason} ->
+      {:error, reason} ->
         Ankole.Ash.update(row, :update, %{
           status: "degraded",
           lease_expires_at: nil,
-          last_error: %{
-            "code" => "subscription_reconciliation_failed",
-            "operation" => if(row.status == "deleting", do: "delete", else: "reconcile")
-          }
+          last_error:
+            reason
+            |> reconciliation_error()
+            |> Map.put("operation", if(row.status == "deleting", do: "delete", else: "reconcile"))
         })
     end
   end
+
+  defp reconciliation_error(reason) when is_map(reason) do
+    reason
+    |> Ankole.Attrs.normalize_external_attrs()
+    |> Map.take(
+      ~w(code message details status upstream_code retryable retryAfterSeconds request_sent)
+    )
+    |> Map.put_new("code", "subscription_reconciliation_failed")
+  end
+
+  defp reconciliation_error(reason) when is_atom(reason), do: %{"code" => Atom.to_string(reason)}
+
+  defp reconciliation_error(reason) when is_binary(reason),
+    do: %{"code" => "subscription_reconciliation_failed", "message" => reason}
+
+  defp reconciliation_error(_), do: %{"code" => "subscription_reconciliation_failed"}
 
   defp reconciled_status(%{status: "deleting"}, _, _), do: "deleting"
   defp reconciled_status(_row, previous, desired) when previous != desired, do: "provisioning"

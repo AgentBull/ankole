@@ -103,7 +103,7 @@ defmodule Ankole.Connectors.RemoteMCP do
     safe = Keyword.get(opts, :idempotent, false)
 
     case rpc(connection, method, params, safe) do
-      {:error, {:mcp_protocol, 404, _}} when not is_nil(connection.session) ->
+      {:error, %{status: 404}} when not is_nil(connection.session) ->
         with {:ok, renewed} <- initialize(%{connection | session: nil}),
              do: rpc(renewed, method, params, safe)
 
@@ -177,7 +177,7 @@ defmodule Ankole.Connectors.RemoteMCP do
         {:ok, result, connection} ->
           {:ok, Map.put(connection, :first_tools, result)}
 
-        {:error, {:mcp_protocol, status, error}}
+        {:error, %{status: status, upstream_code: error}}
         when status in [400, 404, 405, 406] or error in [-32600, -32601, -32000] ->
           initialize(connection)
 
@@ -263,17 +263,9 @@ defmodule Ankole.Connectors.RemoteMCP do
               if key == "mcp-session-id", do: value
             end)
 
-          cond do
-            get_in(decoded, ["error", "code"]) == -32603 and not idempotent? ->
-              {:error,
-               %{code: "upstream_outcome_unknown", retryable: false, upstream_code: -32603}}
-
-            response.status >= 400 or decoded["error"] ->
-              {:error, {:mcp_protocol, response.status, get_in(decoded, ["error", "code"])}}
-
-            true ->
-              {:ok, decoded["result"] || %{}, %{connection | session: session}}
-          end
+          if decoded["error"],
+            do: protocol_error(response.status, decoded, idempotent?),
+            else: {:ok, decoded["result"] || %{}, %{connection | session: session}}
         else
           {:error, error} when is_map(error) ->
             {:error, Ankole.Connectors.HTTP.redact_credentials(error, connection.headers)}
@@ -285,22 +277,41 @@ defmodule Ankole.Connectors.RemoteMCP do
   end
 
   defp decode_response(%{status: status} = response, _id, _notification?, idempotent?)
-       when status == 429 or status >= 500,
-       do: Ankole.Connectors.HTTP.decode(response, idempotent: idempotent?)
-
-  defp decode_response(%{status: status, body: body}, _id, _notification?, _idempotent?)
        when status >= 400 do
-    code =
-      case Torque.decode(body) do
-        {:ok, value} -> get_in(value, ["error", "code"])
-        _ -> nil
-      end
-
-    {:error, {:mcp_protocol, status, code}}
+    {:error, error} = Ankole.Connectors.HTTP.decode(response, idempotent: idempotent?)
+    {:error, describe_error(error)}
   end
 
   defp decode_response(response, id, notification?, _idempotent?),
     do: decode(response.body, id, notification?)
+
+  defp protocol_error(status, decoded, idempotent?) do
+    error =
+      describe_error(%{
+        code: "upstream_mcp_error",
+        status: status,
+        details: decoded,
+        request_sent: true,
+        retryable: false
+      })
+
+    if error.upstream_code == -32603 and not idempotent?,
+      do: {:error, %{error | code: "upstream_outcome_unknown"}},
+      else: {:error, error}
+  end
+
+  defp describe_error(error) do
+    {code, message} =
+      case error.details do
+        %{"error" => %{} = rpc_error} -> {rpc_error["code"], rpc_error["message"]}
+        %{"error_description" => message} -> {nil, message}
+        %{"message" => message} -> {nil, message}
+        _ -> {nil, nil}
+      end
+
+    error = Map.put(error, :upstream_code, code)
+    if is_binary(message), do: Map.put(error, :message, message), else: error
+  end
 
   defp decode("", _id, true), do: {:ok, %{}}
 

@@ -1108,6 +1108,39 @@ defmodule Ankole.Connectors.OAuthProtocolTest do
              Credentials.access_token(config, account, Connector)
   end
 
+  test "hourly maintenance removes expired OAuth sessions without disrupting pending consent",
+       ctx do
+    now = DateTime.utc_now()
+
+    sessions =
+      for status <- ["pending", "failed", "callback_received", "completed"] do
+        {:ok, _} = OAuth.begin(ctx.human, %{"connection" => ctx.config.slug})
+        session = OAuthSession |> Ash.Query.sort(inserted_at: :desc) |> Ankole.Ash.read!() |> hd()
+
+        {:ok, expired} =
+          Ankole.Ash.update(session, :update, %{
+            status: status,
+            expires_at: DateTime.add(now, -1)
+          })
+
+        expired
+      end
+
+    {:ok, %{authorization_url: url}} = OAuth.begin(ctx.human, %{"connection" => ctx.config.slug})
+
+    assert :ok =
+             Repo.without_tenant(fn ->
+               Ankole.Connectors.Jobs.RefreshAccounts.run(%Oban.Job{})
+             end)
+
+    assert [pending] = Ankole.Ash.read!(OAuthSession)
+    refute pending.id in Enum.map(sessions, & &1.id)
+    state = url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("state")
+
+    assert {:ok, %{error: "oauth_authorization_cancelled"}} =
+             OAuth.callback(%{"state" => state, "error" => "access_denied"})
+  end
+
   defp drain_tenant_delete(id) do
     Enum.reduce_while(1..20, {:error, :tenant_cleanup_incomplete}, fn _, _ ->
       case Ankole.Tenants.Jobs.Delete.run(%Oban.Job{args: %{"tenant_id" => id}}) do

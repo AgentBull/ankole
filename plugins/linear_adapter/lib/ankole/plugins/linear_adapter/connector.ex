@@ -25,20 +25,6 @@ defmodule Ankole.Plugins.LinearAdapter.Connector do
            ),
          {:ok, value} <- normalize_result(tool, result) do
       {:ok, %{"result" => value}}
-    else
-      {:error, {:mcp_protocol, 401, _}} ->
-        Ankole.Connectors.Credentials.invalidate_access_token(
-          context.auth_config,
-          context.account,
-          context.access_token
-        )
-
-        Ankole.Connectors.OAuth.consent_required(context.auth_config.slug, tool.scopes, %{
-          "toolkit" => tool.toolkit
-        })
-
-      error ->
-        error
     end
   end
 

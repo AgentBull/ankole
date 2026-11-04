@@ -9421,25 +9421,26 @@ defmodule Ankole.Plugins.LarkAdapter.Toolkits.Tasks do
                }
              ]
              """)
-  def tools do
-    Enum.map(@contracts, fn contract ->
-      %ToolSpec{
-        toolkit: "lark_tasks",
-        name: contract["name"],
-        description: contract["description"],
-        input_schema: contract["input_schema"],
-        output_schema: contract["output_schema"],
-        operation: contract["operation"],
-        subject_policy: :any_principal,
-        upstream_auth: :adaptive_token,
-        scopes: contract["scopes"],
-        annotations:
-          ToolSpec.annotations(
-            contract["read_only"],
-            contract["idempotent"],
-            contract["destructive"]
-          )
-      }
-    end)
-  end
+  @tools Enum.map(@contracts, fn contract ->
+           %ToolSpec{
+             toolkit: "lark_tasks",
+             name: contract["name"],
+             description: contract["description"],
+             input_schema: contract["input_schema"],
+             output_schema: contract["output_schema"],
+             operation: contract["operation"],
+             subject_policy: :any_principal,
+             upstream_auth: :adaptive_token,
+             scopes: contract["scopes"],
+             annotations:
+               ToolSpec.annotations(
+                 contract["read_only"],
+                 contract["idempotent"],
+                 contract["destructive"]
+               )
+           }
+           |> ToolSpec.compile()
+         end)
+
+  def tools, do: @tools
 end

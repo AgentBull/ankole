@@ -5,6 +5,12 @@ defmodule Ankole.Connectors.OAuth do
   alias Ankole.Authn.SecretDigest
   alias Ankole.Repo
 
+  def cleanup_expired(now) do
+    OAuthSession
+    |> Ash.Query.filter(expires_at <= ^now)
+    |> Ankole.Ash.destroy_where(:destroy)
+  end
+
   def consent_required(connection, scopes, intent \\ %{}) do
     params =
       Map.merge(intent, %{

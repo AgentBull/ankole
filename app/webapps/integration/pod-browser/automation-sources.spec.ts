@@ -11,20 +11,29 @@ async function choose(page: Page, label: string, name: string) {
   await page.getByRole('option', { name, exact: true }).click()
 }
 
-test('connector status follows a delayed upstream subscription while the automation panel stays open', async ({
-  browser
-}) => {
-  test.setTimeout(90_000)
+test('connector errors stay visible on the Job and retry returns to the same automation', async ({ browser }) => {
+  test.setTimeout(180_000)
   test.skip(!state.actions, 'Start the real fixture with POD_BROWSER_ACTIONS=true')
   if (!state.connector_provider_url) throw new Error('Set POD_BROWSER_CONNECTOR_PROVIDER_URL on the real fixture')
   let finishSubscription: (() => void) | undefined
+  let subscriptions = 0
   const provider = createServer((req, res) => {
     const path = new URL(req.url!, state.connector_provider_url).pathname
     res.setHeader('content-type', 'application/json')
     if (path === '/open-apis/auth/v3/tenant_access_token/internal') {
       res.end(JSON.stringify({ code: 0, tenant_access_token: 'browser-approval-token', expire: 7200 }))
     } else if (path.endsWith('/subscribe')) {
-      finishSubscription = () => res.end(JSON.stringify({ code: 0, data: {} }))
+      const attempt = ++subscriptions
+      finishSubscription = () => {
+        res.statusCode = attempt === 1 ? 403 : 200
+        res.end(
+          JSON.stringify(
+            attempt === 1
+              ? { code: 99991400, msg: 'Approval permission must be enabled in the platform app.' }
+              : { code: 0, data: {} }
+          )
+        )
+      }
     } else if (path.endsWith('/unsubscribe')) {
       res.end(JSON.stringify({ code: 0, data: {} }))
     } else {
@@ -37,6 +46,11 @@ test('connector status follows a delayed upstream subscription while the automat
   const context = await browser.newContext()
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
+  const bindingRequests: URL[] = []
+  page.on('request', request => {
+    const url = new URL(request.url())
+    if (request.method() === 'GET' && url.pathname.endsWith('/signal-bindings')) bindingRequests.push(url)
+  })
   const pageID = state.actions!.page_id
   const suffix = Date.now()
   const connectionName = `Approval status ${suffix}`
@@ -65,15 +79,40 @@ test('connector status follows a delayed upstream subscription while the automat
     await page.getByRole('button', { name: '自动化', exact: true }).click()
     await choose(page, '自动化任务', connectionName)
     const section = page.getByRole('region', { name: '外部事件', exact: true })
-    await choose(page, '事件来源', `${connectionName} · lark_approval · approval-${suffix}`)
+    await choose(page, '事件来源', `${connectionName} · Approval definition · approval-${suffix}`)
+    await expect
+      .poll(() => bindingRequests.filter(url => url.searchParams.get('job_id') === String(job.id)).length)
+      .toBe(1)
+    expect(bindingRequests.every(url => url.searchParams.has('job_id') && !url.searchParams.has('config_ref'))).toBe(
+      true
+    )
     const pending = page.waitForResponse(
       response =>
         response.request().method() === 'GET' && new URL(response.url()).pathname.endsWith('/connectors/triggers')
     )
+    await expect(section.getByRole('button', { name: '关联事件', exact: true })).toBeEnabled()
     await section.getByRole('button', { name: '关联事件', exact: true }).click()
     await pending
     await expect(section).toContainText('已关联，等待订阅就绪。')
     await expect.poll(() => Boolean(finishSubscription), { timeout: 70_000 }).toBe(true)
+    finishSubscription!()
+    await expect(section).toContainText('Approval permission must be enabled in the platform app.', { timeout: 12_000 })
+    await page.screenshot({ path: '/tmp/ankole-connectors-job-recovery.png', fullPage: true, animations: 'disabled' })
+    await section.getByRole('link', { name: '管理事件来源', exact: true }).click()
+    const subscriptionCard = page.locator(`#connector-${trigger.id}`)
+    await expect(subscriptionCard).toBeFocused()
+    await expect(subscriptionCard).toContainText('Approval permission must be enabled in the platform app.')
+    const retried = page.waitForResponse(
+      response =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith(`/triggers/${trigger.id}/retry`)
+    )
+    await subscriptionCard.getByRole('button', { name: '重试', exact: true }).click()
+    expect((await retried).ok()).toBe(true)
+    await subscriptionCard.getByRole('link', { name: '返回自动化并选择此来源', exact: true }).click()
+    await expect(page.getByRole('combobox', { name: '自动化任务', exact: true })).toContainText(connectionName)
+    await expect(section.getByRole('button', { name: '已关联', exact: true })).toBeVisible()
+    await expect.poll(() => subscriptions, { timeout: 70_000 }).toBe(2)
     finishSubscription!()
     await expect
       .poll(async () => {

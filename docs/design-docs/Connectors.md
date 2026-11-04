@@ -105,7 +105,8 @@ configuration in the same tenant is unreadable.
 
 Members initiate OAuth for themselves; administrators can connect an
 application workspace. The Pod connection form displays the control plane's
-OAuth callback URL for registration in the external application. When a member
+OAuth callback URL and platform-specific setup instructions for registration in
+the external application. When a member
 returns from a cancelled authorization, the page preserves the requested
 connection and scopes so they can retry the same consent. A successful claim
 directs them back to their conversation or Applet to retry the task. A member can
@@ -113,6 +114,11 @@ start a personal event subscription before connecting an account. The selected
 trigger declares its required OAuth scopes; missing grants lead to the same
 authorization flow. The return URL carries the subscription's event type and
 resource, so cancellation and successful authorization restore the draft.
+When the flow starts in an Applet's Automation panel, the return URL also keeps
+the Page and Job. Creating a subscription offers a return link that selects the
+new event source in that Job. The member explicitly connects it; an unavailable
+Job or source displays an error without selecting a replacement. Application
+and personal authorization keep their respective subject kinds across consent.
 Existing subscriptions let their account owner authorize and retry; administrators
 see which owner must supply the grant.
 The authorization request uses PKCE and a one-use state
@@ -169,7 +175,8 @@ restoring that grant.
 Transient failures retain the connection and impose a 30-second cooldown;
 explicit grant invalidation expires it. An hourly job renews refresh grants
 within seven days of expiry. A grant that has expired or failed continuously
-for four days requires fresh authorization.
+for four days requires fresh authorization. The same hourly maintenance removes
+expired OAuth sessions, including abandoned callbacks and completed claims.
 
 Disabling a Human increments their access version and revokes their personal
 connections in the same transaction. Gateway requests check live membership and
@@ -189,6 +196,9 @@ A plugin contributes the `connectors.connector` contract and explicit
 read/write annotations, required subject, upstream authentication mode, scopes,
 and platform operation. These declarations also generate Skill metadata, a
 compact operation index, individual tool references, and Applet toolkit types.
+Static declarations compile their input and output validators once while keeping
+the original JSON Schemas for discovery and generated contracts. Dynamic Skill
+schemas use the same validation owner at invocation time.
 The Agent finds the operation in the index and reads its individual contract;
 external operations are not added to the model's native tool registry.
 
@@ -250,10 +260,16 @@ fails. Image uploads return `image_key`; other message files return `file_key`.
 GitHub issue-label replacement requires an explicit `labels` list, including an
 empty list to clear labels. Repository-content paths preserve directory segments.
 
-When Lark reports an invalid access token, or Linear returns HTTP 401, the adapter
-invalidates only the credential used by that request. A subsequent call uses the
-shared refresh owner. Ankole does not replay a failed write automatically. Linear
-also returns the personal authorization link so the member can reconnect.
+An HTTP 401 invalidates only the token used by that request and resolves the same
+account through the shared refresh lease or application-token cache. A late
+rejection cannot invalidate a newer token. The gateway retries a read-only or
+explicitly idempotent operation at most once. Other writes, uploads, and file
+downloads that write to Drive require explicit retry after credential recovery.
+Git authentication returns the token that passed the repository access check.
+An account without a refresh token, or a permanently rejected refresh grant,
+requires authorization for that same account kind. A temporary refresh failure
+remains retryable. Lark's token-invalid response codes also invalidate the token
+used by the request, allowing the next call to refresh it.
 
 ## External events and subscription reconciliation
 
@@ -280,6 +296,11 @@ management API exposes an explicit retry operation. Retry locks the current
 trigger, preserves its deletion intent, and queues reconciliation in the same
 transaction. An active reconciliation lease returns `connector_trigger_busy`,
 so the current owner can record the upstream result before another attempt.
+Failed subscriptions retain the provider's code, message, details, and retry
+information after removing credentials. The Automation panel displays that
+diagnosis and links to the exact connection and subscription for repair. A
+successful reconciliation clears the recorded failure. GitHub subscription
+requests recover a rejected token without replaying hook creation automatically.
 The scheduler checks desired subscriptions every minute. While the Applet
 Automation panel is open, it refreshes subscription status every five seconds
 so members can see when an asynchronous subscription becomes ready or fails.

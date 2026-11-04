@@ -1901,9 +1901,9 @@ export const unbindPodCredential = <ThrowOnError extends boolean = true>(
  * podEventBindings operation on event_binding_operation resource
  */
 export const podEventBindings = <ThrowOnError extends boolean = true>(
-  options: Options<PodEventBindingsData, ThrowOnError>
+  options?: Options<PodEventBindingsData, ThrowOnError>
 ): RequestResult<PodEventBindingsResponses, PodEventBindingsErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodEventBindingsResponses, PodEventBindingsErrors, ThrowOnError, 'data'>({
+  (options?.client ?? client).get<PodEventBindingsResponses, PodEventBindingsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/signal-bindings',

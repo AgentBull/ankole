@@ -376,7 +376,10 @@ routing. Built-in source references are `schedule://`, `scheduled-event://`,
 maintains its default `internal` Binding through its normal create/edit API;
 additional subscriptions use `/api/v2/pod/signal-bindings` or `bindings.*` Pod
 RPCs. Source access and target Page/Job access are checked independently.
-Listing subscriptions requires source read permission. Mutation requires the
+Listing subscriptions accepts either `config_ref` or `job_id`. A Job-scoped list
+requires target Page read permission and includes only sources the caller can
+read, so the Automation panel can load its subscriptions in one request.
+Mutation requires the
 source's management permission, and personal assistants use their owner's
 Human identity for personal source authorization.
 Ankole indexes source Bindings by `(tenant_id, config_ref, id)`. Dispatch reads

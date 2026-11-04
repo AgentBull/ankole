@@ -43,7 +43,7 @@ defmodule Ankole.Plugins.GitHubAdapter.Connector do
              ],
              request_options(context)
            ) do
-      HTTP.decode(response)
+      decode(response, auth_headers(context.access_token))
     end
   end
 
@@ -155,8 +155,31 @@ defmodule Ankole.Plugins.GitHubAdapter.Connector do
   def reconcile_trigger(config, _secret, trigger, desired?) do
     with {:ok, account} <- Ankole.Connectors.get_account_by_id(trigger.connected_account_id),
          {:ok, token} <-
-           Ankole.Connectors.Credentials.subscription_token(config, account, __MODULE__, desired?),
-         {:ok, path} <- hooks_path(trigger),
+           Ankole.Connectors.Credentials.subscription_token(config, account, __MODULE__, desired?) do
+      case reconcile_subscription(config, trigger, desired?, token) do
+        {:error, %{status: 401} = error} ->
+          with {:ok, _token} <-
+                 Ankole.Connectors.Credentials.refresh_rejected_token(
+                   config,
+                   account,
+                   token,
+                   __MODULE__
+                 ) do
+            {:error,
+             Map.merge(error, %{
+               retryable: true,
+               message: "The connection was refreshed. Retry this subscription."
+             })}
+          end
+
+        result ->
+          result
+      end
+    end
+  end
+
+  defp reconcile_subscription(config, trigger, desired?, token) do
+    with {:ok, path} <- hooks_path(trigger),
          {:ok, hooks} <- list_hooks(config, token, path, 1, []),
          callback <-
            AnkoleWeb.Endpoint.url() <>
@@ -174,18 +197,25 @@ defmodule Ankole.Plugins.GitHubAdapter.Connector do
                    "connector_trigger",
                    trigger.id
                  ),
+               body <- %{
+                 "name" => "web",
+                 "active" => true,
+                 "events" => trigger.config["events"] || ["push", "pull_request", "issues"],
+                 "config" => %{
+                   "url" => callback,
+                   "content_type" => "json",
+                   "secret" => webhook_secret["webhook_secret"]
+                 }
+               },
                {:ok, response} <-
-                 Ankole.Files.HTTP.json("POST", base_url(config) <> path, headers(token), %{
-                   "name" => "web",
-                   "active" => true,
-                   "events" => trigger.config["events"] || ["push", "pull_request", "issues"],
-                   "config" => %{
-                     "url" => callback,
-                     "content_type" => "json",
-                     "secret" => webhook_secret["webhook_secret"]
-                   }
-                 }),
-               %{status: status, body: %{"id" => id}} when status in 200..299 <- response,
+                 Ankole.Files.HTTP.request(
+                   "POST",
+                   base_url(config) <> path,
+                   headers(token),
+                   Torque.encode!(body)
+                 ),
+               {:ok, %{"id" => id}} <-
+                 decode(response, headers(token), [], [webhook_secret["webhook_secret"]]),
                do: {:ok, %{external_subscription_id: to_string(id)}},
                else: (
                  {:error, _} = error -> error
@@ -207,7 +237,7 @@ defmodule Ankole.Plugins.GitHubAdapter.Connector do
               error
 
             {:ok, response} ->
-              HTTP.decode(response, idempotent: true)
+              decode(response, headers(token), idempotent: true)
           end
 
         true ->
@@ -243,10 +273,17 @@ defmodule Ankole.Plugins.GitHubAdapter.Connector do
              nil,
              idempotent: true
            ),
-         {:ok, hooks} when is_list(hooks) <- HTTP.decode(response, idempotent: true) do
+         {:ok, hooks} when is_list(hooks) <- decode(response, headers(token), idempotent: true) do
       if length(hooks) == 100,
         do: list_hooks(config, token, path, page + 1, acc ++ hooks),
         else: {:ok, acc ++ hooks}
+    end
+  end
+
+  defp decode(response, headers, opts \\ [], extra_secrets \\ []) do
+    case HTTP.decode(response, opts) do
+      {:error, error} -> {:error, HTTP.redact_credentials(error, headers, extra_secrets)}
+      result -> result
     end
   end
 

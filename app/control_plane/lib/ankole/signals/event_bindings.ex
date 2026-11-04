@@ -4,7 +4,9 @@ defmodule Ankole.Signals.EventBindings do
   alias Ankole.{AutomationJobs, Repo, Pod, AuthZ}
   alias Ankole.Signals.{Binding, SourceBindings, Target}
 
-  def list(actor, reference) do
+  def list(actor, reference, job_id \\ nil)
+
+  def list(actor, reference, nil) when is_binary(reference) do
     with {:ok, _} <- Pod.Access.principal(actor),
          :ok <- source_access(actor, reference, :read) do
       Binding
@@ -13,6 +15,31 @@ defmodule Ankole.Signals.EventBindings do
       |> Ankole.Ash.read()
     end
   end
+
+  def list(actor, nil, job_id) when is_integer(job_id) do
+    with {:ok, _} <- Pod.Access.principal(actor),
+         {:ok, job} when not is_nil(job) <- AutomationJobs.get_automation_job(job_id),
+         :ok <- AutomationJobs.authorize_applet_job(actor, job, job.page_id, "node_view"),
+         {:ok, bindings} <-
+           Binding
+           |> Ash.Query.filter(automation_job_id == ^job_id)
+           |> Ash.Query.sort(id: :asc)
+           |> Ankole.Ash.read() do
+      readable_sources =
+        bindings
+        |> Enum.map(& &1.config_ref)
+        |> Enum.uniq()
+        |> Enum.filter(&(source_access(actor, &1, :read) == :ok))
+        |> MapSet.new()
+
+      {:ok, Enum.filter(bindings, &MapSet.member?(readable_sources, &1.config_ref))}
+    else
+      {:ok, nil} -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  def list(_, _, _), do: {:error, :invalid_signal_source}
 
   def put(actor, attrs) do
     attrs = Ankole.Attrs.normalize_external_attrs(attrs)

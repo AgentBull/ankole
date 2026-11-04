@@ -8,6 +8,8 @@ defmodule Ankole.Connectors.ToolSpec do
     :description,
     :input_schema,
     :output_schema,
+    :input_validator,
+    :output_validator,
     :operation,
     annotations: %{},
     subject_policy: :any_principal,
@@ -16,6 +18,14 @@ defmodule Ankole.Connectors.ToolSpec do
   ]
 
   @type t :: %__MODULE__{}
+
+  def compile(%__MODULE__{} = tool) do
+    %{
+      tool
+      | input_validator: Ankole.Sessions.ToolArguments.resolve(tool.input_schema),
+        output_validator: Ankole.Sessions.ToolArguments.resolve(tool.output_schema)
+    }
+  end
 
   def public(%__MODULE__{} = tool) do
     %{
@@ -44,11 +54,11 @@ defmodule Ankole.Connectors.ToolSpec do
   defp wire_schema(value) when is_list(value), do: Enum.map(value, &wire_schema/1)
   defp wire_schema(value), do: value
 
-  def validate_input(%__MODULE__{input_schema: schema}, value),
-    do: Ankole.Sessions.ToolArguments.validate(schema, value)
+  def validate_input(%__MODULE__{} = tool, value),
+    do: Ankole.Sessions.ToolArguments.validate(tool.input_validator || tool.input_schema, value)
 
-  def validate_output(%__MODULE__{output_schema: schema}, value),
-    do: Ankole.Sessions.ToolArguments.validate(schema, value)
+  def validate_output(%__MODULE__{} = tool, value),
+    do: Ankole.Sessions.ToolArguments.validate(tool.output_validator || tool.output_schema, value)
 
   def retry_safe?(%__MODULE__{annotations: annotations}),
     do: annotations["readOnlyHint"] == true or annotations["idempotentHint"] == true

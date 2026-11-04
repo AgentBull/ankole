@@ -54,6 +54,21 @@ defmodule Ankole.Connectors.ProviderProtocolTest do
                        }
                      ]
                    })}
+
+                "oauth" ->
+                  {401,
+                   %{
+                     "error" => "invalid_token",
+                     "error_description" => "The access token app-token expired"
+                   }}
+
+                failure when failure in ["validation", "validation_http"] ->
+                  {if(failure == "validation", do: 200, else: 422),
+                   Map.put(envelope, "error", %{
+                     "code" => -32602,
+                     "message" => "Unknown team for app-token",
+                     "data" => %{"field" => "team", "hint" => "Use a team UUID"}
+                   })}
               end
             end
 
@@ -166,6 +181,53 @@ defmodule Ankole.Connectors.ProviderProtocolTest do
         conn
         |> put_resp_content_type("application/json")
         |> send_resp(status, Torque.encode!(body))
+      end
+    end
+  end
+
+  defmodule SessionPeer do
+    import Plug.Conn
+    def init(options), do: options
+
+    def call(conn, {owner, sessions}) do
+      {:ok, body, conn} = read_body(conn)
+      request = Torque.decode!(body)
+      session = get_req_header(conn, "mcp-session-id")
+      send(owner, {:session_request, request["method"], session})
+      envelope = %{"jsonrpc" => "2.0", "id" => request["id"]}
+
+      case {request["method"], session} do
+        {"tools/list", []} ->
+          conn
+          |> put_resp_content_type("application/json")
+          |> send_resp(200, Torque.encode!(Map.put(envelope, "error", %{"code" => -32601})))
+
+        {"initialize", []} ->
+          count = Agent.get_and_update(sessions, &{&1 + 1, &1 + 1})
+
+          conn
+          |> put_resp_header("mcp-session-id", "session-#{count}")
+          |> put_resp_content_type("application/json")
+          |> send_resp(
+            200,
+            Torque.encode!(Map.put(envelope, "result", %{"protocolVersion" => "2025-11-25"}))
+          )
+
+        {"notifications/initialized", _} ->
+          send_resp(conn, 202, "")
+
+        {"tools/call", ["session-1"]} ->
+          conn
+          |> put_resp_content_type("application/json")
+          |> send_resp(404, ~s({"error":"session_expired"}))
+
+        {"tools/call", ["session-2"]} ->
+          conn
+          |> put_resp_content_type("application/json")
+          |> send_resp(
+            200,
+            Torque.encode!(Map.put(envelope, "result", %{"structuredContent" => %{"ok" => true}}))
+          )
       end
     end
   end
@@ -483,6 +545,24 @@ defmodule Ankole.Connectors.ProviderProtocolTest do
     assert {"authorization", "Bearer personal-hook-token"} in calendar_headers
   end
 
+  test "repository output validates nested provider fields before gateway delivery" do
+    tool = Enum.find(GitHub.tools(), &(&1.name == "repos_get"))
+
+    repository =
+      __DIR__
+      |> Path.join("../../../integration/fixtures/github_repository.json")
+      |> File.read!()
+      |> Torque.decode!()
+
+    assert {:ok, ^repository} = ToolSpec.validate_output(tool, repository)
+
+    assert {:error, error} =
+             ToolSpec.validate_output(tool, put_in(repository, ["owner", "id"], "not-an-id"))
+
+    assert error =~ "#/owner/id"
+    assert {:error, _} = ToolSpec.validate_output(tool, Map.delete(repository, "owner"))
+  end
+
   test "each public tool has valid schemas and static retry annotations" do
     tools = Connector.tools() ++ GitHub.tools() ++ Ankole.Plugins.LinearAdapter.Connector.tools()
     assert length(tools) == 125
@@ -749,6 +829,81 @@ defmodule Ankole.Connectors.ProviderProtocolTest do
              )
 
     assert text == "Invalid bearer [REDACTED]; expected team scope"
+  end
+
+  test "remote MCP returns actionable OAuth and JSON-RPC failures without replaying calls", ctx do
+    headers = [{"authorization", "Bearer app-token"}]
+    url = ctx.url <> "/mcp-errors"
+    assert {:ok, []} = Ankole.Connectors.RemoteMCP.list_tools(url, headers)
+
+    assert {:error,
+            %{
+              code: "upstream_rejected",
+              status: 401,
+              message: "The access token [REDACTED] expired",
+              request_sent: true,
+              retryable: false,
+              details: %{"error" => "invalid_token"}
+            }} =
+             Ankole.Connectors.RemoteMCP.call(url, headers, "write", %{"failure" => "oauth"})
+
+    for {failure, status, code} <- [
+          {"validation", 200, "upstream_mcp_error"},
+          {"validation_http", 422, "upstream_rejected"}
+        ] do
+      assert {:error,
+              %{
+                code: ^code,
+                status: ^status,
+                upstream_code: -32602,
+                message: "Unknown team for [REDACTED]",
+                request_sent: true,
+                retryable: false,
+                details: %{
+                  "error" => %{
+                    "message" => "Unknown team for [REDACTED]",
+                    "data" => %{"field" => "team", "hint" => "Use a team UUID"}
+                  }
+                }
+              }} =
+               Ankole.Connectors.RemoteMCP.call(url, headers, "write", %{"failure" => failure})
+    end
+
+    for failure <- ["oauth", "validation", "validation_http"] do
+      assert_receive {:request, "POST", "/mcp-errors", _,
+                      %{
+                        "method" => "tools/call",
+                        "params" => %{"arguments" => %{"failure" => ^failure}}
+                      }, _}
+    end
+
+    refute_receive {:request, "POST", "/mcp-errors", _, %{"method" => "tools/call"}, _}
+  end
+
+  test "remote MCP preserves legacy discovery and renews an expired session" do
+    sessions = start_supervised!({Agent, fn -> 0 end}, id: :sessions)
+
+    server =
+      start_supervised!(
+        {Bandit, plug: {SessionPeer, {self(), sessions}}, ip: {127, 0, 0, 1}, port: 0},
+        id: :session_peer
+      )
+
+    {:ok, {_, port}} = ThousandIsland.listener_info(server)
+
+    assert {:ok, %{"structuredContent" => %{"ok" => true}}} =
+             Ankole.Connectors.RemoteMCP.call("http://127.0.0.1:#{port}/mcp", [], "read", %{},
+               idempotent: true
+             )
+
+    assert_receive {:session_request, "tools/list", []}
+    assert_receive {:session_request, "initialize", []}
+    assert_receive {:session_request, "notifications/initialized", ["session-1"]}
+    assert_receive {:session_request, "tools/call", ["session-1"]}
+    assert_receive {:session_request, "initialize", []}
+    assert_receive {:session_request, "notifications/initialized", ["session-2"]}
+    assert_receive {:session_request, "tools/call", ["session-2"]}
+    refute_receive {:session_request, _, _}
   end
 
   test "Lark refresh persists rotated tokens without fetching profile again", ctx do

@@ -1,5 +1,34 @@
 import { createModel, signal } from '@preact/signals-react'
 import type { PodConnectorAuthConfigsListResponse } from '../api/generated/types.gen'
+import { podPagePath, podRouteID } from '../../common/pod-url'
+import i18n from '../../common/i18n'
+
+export function connectorFailureMessage(error: Record<string, unknown>) {
+  if (typeof error.message === 'string' && error.message) return error.message
+  if (['oauth_consent_required', 'oauth_reauthorization_required', 'invalid_grant'].includes(String(error.code))) {
+    return i18n.t('pod.connectors.status.reauth_required')
+  }
+  return String(error.code ?? '')
+}
+
+export type ConnectorAutomationContext = { pageID: string; jobID: number }
+
+export function automationJobID(params: URLSearchParams) {
+  const id = Number(params.get('automation_job'))
+  return Number.isSafeInteger(id) && id > 0 ? id : undefined
+}
+
+export function connectorAutomationContext(params: URLSearchParams): ConnectorAutomationContext | undefined {
+  const pageID = podRouteID(params.get('automation_page') ?? undefined)
+  const jobID = automationJobID(params)
+  return pageID && jobID ? { pageID, jobID } : undefined
+}
+
+export function connectorAutomationReturnTo(context: ConnectorAutomationContext, source?: string) {
+  const params = new URLSearchParams({ automation_job: String(context.jobID) })
+  if (source) params.set('connector_source', source)
+  return `${podPagePath(context.pageID)}?${params}`
+}
 
 export function connectorCredentialFields(fields: Record<string, unknown>[], scheme: string, editing: boolean) {
   const sharedRoot = editing && ['platform_app', 'identity_app'].includes(scheme)
@@ -12,17 +41,31 @@ export function connectorCredentialFields(fields: Record<string, unknown>[], sch
   ]
 }
 
-export function connectorReturnTo(
-  connection: string,
-  scopes?: string[],
+export function connectorReturnTo({
+  connection,
+  scopes,
+  trigger,
+  automation,
+  subjectKind
+}: {
+  connection?: string
+  scopes?: string[]
   trigger?: { type: string; scope: string; id?: string }
-) {
-  const params = new URLSearchParams({ connection })
+  automation?: ConnectorAutomationContext
+  subjectKind?: 'human' | 'app'
+}) {
+  const params = new URLSearchParams()
+  if (connection) params.set('connection', connection)
+  if (subjectKind) params.set('subject_kind', subjectKind)
   if (scopes?.length) params.set('scopes', scopes.join(' '))
   if (trigger) {
     params.set('trigger_type', trigger.type)
     params.set('scope_key', trigger.scope)
     if (trigger.id) params.set('trigger_id', trigger.id)
+  }
+  if (automation) {
+    params.set('automation_page', automation.pageID)
+    params.set('automation_job', String(automation.jobID))
   }
   return `/connectors?${params}`
 }

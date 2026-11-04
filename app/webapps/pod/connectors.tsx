@@ -23,6 +23,7 @@ import {
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ConfigField, type ConfigFieldDefinition } from '../common/config-fields'
@@ -32,7 +33,14 @@ import { authenticationRef, podID } from '../common/browser-context'
 import { browserSession } from '../common/api/generated/sdk.gen'
 import * as api from './api/generated/sdk.gen'
 import type { PodConnectorsCatalogResponse } from './api/generated/types.gen'
-import { connectorCredentialFields, connectorReturnTo, ConnectorsModel } from './state/connectors'
+import {
+  connectorAutomationContext,
+  connectorAutomationReturnTo,
+  connectorCredentialFields,
+  connectorFailureMessage,
+  connectorReturnTo,
+  ConnectorsModel
+} from './state/connectors'
 import { requestErrorCode, requestErrorDetails } from '../common/request-errors'
 
 type Model = InstanceType<typeof ConnectorsModel>
@@ -42,6 +50,8 @@ export function Connectors() {
   useSignals()
   const { t } = useTranslation()
   const model = useModel(ConnectorsModel)
+  const params = new URLSearchParams(window.location.search)
+  const automation = connectorAutomationContext(params)
   const session = useQuery({
     queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
     queryFn: ({ signal }) => browserSession({ signal }),
@@ -76,7 +86,7 @@ export function Connectors() {
           data: {
             connection,
             scopes,
-            return_to: connectorReturnTo(connection, scopes, trigger),
+            return_to: connectorReturnTo({ connection, scopes, trigger, automation, subjectKind }),
             subject_kind: subjectKind
           }
         }
@@ -166,8 +176,8 @@ export function Connectors() {
       await refresh()
     }
   })
-  const params = new URLSearchParams(window.location.search)
   const requested = params.get('connection')
+  const requestedSubjectKind = params.get('subject_kind') === 'app' ? 'app' : 'human'
   const authorizationCancelled = params.get('connector_error') === 'oauth_authorization_cancelled'
   const scopes = params.get('scopes')?.split(/[ ,]+/).filter(Boolean)
   const allConnections = connections.data?.connections ?? []
@@ -199,6 +209,20 @@ export function Connectors() {
   const needsAuthorization =
     selectedTrigger?.requires_personal_account === true && (selectedAccount?.status !== 'active' || consentRequired)
   const restoredDraft = useRef(false)
+  const focusedTarget = useRef(false)
+  useEffect(() => {
+    if (focusedTarget.current || !connections.data || !triggers.data) return
+    if (params.has('trigger_type') && !params.has('trigger_id')) return
+    if (model.triggerConnection.value || model.editing.value !== undefined) return
+    const target = params.get('trigger_id') ?? allConnections.find(item => item.slug === requested)?.id
+    if (!target) return
+    const element = document.getElementById(`connector-${target}`)
+    if (element) {
+      focusedTarget.current = true
+      element.scrollIntoView({ block: 'center' })
+      element.focus({ preventScroll: true })
+    }
+  }, [connections.data, triggers.data, requested])
   useEffect(() => {
     if (restoredDraft.current || !connections.data || !catalog.data) return
     restoredDraft.current = true
@@ -234,7 +258,24 @@ export function Connectors() {
             </Button>
           )}
         </div>
+        {automation && (
+          <Link
+            className="justify-self-start text-sm underline underline-offset-4"
+            to={connectorAutomationReturnTo(automation)}>
+            {t('pod.connectors.return_to_automation')}
+          </Link>
+        )}
         <ErrorBlock error={error} />
+        {automation && createTrigger.data && (
+          <p role="status" className="text-sm">
+            {t('pod.connectors.subscription_created')}{' '}
+            <Link
+              className="underline underline-offset-4"
+              to={connectorAutomationReturnTo(automation, createTrigger.data.trigger.config_ref)}>
+              {t('pod.connectors.use_in_automation')}
+            </Link>
+          </p>
+        )}
         {authorizationCancelled && !claim.isSuccess && (
           <p role="status" className="text-sm">
             {t('pod.connectors.authorization_cancelled')}
@@ -257,8 +298,12 @@ export function Connectors() {
         )}
         {requested && !claim.isSuccess && (
           <p className="text-sm">
+            {requestedSubjectKind === 'app' ? `${t('pod.connectors.application_account')} · ` : ''}
             {t('pod.connectors.consent_requested', { connection: requested })}
             {scopes?.length ? ` (${scopes.join(', ')})` : ''}
+            {requestedSubjectKind === 'app' && catalog.isSuccess && !catalog.data?.can_manage && (
+              <> {t('pod.connectors.application_authorize_admin')}</>
+            )}
           </p>
         )}
         {connections.isPending && <p role="status">{t('common.loading')}</p>}
@@ -280,7 +325,11 @@ export function Connectors() {
           const supportsOAuth =
             ['lark', 'github', 'linear'].includes(connection.plugin_id ?? '') && connection.auth_scheme !== 'github_app'
           return (
-            <Card key={connection.id} className="[overflow-wrap:anywhere]">
+            <Card
+              key={connection.id}
+              id={`connector-${connection.id}`}
+              tabIndex={-1}
+              className="scroll-m-6 [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-ring">
               <CardHeader>
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="font-medium">{connection.display_name || connection.slug}</h2>
@@ -310,9 +359,7 @@ export function Connectors() {
                         {account.granted_scopes?.length ? ` · ${account.granted_scopes.join(', ')}` : ''}
                       </p>
                       {account.last_error && (
-                        <p className="text-destructive">
-                          {String(account.last_error.message ?? account.last_error.code ?? '')}
-                        </p>
+                        <p className="text-destructive">{connectorFailureMessage(account.last_error)}</p>
                       )}
                     </div>
                     {account.status === 'active' && (
@@ -328,12 +375,14 @@ export function Connectors() {
                 <div className="flex flex-wrap gap-2">
                   {supportsOAuth && connection.status === 'active' && (
                     <Button
-                      variant={requested === connection.slug ? 'default' : 'outline'}
+                      variant={
+                        requested === connection.slug && requestedSubjectKind === 'human' ? 'default' : 'outline'
+                      }
                       disabled={oauth.isPending}
                       onClick={() =>
                         oauth.mutate({
                           connection: connection.slug!,
-                          scopes: requested === connection.slug ? scopes : undefined
+                          scopes: requested === connection.slug && requestedSubjectKind === 'human' ? scopes : undefined
                         })
                       }>
                       {t(
@@ -353,9 +402,17 @@ export function Connectors() {
                     connection.status === 'active' &&
                     catalog.data?.can_manage && (
                       <Button
-                        variant="outline"
+                        variant={
+                          requested === connection.slug && requestedSubjectKind === 'app' ? 'default' : 'outline'
+                        }
                         disabled={oauth.isPending}
-                        onClick={() => oauth.mutate({ connection: connection.slug!, subjectKind: 'app' })}>
+                        onClick={() =>
+                          oauth.mutate({
+                            connection: connection.slug!,
+                            subjectKind: 'app',
+                            scopes: requested === connection.slug && requestedSubjectKind === 'app' ? scopes : undefined
+                          })
+                        }>
                         {t('pod.connectors.connect_application')}
                       </Button>
                     )}
@@ -417,11 +474,15 @@ export function Connectors() {
                 (account?.status !== 'active' || retryConsent || trigger.last_error?.code === 'oauth_consent_required')
               const canAuthorize = account?.owner_principal_uid === session.data?.principalUID
               return (
-                <Card key={trigger.id} className="[overflow-wrap:anywhere]">
+                <Card
+                  key={trigger.id}
+                  id={`connector-${trigger.id}`}
+                  tabIndex={-1}
+                  className="scroll-m-6 [overflow-wrap:anywhere] focus-visible:outline-2 focus-visible:outline-ring">
                   <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-5">
                     <div>
                       <p>
-                        {trigger.trigger_type} · {trigger.scope_key}
+                        {String(definition?.label ?? trigger.trigger_type)} · {trigger.scope_key}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         {allConnections.find(connection => connection.id === trigger.auth_config_id)?.display_name}
@@ -431,9 +492,7 @@ export function Connectors() {
                       </p>
                       <p className="mt-1 break-all font-mono text-xs select-all">{trigger.config_ref}</p>
                       {trigger.last_error && (
-                        <p className="text-sm text-destructive">
-                          {String(trigger.last_error.message ?? trigger.last_error.code ?? '')}
-                        </p>
+                        <p className="text-sm text-destructive">{connectorFailureMessage(trigger.last_error)}</p>
                       )}
                     </div>
                     {needsConsent && canAuthorize && connection && (
@@ -468,6 +527,13 @@ export function Connectors() {
                       onClick={() => removeTrigger.mutate(trigger.id!)}>
                       {t('common.delete')}
                     </Button>
+                    {automation && (
+                      <Link
+                        className="text-sm underline underline-offset-4"
+                        to={connectorAutomationReturnTo(automation, trigger.config_ref)}>
+                        {t('pod.connectors.use_in_automation')}
+                      </Link>
+                    )}
                   </CardContent>
                 </Card>
               )
@@ -515,7 +581,8 @@ export function Connectors() {
                 value={model.triggerType.value}
                 required
                 onValueChange={value => {
-                  model.triggerType.value = value ?? ''
+                  if (!value) return
+                  model.triggerType.value = value
                   model.triggerAccount.value = ''
                   createTrigger.reset()
                 }}>
@@ -551,7 +618,8 @@ export function Connectors() {
                     required
                     value={selectedAccount?.id ?? ''}
                     onValueChange={value => {
-                      model.triggerAccount.value = value ?? ''
+                      if (!value) return
+                      model.triggerAccount.value = value
                       createTrigger.reset()
                     }}>
                     <SelectTrigger aria-label={t('pod.connectors.account')}>
@@ -712,6 +780,39 @@ function ConnectionForm({
             </>
           )}
         </>
+      )}
+      {['lark', 'github', 'linear'].includes(model.plugin.value) && (
+        <details className="rounded-lg border p-3 text-sm">
+          <summary className="cursor-pointer font-medium">{t('pod.connectors.setup_help')}</summary>
+          <div className="mt-3 grid gap-3 text-muted-foreground">
+            <p>{t(`pod.connectors.setup_${model.plugin.value}${model.scheme.value === 'github_app' ? '_app' : ''}`)}</p>
+            <p>{t('pod.connectors.setup_permissions')}</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+              <a
+                className="underline underline-offset-4"
+                href={
+                  model.plugin.value === 'lark'
+                    ? model.metadata.value.domain === 'lark'
+                      ? 'https://open.larksuite.com/app'
+                      : 'https://open.feishu.cn/app'
+                    : model.plugin.value === 'github'
+                      ? 'https://github.com/settings/developers'
+                      : 'https://linear.app/settings/api'
+                }
+                target="_blank"
+                rel="noreferrer">
+                {t('pod.connectors.setup_platform')}
+              </a>
+              <a
+                className="underline underline-offset-4"
+                href={`https://ankole.agentbull.com/${i18n.language}/docs/automation-jobs/`}
+                target="_blank"
+                rel="noreferrer">
+                {t('pod.connectors.setup_docs')}
+              </a>
+            </div>
+          </div>
+        </details>
       )}
       {callbackURL && ['lark_app', 'oauth2'].includes(model.scheme.value) && (
         <div className="grid gap-2">

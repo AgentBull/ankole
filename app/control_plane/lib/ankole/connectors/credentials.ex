@@ -56,4 +56,10 @@ defmodule Ankole.Connectors.Credentials do
 
   def invalidate_access_token(config, account, token),
     do: AppTokenCache.invalidate(config, account, token)
+
+  def refresh_rejected_token(config, account, token, adapter) do
+    with result when result in [:ok, {:ok, :ok}] <-
+           invalidate_access_token(config, account, token),
+         do: access_token(config, account, adapter)
+  end
 end

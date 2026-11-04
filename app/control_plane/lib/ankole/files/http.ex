@@ -306,13 +306,19 @@ defmodule Ankole.Files.HTTP do
   defp failure(error, opts) do
     unknown? = error.sent? and not Keyword.get(opts, :idempotent, false)
 
+    status =
+      case error.reason do
+        {:http_status, status} -> %{status: status}
+        _ -> %{}
+      end
+
     {:error,
-     %{
+     Map.merge(status, %{
        code: if(unknown?, do: "upstream_outcome_unknown", else: "http_request_failed"),
        reason: inspect(error.reason),
        retryable: not unknown? and error.reason != :invalid_url,
        request_sent: error.sent?
-     }}
+     })}
   end
 
   defp decode_body(response, limit) do

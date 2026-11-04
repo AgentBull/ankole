@@ -18,7 +18,7 @@ import {
   type JobSchedule,
   type JobWebhook
 } from '@ankole/applet-sdk'
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import type { ActionRun } from '@ankole/applet-sdk/types'
 import { useTranslation } from 'react-i18next'
@@ -26,6 +26,7 @@ import { Link } from '@tanstack/react-router'
 import { Choice as ChoiceControl, ContentError } from './content-primitives'
 import { contentKeys, podRequest, type PageDetail } from './content-api'
 import * as api from './api/generated/sdk.gen'
+import { automationJobID, connectorFailureMessage, connectorReturnTo } from './state/connectors'
 
 const pod = { request: podRequest }
 type Change = (operation: () => Promise<unknown>) => void
@@ -104,7 +105,7 @@ function Form({
 
 export function AppletAutomation({ detail }: { detail: PageDetail }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(() => automationJobID(new URLSearchParams(window.location.search)) !== undefined)
   return (
     <>
       <div className="flex justify-end px-4 py-2">
@@ -135,14 +136,14 @@ function Manager({ detail }: { detail: PageDetail }) {
     queryKey: [...contentKeys.page(detail.page.id), 'action-keys', detail.page.revision],
     queryFn: jobs.actions
   })
-  const [selected, setSelected] = useState<number>()
+  const [selected, setSelected] = useState(() => automationJobID(new URLSearchParams(window.location.search)))
   const [creating, setCreating] = useState(false)
   const errorElement = useRef<HTMLDivElement>(null)
   const change = useMutation({
     mutationFn: (operation: () => Promise<unknown>) => operation(),
     onSuccess: () => client.invalidateQueries({ queryKey: key })
   })
-  const job = list.data?.find(item => item.id === selected) ?? list.data?.[0]
+  const job = selected === undefined ? list.data?.[0] : list.data?.find(item => item.id === selected)
   const canEdit = detail.actions.includes('node_edit')
   const canCreate = detail.actions.includes('node_contribute')
   useEffect(() => {
@@ -178,6 +179,11 @@ function Manager({ detail }: { detail: PageDetail }) {
       </div>
       {!list.isPending && !list.data?.length && (
         <p className="text-sm text-muted-foreground">{t('pod.automation.no_jobs')}</p>
+      )}
+      {list.isSuccess && selected !== undefined && !job && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {t('pod.automation.return_job_unavailable')}
+        </p>
       )}
       {creating && (
         <section className="rounded-lg border p-4">
@@ -333,6 +339,7 @@ function JobDetails({
           </Button>
         )}
       </div>
+      {!canManage && <p className="text-sm text-muted-foreground">{t('pod.automation.job_read_only')}</p>}
       {deleting && (
         <div className="rounded-lg border p-3 text-sm">
           <p>{t('pod.automation.delete_job_help')}</p>
@@ -873,20 +880,32 @@ function ConnectorEvents({
     queryFn: () => api.podConnectorAuthConfigsList(),
     refetchInterval: 5000
   })
-  const [selected, setSelected] = useState('')
+  const [selected, setSelected] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    return automationJobID(params) === job.id ? (params.get('connector_source') ?? '') : ''
+  })
   const [eventType, setEventType] = useState('')
   const visibleConnections = connections.data?.connections ?? []
   const origins = (triggers.data?.triggers ?? []).flatMap(item => {
     const connection = visibleConnections.find(value => value.id === item.auth_config_id)
+    const definition = catalog.data?.connectors
+      ?.find(value => value.plugin_id === connection?.plugin_id)
+      ?.trigger_types?.find(value => value.id === item.trigger_type)
     return connection && item.status !== 'deleting'
       ? [
           {
             reference: item.config_ref,
-            label: `${connection.display_name} · ${item.trigger_type} · ${item.scope_key}`,
+            label: `${connection.display_name} · ${definition?.label ?? item.trigger_type} · ${item.scope_key}`,
             connectionStatus: connection.status,
             status: item.status,
             subscription: true,
-            eventTypes: [] as string[]
+            eventTypes: [] as string[],
+            lastError: item.last_error,
+            manageURL: connectorReturnTo({
+              connection: connection.slug,
+              trigger: { type: item.trigger_type, scope: item.scope_key, id: item.id },
+              automation: { pageID, jobID: job.id }
+            })
           }
         ]
       : []
@@ -901,40 +920,43 @@ function ConnectorEvents({
           connectionStatus: connection.status,
           status: connection.status,
           subscription: false,
-          eventTypes: stream.event_types
+          eventTypes: stream.event_types,
+          lastError: null,
+          manageURL: connectorReturnTo({ connection: connection.slug, automation: { pageID, jobID: job.id } })
         })
       }
     }
   }
   const choices = origins.filter(item => item.connectionStatus === 'active')
-  const source = choices.find(item => item.reference === selected) ?? choices[0]
+  const source = selected ? choices.find(item => item.reference === selected) : choices[0]
   const selectedType = source?.eventTypes.includes(eventType) ? eventType : ''
   const filter = selectedType ? `signal.type == ${JSON.stringify(selectedType)}` : undefined
-  const bindingQueries = useQueries({
-    queries: origins.map(item => ({
-      queryKey: [...key, 'bindings', item.reference],
-      queryFn: () => api.podEventBindings({ query: { config_ref: item.reference } })
-    }))
+  const bindings = useQuery({
+    queryKey: [...key, 'bindings', job.id],
+    queryFn: () => api.podEventBindings({ query: { job_id: job.id } })
   })
-  const bindings = bindingQueries[origins.indexOf(source!)]
-  const binding = bindings?.data?.bindings.find(
+  const binding = bindings.data?.bindings.find(
     item =>
-      item.automation_job_id === job.id &&
+      item.config_ref === source?.reference &&
       Object.keys(item.filters).length === (filter ? 1 : 0) &&
       item.filters.cel === filter
   )
   const connected = binding?.enabled === true
-  const linked = bindingQueries.flatMap((query, index) =>
-    (query.data?.bindings ?? [])
-      .filter(item => item.automation_job_id === job.id && item.enabled)
-      .map(item => ({ binding: item, source: origins[index]! }))
-  )
+  const linked = (bindings.data?.bindings ?? []).flatMap(item => {
+    const origin = origins.find(origin => origin.reference === item.config_ref)
+    return item.enabled && origin ? [{ binding: item, source: origin }] : []
+  })
   return (
     <section className="grid gap-3" aria-label={t('pod.automation.connector_events')}>
-      <h3 className="font-medium">{t('pod.automation.connector_events')}</h3>
-      <ContentError
-        error={catalog.error ?? triggers.error ?? connections.error ?? bindingQueries.find(query => query.error)?.error}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-medium">{t('pod.automation.connector_events')}</h3>
+        <Link
+          className="text-sm underline underline-offset-4"
+          to={connectorReturnTo({ automation: { pageID, jobID: job.id } })}>
+          {t('pod.automation.open_connectors')}
+        </Link>
+      </div>
+      <ContentError error={catalog.error ?? triggers.error ?? connections.error ?? bindings.error} />
       {!!linked.length && (
         <div className="grid gap-2" aria-label={t('pod.automation.linked_events')}>
           <h4 className="text-sm font-medium">{t('pod.automation.linked_events')}</h4>
@@ -961,6 +983,14 @@ function ConnectorEvents({
                     </>
                   )}
                 </p>
+                {origin.lastError && (
+                  <p className="text-destructive [overflow-wrap:anywhere]">
+                    {connectorFailureMessage(origin.lastError)}
+                  </p>
+                )}
+                <Link className="underline underline-offset-4" to={origin.manageURL}>
+                  {t('pod.automation.manage_event_source')}
+                </Link>
                 {origin.connectionStatus === 'active' &&
                   (origin.status === 'active' || ['provisioning', 'paused'].includes(origin.status)) && (
                     <p className="text-muted-foreground">
@@ -997,17 +1027,19 @@ function ConnectorEvents({
           ))}
         </div>
       )}
+      {!!choices.length && (
+        <Choice
+          label={t('pod.automation.event_source')}
+          value={source?.reference ?? ''}
+          onChange={value => {
+            setSelected(value)
+            setEventType('')
+          }}
+          options={Object.fromEntries(choices.map(item => [item.reference, item.label]))}
+        />
+      )}
       {source ? (
         <>
-          <Choice
-            label={t('pod.automation.event_source')}
-            value={source.reference}
-            onChange={value => {
-              setSelected(value)
-              setEventType('')
-            }}
-            options={Object.fromEntries(choices.map(item => [item.reference, item.label]))}
-          />
           {!!source.eventTypes.length && (
             <Choice
               label={t('pod.automation.event_type')}
@@ -1023,11 +1055,19 @@ function ConnectorEvents({
             {t(source.subscription ? 'pod.automation.subscription_status' : 'pod.automation.connection_status')}:{' '}
             {t(`pod.connectors.status.${source.status}`, { defaultValue: source.status })}
           </p>
+          {!connected && source.lastError && (
+            <p className="text-sm text-destructive [overflow-wrap:anywhere]">
+              {connectorFailureMessage(source.lastError)}{' '}
+              <Link className="underline underline-offset-4" to={source.manageURL}>
+                {t('pod.automation.manage_event_source')}
+              </Link>
+            </p>
+          )}
           {!connected && <p className="text-sm text-muted-foreground">{t('pod.automation.event_disconnected')}</p>}
           <Button
             className="justify-self-start"
             variant="outline"
-            disabled={busy || connected || !bindings || bindings.isPending || !!bindings.error}
+            disabled={busy || connected || bindings.isPending || !!bindings.error}
             onClick={() =>
               change(async () => {
                 await api.podEventBindingPut({
@@ -1050,10 +1090,7 @@ function ConnectorEvents({
         !triggers.isPending &&
         !connections.isPending && (
           <p className="text-sm text-muted-foreground">
-            {t('pod.automation.no_events')}{' '}
-            <Link className="underline" to="/connectors">
-              {t('pod.automation.open_connectors')}
-            </Link>
+            {t(selected ? 'pod.automation.return_source_unavailable' : 'pod.automation.no_events')}
           </p>
         )
       )}
