@@ -23,7 +23,7 @@ import {
   safeNumberFromBigInt,
   type Envelope
 } from '../fabric/envelope_proto'
-import type { EnvelopeSender } from '../fabric/fabric'
+import { RuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
 import type {
   RunRef as RunRefMessage,
   WorkspaceOpen,
@@ -321,7 +321,8 @@ export class Workspaces {
       }
       // Preparation binds rendered fetch. Close waits for calls before material cleanup.
       const value = await renderedFallbackFetch(args.urls as string[], space.materials!.renderedFetch!, signal)
-      return { content: [{ type: 'text', text: JSON.stringify(value) }], details: value }
+      // The control-plane continuation reads details; a text copy can overflow the Worker frame.
+      return { content: [], details: value }
     }
     const tool = space.tools.find(
       tool => tool.name === input.name && normalizeNamespace(input.namespace) === 'functions'
@@ -421,13 +422,17 @@ export class Workspaces {
             failureKind: result.failureKind
           })
         }
-      })
+      }),
+      input.name === '__rendered_web_fetch'
     )
   }
-  private async publish(envelope: Envelope): Promise<void> {
+  private async publish(envelope: Envelope, rejectOversizedResult = false): Promise<void> {
     try {
       await this.send(envelope)
     } catch (error) {
+      if (rejectOversizedResult && error instanceof RuntimeFabricTransportError && error.reason === 'frame_too_large') {
+        throw new Error('Rendered page result is too large to transfer.')
+      }
       // Execution facts remain in the workspace. A new Driver can ask again.
       workerLogger.warning('worker.workspace_notification_failed', 'Workspace notification could not be sent', {
         frame: envelope.body.case,

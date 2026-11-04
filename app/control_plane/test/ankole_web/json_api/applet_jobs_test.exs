@@ -88,18 +88,22 @@ defmodule AnkoleWeb.JSONAPI.AppletJobsTest do
       browser
       |> request(:put, "/api/v2/pod/signal-bindings", %{
         config_ref: ref,
+        name: "Browser Action subscription",
         automation_job_id: job["id"]
       })
       |> json_response(200)
 
     assert binding["binding"]["routing_mode"] == "action"
     assert binding["binding"]["automation_job_id"] == job["id"]
-    assert is_binary(binding["binding"]["id"])
+    binding_id = binding["binding"]["id"]
+    assert {:ok, ^binding_id} = Ecto.UUID.cast(binding_id)
 
-    assert %{"bindings" => [_]} =
+    assert %{"bindings" => [listed_binding]} =
              browser
              |> request(:get, "/api/v2/pod/signal-bindings", %{config_ref: ref})
              |> json_response(200)
+
+    assert listed_binding == binding["binding"]
 
     {:ok, %{receipts: [receipt]}} =
       Ankole.Signals.emit(
@@ -139,6 +143,26 @@ defmodule AnkoleWeb.JSONAPI.AppletJobsTest do
 
     assert history["id"] == receipt.automation_job_run_id
     assert history == run["run"]
+
+    disabled =
+      browser
+      |> request(:put, "/api/v2/pod/signal-bindings", %{
+        id: binding_id,
+        config_ref: ref,
+        name: "Browser Action subscription",
+        automation_job_id: job["id"],
+        enabled: false
+      })
+      |> json_response(200)
+
+    assert disabled["binding"] == Map.put(binding["binding"], "enabled", false)
+
+    assert %{"bindings" => [disabled_binding]} =
+             browser
+             |> request(:get, "/api/v2/pod/signal-bindings", %{config_ref: ref})
+             |> json_response(200)
+
+    assert disabled_binding == disabled["binding"]
 
     {:ok, other_page} = Pages.create(actor, %{type: "applet", title: "Other"})
 

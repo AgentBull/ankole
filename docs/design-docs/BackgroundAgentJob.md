@@ -522,7 +522,7 @@ Workspace path):
   a Job to single-Agent execution.
 - **Child dynamic tools (`features.multi_agent_v2_dynamic_tools = true`):**
   enforced unconditionally as a runner invariant (templates cannot disable it)
-  so spawned child threads inherit `skill_view`, `web_fetch`, `web_search`, and
+  so spawned child threads inherit `skill_view`, `web_fetch`, `web_search`, `read_file`, and
   Brain read tools; running-status metadata records both
   `child_dynamic_tools_inherited` and `code_mode`, verified by the
   `codex-dynamic-tools-inheritance` host integration test.
@@ -539,12 +539,13 @@ Workspace path):
 Code mode exposes strictly the dynamic tools that Agent Computer declares to the
 Codex thread (`tools.<name>` inside the JavaScript executor; undeclared tools do
 not exist, and AIGateway-hosted Response tools never enter this registry).
-`buildCodexJobProjection` admits at most nine read-only/coordination tools:
+`buildCodexJobProjection` exposes these read-only and coordination tools:
 
 | Tool | Executor | Condition |
 | --- | --- | --- |
 | `web_search` | `Ankole.Sessions.Tools.Web` through `tools.read` | Omitted when the Job's provider connection declares hosted `web_search` |
 | `web_fetch` | `Ankole.Sessions.Tools.Web` through `tools.read`, with the Worker rendered fallback | Always |
+| `read_file` | The Worker's file reader against the real Job workspace and Drive view | Always; includes reading the complete page files returned by `web_fetch` |
 | `skill_view` | `Ankole.Sessions.Tools.Skill` through `tools.read` | Always |
 | `recall` | `Ankole.Sessions.Tools.Brain` through `tools.read` | The turn start carries its declaration in `request_context.brain_tools`, which the control plane fills while `brain.enabled` is true |
 | `get_page` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |

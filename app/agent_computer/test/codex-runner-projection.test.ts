@@ -1,3 +1,4 @@
+import { createContainerComputer } from '../src/tools/computer/computer'
 import { describe, expect, it } from 'bun:test'
 import { z } from 'zod'
 import { defineWorkerTool, type WorkerAgentTool } from '../src/core'
@@ -14,7 +15,7 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
         calls.push(params)
         return 'search result'
       }),
-      tool('web_fetch', z.object({ urls: z.array(z.string()) }), () => 'x'.repeat(20_000)),
+      tool('web_fetch', z.object({ urls: z.array(z.string()) }), () => '🚀'.repeat(40_001)),
       {
         ...tool('recall', z.record(z.string(), z.unknown()), () => 'recalled memory'),
         inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1 } }, required: ['query'] }
@@ -139,7 +140,7 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     )
     expect(bounded.success).toBe(true)
     const boundedText = bounded.contentItems[0]?.type === 'inputText' ? bounded.contentItems[0].text : ''
-    expect(new TextEncoder().encode(boundedText).byteLength).toBeLessThanOrEqual(16_384)
+    expect(new TextEncoder().encode(boundedText).byteLength).toBeLessThanOrEqual(160_000)
     expect(boundedText).toEndWith('...[truncated]')
 
     const screenshot = await projection.handleToolCall(
@@ -198,6 +199,8 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
   it('executes a Background web call through the fenced shared owner', async () => {
     const requests: unknown[] = []
     const webTools = await createWebTools({
+      workspaceRoot: '/unused',
+      computer: createContainerComputer('/unused', '/unused'),
       turn: { session: { session_id: 'job:1000' }, job_id: 1000, attempt: 1, signal_id: 'input-1' },
       rpc: (async (method: unknown, payload: unknown, scope: unknown) => {
         requests.push({ method, name: (payload as { name: string }).name, scope })

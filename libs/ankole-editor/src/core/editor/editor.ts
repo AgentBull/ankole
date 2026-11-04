@@ -69,12 +69,11 @@ export class Wordgard {
   }
 
   /**
-   * Indicates whether the user is currently composing text via
-   * [IME](https://en.wikipedia.org/wiki/Input_method), and at least
-   * one change has been made in the current composition.
+   * Indicates whether native [IME](https://en.wikipedia.org/wiki/Input_method)
+   * input or its model cleanup is still in progress.
    */
   get composing() {
-    return !!this.inputState.composing
+    return !!this.inputState.composing || this.inputState.compositionPending
   }
 
   /**
@@ -151,6 +150,10 @@ export class Wordgard {
   /** True when the editor is connected to a DOM document. */
   connected = false
   private flushing = Flush.No
+  /** @internal */
+  get isFlushing() {
+    return this.flushing !== Flush.No
+  }
   private willFlush = false
   private rejectedTransaction = false
   private flushFunc: () => void
@@ -220,6 +223,7 @@ export class Wordgard {
       if (this.viewState.pending.length || this.domReaders.length || this.domWriters.length) this.scheduleFlush()
       this.docTile.connect()
     } else {
+      this.willFlush = false
       this.root = document
       this.observer.disconnect()
       for (const plugin of this.plugins) plugin.disconnect(this)
@@ -280,7 +284,7 @@ export class Wordgard {
    * the DOM as it was last drawn.
    */
   flush() {
-    if (this.inputState.pendingInputEvent) return
+    if (this.isFlushing || this.inputState.pendingInputEvent) return
     this.observer.readSelectionRange()
     if (!this.connected) return
     if (!this.observer.editorSelectionPending || this.inputState.composing) this.observer.pollSelection()
@@ -330,6 +334,7 @@ export class Wordgard {
       }
     }
     this.checkDir()
+    this.inputState.finishComposition()
   }
 
   private scrollTo(target: ScrollTarget) {
@@ -649,10 +654,11 @@ export class Wordgard {
     // has focus, and the DOM selection must stay where the change goes.
     if (this.connected && !this.inputState.pendingInputEvent) {
       this.observer.ignore(() => {
-        this.contentDOM.focus({ preventScroll: true })
+        if (this.flushing == Flush.No && this.inputState.compositionPending) this.flush()
         if (this.willFlush && this.flushing == Flush.No && this.viewState.pending.some(tr => tr.docChanged)) {
           this.flush()
         }
+        this.contentDOM.focus({ preventScroll: true })
         setDOMSelection(this)
       })
     }

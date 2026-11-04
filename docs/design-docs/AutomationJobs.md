@@ -215,6 +215,9 @@ requires the same Page and `node_contribute`, returning
 `{accepted: true, runId, coalesced}`. Personal Jobs are limited to their Human or
 that Human's personal assistant. Reading `/runs/:id` and joining `run:<id>` use
 the same authorization; team Run progress requires `node_view` on its Page.
+Agent `jobs.list` and `jobs.get_run` requests identify that Page with `page_id`;
+the Agent and the conversation's disclosure recipients must be able to view it.
+The Job domain also checks the Run's Page and personal Job ownership.
 Committed slice and terminal changes publish progress to authorized subscribers.
 Applet frontends use `useActionRun(runId)` from `@ankole/applet-sdk` to read the
 Run and follow its progress, result and error through the host's existing socket.

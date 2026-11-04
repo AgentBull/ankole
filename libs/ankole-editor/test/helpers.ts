@@ -16,6 +16,7 @@ import { insertText } from '../src/core/command/commands'
 import type { Node } from '../src/core/doc'
 import { KeyBinding, Wordgard } from '../src/core/editor'
 import { Transaction, type GardState } from '../src/core/state'
+import { InputState } from '../src/core/editor/input'
 import { parseMarkdown, printMarkdown } from '../src/document/markdown'
 import type { Element } from '../src/document/tree'
 import { parseXml, printXml } from '../src/document/xml'
@@ -26,6 +27,7 @@ import { type EditorHost } from '../src/editor/host-context'
 
 class HeadlessEditor {
   composing = false
+  connected = true
   constructor(public state: GardState) {}
   dispatch = (spec: Transaction | Transaction.Spec) => {
     if (spec instanceof Transaction && spec.startState !== this.state) {
@@ -54,6 +56,15 @@ export function openWithHost(source: string | Element, host: EditorHost): Wordga
 /** Mark a headless editor as composing with an input method, or not. */
 export function setComposing(editor: Wordgard, composing: boolean) {
   ;(editor as unknown as HeadlessEditor).composing = composing
+}
+
+/** End a headless composition through the core lifecycle without a DOM compositionend event. */
+export function endComposition(editor: Wordgard) {
+  const input = new InputState(editor)
+  input.composing = { changes: 1, target: null }
+  input.clearComposition()
+  setComposing(editor, false)
+  input.finishComposition()
 }
 
 export const readTree = (editor: Wordgard) => treeOf(editor.state.doc)

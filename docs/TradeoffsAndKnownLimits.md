@@ -10,6 +10,12 @@ Ankole does not try to defend a Worker against its own Agent. Within user space,
 
 Treat Worker containers as first-party, single-Agent compute; on Kubernetes, operators who want stronger host isolation can attach a `gVisor` `RuntimeClass` to the Worker Pod template. Compromising a Worker lets an attacker act as that one Agent, never as another Agent. By contrast, the control plane holds the Docker socket or Kubernetes namespace Role used to launch Workers, so protect the control plane as root-equivalent infrastructure.
 
+Site administrators can register a Brain `file` source that reads a path on
+the control-plane host. Ankole requires a site administrator session and
+`site_console:brain:update` for this operation. The site operator owns the
+choice of host files to ingest; this is part of the trusted infrastructure
+boundary.
+
 ## Persistent Home vs. Rebuildable Cache
 
 An Agent's Home directory (`/workspace`) persists across Worker restarts, instance replacements, and container image updates—backed by a local Docker volume, Kubernetes PVC, Cloudflare R2 snapshot, Vercel Drive, AWS EFS directory, AgenticSpace volume, or Alibaba Cloud OSS prefix depending on the Worker provider. Persistent Codex thread files live under `/workspace/.codex`, whereas Codex SQLite databases and process locks live on a disposable cache disk at `/var/cache/ankole`. Rebuilding a Worker wipes `/var/cache/ankole` once the old container terminates while leaving `/workspace` intact.
@@ -90,6 +96,12 @@ AIGateway exposes context compaction through a single uniform protocol: a reques
 ## Provider Credentials Stay in the Control Plane
 
 The control plane holds all master provider configurations and encrypted API keys, issuing a Worker only narrowly scoped credentials when an enabled Worker capability requires one. For example, Codex Jobs authenticate back to `AIGateway` using an Agent-scoped key that `AgentCodexRuntime` writes to a private token file inside `.codex/` and refreshes automatically, while the primary Agent loop never leaves the control plane. See [Background Agent Job](design-docs/BackgroundAgentJob.md).
+
+Model metadata hooks use the Provider's ordinary credential selection path,
+including when the metadata cache supplies the result. The pool's
+`request_count` therefore counts successful credential selections, including
+affinity hits; it is not a count of outbound HTTP requests. Providers without a
+metadata hook do not select credentials for this lookup.
 
 Never place live API keys or secrets inside Agent workspace files, Skill parameters, progress messages, model prompts, or logs. Also note that `RuntimeFabric` assumes a private cluster network with trusted first-party Workers; do not expose Worker channel endpoints directly to untrusted public networks.
 

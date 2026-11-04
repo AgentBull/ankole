@@ -31,7 +31,8 @@ export class BrowserWebFetchAdapter {
   async fetch(
     urls: string[],
     settings: RenderedFetchBrowserMaterializeSettings,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    resultMode?: 'workspace'
   ): Promise<unknown> {
     const runtime = await this.materializer.materializeEphemeral({ settings })
     try {
@@ -39,7 +40,7 @@ export class BrowserWebFetchAdapter {
       try {
         const response = await sendBrowserCommand(
           { ...runtime, timeoutMs: RenderedFetchTimeoutMs },
-          { name: 'fetch', args: { urls } },
+          { name: 'fetch', args: { urls, ...(resultMode ? { result_mode: resultMode } : {}) } },
           { timeoutMs: RenderedFetchTimeoutMs, signal }
         )
         if (!response.ok) {

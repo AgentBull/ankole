@@ -118,7 +118,9 @@ export async function login(page: Page, credentials: Login) {
     response =>
       response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/email-otp/challenges')
   )
-  await page.getByRole('button', { name: '发送验证码', exact: true }).click()
+  await page
+    .getByRole('button', { name: process.env.ANKOLE_EDITION === 'saas' ? '下一步' : '发送验证码', exact: true })
+    .click()
   expect((await sent).status()).toBe(201)
   let code = ''
   await expect

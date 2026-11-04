@@ -59,9 +59,10 @@ export class BrowserRuntime {
   fetchRendered(
     urls: string[],
     settings: RenderedFetchBrowserMaterializeSettings,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    resultMode?: 'workspace'
   ): Promise<unknown> {
-    return this.webFetch.fetch(urls, settings, signal)
+    return this.webFetch.fetch(urls, settings, signal, resultMode)
   }
 
   /**
@@ -71,10 +72,10 @@ export class BrowserRuntime {
    * compatibility check stays at the `createWebTools` call site instead.
    */
   renderedWebFetchFallback(settings: RenderedFetchBrowserMaterializeSettings): {
-    fetchBatch: (urls: string[], signal?: AbortSignal) => Promise<unknown>
+    fetchBatch: (urls: string[], signal?: AbortSignal, resultMode?: 'workspace') => Promise<unknown>
   } {
     return {
-      fetchBatch: (urls, signal) => this.fetchRendered(urls, settings, signal)
+      fetchBatch: (urls, signal, resultMode) => this.fetchRendered(urls, settings, signal, resultMode)
     }
   }
 }

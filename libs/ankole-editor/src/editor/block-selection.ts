@@ -1,7 +1,9 @@
 import { type ChangeSet, Node, Plot, type Pos, Slice, Leaf, type Token, ValidationError } from '../core/doc'
 import { Decoration, KeyBinding, Wordgard } from '../core/editor'
+import { setDOMSelection } from '../core/editor/selection'
+import { compositionComplete } from '../core/editor/input'
 import { history } from '../core/history'
-import { GardSelection, GardState, type Transaction } from '../core/state'
+import { GardSelection, GardState, Transaction } from '../core/state'
 import { Command, insertText } from '../core/command'
 import { CellSelection } from '../core/table'
 import { TableMap } from '../core/table/tablemap'
@@ -10,6 +12,8 @@ import { MathBlock, openMathEditor } from '../blocks/math'
 import { MermaidBlock, MermaidView } from '../blocks/mermaid'
 import { isList } from './block-insert'
 import { adjacentUnit, blockContent, blockRemovalRanges, blocksBetween, targetAt, unitAt } from './block-target'
+import { flattenColumns } from './corrections'
+import { Columns } from './schema'
 
 /** Whole blocks, including children and ranges across list boundaries. */
 export class BlockSelection extends GardSelection {
@@ -305,10 +309,51 @@ function composeOverBlocks(wg: Wordgard): false {
 
 const selectedBlock = Decoration.Point.attributes({ class: 'editor-selected-block' })
 
+export const clearCompositionHost = Transaction.Annotation.define<boolean>()
+
+/** The editor follows the original text block when a pointer action moves the caret before completion. */
+export const compositionHost = GardState.Field.define<number | null>({
+  create: () => null,
+  update(position, tr) {
+    if (tr.annotation(clearCompositionHost)) return null
+    if (tr.docChanged && !tr.annotation(Transaction.remote)) {
+      if (!tr.isUserEvent('input.type.compose')) return null
+      if (position === null || tr.isUserEvent('input.type.compose.start')) {
+        const host = tr.newSelection.resolve(tr.newDoc).head.parent
+        return host.node.isTextblock ? host.before : null
+      }
+    }
+    return position === null ? null : tr.changes.mapPos(position, 1, 'after')
+  }
+})
+
 export const blockSelection: GardState.Extension = [
+  compositionHost,
   Command.handler(insertText, ({ state }, input) => {
     const selection = state.selection
-    if (!(selection instanceof BlockSelection) || selection.ranges.length < 2 || state.readOnly) return false
+    if (!(selection instanceof BlockSelection) || state.readOnly) return false
+    const composing = input.userEvent.startsWith('input.type.compose')
+    const first = selection.blocks[0]!
+    if (composing && first.node.type === T.Paragraph.type) {
+      // The browser has already chosen its composing Text node. Keep the paragraph's boundary
+      // tokens, so that replacing its content does not detach that node and end the composition.
+      const range = selection.ranges[0]!
+      return {
+        changes: {
+          correct: [
+            ...first.node.marks.map(remove => ({ from: first.before, to: first.before + 1, remove })),
+            { from: first.before + 1, to: first.after - 1, insert: input.insert ? [Leaf.text(input.insert)] : [] },
+            ...(first.after < range.to ? [{ from: first.after, to: range.to }] : []),
+            ...selection.ranges.slice(1).map(range => ({ ...range, insert: [] }))
+          ],
+          local: true
+        },
+        selection: (_cx, changes) => GardSelection.cursor(changes.mapPos(first.before + 1, -1) + input.insert.length),
+        userEvent: input.userEvent,
+        scrollIntoView: true
+      }
+    }
+    if (selection.ranges.length < 2) return false
     return {
       changes: {
         correct: selection.ranges.map((range, index) => ({
@@ -337,13 +382,61 @@ export const blockSelection: GardState.Extension = [
     })
     return true
   }),
-  // Browsers send keydown 229 before compositionstart, while the DOM under the caret can still
-  // change. compositionstart handles a composition without that keydown.
+  // A keydown 229 can prepare a structural replacement before the browser starts composing.
+  // Without that keydown, a paragraph keeps its Text node until the first composition input.
   Wordgard.domEventHandler(
     'keydown',
     (event, wg) => event.keyCode === 229 && !switchesInput.test(event.code) && composeOverBlocks(wg)
   ),
-  Wordgard.domEventHandler('compositionstart', (_event, wg) => composeOverBlocks(wg)),
+  // Prepare structural replacements before the core records the native composing node.
+  Wordgard.domEventObserver('compositionstart', (_event, wg) => {
+    const { selection } = wg.state
+    if (selection instanceof BlockSelection && selection.blocks[0]!.node.type !== T.Paragraph.type) {
+      composeOverBlocks(wg)
+    }
+  }),
+  Wordgard.domEventHandler('compositionstart', (_event, wg) => {
+    if (wg.state.readOnly) return false
+    const { selection } = wg.state
+    const first = selection instanceof BlockSelection ? selection.blocks[0]! : null
+    if (first?.node.type === T.Paragraph.type) {
+      setDOMSelection(wg, { anchor: first.before + 1, head: first.after - 1, anchorSide: 1, headSide: -1 })
+    } else {
+      composeOverBlocks(wg)
+    }
+    // A prepared paragraph already started this composition's undo event before its first text.
+    if (
+      wg.inputState.composing &&
+      wg.state.selection.isCursor &&
+      wg.state.field(compositionHost) === wg.state.sel.head.parent.pos
+    ) {
+      wg.inputState.composing.changes ||= 1
+    }
+    return false
+  }),
+  Wordgard.domEventHandler('compositionend', (_event, wg) => {
+    if (!wg.state.readOnly && wg.state.selection instanceof BlockSelection) setDOMSelection(wg)
+    return false
+  }),
+  compositionComplete.of(wg => {
+    const position = wg.state.field(compositionHost, false)
+    if (wg.state.readOnly || position == null) return
+    let parent: Pos.Plot | null = wg.state.doc.resolve(position + 1).parent
+    while (parent) {
+      const changes = parent.node.type === Columns.type && flattenColumns.correct(parent)
+      if (changes) {
+        const before = wg.state
+        wg.dispatch({ changes, userEvent: 'input.type.compose' })
+        if (wg.state === before) break
+        const mapped = wg.state.field(compositionHost, false)
+        if (mapped == null) break
+        // Cleanup can unwrap several ancestors; follow the original text block through those changes.
+        parent = wg.state.doc.resolve(mapped + 1).parent
+      } else {
+        parent = parent.parent
+      }
+    }
+  }),
   GardSelection.define(
     'blocks',
     BlockSelection,

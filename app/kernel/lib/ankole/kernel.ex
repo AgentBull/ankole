@@ -333,7 +333,7 @@ defmodule Ankole.Kernel do
   @doc "Applies one prepared Wordgard ChangeSet through the page XML conversion chain."
   @spec page_apply(String.t(), list()) :: {:ok, map()} | {:error, String.t()}
   def page_apply(source, changes) when is_binary(source) and is_list(changes) do
-    source |> page_apply_nif(Torque.encode!(changes)) |> decode_page_result()
+    source |> page_apply_nif(Ankole.Kernel.JSON.encode!(changes)) |> decode_page_result()
   end
 
   @doc "Computes a structural and UTF-16 ChangeSet between canonical page documents."
@@ -341,7 +341,7 @@ defmodule Ankole.Kernel do
   def page_diff(old, new) when is_binary(old) and is_binary(new) do
     case page_diff_nif(old, new) do
       {:error, _} = error -> error
-      json -> Torque.decode(json)
+      json -> Ankole.Kernel.JSON.decode(json)
     end
   end
 

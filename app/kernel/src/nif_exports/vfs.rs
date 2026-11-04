@@ -6,7 +6,8 @@ use serde_json::Value;
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn page_content_empty_nif(source: Term<'_>) -> NIFResult<bool> {
-    page_document::vfs::is_empty(&super::decode_string(source, "source")?)
+    let source = super::decode_string(source, "source")?;
+    stacker::grow(8 * 1024 * 1024, || page_document::vfs::is_empty(&source))
         .map_err(super::error_message)
 }
 
@@ -54,16 +55,18 @@ fn vfs_import_chunk_nif(path: Term<'_>, format: Term<'_>, offset: u64) -> NIFRes
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn vfs_document_export_nif(source: Term<'_>) -> NIFResult<String> {
-    page_document::vfs::export(&super::decode_string(source, "source")?)
+    let source = super::decode_string(source, "source")?;
+    stacker::grow(8 * 1024 * 1024, || page_document::vfs::export(&source))
         .map_err(super::error_message)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn vfs_document_reconcile_nif(source: Term<'_>, markdown: Term<'_>) -> NIFResult<(String, String)> {
-    page_document::vfs::reconcile(
-        &super::decode_string(source, "source")?,
-        &super::decode_string(markdown, "markdown")?,
-    )
+    let source = super::decode_string(source, "source")?;
+    let markdown = super::decode_string(markdown, "markdown")?;
+    stacker::grow(8 * 1024 * 1024, || {
+        page_document::vfs::reconcile(&source, &markdown)
+    })
     .map(|page| (page.xml, page.plain_text))
     .map_err(super::error_message)
 }
@@ -152,14 +155,22 @@ fn vfs_merge_knowledge_nif<'a>(
         serde_json::from_str(&super::decode_string(value, "metadata")?)
             .map_err(|e: serde_json::Error| super::error_message(e.to_string()))
     };
-    page_document::knowledge::merge(
-        &super::decode_string(base, "base")?,
-        &metadata(base_meta)?,
-        &super::decode_string(current, "current")?,
-        &metadata(current_meta)?,
-        &super::decode_string(edited, "edited")?,
-        &metadata(edited_meta)?,
-    )
-    .and_then(|result| serde_json::to_string(&result).map_err(|e| e.to_string()))
+    let base = super::decode_string(base, "base")?;
+    let base_meta = metadata(base_meta)?;
+    let current = super::decode_string(current, "current")?;
+    let current_meta = metadata(current_meta)?;
+    let edited = super::decode_string(edited, "edited")?;
+    let edited_meta = metadata(edited_meta)?;
+    stacker::grow(8 * 1024 * 1024, || {
+        page_document::knowledge::merge(
+            &base,
+            &base_meta,
+            &current,
+            &current_meta,
+            &edited,
+            &edited_meta,
+        )
+        .and_then(|result| serde_json::to_string(&result).map_err(|e| e.to_string()))
+    })
     .map_err(super::error_message)
 }

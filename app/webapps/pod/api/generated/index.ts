@@ -999,7 +999,6 @@ export type {
   SetPodModelSelectionErrors,
   SetPodModelSelectionResponse,
   SetPodModelSelectionResponses,
-  SignalBindingType,
   StopPodPeerExchangeData,
   StopPodPeerExchangeError,
   StopPodPeerExchangeErrors,

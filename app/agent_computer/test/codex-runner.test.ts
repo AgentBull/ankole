@@ -114,7 +114,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
         codex_user_agent: 'codex-cli 0.166.0',
         job_project_cwd: jobProjectFor(fixture.root),
         job_workspace: jobProjectFor(fixture.root),
-        projected_tool_names: ['web_search', 'web_fetch', 'skill_view', 'request_parent_input'],
+        projected_tool_names: ['web_search', 'web_fetch', 'read_file', 'skill_view', 'request_parent_input'],
         child_dynamic_tools_inherited: true,
         code_mode: true,
         mcp_server_names: []
@@ -229,6 +229,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(result).toBeUndefined()
       expect(parsedJSON(statusUpdates[0]?.metadataJson)?.projected_tool_names).toEqual([
         'web_fetch',
+        'read_file',
         'skill_view',
         'request_parent_input'
       ])

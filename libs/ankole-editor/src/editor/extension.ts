@@ -6,7 +6,7 @@ import { parseMarkdown } from '../document/markdown'
 import type { Element } from '../document/tree'
 import { pageDocument } from './convert'
 import { blockKeys } from './block-keys'
-import { blockSelection } from './block-selection'
+import { blockSelection, clearCompositionHost } from './block-selection'
 import { clipboard } from './clipboard'
 import { codeBlockExtension } from './code-block'
 import { commentDraftSelection } from './comments'
@@ -21,6 +21,8 @@ import { shortcuts } from './shortcuts'
 import { tableEditing } from './tables'
 import { pageSessions } from './page-session'
 import { schemaElements } from './schema'
+import { compositionComplete } from '../core/editor/input'
+import { preparePageUpdate } from './page-update'
 
 /** All editing capabilities. The visible editor and headless states use the same assembly. */
 export function editorExtension(): GardState.Extension {
@@ -43,7 +45,14 @@ export function editorExtension(): GardState.Extension {
     pageEnd,
     codeBlockExtension,
     fileUploadField,
-    blocks.map(block => block.extension)
+    blocks.map(block => block.extension),
+    compositionComplete.of(editor => {
+      if (editor.state.readOnly) return
+      const correction = preparePageUpdate(
+        editor.state.update({ annotations: clearCompositionHost.of(true), userEvent: 'input.type.compose' })
+      )
+      if (correction.docChanged) editor.dispatch(correction)
+    })
   ]
 }
 

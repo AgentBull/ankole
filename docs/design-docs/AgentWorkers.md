@@ -250,6 +250,10 @@ credential. Standard Linux UID isolation prevents `uid 1000` processes from
 reading `root` process environments, attaching a debugger, or signaling the
 trusted supervisor and Worker.
 
+The Agent user also writes fetched web-page artifacts through the workspace
+command adapter. The root Worker does not write page bodies through paths that
+the Agent can replace, so a workspace link grants only the Agent user's access.
+
 Agent-writable files, directories, and CLI sockets belong to `uid 1000`. On
 POSIX filesystems, atomic writes keep read-only control-plane documents owned by
 `root`, and image Plugin projections mount with read-only permissions (which
@@ -965,7 +969,9 @@ is freed only after its child commands or Codex thread have exited.
 
 Foreground shell commands (`command` tool) run under an isolated Python 3
 supervisor (started with isolated flags so `/workspace` modules and caller
-`PYTHONPATH` settings cannot hijack its imports). The supervisor places the
+`PYTHONPATH` settings cannot hijack its imports). The Worker sends cancellation
+to the launcher's process group so the Python supervisor receives it inside a
+mounted Drive namespace. The supervisor places the
 command in a dedicated process group, keeps the group leader unreaped until all
 group members exit, and cleans up stragglers on normal leader exit (commands
 that explicitly call `setsid` can escape the process group, with the Worker

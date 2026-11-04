@@ -372,7 +372,9 @@ enter the same dispatcher with their authenticated Page and execution Principal.
 
 Bindings support `action` with an `automation_job_id`, in addition to Agent
 routing. Built-in source references are `schedule://`, `scheduled-event://`,
-`webhook-endpoint://`, `base://`, `applet://` and `job://`. The source owner
+`webhook-endpoint://`, `base://`, `applet://` and `job://`. Ankole also accepts
+`connector://` and `connector-trigger://` references through the
+[Connectors](Connectors.md#external-events-and-subscription-reconciliation) domain. The source owner
 maintains its default `internal` Binding through its normal create/edit API;
 additional subscriptions use `/api/v2/pod/signal-bindings` or `bindings.*` Pod
 RPCs. Source access and target Page/Job access are checked independently.
@@ -382,6 +384,20 @@ read, so the Automation panel can load its subscriptions in one request.
 Mutation requires the
 source's management permission, and personal assistants use their owner's
 Human identity for personal source authorization.
+
+For Agent reads, `bindings.list` resolves a Base source to its table's Page and
+an Applet source or Applet Job source to its Applet Page. The Agent and the
+conversation's disclosure recipients must be able to view that Page. Other
+source types use their owning domain's source authorization.
+When `bindings.list` selects a Job with `job_id`, Ankole requires those readers
+to view the Job's Applet Page and applies the same source disclosure rules to
+each returned subscription.
+
+`PUT /api/v2/pod/signal-bindings` creates a subscription when the caller omits
+`id`; the caller supplies an existing subscription's ID to update it. Both PUT
+and GET return each subscription's stable `id`, which the caller can use to change
+its configuration or disable it with `enabled: false`.
+
 Ankole indexes source Bindings by `(tenant_id, config_ref, id)`. Dispatch reads
 distinct destination Jobs in one batch before preparing deliveries.
 Applet `signals.emit` without `targetJobId`

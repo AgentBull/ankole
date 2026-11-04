@@ -269,6 +269,119 @@ defmodule AnkoleWeb.JSONAPI.MetaAnkoleTest do
     assert Enum.any?(pages_trash, &(&1.id == ordinary.id))
   end
 
+  test "knowledge export reads current content without a snapshot and authorized history with one",
+       %{
+         conn: conn,
+         uid: uid
+       } do
+    actor = actor_fixture(uid)
+    category = Ankole.BrainFixtures.category_fixture(uid)
+
+    {:ok, page} =
+      Ankole.Pod.Pages.create(actor, %{
+        type: :knowledge,
+        parent_id: category.id,
+        title: "Export sample",
+        xml: "<page><p>Original knowledge</p></page>",
+        metadata: %{"summary" => "Original summary"}
+      })
+
+    history =
+      conn |> meta_conn() |> get("/api/v2/pod/pages/#{page.id}/history") |> json_response(200)
+
+    [%{"id" => snapshot_id}] = history["snapshots"]
+
+    {:ok, _} =
+      Ankole.Pod.Knowledge.write(
+        actor,
+        page.id,
+        page.revision,
+        "<page><p>Current knowledge</p></page>",
+        %{"summary" => "Current summary"}
+      )
+
+    path = "/api/v2/pod/pages/#{page.id}/knowledge/export"
+    current = conn |> meta_conn() |> get(path) |> json_response(200)
+    assert current["markdown"] =~ "Current knowledge"
+    assert current["markdown"] =~ "Current summary"
+
+    historical =
+      conn |> meta_conn() |> get(path, %{snapshot_id: snapshot_id}) |> json_response(200)
+
+    assert historical["markdown"] =~ "Original knowledge"
+    assert historical["markdown"] =~ "Original summary"
+    refute historical["markdown"] =~ "Current knowledge"
+  end
+
+  test "knowledge export rejects an unreadable page without a snapshot", %{conn: conn, uid: uid} do
+    owner = human_fixture().principal
+    category = Ankole.BrainFixtures.category_fixture(owner.uid)
+    actor = actor_fixture(owner.uid)
+    {:ok, page} = Ankole.Pod.Pages.create(actor, %{type: :knowledge, parent_id: category.id})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: owner.uid, role: "manage"}]
+      })
+
+    assert {:error, :forbidden} =
+             Ankole.Pod.Pages.authorize(actor_fixture(uid), page.id, "node_view")
+
+    response = conn |> meta_conn() |> get("/api/v2/pod/pages/#{page.id}/knowledge/export")
+    assert [%{"code" => "forbidden"}] = json_response(response, 403)["errors"]
+  end
+
+  test "knowledge panel returns its visible contents", %{conn: conn, uid: uid} do
+    category = Ankole.BrainFixtures.category_fixture(uid)
+
+    {:ok, page} =
+      Ankole.Pod.Pages.create(actor_fixture(uid), %{type: :knowledge, parent_id: category.id})
+
+    response = conn |> meta_conn() |> get("/api/v2/pod/pages/#{page.id}/knowledge")
+
+    assert %{
+             "panel" => %{
+               "backlinks" => [],
+               "claims" => [],
+               "timelines" => [],
+               "scorecard" => %{"takes" => 0, "brier" => nil}
+             }
+           } = json_response(response, 200)
+  end
+
+  test "knowledge panel returns forbidden for an unreadable page", %{conn: conn, uid: uid} do
+    owner = human_fixture().principal
+    category = Ankole.BrainFixtures.category_fixture(owner.uid)
+
+    {:ok, page} =
+      Ankole.Pod.Pages.create(actor_fixture(owner.uid), %{
+        type: :knowledge,
+        parent_id: category.id
+      })
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: owner.uid, role: "manage"}]
+      })
+
+    assert {:error, :forbidden} =
+             Ankole.Pod.Pages.authorize(actor_fixture(uid), page.id, "node_view")
+
+    response = conn |> meta_conn() |> get("/api/v2/pod/pages/#{page.id}/knowledge")
+    assert [%{"code" => "forbidden"}] = json_response(response, 403)["errors"]
+  end
+
+  test "knowledge panel returns not_found for a trashed page", %{conn: conn, uid: uid} do
+    category = Ankole.BrainFixtures.category_fixture(uid)
+    actor = actor_fixture(uid)
+    {:ok, page} = Ankole.Pod.Pages.create(actor, %{type: :knowledge, parent_id: category.id})
+    assert {:ok, _} = Ankole.Pod.Pages.delete(actor, page.id)
+    response = conn |> meta_conn() |> get("/api/v2/pod/pages/#{page.id}/knowledge")
+    assert [%{"code" => "not_found"}] = json_response(response, 404)["errors"]
+  end
+
   test "Brain graph and ontology stay outside the collaboration tree", %{conn: conn, uid: uid} do
     {:ok, _} = Ankole.Brain.SchemaPacks.install_packs([])
     {:ok, category} = Ankole.Brain.ObjectWrites.category("companies")

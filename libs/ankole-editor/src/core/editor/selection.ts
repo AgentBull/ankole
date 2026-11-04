@@ -4,8 +4,8 @@ import type { Wordgard } from './editor'
 import { type CoordPos } from './tile'
 import { isEquivalentPosition, getSelection, SelectionRange } from './dom'
 
-export function setDOMSelection(wg: Wordgard) {
-  const { anchor, head, anchorSide, headSide } = wg.state.selection.domSelection
+export function setDOMSelection(wg: Wordgard, selection = wg.state.selection.domSelection) {
+  const { anchor, head, anchorSide, headSide } = selection
   const anchorDOM = wg.docTile.resolve(anchor, anchorSide)
   const headDOM = head == anchor ? anchorDOM : wg.docTile.resolve(head, headSide)
   const domSel = getSelection(wg.root)

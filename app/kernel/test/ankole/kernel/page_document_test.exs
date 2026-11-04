@@ -78,4 +78,70 @@ defmodule Ankole.Kernel.PageDocumentTest do
     assert is_integer(span) and span > 2
     assert {:ok, %{xml: ^canonical}} = Kernel.page_apply(source, identity)
   end
+
+  test "maximum-depth documents cross the diff and apply JSON boundaries" do
+    source = "<page />"
+
+    for tag <- ["blockquote", "future"] do
+      target =
+        "<page>" <>
+          String.duplicate("<#{tag}>", 126) <>
+          "<p>a</p>" <>
+          String.duplicate("</#{tag}>", 126) <> "</page>"
+
+      over =
+        "<page>" <>
+          String.duplicate("<#{tag}>", 127) <>
+          "<p>a</p>" <>
+          String.duplicate("</#{tag}>", 127) <> "</page>"
+
+      assert {:ok, %{xml: ^target}} = Kernel.page_validate(target)
+      assert {:error, _} = Kernel.page_validate(over)
+      assert {:ok, changes} = Kernel.page_diff(source, target)
+      assert {:ok, %{xml: ^target}} = Kernel.page_apply(source, changes)
+      assert {:ok, reverse} = Kernel.page_diff(target, source)
+      assert {:ok, %{xml: ^source}} = Kernel.page_apply(target, reverse)
+    end
+  end
+
+  test "VFS document operations preserve the depth boundary on a small dirty scheduler stack" do
+    script = ~S"""
+    import ExUnit.Assertions
+    alias Ankole.Kernel
+
+    source = "<page>" <> String.duplicate("<blockquote>", 126) <>
+      "<p>Deep body</p>" <> String.duplicate("</blockquote>", 126) <> "</page>"
+    over = "<page>" <> String.duplicate("<blockquote>", 127) <>
+      "<p>Deep body</p>" <> String.duplicate("</blockquote>", 127) <> "</page>"
+
+    assert {:ok, %{xml: ^source}} = Kernel.page_validate(source)
+    assert {:ok, markdown} = Kernel.vfs_document_export(source)
+    assert markdown =~ "Deep body"
+    refute Kernel.page_content_empty(source)
+    assert {:ok, %{vfs_content_empty: false}} = Kernel.vfs_projection(:doc, source)
+    assert {:ok, %{xml: ^source}} = Kernel.vfs_document_reconcile(source, markdown)
+
+    edited = String.replace(source, "Deep body", "Updated body")
+    original_metadata = %{"summary" => "Original"}
+    current_metadata = %{"summary" => "Current"}
+    assert {:ok, %{xml: ^edited, metadata: ^current_metadata}} =
+      Kernel.vfs_merge_knowledge(source, original_metadata, source, current_metadata,
+        edited, original_metadata)
+
+    assert {:error, _} = Kernel.page_content_empty(over)
+    assert {:error, _} = Kernel.vfs_document_export(over)
+    assert {:error, _} = Kernel.vfs_document_reconcile(over, markdown)
+    assert {:error, _} = Kernel.vfs_merge_knowledge(over, %{}, over, %{}, over, %{})
+    """
+
+    paths = Enum.flat_map(:code.get_path(), &["-pa", List.to_string(&1)])
+
+    {output, status} =
+      System.cmd(System.find_executable("elixir"), paths ++ ["-e", script],
+        env: [{"ERL_FLAGS", "+S 2:2 +SDcpu 1 +SDio 1 +sssdcpu 48"}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0, "Child BEAM exited with #{status}.\n#{output}"
+  end
 end

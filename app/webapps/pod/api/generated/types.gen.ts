@@ -111,73 +111,6 @@ export type PodPageType = {
   visited_at?: string | null
 }
 
-export type SignalBindingType = {
-  /**
-   * Field included by default.
-   */
-  adapter: string
-  /**
-   * Field included by default.
-   */
-  agent_uid?: string | null
-  /**
-   * Field included by default.
-   */
-  auth_config_id?: string | null
-  /**
-   * Field included by default.
-   */
-  automation_job_id?: number | null
-  /**
-   * Field included by default.
-   */
-  config_ref: string
-  /**
-   * Field included by default.
-   */
-  enabled: boolean
-  /**
-   * Field included by default.
-   */
-  filters: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  id: string
-  /**
-   * Field included by default.
-   */
-  name: string
-  /**
-   * Field included by default.
-   */
-  routing_mode: 'ai_colleague' | 'sender_personal_assistant' | 'action'
-  /**
-   * Field included by default.
-   */
-  target: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
-  /**
-   * Field included by default.
-   */
-  unavailable_reason?: string | null
-  /**
-   * Field included by default.
-   */
-  unmatched_sender_policy: 'manual_review' | 'create_standalone'
-  /**
-   * Field included by default.
-   */
-  watched_field_ids?: Array<string> | null
-}
-
 /**
  * A "Resource object" representing a pod_page_content
  */
@@ -6589,7 +6522,26 @@ export type PodEventBindingsResponses = {
    * Success
    */
   200: {
-    bindings: Array<SignalBindingType>
+    bindings: Array<{
+      adapter: string
+      agent_uid?: string | null
+      automation_job_id?: number | null
+      config_ref: string
+      enabled: boolean
+      filters: {
+        [key: string]: unknown
+      }
+      id: string
+      name: string
+      routing_mode: 'ai_colleague' | 'sender_personal_assistant' | 'action'
+      target: {
+        [key: string]: unknown
+      }
+      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+      unavailable_reason?: string | null
+      unmatched_sender_policy: 'manual_review' | 'create_standalone'
+      watched_field_ids?: Array<string> | null
+    }>
   }
 }
 
@@ -6635,7 +6587,26 @@ export type PodEventBindingPutResponses = {
    * Success
    */
   200: {
-    binding: SignalBindingType
+    binding: {
+      adapter: string
+      agent_uid?: string | null
+      automation_job_id?: number | null
+      config_ref: string
+      enabled: boolean
+      filters: {
+        [key: string]: unknown
+      }
+      id: string
+      name: string
+      routing_mode: 'ai_colleague' | 'sender_personal_assistant' | 'action'
+      target: {
+        [key: string]: unknown
+      }
+      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+      unavailable_reason?: string | null
+      unmatched_sender_policy: 'manual_review' | 'create_standalone'
+      watched_field_ids?: Array<string> | null
+    }
   }
 }
 

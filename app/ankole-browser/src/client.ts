@@ -3,6 +3,7 @@ import { createConnection } from 'node:net'
 import {
   BrowserMaterialSchema,
   BrowserProtocolVersion,
+  BrowserMaxResponseBytes,
   BrowserResponseSchema,
   type BrowserCommand,
   type BrowserMaterial,
@@ -10,8 +11,6 @@ import {
   type BrowserResponse
 } from './protocol'
 import { BrowserDataError } from './errors'
-
-const MaxResponseBytes = 8 * 1024 * 1024
 
 export type BrowserClientContext = {
   socketPath: string
@@ -100,7 +99,7 @@ export async function sendBrowserRequest(
     })
     socket.on('data', chunk => {
       buffer = Buffer.concat([buffer, Buffer.from(chunk)])
-      if (buffer.length > MaxResponseBytes) {
+      if (buffer.length > BrowserMaxResponseBytes) {
         finish(() => reject(new BrowserDataError('internal', 'browser daemon response exceeded size limit')))
         return
       }

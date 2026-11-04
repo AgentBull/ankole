@@ -69,6 +69,29 @@ defmodule Ankole.Pod.DocumentHistoryTest do
              History.read(ctx.editor, ctx.page.id, checkpoint.id)
   end
 
+  test "maximum-depth writes persist, replay through JSON, and restore", ctx do
+    target =
+      "<page>" <>
+        String.duplicate("<blockquote>", 126) <>
+        "<p>a</p>" <>
+        String.duplicate("</blockquote>", 126) <> "</page>"
+
+    assert {:ok, %{snapshots: [original]}} = History.list(ctx.owner, ctx.page.id)
+
+    assert {:ok, %{page: page, content: %{content: ^target}}} =
+             Documents.write(ctx.owner, ctx.page.id, 0, target)
+
+    assert {:ok, %{changes: [%{changes: changes}]}} = Documents.since(ctx.owner, ctx.page.id, 0)
+    envelope = %{"changes" => changes, "revision" => page.revision}
+    assert {:ok, ^envelope} = envelope |> Ankole.JSON.encode_to_iodata!() |> Ankole.JSON.decode()
+
+    assert {:ok, %{xml: ^target}} =
+             Ankole.Kernel.page_apply("<page><p>Original body</p></page>", changes)
+
+    assert {:ok, %{content: %{content: "<page><p>Original body</p></page>"}}} =
+             History.restore(ctx.owner, page.id, original.id, page.revision, page.updated_at)
+  end
+
   test "metadata edits checkpoint the previous title and icon without changing document revision",
        ctx do
     assert {:ok, first} =
