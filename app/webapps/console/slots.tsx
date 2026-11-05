@@ -62,6 +62,7 @@ export const coreConsoleRouteScopes = {
   workers: 'tenant',
   'background-agent-jobs': 'tenant',
   conversations: 'tenant',
+  'ai-usage': 'tenant',
   $: 'site'
 } as const satisfies Record<string, ConsoleRouteScope>
 

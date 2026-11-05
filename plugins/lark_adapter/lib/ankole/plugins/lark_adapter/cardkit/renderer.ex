@@ -398,7 +398,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
         []
       end
 
-    choice_groups ++ form_separator ++ forms
+    choice_groups ++ form_separator ++ forms ++ Enum.flat_map(actions, &render_link_action/1)
   end
 
   defp action_elements(_presentation, _mode), do: []
@@ -475,7 +475,127 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     end
   end
 
+  defp render_form_action(
+         %{"type" => "form", "id" => id, "source_signal_id" => source_signal_id} = action,
+         %{"interaction_status" => "pending"},
+         index
+       )
+       when is_binary(id) and is_binary(source_signal_id) do
+    with true <- ReplyPresentation.typed_form?(action) and action["disabled"] != true,
+         {:ok, value} <- ReplyPresentation.callback_value(source_signal_id, action) do
+      [
+        %{
+          "tag" => "form",
+          "element_id" => "action_form#{index}",
+          "name" => "#{id}-form",
+          "vertical_spacing" => "8px",
+          "elements" =>
+            Enum.flat_map(action["fields"], &render_typed_field/1) ++
+              [
+                %{
+                  "tag" => "button",
+                  "name" => id,
+                  "type" => button_type(action["style"] || "primary"),
+                  "width" => "fill",
+                  "form_action_type" => "submit",
+                  "text" => CardI18n.plain_text("submit_reply"),
+                  "behaviors" => [%{"type" => "callback", "value" => value}]
+                }
+              ]
+        }
+      ]
+    else
+      _disabled_or_invalid -> []
+    end
+  end
+
   defp render_form_action(_action, _presentation, _index), do: []
+
+  # Each typed field renders as its label, an optional hint, and one form
+  # component named by the field ID, so `form_value` keys match the field IDs.
+  # A boolean renders as a Yes/No select so that it can also be left unanswered.
+  defp render_typed_field(field) do
+    label =
+      if field["required"],
+        do: %{"tag" => "plain_text", "content" => field["label"]},
+        else: CardI18n.plain_text("optional_field", %{label: field["label"]})
+
+    [%{"tag" => "div", "text" => Map.merge(label, %{"text_size" => "normal"})}]
+    |> append(choice_description(field["help"]))
+    |> append(
+      %{"name" => field["id"], "required" => field["required"], "width" => "fill"}
+      |> Map.merge(field_component(field))
+    )
+  end
+
+  defp field_component(%{"type" => "text"} = field) do
+    %{
+      "tag" => "input",
+      "input_type" => if(field["multiline"], do: "multiline_text", else: "text"),
+      "max_length" => field["max_length"]
+    }
+    |> Ankole.Attrs.maybe_put("default_value", field["default"])
+  end
+
+  defp field_component(%{"type" => "number"} = field) do
+    %{"tag" => "input", "input_type" => "text", "max_length" => 40}
+    |> Ankole.Attrs.maybe_put("default_value", field["default"] && to_string(field["default"]))
+  end
+
+  defp field_component(%{"type" => "date"} = field),
+    do: Ankole.Attrs.maybe_put(%{"tag" => "date_picker"}, "initial_date", field["default"])
+
+  defp field_component(%{"type" => "select"} = field) do
+    %{"tag" => "select_static", "options" => select_options(field["options"])}
+    |> Ankole.Attrs.maybe_put("initial_option", field["default"])
+  end
+
+  defp field_component(%{"type" => "multi_select"} = field) do
+    %{"tag" => "multi_select_static", "options" => select_options(field["options"])}
+    |> Ankole.Attrs.maybe_put("selected_values", field["default"])
+  end
+
+  defp field_component(%{"type" => "boolean"} = field) do
+    %{
+      "tag" => "select_static",
+      "options" => [
+        %{"text" => CardI18n.plain_text("yes"), "value" => "true"},
+        %{"text" => CardI18n.plain_text("no"), "value" => "false"}
+      ]
+    }
+    |> Ankole.Attrs.maybe_put(
+      "initial_option",
+      if(is_boolean(field["default"]), do: to_string(field["default"]))
+    )
+  end
+
+  defp select_options(options) do
+    Enum.map(options || [], fn option ->
+      %{
+        "text" => %{"tag" => "plain_text", "content" => option["label"]},
+        "value" => option["value"]
+      }
+    end)
+  end
+
+  defp render_link_action(%{"type" => "link", "url" => url} = action) when is_binary(url) do
+    if action["disabled"] == true do
+      []
+    else
+      [
+        %{
+          "tag" => "button",
+          "element_id" => "action_link",
+          "type" => "default",
+          "width" => "fill",
+          "text" => CardI18n.plain_text("open_form"),
+          "behaviors" => [%{"type" => "open_url", "default_url" => url}]
+        }
+      ]
+    end
+  end
+
+  defp render_link_action(_action), do: []
 
   defp render_input_field(field) do
     %{

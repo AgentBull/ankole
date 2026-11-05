@@ -200,7 +200,8 @@ types—leaves pending interactions open. During intake, Ankole acquires the
 Session lock before inserting the Signal, applies interaction supersession
 through `Delivery.Interactions`, and writes the durable `EnsureDriver` job in
 the same transaction. Opening a late clarification checks the same superseding
-type list. Only a kernel-produced `session.reset_due` Signal acts as a reset
+type list, and opening any clarification supersedes the asking Agent's older
+pending clarification in that Session. Only a kernel-produced `session.reset_due` Signal acts as a reset
 barrier for an interaction answer. When an external provider deletes a message,
 Ankole uses the `conversation.message.removed` lifecycle type.
 
@@ -796,9 +797,12 @@ See [Plugins](Plugins.md) and [Conversations](Conversations.md).
 Adapters declare supported inbound capabilities (`entry_receive`,
 `entry_removed`, `reaction_add`, `reaction_remove`, `action_event`) and outbound
 provider operations (`post_entry`, `reply_entry`, `edit_entry`, `delete_entry`,
-`add_reaction`, `remove_reaction`, `divider`, `card`,
+`add_reaction`, `remove_reaction`, `divider`, `card`, `form`, `action_notice`,
 `outbound_reconciliation`). These capability flags describe protocol operations
-rather than separate persisted tables.
+rather than separate persisted tables; `form` means that the adapter's reply
+card renders a typed Clarify form natively, and `action_notice` means that a
+card callback shows the gateway's notice to its sender, so the gateway does not
+repeat that notice as a reply.
 
 Document-comment integrations reuse the same Conversation observation and
 Delivery contracts, while structured record mutations set the record ID as the

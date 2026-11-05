@@ -1,13 +1,23 @@
 defmodule Ankole.Plugins.Microsoft365Adapter.AdaptiveCard do
   @moduledoc false
 
+  alias Ankole.I18n
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Conversations.Delivery.ReplyPresentation
 
   @content_type "application/vnd.microsoft.card.adaptive"
+  # Action.Submit merges input values into its own data, so input IDs carry a
+  # prefix that cannot collide with the `v` and `value` envelope keys.
+  @input_prefix "input."
 
   @spec action_envelope_version() :: String.t()
   def action_envelope_version, do: ReplyPresentation.action_protocol()
+
+  @doc "Returns the form values that an Action.Submit activity carries, keyed by field ID."
+  @spec submitted_inputs(map()) :: map()
+  def submitted_inputs(value) when is_map(value) do
+    for {@input_prefix <> id, input} <- value, into: %{}, do: {id, input}
+  end
 
   @spec render(map()) :: {:ok, map()} | {:error, :missing_card_payload}
   def render(payload) when is_map(payload) do
@@ -59,6 +69,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.AdaptiveCard do
         |> then(fn blocks ->
           if is_binary(prompt) and prompt != answer, do: add_body(blocks, prompt), else: blocks
         end)
+        |> Kernel.++(Enum.flat_map(normalized["actions"], &form_inputs/1))
 
       {:ok, card(body, actions)}
     end
@@ -89,7 +100,122 @@ defmodule Ankole.Plugins.Microsoft365Adapter.AdaptiveCard do
     end
   end
 
+  defp presentation_submit_action(%{"type" => "form"} = action, source_signal_id) do
+    with true <- ReplyPresentation.typed_form?(action) and action["disabled"] != true,
+         {:ok, callback_value} <- ReplyPresentation.callback_value(source_signal_id, action) do
+      [
+        %{
+          "type" => "Action.Submit",
+          "title" => truncate(action["label"], 75),
+          "style" => "positive",
+          "data" => %{"v" => ReplyPresentation.action_protocol(), "value" => callback_value}
+        }
+      ]
+    else
+      _disabled_or_invalid -> []
+    end
+  end
+
+  defp presentation_submit_action(%{"type" => "link", "url" => url} = action, _source_signal_id) do
+    if action["disabled"] == true,
+      do: [],
+      else: [
+        %{"type" => "Action.OpenUrl", "title" => truncate(action["label"], 75), "url" => url}
+      ]
+  end
+
   defp presentation_submit_action(_action, _source_signal_id), do: []
+
+  # Inputs validate on the client before Action.Submit sends them; the server
+  # validates again with the authoritative form.
+  defp form_inputs(%{"type" => "form", "fields" => fields} = action) do
+    if ReplyPresentation.typed_form?(action) and action["disabled"] != true,
+      do: Enum.flat_map(fields, &field_input/1),
+      else: []
+  end
+
+  defp form_inputs(_action), do: []
+
+  defp field_input(field) do
+    input =
+      %{"id" => @input_prefix <> field["id"], "label" => field["label"]}
+      |> Map.merge(input_element(field))
+      |> MapHelpers.compact_map()
+
+    case field["help"] do
+      nil -> [input]
+      help -> [input, subtle_text_block(help)]
+    end
+  end
+
+  defp input_element(%{"type" => "text"} = field) do
+    %{
+      "type" => "Input.Text",
+      "isRequired" => field["required"],
+      "maxLength" => field["max_length"],
+      "isMultiline" => field["multiline"],
+      "value" => field["default"]
+    }
+  end
+
+  defp input_element(%{"type" => "number"} = field) do
+    %{
+      "type" => "Input.Number",
+      "isRequired" => field["required"],
+      "min" => field["min"],
+      "max" => field["max"],
+      "value" => field["default"]
+    }
+  end
+
+  defp input_element(%{"type" => "date"} = field) do
+    %{
+      "type" => "Input.Date",
+      "isRequired" => field["required"],
+      "min" => field["min"],
+      "max" => field["max"],
+      "value" => field["default"]
+    }
+  end
+
+  defp input_element(%{"type" => "select"} = field) do
+    %{
+      "type" => "Input.ChoiceSet",
+      "style" => "compact",
+      "isRequired" => field["required"],
+      "choices" => choices(field["options"]),
+      "value" => field["default"]
+    }
+  end
+
+  defp input_element(%{"type" => "multi_select"} = field) do
+    %{
+      "type" => "Input.ChoiceSet",
+      "style" => "expanded",
+      "isMultiSelect" => true,
+      "isRequired" => field["required"],
+      "choices" => choices(field["options"]),
+      "value" => if(is_list(field["default"]), do: Enum.join(field["default"], ","))
+    }
+  end
+
+  # A boolean is a Yes/No choice that starts empty, so `isRequired` means the
+  # user actually chose.
+  defp input_element(%{"type" => "boolean"} = field) do
+    %{
+      "type" => "Input.ChoiceSet",
+      "style" => "compact",
+      "isRequired" => field["required"],
+      "choices" => [
+        %{"title" => I18n.t("conversations.delivery.clarify.yes"), "value" => "true"},
+        %{"title" => I18n.t("conversations.delivery.clarify.no"), "value" => "false"}
+      ],
+      "value" => if(is_boolean(field["default"]), do: to_string(field["default"]))
+    }
+  end
+
+  defp choices(options),
+    do: Enum.map(options || [], &%{"title" => &1["label"], "value" => &1["value"]})
 
   defp render_interactive(output) do
     body =

@@ -165,6 +165,9 @@ import type {
   GetAiGatewayConversationData,
   GetAiGatewayConversationErrors,
   GetAiGatewayConversationResponses,
+  GetAiGatewayUsageData,
+  GetAiGatewayUsageErrors,
+  GetAiGatewayUsageResponses,
   GetAppConfigurationData,
   GetAppConfigurationErrors,
   GetAppConfigurationResponses,
@@ -1921,6 +1924,18 @@ export const listBrainObjects = <ThrowOnError extends boolean = false>(
   (options?.client ?? client).get<ListBrainObjectsResponses, ListBrainObjectsErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/brain/objects',
+    ...options
+  })
+
+/**
+ * get_ai_gateway_usage operation on ai_gateway_usage_summary resource
+ */
+export const getAiGatewayUsage = <ThrowOnError extends boolean = false>(
+  options?: Options<GetAiGatewayUsageData, ThrowOnError>
+): RequestResult<GetAiGatewayUsageResponses, GetAiGatewayUsageErrors, ThrowOnError> =>
+  (options?.client ?? client).get<GetAiGatewayUsageResponses, GetAiGatewayUsageErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/ai-gateway/usage',
     ...options
   })
 

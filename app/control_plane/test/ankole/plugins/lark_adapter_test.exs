@@ -37,6 +37,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
   alias Ankole.Conversations.InboundBatch
   alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.Interactions
+  alias Ankole.Conversations.Delivery.PreviewStates
+  alias Ankole.Conversations.Delivery.ReplyPresentation
   alias FeishuOpenAPI.Client
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.TokenStore
@@ -2722,6 +2725,120 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     end
   end
 
+  describe "clarify form cards" do
+    test "a card form submission answers only when its values are valid" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      %{signal: source} =
+        Ankole.SignalsFixtures.emit_addressed_signal(
+          agent.uid,
+          "lark",
+          Ankole.SignalsFixtures.group_entry(%{
+            source_event_id: "form-card-source",
+            provider_conversation_id: "lark:oc_form",
+            provider_message_id: "om_form_question",
+            explicit: true
+          })
+        )
+
+      output = %{
+        "body" => "How should I ship it?",
+        "interaction_id" => "clarify:call-1",
+        "control_id" => "clarify-choice",
+        "version" => 1,
+        "free_input" => true,
+        "choices" => [],
+        "fields" => [
+          %{
+            "id" => "quantity",
+            "label" => "Quantity",
+            "type" => "number",
+            "required" => true,
+            "integer" => true
+          },
+          %{"id" => "ship_date", "label" => "Ship date", "type" => "date", "required" => true},
+          %{
+            "id" => "warehouses",
+            "label" => "Warehouses",
+            "type" => "multi_select",
+            "required" => true,
+            "options" => [
+              %{"value" => "us_west", "label" => "US West"},
+              %{"value" => "us_east", "label" => "US East"}
+            ]
+          }
+        ]
+      }
+
+      presentation =
+        ReplyPresentation.new()
+        |> ReplyPresentation.terminal("awaiting_input", "How should I ship it?")
+        |> ReplyPresentation.interaction_request(source.id, output)
+
+      assert {:ok, _} =
+               Repo.transact_top_level(fn ->
+                 :ok =
+                   Ankole.Sessions.Queue.lock_session_in_tx(source.agent_uid, source.session_id)
+
+                 Interactions.open_in_tx(source, presentation, DateTime.utc_now(),
+                   clarify: output
+                 )
+               end)
+
+      assert :ok = PreviewStates.record_provider_message(source.id, "om_form_card")
+      {:ok, callback} = ReplyPresentation.callback_value(source.id, hd(presentation["actions"]))
+
+      dispatcher =
+        LarkAdapter.Dispatcher.build([Map.put(consumer, :tenant_id, Repo.tenant_id!())])
+
+      submit = fn event_id, form_value ->
+        FeishuOpenAPI.Event.Dispatcher.dispatch(
+          dispatcher,
+          {:trusted_decoded, form_card_action(event_id, callback, form_value)}
+        )
+      end
+
+      assert {:ok, %{"toast" => %{"type" => "error", "content" => notice}}} =
+               submit.("evt_form_invalid", %{
+                 "quantity" => "2.5",
+                 "ship_date" => "2026-11-20 +0800",
+                 "warehouses" => []
+               })
+
+      assert notice =~ "Quantity (not a whole number)"
+      assert notice =~ "Warehouses (required)"
+      refute notice =~ "Ship date"
+
+      assert PreviewStates.get(source.id).checkpoint["interactions"]["clarify:call-1"]["state"] ==
+               "pending"
+
+      assert {:ok, %{"toast" => %{"type" => "success"}}} =
+               submit.("evt_form_valid", %{
+                 "quantity" => "3",
+                 "ship_date" => "2026-11-20 +0800",
+                 "warehouses" => ["us_east"]
+               })
+
+      checkpoint = PreviewStates.get(source.id).checkpoint
+
+      assert %{
+               "state" => "answered",
+               "answer" => %{
+                 "kind" => "form",
+                 "values" => %{
+                   "quantity" => 3,
+                   "ship_date" => "2026-11-20",
+                   "warehouses" => ["us_east"]
+                 }
+               }
+             } = checkpoint["interactions"]["clarify:call-1"]
+
+      assert checkpoint["presentation"]["interaction_answer"] ==
+               "Quantity: 3 · Ship date: 2026-11-20 · Warehouses: US East"
+    end
+  end
+
   describe "IM group sync" do
     test "ensure merges participant map for multiple bindings in the same chat" do
       %{principal: first_agent} = agent_fixture(%{uid: unique_uid("lark-im-agent-a")})
@@ -4238,6 +4355,29 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         }
       }
     })
+  end
+
+  defp form_card_action(event_id, value, form_value) do
+    %{
+      "schema" => "2.0",
+      "header" => %{
+        "event_id" => event_id,
+        "event_type" => "card.action.trigger",
+        "tenant_key" => "tenant-a",
+        "app_id" => "cli_test",
+        "create_time" => Integer.to_string(@base_ms)
+      },
+      "event" => %{
+        "operator" => %{"user_id" => "ou_form_alice", "open_id" => "ou_form_alice_open"},
+        "context" => %{"open_chat_id" => "oc_form", "open_message_id" => "om_form_card"},
+        "action" => %{
+          "tag" => "button",
+          "name" => "clarify-form",
+          "form_value" => form_value,
+          "value" => value
+        }
+      }
+    }
   end
 
   defp localized_field?(field) do

@@ -41,7 +41,11 @@ defmodule Ankole.Conversations.ReplySuggestion do
           when is_binary(agent_uid) ->
             text =
               if only_human?(conversation.id, Actor.uid(actor)),
-                do: draft(agent_uid, messages, Keyword.get(opts, :locale))
+                do:
+                  draft(agent_uid, messages, Keyword.get(opts, :locale), %{
+                    "human_uid" => Actor.uid(actor),
+                    "session_id" => Ankole.Sessions.Key.conversation(conversation.id)
+                  })
 
             {:ok, %{message_id: latest.id, text: text}}
 
@@ -72,7 +76,7 @@ defmodule Ankole.Conversations.ReplySuggestion do
     |> Kernel.==([uid])
   end
 
-  defp draft(agent_uid, messages, locale) do
+  defp draft(agent_uid, messages, locale, request_context) do
     request = %{
       "model" => "light",
       "instructions" => instructions(locale),
@@ -101,7 +105,8 @@ defmodule Ankole.Conversations.ReplySuggestion do
     with {:ok, %{body: body}} <-
            AIGateway.create_response(agent_uid, request,
              subject_type: "agent",
-             caller: "reply_suggestion"
+             caller: "reply_suggestion",
+             request_context: request_context
            ),
          {:ok, text} <- AIGateway.completed_output_text(body),
          {:ok, %{"suggestion" => suggestion}} <- Ankole.JSON.decode(text) do

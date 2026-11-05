@@ -39,8 +39,8 @@ The plugin registers two HTTP webhook handlers: `teams` handles `messages`, and
 The `teams` Signal adapter supports all three group-message modes, inbound
 capabilities `entry_receive`, `entry_removed`, `reaction_add`,
 `reaction_remove`, and `action_event`, and outbound capabilities `post_entry`,
-`reply_entry`, `edit_entry`, `delete_entry`, `divider`, and `card` (without
-outbound reactions or `outbound_reconciliation`).
+`reply_entry`, `edit_entry`, `delete_entry`, `divider`, `card`, and `form`
+(without outbound reactions or `outbound_reconciliation`).
 
 The `entra-id` identity adapter supports OIDC authorization, OIDC code exchange,
 full directory sync, and real-time directory sync.
@@ -95,6 +95,18 @@ The Teams webhook handler processes messages, soft deletes, emoji reactions,
 Adaptive Card action submissions, and conversation-update events, while ignoring
 message edits, undeletes, and unsupported invoke activities.
 
+A form clarification renders as Adaptive Card inputs (`Input.Text`,
+`Input.Number`, `Input.Date`, and `Input.ChoiceSet`, which also renders a
+boolean as an empty Yes/No choice) with `isRequired`, length, and range bounds that Teams validates
+before it submits, an `Action.Submit` button, and an `Action.OpenUrl` button to
+the same form in Pod. Input IDs carry an `input.` prefix because Action.Submit
+merges input values into its envelope; the inbound handler moves them into the
+callback's `formValue`. A submission that the server still rejects stays
+pending and receives a reply that names the rejected fields, because an
+`Action.Submit` callback has no response that could show a notice. Once someone
+answers the question or a newer turn supersedes it, the reply preview replaces
+the card with the question and its outcome.
+
 Personal 1-on-1 chats always count as explicit input; in group chats and Teams
 channels, an @-mention entity targeting the current bot counts as explicit
 input, while other messages follow the binding's group-message policy. While the
@@ -119,9 +131,19 @@ arrive, recording the activity's regional `serviceUrl` on the channel record
 (which cannot be guessed beforehand) and importing known channels and members
 through Bot Connector APIs.
 
-Outbound execution processes only durable Delivery intents: posting, replying,
-editing, deleting, sending dividers, and rendering Adaptive Cards (outbound file
-uploads and emoji reactions are not supported). Before paging text at 12,000
+Outbound execution processes durable Delivery intents (posting, replying,
+editing, deleting, sending dividers, and rendering Adaptive Cards; outbound file
+uploads and emoji reactions are not supported) and the reply preview
+`Microsoft365Adapter.ReplyPreview`. The preview streams an AI reply as message
+activities in the thread of the message that it answers and updates them in
+place through the shared `ChunkedMessagePreview` ledger, and the durable AI
+reply finalizes those activities instead of posting new ones. Before the reply
+has words, its message shows the reply status. While a question waits for an
+answer, the reply is one Adaptive Card whose text is the durable reply's
+fallback text, for clients that cannot show the card. A refresh after an
+answer, a superseding turn, or an Action Card decision replaces that card with
+the question and its outcome, which makes Teams a Tier 1 channel (see
+[Conversations](../Conversations.md)). Before paging text at 12,000
 graphemes, the Rust kernel converts prose Markdown once while using CommonMark
 byte spans to preserve fenced, indented, and inline code verbatim.
 

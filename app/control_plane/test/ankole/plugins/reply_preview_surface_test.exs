@@ -9,13 +9,14 @@ defmodule Ankole.Plugins.ReplyPreviewSurfaceTest do
   alias Ankole.Plugins.DingTalkAdapter.AICard
   alias Ankole.Plugins.DiscordAdapter.ReplyPreview, as: DiscordPreview
   alias Ankole.Plugins.LarkAdapter.CardKit
+  alias Ankole.Plugins.Microsoft365Adapter.ReplyPreview, as: TeamsPreview
   alias Ankole.Plugins.SlackAdapter.ReplyPreview, as: SlackPreview
   alias Ankole.Plugins.TelegramAdapter.ReplyPreview, as: TelegramPreview
   alias Ankole.Plugins.WeComAdapter.AIStream
   alias Ankole.Conversations.Delivery.PreviewAdapter
 
-  describe "message ledgers (slack, discord, telegram)" do
-    for module <- [SlackPreview, DiscordPreview, TelegramPreview] do
+  describe "message ledgers (slack, discord, telegram, teams)" do
+    for module <- [SlackPreview, DiscordPreview, TelegramPreview, TeamsPreview] do
       @module module
 
       test "#{inspect(module)} names every message as an entry and reads streaming_state" do

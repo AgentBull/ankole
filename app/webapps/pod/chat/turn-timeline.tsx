@@ -19,6 +19,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useStickToBottom } from 'use-stick-to-bottom'
+import { RevealInTimeline } from './timeline-scroll'
 import { ErrorBoundary } from '../../common/error-boundary'
 import { agentsQuery, type ConversationDetail, type ConversationMessage, type PodActivity } from '../api'
 import { MessageArtifacts, SaveMessageButton, SaveSelectionAsPageDialog } from '../message-artifacts'
@@ -182,285 +183,296 @@ export function TurnTimeline({
   const peerExchanges = pairPeerExchanges(committed as TimelineMessage[])
   const committedByID = new Map(committed.map(message => [message.id, message as TimelineMessage]))
   const executions = placeLinkedExecutions(committed, activeStreams, linkedRuns)
-  const jumpToMessage = (id: string) => {
-    const element = scrollRef.current?.querySelector<HTMLElement>(`[data-chat-message-id="${CSS.escape(id)}"]`)
-    if (!element) return
+  const revealElement = (element: Element) => {
     const range = document.createRange()
     range.selectNodeContents(element)
     history.jumpToMatch.current?.(range)
+  }
+  const jumpToMessage = (id: string) => {
+    const element = scrollRef.current?.querySelector<HTMLElement>(`[data-chat-message-id="${CSS.escape(id)}"]`)
+    if (!element) return
+    revealElement(element)
     return element
   }
   return (
-    <div className="pod-chat-history pod-chat-timeline">
-      <div
-        ref={scrollRef}
-        role="region"
-        aria-label={t('pod.chat_history.label')}
-        tabIndex={0}
-        className="pod-chat-history-scroll">
-        <div ref={contentRef} className="pod-chat-history-content">
-          <OlderMessages history={history} scrollRef={scrollRef} />
-          {messages.map((item, index) => {
-            const id = messageID(item)
-            if (item.type === 'committed' && peerExchanges.paired.has(item.message.id)) return null
-            const selectable = item.type === 'committed' && item.message.kind !== 'notice'
-            const isSelected = selectable && selectedIDSet.has(id)
-            return (
-              <Fragment key={id}>
-                {id === unreadMessageID && (
-                  <div
-                    className="pod-chat-unread-divider"
-                    role="separator"
-                    aria-label={t('pod.chat_timeline.new_messages')}>
-                    {t('pod.chat_timeline.new_messages')}
-                  </div>
-                )}
-                <div
-                  data-chat-message-id={id}
-                  tabIndex={-1}
-                  className={cn(
-                    selecting &&
-                      selectable &&
-                      'relative flex items-start gap-2 rounded-control px-1.5 py-0.5 transition-colors',
-                    isSelected && 'bg-accent/55 ring-1 ring-border'
-                  )}>
-                  {selecting && selectable && (
-                    <button
-                      type="button"
-                      data-select-ignore=""
-                      role="checkbox"
-                      aria-checked={isSelected}
-                      aria-label={t('pod.chat_timeline.select_message_item', {
-                        defaultValue: 'Select message from {$author}',
-                        author: item.message.authorDisplayName
-                      })}
-                      onClick={() => model.toggleSelectedMessage(id)}
-                      className="mt-2.5 inline-flex size-5 shrink-0 items-center justify-center rounded text-fg-secondary hover:text-foreground">
-                      {isSelected ? (
-                        <RiCheckboxLine className="size-4 text-primary" aria-hidden />
-                      ) : (
-                        <RiCheckboxBlankLine className="size-4" aria-hidden />
-                      )}
-                    </button>
-                  )}
-                  <div className={selecting && selectable ? 'min-w-0 flex-1' : undefined}>
-                    <ErrorBoundary variant="inline" onReset={onRefresh} resetKeys={[id, item.message]}>
-                      {item.type === 'committed' ? (
-                        <CommittedMessage
-                          message={item.message as TimelineMessage}
-                          conversationID={conversationID}
-                          peerReply={committedByID.get(peerExchanges.replies.get(item.message.id) ?? '')}
-                          peerLive={peerExchanges.latest.has(item.message.id)}
-                          onEdit={
-                            item.message.id === latestInput?.messageID &&
-                            latestInput.authorUID === viewerUID &&
-                            actions?.edit
-                              ? () => actions.edit!(item.message)
-                              : undefined
-                          }
-                          onRetry={
-                            retryableMessageIDs.includes(item.message.id) && actions?.regenerate
-                              ? () => actions.regenerate!(item.message)
-                              : undefined
-                          }
-                          onQuote={onQuote ? text => onQuote(text, item.message) : undefined}
-                          onSelectMessage={selectable ? () => model.startSelectingMessages(item.message.id) : undefined}
-                          linkedRuns={executions.messages.get(item.message.id) ?? []}
-                          replySource={replySources.get(item.message.id)}
-                          onJumpToSource={sourceID => jumpToMessage(sourceID)?.focus({ preventScroll: true })}
-                          onAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onAnswer : undefined}
-                          onResolveActionCard={onResolveActionCard}
-                          onComposeAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onComposeAnswer : undefined}
-                          readOnlyReason={readOnlyReason}
-                          keyboardActive={item.message.id === lastChoice}
-                          showActions={item.message.id === latestReply?.id}
-                          editDisabledReason={actions?.editDisabledReason}
-                          avatarURL={members.find(member => member.uid === item.message.authorUID)?.avatarURL}
-                          own={item.message.authorType === 'human' && item.message.authorUID === viewerUID}
-                          queued={item.queued}
-                          continued={
-                            id !== unreadMessageID &&
-                            continuesPrevious(messages[index - 1], item, replySources.has(item.message.id))
-                          }
-                        />
-                      ) : (
-                        <article className="pod-chat-timeline-message pod-chat-human-message pod-chat-own-message pod-chat-message-pending">
-                          <MessageIdentity name={t('pod.chat_timeline.you')} human quiet />
-                          <div className="pod-chat-human-text">
-                            <ChatMarkdown text={item.message.text ?? ''} />
-                          </div>
-                          <p role="status" className="pod-chat-message-state">
-                            {t(item.message.state === 'failed' ? 'pod.chat.send_failed' : 'pod.chat.sending')}
-                          </p>
-                        </article>
-                      )}
-                    </ErrorBoundary>
-                  </div>
-                </div>
-              </Fragment>
-            )
-          })}
-          {activeStreams.map(stream => (
-            <ErrorBoundary
-              key={`${stream.agentUID}:${stream.responseID}`}
-              variant="inline"
-              resetKeys={[stream.responseID, stream.text]}>
-              <LiveMessage
-                stream={stream}
-                conversationID={conversationID}
-                linkedRuns={executions.streams.get(stream.agentUID) ?? []}
-                avatarURL={members.find(member => member.uid === stream.agentUID)?.avatarURL}
-              />
-            </ErrorBoundary>
-          ))}
-          {unloadedQuestions.map(question => {
-            const agent = members.find(member => member.uid === question.agentUID)
-            const asker = agent?.displayName ?? peerNames.get(question.agentUID ?? '') ?? `@${question.agentUID}`
-            return (
-              <ErrorBoundary key={question.interaction_id} variant="inline" resetKeys={[question.interaction_id]}>
-                <article
-                  className="pod-chat-timeline-message pod-chat-agent-message"
-                  data-pending-interaction={question.interaction_id}>
-                  <MessageIdentity name={asker} avatarURL={agent?.avatarURL} quiet={!agent} />
-                  <ChoiceCard
-                    prompt={question}
-                    interaction={question}
-                    askedBy={agent ? undefined : asker}
-                    onAnswer={canAnswerAgent(question.agentUID ?? null) ? onAnswer : undefined}
-                    onComposeAnswer={canAnswerAgent(question.agentUID ?? null) ? onComposeAnswer : undefined}
-                    readOnlyReason={readOnlyReason}
-                    keyboardActive={question.messageID === lastChoice}
-                  />
-                </article>
-              </ErrorBoundary>
-            )
-          })}
-          {!activeStreams.length && activity && <ActivityView activity={activity} />}
-          {!activeStreams.length && !activity && working && (
-            <p className="pod-chat-message-state" role="status">
-              <span className="pod-chat-working-dot" aria-hidden />
-              {waiting
-                ? t('pod.chat_timeline.queued')
-                : retryTime
-                  ? t('pod.chat.retrying', { time: retryTime })
-                  : t('pod.chat.replying')}
-            </p>
-          )}
-        </div>
-      </div>
-      {presentation !== 'page' && <TurnRail turns={turns} scrollRef={scrollRef} onJump={jumpToMessage} />}
-      {selecting && (
+    <RevealInTimeline.Provider value={revealElement}>
+      <div className="pod-chat-history pod-chat-timeline">
         <div
-          role="toolbar"
-          data-testid="chat-selection-toolbar"
-          aria-label={t('pod.chat_timeline.select_messages', { defaultValue: 'Select messages' })}
-          className="ceramic sticky bottom-2 z-20 mx-auto my-2 flex flex-wrap items-center gap-1.5 px-3 py-1.5 text-xs">
-          <span className="px-1 font-medium text-foreground">
-            {t('pod.chat_timeline.selected_count', {
-              defaultValue: '{$count} selected',
-              count: selectedMessages.length
+          ref={scrollRef}
+          role="region"
+          aria-label={t('pod.chat_history.label')}
+          tabIndex={0}
+          className="pod-chat-history-scroll">
+          <div ref={contentRef} className="pod-chat-history-content">
+            <OlderMessages history={history} scrollRef={scrollRef} />
+            {messages.map((item, index) => {
+              const id = messageID(item)
+              if (item.type === 'committed' && peerExchanges.paired.has(item.message.id)) return null
+              const selectable = item.type === 'committed' && item.message.kind !== 'notice'
+              const isSelected = selectable && selectedIDSet.has(id)
+              return (
+                <Fragment key={id}>
+                  {id === unreadMessageID && (
+                    <div
+                      className="pod-chat-unread-divider"
+                      role="separator"
+                      aria-label={t('pod.chat_timeline.new_messages')}>
+                      {t('pod.chat_timeline.new_messages')}
+                    </div>
+                  )}
+                  <div
+                    data-chat-message-id={id}
+                    tabIndex={-1}
+                    className={cn(
+                      selecting &&
+                        selectable &&
+                        'relative flex items-start gap-2 rounded-control px-1.5 py-0.5 transition-colors',
+                      isSelected && 'bg-accent/55 ring-1 ring-border'
+                    )}>
+                    {selecting && selectable && (
+                      <button
+                        type="button"
+                        data-select-ignore=""
+                        role="checkbox"
+                        aria-checked={isSelected}
+                        aria-label={t('pod.chat_timeline.select_message_item', {
+                          defaultValue: 'Select message from {$author}',
+                          author: item.message.authorDisplayName
+                        })}
+                        onClick={() => model.toggleSelectedMessage(id)}
+                        className="mt-2.5 inline-flex size-5 shrink-0 items-center justify-center rounded text-fg-secondary hover:text-foreground">
+                        {isSelected ? (
+                          <RiCheckboxLine className="size-4 text-primary" aria-hidden />
+                        ) : (
+                          <RiCheckboxBlankLine className="size-4" aria-hidden />
+                        )}
+                      </button>
+                    )}
+                    <div className={selecting && selectable ? 'min-w-0 flex-1' : undefined}>
+                      <ErrorBoundary variant="inline" onReset={onRefresh} resetKeys={[id, item.message]}>
+                        {item.type === 'committed' ? (
+                          <CommittedMessage
+                            message={item.message as TimelineMessage}
+                            conversationID={conversationID}
+                            peerReply={committedByID.get(peerExchanges.replies.get(item.message.id) ?? '')}
+                            peerLive={peerExchanges.latest.has(item.message.id)}
+                            onEdit={
+                              item.message.id === latestInput?.messageID &&
+                              latestInput.authorUID === viewerUID &&
+                              actions?.edit
+                                ? () => actions.edit!(item.message)
+                                : undefined
+                            }
+                            onRetry={
+                              retryableMessageIDs.includes(item.message.id) && actions?.regenerate
+                                ? () => actions.regenerate!(item.message)
+                                : undefined
+                            }
+                            onQuote={onQuote ? text => onQuote(text, item.message) : undefined}
+                            onSelectMessage={
+                              selectable ? () => model.startSelectingMessages(item.message.id) : undefined
+                            }
+                            linkedRuns={executions.messages.get(item.message.id) ?? []}
+                            replySource={replySources.get(item.message.id)}
+                            onJumpToSource={sourceID => jumpToMessage(sourceID)?.focus({ preventScroll: true })}
+                            onAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onAnswer : undefined}
+                            onResolveActionCard={onResolveActionCard}
+                            onComposeAnswer={
+                              canAnswerAgent(item.message.authorUID ?? null) ? onComposeAnswer : undefined
+                            }
+                            readOnlyReason={readOnlyReason}
+                            keyboardActive={item.message.id === lastChoice}
+                            showActions={item.message.id === latestReply?.id}
+                            editDisabledReason={actions?.editDisabledReason}
+                            avatarURL={members.find(member => member.uid === item.message.authorUID)?.avatarURL}
+                            own={item.message.authorType === 'human' && item.message.authorUID === viewerUID}
+                            queued={item.queued}
+                            continued={
+                              id !== unreadMessageID &&
+                              continuesPrevious(messages[index - 1], item, replySources.has(item.message.id))
+                            }
+                          />
+                        ) : (
+                          <article className="pod-chat-timeline-message pod-chat-human-message pod-chat-own-message pod-chat-message-pending">
+                            <MessageIdentity name={t('pod.chat_timeline.you')} human quiet />
+                            <div className="pod-chat-human-text">
+                              <ChatMarkdown text={item.message.text ?? ''} />
+                            </div>
+                            <p role="status" className="pod-chat-message-state">
+                              {t(item.message.state === 'failed' ? 'pod.chat.send_failed' : 'pod.chat.sending')}
+                            </p>
+                          </article>
+                        )}
+                      </ErrorBoundary>
+                    </div>
+                  </div>
+                </Fragment>
+              )
             })}
-          </span>
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() =>
-              model.setSelectedMessages(
-                selectedMessages.length === selectableMessages.length ? [] : selectableMessages.map(msg => msg.id)
+            {activeStreams.map(stream => (
+              <ErrorBoundary
+                key={`${stream.agentUID}:${stream.responseID}`}
+                variant="inline"
+                resetKeys={[stream.responseID, stream.text]}>
+                <LiveMessage
+                  stream={stream}
+                  conversationID={conversationID}
+                  linkedRuns={executions.streams.get(stream.agentUID) ?? []}
+                  avatarURL={members.find(member => member.uid === stream.agentUID)?.avatarURL}
+                />
+              </ErrorBoundary>
+            ))}
+            {unloadedQuestions.map(question => {
+              const agent = members.find(member => member.uid === question.agentUID)
+              const asker = agent?.displayName ?? peerNames.get(question.agentUID ?? '') ?? `@${question.agentUID}`
+              return (
+                <ErrorBoundary key={question.interaction_id} variant="inline" resetKeys={[question.interaction_id]}>
+                  <article
+                    className="pod-chat-timeline-message pod-chat-agent-message"
+                    data-pending-interaction={question.interaction_id}>
+                    <MessageIdentity name={asker} avatarURL={agent?.avatarURL} quiet={!agent} />
+                    <ChoiceCard
+                      prompt={question}
+                      interaction={question}
+                      askedBy={agent ? undefined : asker}
+                      onAnswer={canAnswerAgent(question.agentUID ?? null) ? onAnswer : undefined}
+                      onComposeAnswer={canAnswerAgent(question.agentUID ?? null) ? onComposeAnswer : undefined}
+                      readOnlyReason={readOnlyReason}
+                      keyboardActive={question.messageID === lastChoice}
+                    />
+                  </article>
+                </ErrorBoundary>
               )
-            }>
-            {selectedMessages.length === selectableMessages.length && selectableMessages.length > 0
-              ? t('pod.chat_timeline.clear_selection', { defaultValue: 'Clear' })
-              : t('pod.chat_timeline.select_all', { defaultValue: 'Select all' })}
-          </Button>
-          <Button
-            variant="outline"
-            size="xs"
-            disabled={selectedMessages.length === 0}
-            onClick={() => void openShareCard()}>
-            <RiImageLine aria-hidden />
-            {t('pod.chat_timeline.share_image', { defaultValue: 'Share image' })}
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            disabled={selectedMessages.length === 0}
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(selectionToMarkdown(selectedMessages, { title: conversationTitle }))
-                toast.success(t('pod.chat_timeline.copied'))
-              } catch {
-                toast.error(t('pod.chat.copy_failed'))
-              }
-            }}>
-            <RiFileCopyLine aria-hidden />
-            {t('pod.chat_timeline.copy_markdown', { defaultValue: 'Copy Markdown' })}
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            disabled={selectedMessages.length === 0}
-            onClick={() =>
-              downloadMarkdownString(
-                selectionToMarkdown(selectedMessages, { title: conversationTitle }),
-                conversationTitle || 'conversation-excerpt'
-              )
-            }>
-            <RiDownloadLine aria-hidden />
-            {t('pod.chat_timeline.download_markdown', { defaultValue: 'Download .md' })}
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            disabled={selectedMessages.length === 0}
-            onClick={() => setSaveSelectionOpen(true)}>
-            <RiSaveLine aria-hidden />
-            {t('pod.content.save_as_page')}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            title={t('common.close')}
-            aria-label={t('common.close')}
-            onClick={() => model.clearMessageSelection()}>
-            <RiCloseLine aria-hidden />
-          </Button>
+            })}
+            {!activeStreams.length && activity && <ActivityView activity={activity} />}
+            {!activeStreams.length && !activity && working && (
+              <p className="pod-chat-message-state" role="status">
+                <span className="pod-chat-working-dot" aria-hidden />
+                {waiting
+                  ? t('pod.chat_timeline.queued')
+                  : retryTime
+                    ? t('pod.chat.retrying', { time: retryTime })
+                    : t('pod.chat.replying')}
+              </p>
+            )}
+          </div>
         </div>
-      )}
-      {!isAtBottom && !selecting && (
-        <Button
-          className="pod-chat-jump-latest"
-          variant="ghost"
-          size="sm"
-          onClick={event => void scrollToBottom(reducedMotion || event.detail === 0 ? 'instant' : undefined)}>
-          <RiArrowDownLine aria-hidden />
-          {t('pod.chat.scroll_latest')}
-          {working && <span className="pod-chat-working-dot" aria-hidden />}
-        </Button>
-      )}
-      {shareOpen && (
-        <SelectShareLightbox
-          open={shareOpen}
-          onOpenChange={setShareOpen}
-          loading={shareLoading}
-          error={shareError}
-          result={shareResult}
-          messages={selectedMessages}
-          title={conversationTitle}
-          onSaveAsPage={() => setSaveSelectionOpen(true)}
-        />
-      )}
-      {saveSelectionOpen && (
-        <SaveSelectionAsPageDialog
-          open={saveSelectionOpen}
-          onOpenChange={setSaveSelectionOpen}
-          messages={selectedMessages}
-          conversationID={conversationID}
-          defaultTitle={conversationTitle}
-          onSaved={() => model.clearMessageSelection()}
-        />
-      )}
-    </div>
+        {presentation !== 'page' && <TurnRail turns={turns} scrollRef={scrollRef} onJump={jumpToMessage} />}
+        {selecting && (
+          <div
+            role="toolbar"
+            data-testid="chat-selection-toolbar"
+            aria-label={t('pod.chat_timeline.select_messages', { defaultValue: 'Select messages' })}
+            className="ceramic sticky bottom-2 z-20 mx-auto my-2 flex flex-wrap items-center gap-1.5 px-3 py-1.5 text-xs">
+            <span className="px-1 font-medium text-foreground">
+              {t('pod.chat_timeline.selected_count', {
+                defaultValue: '{$count} selected',
+                count: selectedMessages.length
+              })}
+            </span>
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() =>
+                model.setSelectedMessages(
+                  selectedMessages.length === selectableMessages.length ? [] : selectableMessages.map(msg => msg.id)
+                )
+              }>
+              {selectedMessages.length === selectableMessages.length && selectableMessages.length > 0
+                ? t('pod.chat_timeline.clear_selection', { defaultValue: 'Clear' })
+                : t('pod.chat_timeline.select_all', { defaultValue: 'Select all' })}
+            </Button>
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={selectedMessages.length === 0}
+              onClick={() => void openShareCard()}>
+              <RiImageLine aria-hidden />
+              {t('pod.chat_timeline.share_image', { defaultValue: 'Share image' })}
+            </Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              disabled={selectedMessages.length === 0}
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(
+                    selectionToMarkdown(selectedMessages, { title: conversationTitle })
+                  )
+                  toast.success(t('pod.chat_timeline.copied'))
+                } catch {
+                  toast.error(t('pod.chat.copy_failed'))
+                }
+              }}>
+              <RiFileCopyLine aria-hidden />
+              {t('pod.chat_timeline.copy_markdown', { defaultValue: 'Copy Markdown' })}
+            </Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              disabled={selectedMessages.length === 0}
+              onClick={() =>
+                downloadMarkdownString(
+                  selectionToMarkdown(selectedMessages, { title: conversationTitle }),
+                  conversationTitle || 'conversation-excerpt'
+                )
+              }>
+              <RiDownloadLine aria-hidden />
+              {t('pod.chat_timeline.download_markdown', { defaultValue: 'Download .md' })}
+            </Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              disabled={selectedMessages.length === 0}
+              onClick={() => setSaveSelectionOpen(true)}>
+              <RiSaveLine aria-hidden />
+              {t('pod.content.save_as_page')}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              title={t('common.close')}
+              aria-label={t('common.close')}
+              onClick={() => model.clearMessageSelection()}>
+              <RiCloseLine aria-hidden />
+            </Button>
+          </div>
+        )}
+        {!isAtBottom && !selecting && (
+          <Button
+            className="pod-chat-jump-latest"
+            variant="ghost"
+            size="sm"
+            onClick={event => void scrollToBottom(reducedMotion || event.detail === 0 ? 'instant' : undefined)}>
+            <RiArrowDownLine aria-hidden />
+            {t('pod.chat.scroll_latest')}
+            {working && <span className="pod-chat-working-dot" aria-hidden />}
+          </Button>
+        )}
+        {shareOpen && (
+          <SelectShareLightbox
+            open={shareOpen}
+            onOpenChange={setShareOpen}
+            loading={shareLoading}
+            error={shareError}
+            result={shareResult}
+            messages={selectedMessages}
+            title={conversationTitle}
+            onSaveAsPage={() => setSaveSelectionOpen(true)}
+          />
+        )}
+        {saveSelectionOpen && (
+          <SaveSelectionAsPageDialog
+            open={saveSelectionOpen}
+            onOpenChange={setSaveSelectionOpen}
+            messages={selectedMessages}
+            conversationID={conversationID}
+            defaultTitle={conversationTitle}
+            onSaved={() => model.clearMessageSelection()}
+          />
+        )}
+      </div>
+    </RevealInTimeline.Provider>
   )
 }
 

@@ -66,15 +66,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Delivery do
         requests =
           intent.fallback_visible_text
           |> to_string()
-          |> Markdown.from_markdown()
-          |> split_text()
-          |> Enum.map(fn text ->
-            %{
-              kind: :post,
-              conversation_id: conversation_id,
-              activity: message_activity(text)
-            }
-          end)
+          |> text_activities()
+          |> Enum.map(&%{kind: :post, conversation_id: conversation_id, activity: &1})
 
         {:ok, requests}
     end
@@ -108,20 +101,19 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Delivery do
         requests =
           intent.fallback_visible_text
           |> to_string()
-          |> Markdown.from_markdown()
-          |> split_text()
+          |> text_activities()
           |> Enum.with_index(1)
           |> Enum.map(fn
-            {text, 1} ->
+            {activity, 1} ->
               %{
                 kind: :update,
                 conversation_id: conversation_id,
                 activity_id: intent.target_provider_message_id,
-                activity: message_activity(text)
+                activity: activity
               }
 
-            {text, _index} ->
-              %{kind: :post, conversation_id: conversation_id, activity: message_activity(text)}
+            {activity, _index} ->
+              %{kind: :post, conversation_id: conversation_id, activity: activity}
           end)
 
         {:ok, requests}
@@ -272,6 +264,15 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Delivery do
       })}}
   end
 
+  @doc "Splits Markdown text into the message activities that carry it."
+  @spec text_activities(String.t()) :: [map()]
+  def text_activities(markdown) do
+    markdown
+    |> Markdown.from_markdown()
+    |> split_text()
+    |> Enum.map(&message_activity/1)
+  end
+
   defp message_activity(text) do
     %{
       "type" => "message",
@@ -338,8 +339,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Delivery do
   # whose channel mirror never saw the provider fails loudly instead of
   # guessing a regional connector host.
   @doc false
-  @spec delivery_target(Intent.t()) :: {:ok, map()} | {:error, term()}
-  def delivery_target(%Intent{conversation_id: conversation_id}) do
+  @spec delivery_target(Intent.t() | String.t()) :: {:ok, map()} | {:error, term()}
+  def delivery_target(%Intent{conversation_id: conversation_id}),
+    do: delivery_target(conversation_id)
+
+  def delivery_target(conversation_id) do
     with %Conversation{kind: :external} = channel <-
            Ankole.Conversations.get_conversation!(conversation_id) || :missing_channel,
          conversation_id when is_binary(conversation_id) <-

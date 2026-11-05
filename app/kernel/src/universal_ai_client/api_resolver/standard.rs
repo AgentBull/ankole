@@ -549,40 +549,22 @@ pub(super) fn normalize_reasoning(value: &Value) -> Value {
     }
 }
 
+// A count the Provider did not report stays `null`, so callers can tell it
+// apart from a reported zero. A usage that is not an object is `null` as a
+// whole.
 pub(crate) fn normalize_response_usage(usage: &Value) -> Value {
-    let input_tokens = integer_value(
-        usage
-            .get("input_tokens")
-            .or_else(|| usage.get("prompt_tokens"))
-            .unwrap_or(&Value::Null),
-    )
-    .unwrap_or(0);
-    let output_tokens = integer_value(
-        usage
-            .get("output_tokens")
-            .or_else(|| usage.get("completion_tokens"))
-            .unwrap_or(&Value::Null),
-    )
-    .unwrap_or(0);
-    let total_tokens = integer_value(usage.get("total_tokens").unwrap_or(&Value::Null))
-        .unwrap_or(input_tokens.saturating_add(output_tokens));
-    let input_details = usage
-        .get("input_tokens_details")
-        .or_else(|| usage.get("prompt_tokens_details"))
-        .filter(|value| value.is_object())
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let output_details = usage
-        .get("output_tokens_details")
-        .or_else(|| usage.get("completion_tokens_details"))
-        .filter(|value| value.is_object())
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-
-    let mut input_details = input_details.as_object().cloned().unwrap_or_default();
-    let mut output_details = output_details.as_object().cloned().unwrap_or_default();
-    put_default(&mut input_details, "cached_tokens", json!(0));
-    put_default(&mut output_details, "reasoning_tokens", json!(0));
+    if !usage.is_object() {
+        return Value::Null;
+    }
+    let input_tokens = usage_count(usage, &["input_tokens", "prompt_tokens"]);
+    let output_tokens = usage_count(usage, &["output_tokens", "completion_tokens"]);
+    let total_tokens = usage_count(usage, &["total_tokens"])
+        .or_else(|| Some(input_tokens?.saturating_add(output_tokens?)));
+    let mut input_details = usage_details(usage, "input_tokens_details", "prompt_tokens_details");
+    let mut output_details =
+        usage_details(usage, "output_tokens_details", "completion_tokens_details");
+    put_default(&mut input_details, "cached_tokens", Value::Null);
+    put_default(&mut output_details, "reasoning_tokens", Value::Null);
 
     json!({
         "input_tokens": input_tokens,
@@ -595,30 +577,24 @@ pub(crate) fn normalize_response_usage(usage: &Value) -> Value {
 
 pub(super) fn normalize_anthropic_usage(usage: &Value) -> Value {
     if !usage.is_object() {
-        return json!({});
+        return Value::Null;
     }
 
     // Anthropic counts uncached input, cache reads, and cache writes as
     // disjoint fields; the OpenResponses shape counts them all as input and
     // keeps the cache portions in `input_tokens_details`.
-    let cache_read_tokens =
-        integer_value(usage.get("cache_read_input_tokens").unwrap_or(&Value::Null)).unwrap_or(0);
-    let cache_creation_tokens = integer_value(
-        usage
-            .get("cache_creation_input_tokens")
-            .unwrap_or(&Value::Null),
-    )
-    .unwrap_or(0);
-    let input_tokens = integer_value(usage.get("input_tokens").unwrap_or(&Value::Null))
-        .unwrap_or(0)
-        .saturating_add(cache_read_tokens)
-        .saturating_add(cache_creation_tokens);
-    let output_tokens =
-        integer_value(usage.get("output_tokens").unwrap_or(&Value::Null)).unwrap_or(0);
+    let cache_read_tokens = usage_count(usage, &["cache_read_input_tokens"]);
+    let cache_creation_tokens = usage_count(usage, &["cache_creation_input_tokens"]);
+    let input_tokens = usage_count(usage, &["input_tokens"]).map(|input| {
+        input
+            .saturating_add(cache_read_tokens.unwrap_or(0))
+            .saturating_add(cache_creation_tokens.unwrap_or(0))
+    });
+    let output_tokens = usage_count(usage, &["output_tokens"]);
     json!({
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
-        "total_tokens": input_tokens.saturating_add(output_tokens),
+        "total_tokens": input_tokens.zip(output_tokens).map(|(input, output)| input.saturating_add(output)),
         "input_tokens_details": {
             "cached_tokens": cache_read_tokens,
             "cache_creation_tokens": cache_creation_tokens
@@ -629,32 +605,16 @@ pub(super) fn normalize_anthropic_usage(usage: &Value) -> Value {
 
 pub(super) fn normalize_provider_token_usage(usage: &Value) -> Value {
     if !usage.is_object() {
-        return json!({});
+        return Value::Null;
     }
 
-    let input_tokens = integer_value(
-        usage
-            .get("input_tokens")
-            .or_else(|| usage.get("prompt_tokens"))
-            .or_else(|| usage.get("inputTokens"))
-            .unwrap_or(&Value::Null),
-    )
-    .unwrap_or(0);
-    let output_tokens = integer_value(
-        usage
-            .get("output_tokens")
-            .or_else(|| usage.get("completion_tokens"))
-            .or_else(|| usage.get("outputTokens"))
-            .unwrap_or(&Value::Null),
-    )
-    .unwrap_or(0);
-    let total_tokens = integer_value(
-        usage
-            .get("total_tokens")
-            .or_else(|| usage.get("totalTokens"))
-            .unwrap_or(&Value::Null),
-    )
-    .unwrap_or(input_tokens.saturating_add(output_tokens));
+    let input_tokens = usage_count(usage, &["input_tokens", "prompt_tokens", "inputTokens"]);
+    let output_tokens = usage_count(
+        usage,
+        &["output_tokens", "completion_tokens", "outputTokens"],
+    );
+    let total_tokens = usage_count(usage, &["total_tokens", "totalTokens"])
+        .or_else(|| Some(input_tokens?.saturating_add(output_tokens?)));
     json!({
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
@@ -662,6 +622,22 @@ pub(super) fn normalize_provider_token_usage(usage: &Value) -> Value {
         "input_tokens_details": {},
         "output_tokens_details": {}
     })
+}
+
+// `keys` lists the canonical name first; the first key present decides the count.
+fn usage_count(usage: &Value, keys: &[&str]) -> Option<i64> {
+    keys.iter()
+        .find_map(|key| usage.get(*key))
+        .and_then(integer_value)
+}
+
+fn usage_details(usage: &Value, key: &str, legacy_key: &str) -> Map<String, Value> {
+    usage
+        .get(key)
+        .or_else(|| usage.get(legacy_key))
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default()
 }
 
 // Accumulates raw Anthropic usage counters across stream events. The result
@@ -877,5 +853,33 @@ mod tests {
             "output_tokens": 1
         }));
         assert_eq!(provider["total_tokens"], json!(i64::MAX));
+    }
+
+    #[test]
+    fn unreported_usage_counts_stay_null() {
+        assert_eq!(normalize_response_usage(&Value::Null), Value::Null);
+        assert_eq!(normalize_anthropic_usage(&Value::Null), Value::Null);
+
+        let partial = normalize_response_usage(&json!({"prompt_tokens": 0}));
+        assert_eq!(partial["input_tokens"], json!(0));
+        assert_eq!(partial["output_tokens"], Value::Null);
+        assert_eq!(partial["total_tokens"], Value::Null);
+        assert_eq!(
+            partial["input_tokens_details"]["cached_tokens"],
+            Value::Null
+        );
+        assert_eq!(
+            partial["output_tokens_details"]["reasoning_tokens"],
+            Value::Null
+        );
+        assert_eq!(normalize_response_usage(&partial), partial);
+
+        let anthropic = normalize_anthropic_usage(&json!({"output_tokens": 4}));
+        assert_eq!(anthropic["input_tokens"], Value::Null);
+        assert_eq!(anthropic["output_tokens"], json!(4));
+        assert_eq!(
+            anthropic["input_tokens_details"]["cached_tokens"],
+            Value::Null
+        );
     }
 }

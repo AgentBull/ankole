@@ -100,6 +100,8 @@ defmodule Ankole.Signals.AdaptersTest do
                :remove_reaction,
                :divider,
                :card,
+               :form,
+               :action_notice,
                :outbound_reconciliation
              ])
 

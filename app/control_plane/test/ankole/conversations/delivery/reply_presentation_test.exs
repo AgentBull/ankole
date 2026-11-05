@@ -524,6 +524,114 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentationTest do
     assert form_value["inputName"] == "clarify-answer"
   end
 
+  test "a form clarification becomes one typed form control and a link" do
+    event_id = Ecto.UUID.generate()
+
+    fields = [
+      %{
+        "id" => "quantity",
+        "label" => "Quantity",
+        "type" => "number",
+        "required" => true,
+        "integer" => true,
+        "min" => 1,
+        "default" => 2
+      },
+      %{
+        "id" => "ship_date",
+        "label" => "Ship date",
+        "type" => "date",
+        "required" => false,
+        "min" => "2026-11-05",
+        "help" => "Leave empty for the earliest date"
+      },
+      %{
+        "id" => "warehouses",
+        "label" => "Warehouses",
+        "type" => "multi_select",
+        "required" => true,
+        "max_items" => 2,
+        "default" => ["us_west"],
+        "options" => [
+          %{"value" => "us_west", "label" => "US West"},
+          %{"value" => "us_east", "label" => "US East"}
+        ]
+      }
+    ]
+
+    presentation =
+      ReplyPresentation.interaction_request(ReplyPresentation.new(), event_id, %{
+        "body" => "How should I ship it?",
+        "interaction_id" => "clarify:call-1",
+        "control_id" => "clarify-choice",
+        "version" => 1,
+        "free_input" => true,
+        "choices" => [],
+        "fields" => fields,
+        "form_url" => "https://acme.ankole.test/?interaction=x"
+      })
+
+    assert [form, link] = presentation["actions"]
+    assert form["type"] == "form"
+    assert form["control_id"] == "clarify-form"
+    assert form["fields"] == fields
+    assert ReplyPresentation.typed_form?(form)
+
+    assert link == %{
+             "type" => "link",
+             "id" => "clarify-form-link",
+             "label" => "Open in Ankole",
+             "style" => "default",
+             "url" => "https://acme.ankole.test/?interaction=x"
+           }
+
+    assert {:ok, value} = ReplyPresentation.callback_value(event_id, form)
+
+    assert value == %{
+             "version" => ReplyPresentation.action_protocol(),
+             "answerKind" => "form",
+             "interactionId" => "clarify:call-1",
+             "interactionVersion" => 1,
+             "controlId" => "clarify-form",
+             "sourceSignalId" => event_id
+           }
+
+    callback = %{
+      kind: "form",
+      interaction_id: "clarify:call-1",
+      interaction_version: 1,
+      control_id: "clarify-form",
+      source_signal_id: event_id
+    }
+
+    assert ReplyPresentation.matches?(presentation, callback)
+
+    refute ReplyPresentation.matches?(presentation, %{callback | control_id: "clarify-free-input"})
+
+    assert {:error, :invalid_callback_action} = ReplyPresentation.callback_value(event_id, link)
+
+    answered =
+      ReplyPresentation.resolve_interaction(presentation, "answered", %{
+        "kind" => "form",
+        "interaction_id" => "clarify:call-1",
+        "value" => "Quantity: 2 · Warehouses: US West",
+        "values" => %{"quantity" => 2, "warehouses" => ["us_west"]}
+      })
+
+    assert answered["interaction_answer"] == "Quantity: 2 · Warehouses: US West"
+    assert Enum.all?(answered["actions"], & &1["disabled"])
+    refute ReplyPresentation.matches?(answered, callback)
+
+    unsafe =
+      ReplyPresentation.normalize(%{
+        "state" => "awaiting_input",
+        "prompt" => "Q",
+        "actions" => [Map.put(link, "url", "javascript:alert(1)")]
+      })
+
+    assert unsafe["actions"] == []
+  end
+
   test "terminal clarification can preserve the committed interaction fields" do
     original =
       ReplyPresentation.new()

@@ -4,957 +4,6 @@ export type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {})
 }
 
-/**
- * A "Resource object" representing a applet_job_operation
- */
-export type AppletJobOperation = {
-  /**
-   * An attributes object for a applet_job_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a applet_job_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * Filters the query to results matching the given filter object
- */
-export type AppletJobOperationFilter = {
-  and?: Array<AppletJobOperationFilter>
-  not?: AppletJobOperationFilter
-  or?: Array<AppletJobOperationFilter>
-}
-
-export type AutomationJobType = {
-  /**
-   * Field included by default.
-   */
-  action_key: string
-  /**
-   * Field included by default.
-   */
-  authorization_kind?: string | null
-  /**
-   * Field included by default.
-   */
-  cancelled_at?: string | null
-  /**
-   * Field included by default.
-   */
-  concurrency_mode: 'parallel' | 'serial_fifo' | 'serial_coalesce'
-  /**
-   * Field included by default.
-   */
-  config: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  human_uid?: string | null
-  /**
-   * Field included by default.
-   */
-  id: number
-  /**
-   * Field included by default.
-   */
-  idempotent: boolean
-  /**
-   * Field included by default.
-   */
-  inserted_at: string
-  /**
-   * Field included by default.
-   */
-  label: string
-  /**
-   * Field included by default.
-   */
-  max_slices: number
-  /**
-   * Field included by default.
-   */
-  page_id: string
-  /**
-   * Field included by default.
-   */
-  source_provenance: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  source_signal_id?: string | null
-  /**
-   * Field included by default.
-   */
-  status: 'active' | 'cancelled'
-  /**
-   * Field included by default.
-   */
-  unavailable_reason?: string | null
-  /**
-   * Field included by default.
-   */
-  updated_at: string
-}
-
-export type AutomationJobRunType = {
-  /**
-   * Field included by default.
-   */
-  attempts: number
-  /**
-   * Field included by default.
-   */
-  automation_job_id: number
-  /**
-   * Field included by default.
-   */
-  error?: string | null
-  /**
-   * Field included by default.
-   */
-  event: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  exit_code?: number | null
-  /**
-   * Field included by default.
-   */
-  finished_at?: string | null
-  /**
-   * Field included by default.
-   */
-  id: number
-  /**
-   * Field included by default.
-   */
-  last_published_revision?: number | null
-  /**
-   * Field included by default.
-   */
-  progress: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  result?: unknown | null
-  /**
-   * Field included by default.
-   */
-  signal_id?: string | null
-  /**
-   * Field included by default.
-   */
-  slice_count: number
-  /**
-   * Field included by default.
-   */
-  started_at?: string | null
-  /**
-   * Field included by default.
-   */
-  status: 'queued' | 'running' | 'failed' | 'succeeded' | 'cancelled'
-  /**
-   * Field included by default.
-   */
-  stderr?: string | null
-  /**
-   * Field included by default.
-   */
-  stderr_truncated: boolean
-  /**
-   * Field included by default.
-   */
-  stdout?: string | null
-  /**
-   * Field included by default.
-   */
-  stdout_truncated: boolean
-}
-
-/**
- * A "Resource object" representing a connector_operation
- */
-export type ConnectorOperation = {
-  /**
-   * An attributes object for a connector_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a connector_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * Filters the query to results matching the given filter object
- */
-export type ConnectorOperationFilter = {
-  and?: Array<ConnectorOperationFilter>
-  not?: ConnectorOperationFilter
-  or?: Array<ConnectorOperationFilter>
-}
-
-export type Error = {
-  /**
-   * An application-specific error code, expressed as a string value.
-   */
-  code?: string
-  /**
-   * A human-readable explanation specific to this occurrence of the problem.
-   */
-  detail?: string
-  /**
-   * A unique identifier for this particular occurrence of the problem.
-   */
-  id?: string
-  links?: Links
-  source?: {
-    /**
-     * A string indicating which query parameter caused the error.
-     */
-    parameter?: string
-    /**
-     * A JSON Pointer [RFC6901] to the associated entity in the request document [e.g. "/data" for a primary data object, or "/data/attributes/title" for a specific attribute].
-     */
-    pointer?: string
-  }
-  /**
-   * The HTTP status code applicable to this problem, expressed as a string value.
-   */
-  status?: string
-  /**
-   * A short, human-readable summary of the problem. It SHOULD NOT change from occurrence to occurrence of the problem, except for purposes of localization.
-   */
-  title?: string
-}
-
-export type Errors = Array<Error>
-
-/**
- * A "Resource object" representing a event_binding_operation
- */
-export type EventBindingOperation = {
-  /**
-   * An attributes object for a event_binding_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a event_binding_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * Filters the query to results matching the given filter object
- */
-export type EventBindingOperationFilter = {
-  and?: Array<EventBindingOperationFilter>
-  not?: EventBindingOperationFilter
-  or?: Array<EventBindingOperationFilter>
-}
-
-/**
- * A link MUST be represented as either: a string containing the link's URL or a link object.
- */
-export type Link = string
-
-export type Links = {
-  [key: string]: Link
-}
-
-/**
- * A "Resource object" representing a meta_agent
- */
-export type MetaAgent = {
-  /**
-   * An attributes object for a meta_agent
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a meta_agent
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * Filters the query to results matching the given filter object
- */
-export type MetaAgentFilter = {
-  and?: Array<MetaAgentFilter>
-  not?: MetaAgentFilter
-  or?: Array<MetaAgentFilter>
-}
-
-/**
- * A "Resource object" representing a meta_brain
- */
-export type MetaBrain = {
-  /**
-   * An attributes object for a meta_brain
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a meta_brain
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * Filters the query to results matching the given filter object
- */
-export type MetaBrainFilter = {
-  and?: Array<MetaBrainFilter>
-  not?: MetaBrainFilter
-  or?: Array<MetaBrainFilter>
-}
-
-/**
- * A "Resource object" representing a meta_library
- */
-export type MetaLibrary = {
-  /**
-   * An attributes object for a meta_library
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a meta_library
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * Filters the query to results matching the given filter object
- */
-export type MetaLibraryFilter = {
-  and?: Array<MetaLibraryFilter>
-  not?: MetaLibraryFilter
-  or?: Array<MetaLibraryFilter>
-}
-
-/**
- * A "Resource object" representing a pod_admin_operation
- */
-export type PodAdminOperation = {
-  /**
-   * An attributes object for a pod_admin_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_admin_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * Filters the query to results matching the given filter object
- */
-export type PodAdminOperationFilter = {
-  and?: Array<PodAdminOperationFilter>
-  not?: PodAdminOperationFilter
-  or?: Array<PodAdminOperationFilter>
-}
-
-/**
- * A "Resource object" representing a pod_base_field
- */
-export type PodBaseField = {
-  /**
-   * An attributes object for a pod_base_field
-   */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    config: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    is_primary: boolean
-    /**
-     * Field included by default.
-     */
-    name: string
-    /**
-     * Field included by default.
-     */
-    position: string
-    /**
-     * Field included by default.
-     */
-    table_id: string
-    /**
-     * Field included by default.
-     */
-    type:
-      | 'text'
-      | 'number'
-      | 'select'
-      | 'datetime'
-      | 'checkbox'
-      | 'user'
-      | 'attachment'
-      | 'auto_number'
-      | 'link'
-      | 'formula'
-      | 'created_at'
-      | 'updated_at'
-      | 'created_by'
-      | 'updated_by'
-    /**
-     * Field included by default.
-     */
-    version: number
-  }
-  id: string
-  /**
-   * A relationships object for a pod_base_field
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-export type PodBaseFieldType = {
-  /**
-   * Field included by default.
-   */
-  config: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  id: string
-  /**
-   * Field included by default.
-   */
-  is_primary: boolean
-  /**
-   * Field included by default.
-   */
-  name: string
-  /**
-   * Field included by default.
-   */
-  position: string
-  /**
-   * Field included by default.
-   */
-  table_id: string
-  /**
-   * Field included by default.
-   */
-  type:
-    | 'text'
-    | 'number'
-    | 'select'
-    | 'datetime'
-    | 'checkbox'
-    | 'user'
-    | 'attachment'
-    | 'auto_number'
-    | 'link'
-    | 'formula'
-    | 'created_at'
-    | 'updated_at'
-    | 'created_by'
-    | 'updated_by'
-  /**
-   * Field included by default.
-   */
-  version: number
-}
-
-/**
- * A "Resource object" representing a pod_base_operation
- */
-export type PodBaseOperation = {
-  /**
-   * An attributes object for a pod_base_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_base_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a pod_base_table
- */
-export type PodBaseTable = {
-  /**
-   * An attributes object for a pod_base_table
-   */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    data_version: number
-    /**
-     * Field included by default.
-     */
-    emit_changes: boolean
-    /**
-     * Field included by default.
-     */
-    name: string
-    /**
-     * Field included by default.
-     */
-    next_auto_number: number
-    /**
-     * Field included by default.
-     */
-    page_id: string
-    /**
-     * Field included by default.
-     */
-    position: string
-    /**
-     * Field included by default.
-     */
-    record_bytes: number
-    /**
-     * Field included by default.
-     */
-    record_count: number
-    /**
-     * Field included by default.
-     */
-    schema_version: number
-    /**
-     * Field included by default.
-     */
-    storage_mode: 'inline' | 'physical'
-    /**
-     * Field included by default.
-     */
-    unique_field_ids: Array<string>
-  }
-  id: string
-  /**
-   * A relationships object for a pod_base_table
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-export type PodBaseTableType = {
-  /**
-   * Field included by default.
-   */
-  data_version: number
-  /**
-   * Field included by default.
-   */
-  emit_changes: boolean
-  /**
-   * Field included by default.
-   */
-  id: string
-  /**
-   * Field included by default.
-   */
-  name: string
-  /**
-   * Field included by default.
-   */
-  next_auto_number: number
-  /**
-   * Field included by default.
-   */
-  page_id: string
-  /**
-   * Field included by default.
-   */
-  position: string
-  /**
-   * Field included by default.
-   */
-  record_bytes: number
-  /**
-   * Field included by default.
-   */
-  record_count: number
-  /**
-   * Field included by default.
-   */
-  schema_version: number
-  /**
-   * Field included by default.
-   */
-  storage_mode: 'inline' | 'physical'
-  /**
-   * Field included by default.
-   */
-  unique_field_ids: Array<string>
-}
-
-/**
- * A "Resource object" representing a pod_base_view
- */
-export type PodBaseView = {
-  /**
-   * An attributes object for a pod_base_view
-   */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    config: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    name: string
-    /**
-     * Field included by default.
-     */
-    position: string
-    /**
-     * Field included by default.
-     */
-    table_id: string
-    /**
-     * Field included by default.
-     */
-    type: 'grid' | 'kanban' | 'gallery'
-    /**
-     * Field included by default.
-     */
-    version: number
-  }
-  id: string
-  /**
-   * A relationships object for a pod_base_view
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-export type PodBaseViewType = {
-  /**
-   * Field included by default.
-   */
-  config: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  id: string
-  /**
-   * Field included by default.
-   */
-  name: string
-  /**
-   * Field included by default.
-   */
-  position: string
-  /**
-   * Field included by default.
-   */
-  table_id: string
-  /**
-   * Field included by default.
-   */
-  type: 'grid' | 'kanban' | 'gallery'
-  /**
-   * Field included by default.
-   */
-  version: number
-}
-
-/**
- * A "Resource object" representing a pod_chat_operation
- */
-export type PodChatOperation = {
-  /**
-   * An attributes object for a pod_chat_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_chat_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a pod_document_comment_operation
- */
-export type PodDocumentCommentOperation = {
-  /**
-   * An attributes object for a pod_document_comment_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_document_comment_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a pod_document_history_operation
- */
-export type PodDocumentHistoryOperation = {
-  /**
-   * An attributes object for a pod_document_history_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_document_history_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a pod_file_operation
- */
-export type PodFileOperation = {
-  /**
-   * An attributes object for a pod_file_operation
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_file_operation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a pod_member_account
- */
-export type PodMemberAccount = {
-  /**
-   * An attributes object for a pod_member_account
-   */
-  attributes?: {
-    [key: string]: never
-  }
-  id: string
-  /**
-   * A relationships object for a pod_member_account
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * Filters the query to results matching the given filter object
- */
-export type PodMemberAccountFilter = {
-  and?: Array<PodMemberAccountFilter>
-  not?: PodMemberAccountFilter
-  or?: Array<PodMemberAccountFilter>
-}
-
-/**
- * A "Resource object" representing a pod_page
- */
-export type PodPage = {
-  /**
-   * An attributes object for a pod_page
-   */
-  attributes?: {
-    actions?: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'> | null
-    /**
-     * Field included by default.
-     */
-    children_view: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    conversation_id?: string | null
-    /**
-     * Field included by default.
-     */
-    created_at: string
-    /**
-     * Field included by default.
-     */
-    deleted_at?: string | null
-    /**
-     * Field included by default.
-     */
-    icon?: string | null
-    /**
-     * Field included by default.
-     */
-    id: string
-    /**
-     * Field included by default.
-     */
-    inherit_permissions: boolean
-    /**
-     * Field included by default.
-     */
-    is_root?: boolean | null
-    /**
-     * Field included by default.
-     */
-    metadata: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    name: string
-    /**
-     * Field included by default.
-     */
-    object_id?: string | null
-    /**
-     * Field included by default.
-     */
-    owner_uid?: string | null
-    /**
-     * Field included by default.
-     */
-    parent_id?: string | null
-    /**
-     * Field included by default.
-     */
-    position?: string | null
-    /**
-     * Field included by default.
-     */
-    private_owner_uid?: string | null
-    /**
-     * Field included by default.
-     */
-    purge_started_at?: string | null
-    /**
-     * Field included by default.
-     */
-    revision: number
-    role?: 'view' | 'contribute' | 'edit' | 'manage' | null
-    /**
-     * Field included by default.
-     */
-    saved_from_message_id?: string | null
-    /**
-     * Field included by default.
-     */
-    system_key?: string | null
-    /**
-     * Field included by default.
-     */
-    title: string
-    /**
-     * Field included by default.
-     */
-    type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
-    /**
-     * Field included by default.
-     */
-    updated_at: string
-    visited_at?: string | null
-  }
-  id: string
-  /**
-   * A relationships object for a pod_page
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
 export type PodPageType = {
   /**
    * Field included by default.
@@ -1089,6 +138,513 @@ export type PodPageContent = {
   type: string
 }
 
+/**
+ * A link MUST be represented as either: a string containing the link's URL or a link object.
+ */
+export type Link = string
+
+export type Errors = Array<Error>
+
+/**
+ * A "Resource object" representing a pod_base_field
+ */
+export type PodBaseField = {
+  /**
+   * An attributes object for a pod_base_field
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    config: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    is_primary: boolean
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    position: string
+    /**
+     * Field included by default.
+     */
+    table_id: string
+    /**
+     * Field included by default.
+     */
+    type:
+      | 'text'
+      | 'number'
+      | 'select'
+      | 'datetime'
+      | 'checkbox'
+      | 'user'
+      | 'attachment'
+      | 'auto_number'
+      | 'link'
+      | 'formula'
+      | 'created_at'
+      | 'updated_at'
+      | 'created_by'
+      | 'updated_by'
+    /**
+     * Field included by default.
+     */
+    version: number
+  }
+  id: string
+  /**
+   * A relationships object for a pod_base_field
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a applet_job_operation
+ */
+export type AppletJobOperation = {
+  /**
+   * An attributes object for a applet_job_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a applet_job_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_chat_operation
+ */
+export type PodChatOperation = {
+  /**
+   * An attributes object for a pod_chat_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_chat_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a meta_agent
+ */
+export type MetaAgent = {
+  /**
+   * An attributes object for a meta_agent
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a meta_agent
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_spreadsheet_operation
+ */
+export type PodSpreadsheetOperation = {
+  /**
+   * An attributes object for a pod_spreadsheet_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_spreadsheet_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type MetaBrainFilter = {
+  and?: Array<MetaBrainFilter>
+  not?: MetaBrainFilter
+  or?: Array<MetaBrainFilter>
+}
+
+export type Links = {
+  [key: string]: Link
+}
+
+export type Error = {
+  /**
+   * An application-specific error code, expressed as a string value.
+   */
+  code?: string
+  /**
+   * A human-readable explanation specific to this occurrence of the problem.
+   */
+  detail?: string
+  /**
+   * A unique identifier for this particular occurrence of the problem.
+   */
+  id?: string
+  links?: Links
+  source?: {
+    /**
+     * A string indicating which query parameter caused the error.
+     */
+    parameter?: string
+    /**
+     * A JSON Pointer [RFC6901] to the associated entity in the request document [e.g. "/data" for a primary data object, or "/data/attributes/title" for a specific attribute].
+     */
+    pointer?: string
+  }
+  /**
+   * The HTTP status code applicable to this problem, expressed as a string value.
+   */
+  status?: string
+  /**
+   * A short, human-readable summary of the problem. It SHOULD NOT change from occurrence to occurrence of the problem, except for purposes of localization.
+   */
+  title?: string
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type MetaLibraryFilter = {
+  and?: Array<MetaLibraryFilter>
+  not?: MetaLibraryFilter
+  or?: Array<MetaLibraryFilter>
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type AppletJobOperationFilter = {
+  and?: Array<AppletJobOperationFilter>
+  not?: AppletJobOperationFilter
+  or?: Array<AppletJobOperationFilter>
+}
+
+/**
+ * A "Resource object" representing a pod_base_operation
+ */
+export type PodBaseOperation = {
+  /**
+   * An attributes object for a pod_base_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_base_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_base_table
+ */
+export type PodBaseTable = {
+  /**
+   * An attributes object for a pod_base_table
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    data_version: number
+    /**
+     * Field included by default.
+     */
+    emit_changes: boolean
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    next_auto_number: number
+    /**
+     * Field included by default.
+     */
+    page_id: string
+    /**
+     * Field included by default.
+     */
+    position: string
+    /**
+     * Field included by default.
+     */
+    record_bytes: number
+    /**
+     * Field included by default.
+     */
+    record_count: number
+    /**
+     * Field included by default.
+     */
+    schema_version: number
+    /**
+     * Field included by default.
+     */
+    storage_mode: 'inline' | 'physical'
+    /**
+     * Field included by default.
+     */
+    unique_field_ids: Array<string>
+  }
+  id: string
+  /**
+   * A relationships object for a pod_base_table
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type PodPageUserStateType = {
+  /**
+   * Field included by default.
+   */
+  favorited_at?: string | null
+  /**
+   * Field included by default.
+   */
+  hide_visits: boolean
+  /**
+   * Field included by default.
+   */
+  page_id: string
+  /**
+   * Field included by default.
+   */
+  visited_at?: string | null
+}
+
+/**
+ * A "Resource object" representing a meta_brain
+ */
+export type MetaBrain = {
+  /**
+   * An attributes object for a meta_brain
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a meta_brain
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type PodBaseTableType = {
+  /**
+   * Field included by default.
+   */
+  data_version: number
+  /**
+   * Field included by default.
+   */
+  emit_changes: boolean
+  /**
+   * Field included by default.
+   */
+  id: string
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  next_auto_number: number
+  /**
+   * Field included by default.
+   */
+  page_id: string
+  /**
+   * Field included by default.
+   */
+  position: string
+  /**
+   * Field included by default.
+   */
+  record_bytes: number
+  /**
+   * Field included by default.
+   */
+  record_count: number
+  /**
+   * Field included by default.
+   */
+  schema_version: number
+  /**
+   * Field included by default.
+   */
+  storage_mode: 'inline' | 'physical'
+  /**
+   * Field included by default.
+   */
+  unique_field_ids: Array<string>
+}
+
+export type AutomationJobRunType = {
+  /**
+   * Field included by default.
+   */
+  attempts: number
+  /**
+   * Field included by default.
+   */
+  automation_job_id: number
+  /**
+   * Field included by default.
+   */
+  error?: string | null
+  /**
+   * Field included by default.
+   */
+  event: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  exit_code?: number | null
+  /**
+   * Field included by default.
+   */
+  finished_at?: string | null
+  /**
+   * Field included by default.
+   */
+  id: number
+  /**
+   * Field included by default.
+   */
+  last_published_revision?: number | null
+  /**
+   * Field included by default.
+   */
+  progress: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  result?: unknown | null
+  /**
+   * Field included by default.
+   */
+  signal_id?: string | null
+  /**
+   * Field included by default.
+   */
+  slice_count: number
+  /**
+   * Field included by default.
+   */
+  started_at?: string | null
+  /**
+   * Field included by default.
+   */
+  status: 'queued' | 'running' | 'failed' | 'succeeded' | 'cancelled'
+  /**
+   * Field included by default.
+   */
+  stderr?: string | null
+  /**
+   * Field included by default.
+   */
+  stderr_truncated: boolean
+  /**
+   * Field included by default.
+   */
+  stdout?: string | null
+  /**
+   * Field included by default.
+   */
+  stdout_truncated: boolean
+}
+
+/**
+ * A "Resource object" representing a pod_admin_operation
+ */
+export type PodAdminOperation = {
+  /**
+   * An attributes object for a pod_admin_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_admin_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_document_comment_operation
+ */
+export type PodDocumentCommentOperation = {
+  /**
+   * An attributes object for a pod_document_comment_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_document_comment_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type PodPageContentType = {
   /**
    * Field included by default.
@@ -1104,24 +660,37 @@ export type PodPageContentType = {
   plain_text: string
 }
 
-/**
- * A "Resource object" representing a pod_page_operation
- */
-export type PodPageOperation = {
+export type PodBaseViewType = {
   /**
-   * An attributes object for a pod_page_operation
+   * Field included by default.
    */
-  attributes?: {
-    [key: string]: never
+  config: {
+    [key: string]: unknown
   }
+  /**
+   * Field included by default.
+   */
   id: string
   /**
-   * A relationships object for a pod_page_operation
+   * Field included by default.
    */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
+  name: string
+  /**
+   * Field included by default.
+   */
+  position: string
+  /**
+   * Field included by default.
+   */
+  table_id: string
+  /**
+   * Field included by default.
+   */
+  type: 'grid' | 'kanban' | 'gallery'
+  /**
+   * Field included by default.
+   */
+  version: number
 }
 
 /**
@@ -1159,15 +728,82 @@ export type PodPageUserState = {
   type: string
 }
 
-export type PodPageUserStateType = {
+/**
+ * A "Resource object" representing a pod_member_account
+ */
+export type PodMemberAccount = {
+  /**
+   * An attributes object for a pod_member_account
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_member_account
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type PodMemberAccountFilter = {
+  and?: Array<PodMemberAccountFilter>
+  not?: PodMemberAccountFilter
+  or?: Array<PodMemberAccountFilter>
+}
+
+export type AutomationJobType = {
   /**
    * Field included by default.
    */
-  favorited_at?: string | null
+  action_key: string
   /**
    * Field included by default.
    */
-  hide_visits: boolean
+  authorization_kind?: string | null
+  /**
+   * Field included by default.
+   */
+  cancelled_at?: string | null
+  /**
+   * Field included by default.
+   */
+  concurrency_mode: 'parallel' | 'serial_fifo' | 'serial_coalesce'
+  /**
+   * Field included by default.
+   */
+  config: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  human_uid?: string | null
+  /**
+   * Field included by default.
+   */
+  id: number
+  /**
+   * Field included by default.
+   */
+  idempotent: boolean
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  label: string
+  /**
+   * Field included by default.
+   */
+  max_slices: number
   /**
    * Field included by default.
    */
@@ -1175,7 +811,351 @@ export type PodPageUserStateType = {
   /**
    * Field included by default.
    */
-  visited_at?: string | null
+  source_provenance: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  source_signal_id?: string | null
+  /**
+   * Field included by default.
+   */
+  status: 'active' | 'cancelled'
+  /**
+   * Field included by default.
+   */
+  unavailable_reason?: string | null
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+}
+
+/**
+ * A "Resource object" representing a pod_document_history_operation
+ */
+export type PodDocumentHistoryOperation = {
+  /**
+   * An attributes object for a pod_document_history_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_document_history_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_page
+ */
+export type PodPage = {
+  /**
+   * An attributes object for a pod_page
+   */
+  attributes?: {
+    actions?: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'> | null
+    /**
+     * Field included by default.
+     */
+    children_view: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    conversation_id?: string | null
+    /**
+     * Field included by default.
+     */
+    created_at: string
+    /**
+     * Field included by default.
+     */
+    deleted_at?: string | null
+    /**
+     * Field included by default.
+     */
+    icon?: string | null
+    /**
+     * Field included by default.
+     */
+    id: string
+    /**
+     * Field included by default.
+     */
+    inherit_permissions: boolean
+    /**
+     * Field included by default.
+     */
+    is_root?: boolean | null
+    /**
+     * Field included by default.
+     */
+    metadata: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    object_id?: string | null
+    /**
+     * Field included by default.
+     */
+    owner_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    parent_id?: string | null
+    /**
+     * Field included by default.
+     */
+    position?: string | null
+    /**
+     * Field included by default.
+     */
+    private_owner_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    purge_started_at?: string | null
+    /**
+     * Field included by default.
+     */
+    revision: number
+    role?: 'view' | 'contribute' | 'edit' | 'manage' | null
+    /**
+     * Field included by default.
+     */
+    saved_from_message_id?: string | null
+    /**
+     * Field included by default.
+     */
+    system_key?: string | null
+    /**
+     * Field included by default.
+     */
+    title: string
+    /**
+     * Field included by default.
+     */
+    type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+    visited_at?: string | null
+  }
+  id: string
+  /**
+   * A relationships object for a pod_page
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type PodAdminOperationFilter = {
+  and?: Array<PodAdminOperationFilter>
+  not?: PodAdminOperationFilter
+  or?: Array<PodAdminOperationFilter>
+}
+
+/**
+ * A "Resource object" representing a connector_operation
+ */
+export type ConnectorOperation = {
+  /**
+   * An attributes object for a connector_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a connector_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type EventBindingOperationFilter = {
+  and?: Array<EventBindingOperationFilter>
+  not?: EventBindingOperationFilter
+  or?: Array<EventBindingOperationFilter>
+}
+
+/**
+ * A "Resource object" representing a pod_file_operation
+ */
+export type PodFileOperation = {
+  /**
+   * An attributes object for a pod_file_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_file_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_base_view
+ */
+export type PodBaseView = {
+  /**
+   * An attributes object for a pod_base_view
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    config: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    position: string
+    /**
+     * Field included by default.
+     */
+    table_id: string
+    /**
+     * Field included by default.
+     */
+    type: 'grid' | 'kanban' | 'gallery'
+    /**
+     * Field included by default.
+     */
+    version: number
+  }
+  id: string
+  /**
+   * A relationships object for a pod_base_view
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type PodBaseFieldType = {
+  /**
+   * Field included by default.
+   */
+  config: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  id: string
+  /**
+   * Field included by default.
+   */
+  is_primary: boolean
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  position: string
+  /**
+   * Field included by default.
+   */
+  table_id: string
+  /**
+   * Field included by default.
+   */
+  type:
+    | 'text'
+    | 'number'
+    | 'select'
+    | 'datetime'
+    | 'checkbox'
+    | 'user'
+    | 'attachment'
+    | 'auto_number'
+    | 'link'
+    | 'formula'
+    | 'created_at'
+    | 'updated_at'
+    | 'created_by'
+    | 'updated_by'
+  /**
+   * Field included by default.
+   */
+  version: number
+}
+
+/**
+ * A "Resource object" representing a pod_page_operation
+ */
+export type PodPageOperation = {
+  /**
+   * An attributes object for a pod_page_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_page_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type MetaAgentFilter = {
+  and?: Array<MetaAgentFilter>
+  not?: MetaAgentFilter
+  or?: Array<MetaAgentFilter>
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type PodRealtimeFilter = {
+  and?: Array<PodRealtimeFilter>
+  not?: PodRealtimeFilter
+  or?: Array<PodRealtimeFilter>
 }
 
 /**
@@ -1199,27 +1179,18 @@ export type PodRealtime = {
 }
 
 /**
- * Filters the query to results matching the given filter object
+ * A "Resource object" representing a event_binding_operation
  */
-export type PodRealtimeFilter = {
-  and?: Array<PodRealtimeFilter>
-  not?: PodRealtimeFilter
-  or?: Array<PodRealtimeFilter>
-}
-
-/**
- * A "Resource object" representing a pod_spreadsheet_operation
- */
-export type PodSpreadsheetOperation = {
+export type EventBindingOperation = {
   /**
-   * An attributes object for a pod_spreadsheet_operation
+   * An attributes object for a event_binding_operation
    */
   attributes?: {
     [key: string]: never
   }
   id: string
   /**
-   * A relationships object for a pod_spreadsheet_operation
+   * A relationships object for a event_binding_operation
    */
   relationships?: {
     [key: string]: never
@@ -1227,133 +1198,633 @@ export type PodSpreadsheetOperation = {
   type: string
 }
 
-export type GetPodActionCardData = {
-  body?: never
-  path: {
-    card_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/action-cards/{card_id}'
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type ConnectorOperationFilter = {
+  and?: Array<ConnectorOperationFilter>
+  not?: ConnectorOperationFilter
+  or?: Array<ConnectorOperationFilter>
 }
 
-export type GetPodActionCardErrors = {
+/**
+ * A "Resource object" representing a meta_library
+ */
+export type MetaLibrary = {
+  /**
+   * An attributes object for a meta_library
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a meta_library
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type PodBaseTableDeleteData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/tables/{id}'
+}
+
+export type PodBaseTableDeleteErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type GetPodActionCardError = GetPodActionCardErrors[keyof GetPodActionCardErrors]
+export type PodBaseTableDeleteError = PodBaseTableDeleteErrors[keyof PodBaseTableDeleteErrors]
 
-export type GetPodActionCardResponses = {
+export type PodBaseTableDeleteResponses = {
   /**
    * Success
    */
   200: {
-    action_kind: string
-    agent_uid: string
-    card_id: string
-    conversation_id: string
-    conversation_kind: string
-    interaction_id: string
-    payload: {
-      [key: string]: unknown
-    }
-    resolution_note?: string | null
-    resolved_at?: string | null
-    resolved_by_name?: string | null
-    resolved_by_uid?: string | null
-    status: string
-    summary: string
-    target_node_id?: string | null
+    table: PodBaseTableType
   }
 }
 
-export type GetPodActionCardResponse = GetPodActionCardResponses[keyof GetPodActionCardResponses]
+export type PodBaseTableDeleteResponse = PodBaseTableDeleteResponses[keyof PodBaseTableDeleteResponses]
 
-export type ResolvePodActionCardData = {
-  /**
-   * Request body for the resolvePodActionCard operation on pod_chat_operation resource
-   */
-  body: {
-    data: {
-      decision: 'confirm' | 'cancel'
-    }
-  }
+export type PodBaseSchemaData = {
+  body?: never
   path: {
-    card_id: string
+    id: string
   }
   query?: never
-  url: '/api/v2/pod/action-cards/{card_id}/resolve'
+  url: '/api/v2/pod/tables/{id}'
 }
 
-export type ResolvePodActionCardErrors = {
+export type PodBaseSchemaErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type ResolvePodActionCardError = ResolvePodActionCardErrors[keyof ResolvePodActionCardErrors]
+export type PodBaseSchemaError = PodBaseSchemaErrors[keyof PodBaseSchemaErrors]
 
-export type ResolvePodActionCardResponses = {
+export type PodBaseSchemaResponses = {
+  /**
+   * Success
+   */
+  200: {
+    fields: Array<PodBaseFieldType>
+    limits: {
+      group_count: number
+      query_rows: number
+      record_bytes: number
+      statement_timeout_ms: number
+    }
+    local_query: {
+      jsonb_compare: boolean
+      text_contains_ascii: boolean
+    }
+    mode: 'local' | 'remote'
+    table: PodBaseTableType
+    timezone: string
+    views: Array<PodBaseViewType>
+  }
+}
+
+export type PodBaseSchemaResponse = PodBaseSchemaResponses[keyof PodBaseSchemaResponses]
+
+export type PodBaseTableRenameData = {
+  /**
+   * Request body for the podBaseTableRename operation on pod_base_operation resource
+   */
+  body: {
+    data: {
+      name: string
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/tables/{id}'
+}
+
+export type PodBaseTableRenameErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseTableRenameError = PodBaseTableRenameErrors[keyof PodBaseTableRenameErrors]
+
+export type PodBaseTableRenameResponses = {
+  /**
+   * Success
+   */
+  200: {
+    table: PodBaseTableType
+  }
+}
+
+export type PodBaseTableRenameResponse = PodBaseTableRenameResponses[keyof PodBaseTableRenameResponses]
+
+export type PodJobSchedulesRunData = {
+  /**
+   * Request body for the podJobSchedulesRun operation on applet_job_operation resource
+   */
+  body: {
+    data: {
+      idempotency_key: string
+    }
+  }
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/run'
+}
+
+export type PodJobSchedulesRunErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesRunError = PodJobSchedulesRunErrors[keyof PodJobSchedulesRunErrors]
+
+export type PodJobSchedulesRunResponses = {
   /**
    * Success
    */
   201: {
-    action_kind: string
-    agent_uid: string
-    card_id: string
-    conversation_id: string
-    conversation_kind: string
-    interaction_id: string
-    payload: {
-      [key: string]: unknown
-    }
-    resolution_note?: string | null
-    resolved_at?: string | null
-    resolved_by_name?: string | null
-    resolved_by_uid?: string | null
-    status: string
-    summary: string
-    target_node_id?: string | null
+    [key: string]: unknown
   }
 }
 
-export type ResolvePodActionCardResponse = ResolvePodActionCardResponses[keyof ResolvePodActionCardResponses]
+export type PodJobSchedulesRunResponse = PodJobSchedulesRunResponses[keyof PodJobSchedulesRunResponses]
 
-export type PodAdminAgentsData = {
-  body?: never
-  path?: never
+export type UpdateConversationParticipantsData = {
+  /**
+   * Request body for the updateConversationParticipants operation on pod_chat_operation resource
+   */
+  body?: {
+    data: {
+      addUIDs?: Array<string> | null
+      agentUID?: string | null
+      mayIntervene?: boolean | null
+      removeUIDs?: Array<string> | null
+    }
+  }
+  path: {
+    id: string
+  }
   query?: never
-  url: '/api/v2/pod/admin/agents'
+  url: '/api/v2/pod/conversations/{id}/participants'
 }
 
-export type PodAdminAgentsErrors = {
+export type UpdateConversationParticipantsErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodAdminAgentsError = PodAdminAgentsErrors[keyof PodAdminAgentsErrors]
+export type UpdateConversationParticipantsError =
+  UpdateConversationParticipantsErrors[keyof UpdateConversationParticipantsErrors]
 
-export type PodAdminAgentsResponses = {
+export type UpdateConversationParticipantsResponses = {
+  /**
+   * Success
+   */
+  201: boolean
+}
+
+export type UpdateConversationParticipantsResponse =
+  UpdateConversationParticipantsResponses[keyof UpdateConversationParticipantsResponses]
+
+export type UpdateConversationQueueData = {
+  /**
+   * Request body for the updateConversationQueue operation on pod_chat_operation resource
+   */
+  body: {
+    data: {
+      action: 'edit' | 'steer' | 'retract' | 'reorder' | 'stop' | 'resume' | 'regenerate' | 'edit_last'
+      agentUID: string
+      commandID?: string | null
+      expectedLinks?: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }> | null
+      expectedMentions?: Array<{
+        displayName?: string | null
+        type: 'human' | 'agent'
+        uid: string
+      }> | null
+      expectedText?: string | null
+      expectedVersion?: string | null
+      links?: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }> | null
+      mentions?: Array<{
+        displayName?: string | null
+        type: 'human' | 'agent'
+        uid: string
+      }> | null
+      messageID?: string | null
+      messageIDs?: Array<string> | null
+      text?: string | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/queue'
+}
+
+export type UpdateConversationQueueErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateConversationQueueError = UpdateConversationQueueErrors[keyof UpdateConversationQueueErrors]
+
+export type UpdateConversationQueueResponses = {
+  /**
+   * Success
+   */
+  201: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
+    conversation: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
+        active: boolean
+        displayName: string
+        uid: string
+      } | null
+      agents: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
+      createdBy: string
+      id: string
+      lastActivityAt: string
+      lastMessageSeq: number
+      latestMessagePreview?: string | null
+      pageID?: string | null
+      participants: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
+      title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        lastVisitedAt?: string | null
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
+    }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
+    messageRange: {
+      firstSeq: number
+      lastSeq: number
+    }
+    messages: Array<{
+      attachments: Array<{
+        attachment_id?: number | null
+        content_type?: string | null
+        mime_type?: string | null
+        name: string
+        node_id?: string | null
+        object_id: string
+        path: string
+        position: number
+        resource_type?: string | null
+        size: number
+        upload_id?: string | null
+      }>
+      authorArchived: boolean
+      authorDisplayName: string
+      authorType: 'human' | 'agent' | 'system'
+      authorUID?: string | null
+      createdAt: string
+      id: string
+      kind: 'message' | 'notice'
+      links: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
+      }>
+      replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
+      seq: number
+      signalID?: string | null
+      text: string
+    }>
+    olderMessagesBeforeSeq?: number | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
+      }>
+      fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      interaction_id: string
+      messageID: string
+      question: string
+      state: string
+      tool_call_id: string
+    }>
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
+        agentUID: string
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
+      }
+    }>
+    removedMessageIDs: Array<string>
+  }
+}
+
+export type UpdateConversationQueueResponse = UpdateConversationQueueResponses[keyof UpdateConversationQueueResponses]
+
+export type ChoosePodNextStepData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/next-steps/{id}/choose'
+}
+
+export type ChoosePodNextStepErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ChoosePodNextStepError = ChoosePodNextStepErrors[keyof ChoosePodNextStepErrors]
+
+export type ChoosePodNextStepResponses = {
+  /**
+   * Success
+   */
+  201: boolean
+}
+
+export type ChoosePodNextStepResponse = ChoosePodNextStepResponses[keyof ChoosePodNextStepResponses]
+
+export type PodPageMoveData = {
+  /**
+   * Request body for the podPageMove operation on pod_page_operation resource
+   */
+  body?: {
+    data: {
+      after_id?: string | null
+      before_id?: string | null
+      parent_id?: string | null
+      private_owner_uid?: string | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/move'
+}
+
+export type PodPageMoveErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageMoveError = PodPageMoveErrors[keyof PodPageMoveErrors]
+
+export type PodPageMoveResponses = {
+  /**
+   * Success
+   */
+  201: {
+    page: PodPageType
+    undo: {
+      after_id?: string | null
+      before_id?: string | null
+      parent_id?: string | null
+      private_owner_uid?: string | null
+    }
+  }
+}
+
+export type PodPageMoveResponse = PodPageMoveResponses[keyof PodPageMoveResponses]
+
+export type PodConnectorAccountsListData = {
+  body?: never
+  path?: never
+  query?: {
+    scope?: string
+  }
+  url: '/api/v2/pod/connectors/accounts'
+}
+
+export type PodConnectorAccountsListErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorAccountsListError = PodConnectorAccountsListErrors[keyof PodConnectorAccountsListErrors]
+
+export type PodConnectorAccountsListResponses = {
   /**
    * Success
    */
   200: {
-    agents: Array<{
-      displayName: string
-      ownerUID: string
-      status: 'active' | 'disabled'
-      type: 'ai_colleague' | 'personal_assistant'
-      uid: string
+    accounts: Array<{
+      account_key: string
+      auth_config_id: string
+      expires_at?: string | null
+      external_subject_id?: string | null
+      granted_scopes: Array<string>
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      owner_principal_uid?: string | null
+      plugin_id: string
+      public_metadata: {
+        [key: string]: unknown
+      }
+      refresh_expires_at?: string | null
+      status: string
+      subject_kind: string
+      updated_at: string
     }>
   }
 }
 
-export type PodAdminAgentsResponse = PodAdminAgentsResponses[keyof PodAdminAgentsResponses]
+export type PodConnectorAccountsListResponse =
+  PodConnectorAccountsListResponses[keyof PodConnectorAccountsListResponses]
 
 export type DisablePodAgentData = {
   body?: never
@@ -1383,72 +1854,6 @@ export type DisablePodAgentResponses = {
 }
 
 export type DisablePodAgentResponse = DisablePodAgentResponses[keyof DisablePodAgentResponses]
-
-export type EnablePodAgentData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v2/pod/admin/agents/{uid}/enable'
-}
-
-export type EnablePodAgentErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type EnablePodAgentError = EnablePodAgentErrors[keyof EnablePodAgentErrors]
-
-export type EnablePodAgentResponses = {
-  /**
-   * Success
-   */
-  201: {
-    ok: boolean
-  }
-}
-
-export type EnablePodAgentResponse = EnablePodAgentResponses[keyof EnablePodAgentResponses]
-
-export type RenamePodAgentData = {
-  /**
-   * Request body for the renamePodAgent operation on pod_admin_operation resource
-   */
-  body: {
-    data: {
-      new_uid: string
-    }
-  }
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v2/pod/admin/agents/{uid}/rename'
-}
-
-export type RenamePodAgentErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type RenamePodAgentError = RenamePodAgentErrors[keyof RenamePodAgentErrors]
-
-export type RenamePodAgentResponses = {
-  /**
-   * Success
-   */
-  201: {
-    base_repair_error?: string | null
-    uid: string
-  }
-}
-
-export type RenamePodAgentResponse = RenamePodAgentResponses[keyof RenamePodAgentResponses]
 
 export type PodAdminIdentityProvidersData = {
   body?: never
@@ -1542,295 +1947,2449 @@ export type PodAdminIdentityProvidersResponses = {
 export type PodAdminIdentityProvidersResponse =
   PodAdminIdentityProvidersResponses[keyof PodAdminIdentityProvidersResponses]
 
-export type CreatePodIdentityProviderData = {
+export type PodVersionsData = {
   /**
-   * Request body for the createPodIdentityProvider operation on pod_admin_operation resource
+   * Request body for the podVersions operation on pod_page_operation resource
    */
-  body: {
+  body?: {
     data: {
-      adapter_id: string
-      config: {
-        [key: string]: unknown
-      }
-      enabled: boolean
+      pages?: Array<string> | null
+      tables?: Array<string> | null
     }
   }
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/admin/identity-providers/{provider_id}'
-}
-
-export type CreatePodIdentityProviderErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type CreatePodIdentityProviderError = CreatePodIdentityProviderErrors[keyof CreatePodIdentityProviderErrors]
-
-export type CreatePodIdentityProviderResponses = {
-  /**
-   * Success
-   */
-  201: {
-    ok: boolean
-  }
-}
-
-export type CreatePodIdentityProviderResponse =
-  CreatePodIdentityProviderResponses[keyof CreatePodIdentityProviderResponses]
-
-export type SavePodIdentityProviderData = {
-  /**
-   * Request body for the savePodIdentityProvider operation on pod_admin_operation resource
-   */
-  body: {
-    data: {
-      adapter_id: string
-      config: {
-        [key: string]: unknown
-      }
-      enabled: boolean
-    }
-  }
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/admin/identity-providers/{provider_id}'
-}
-
-export type SavePodIdentityProviderErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type SavePodIdentityProviderError = SavePodIdentityProviderErrors[keyof SavePodIdentityProviderErrors]
-
-export type SavePodIdentityProviderResponses = {
-  /**
-   * Success
-   */
-  200: {
-    ok: boolean
-  }
-}
-
-export type SavePodIdentityProviderResponse = SavePodIdentityProviderResponses[keyof SavePodIdentityProviderResponses]
-
-export type SyncPodDirectoryData = {
-  body?: never
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/admin/identity-providers/{provider_id}/syncs'
-}
-
-export type SyncPodDirectoryErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type SyncPodDirectoryError = SyncPodDirectoryErrors[keyof SyncPodDirectoryErrors]
-
-export type SyncPodDirectoryResponses = {
-  /**
-   * Success
-   */
-  201: {
-    ok: boolean
-  }
-}
-
-export type SyncPodDirectoryResponse = SyncPodDirectoryResponses[keyof SyncPodDirectoryResponses]
-
-export type PodAdminInvitationsData = {
-  body?: never
   path?: never
   query?: never
-  url: '/api/v2/pod/admin/invitations'
+  url: '/api/v2/pod/versions'
 }
 
-export type PodAdminInvitationsErrors = {
+export type PodVersionsErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodAdminInvitationsError = PodAdminInvitationsErrors[keyof PodAdminInvitationsErrors]
+export type PodVersionsError = PodVersionsErrors[keyof PodVersionsErrors]
 
-export type PodAdminInvitationsResponses = {
+export type PodVersionsResponses = {
   /**
    * Success
    */
-  200: {
-    invitations: Array<{
-      expires_at: string
+  201: {
+    pages: Array<{
       id: string
-      invited_email?: string | null
-      kind: string
-      max_uses?: number | null
-      membership: string
-      revoked_at?: string | null
-      used_count: number
+      object_id?: string | null
+      revision: number
+    }>
+    tables: Array<{
+      data_version: number
+      id: string
     }>
   }
 }
 
-export type PodAdminInvitationsResponse = PodAdminInvitationsResponses[keyof PodAdminInvitationsResponses]
+export type PodVersionsResponse = PodVersionsResponses[keyof PodVersionsResponses]
 
-export type CreatePodInvitationData = {
-  /**
-   * Request body for the createPodInvitation operation on pod_admin_operation resource
-   */
-  body: {
-    data: {
-      email?: string | null
-      expiresAt: unknown
-      maxUses?: number | null
-      membership: 'member' | 'guest'
-    }
+export type PodJobSchedulesDeleteData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
   }
-  path?: never
   query?: never
-  url: '/api/v2/pod/admin/invitations'
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}'
 }
 
-export type CreatePodInvitationErrors = {
+export type PodJobSchedulesDeleteErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type CreatePodInvitationError = CreatePodInvitationErrors[keyof CreatePodInvitationErrors]
+export type PodJobSchedulesDeleteError = PodJobSchedulesDeleteErrors[keyof PodJobSchedulesDeleteErrors]
 
-export type CreatePodInvitationResponses = {
+export type PodJobSchedulesDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesDeleteResponse = PodJobSchedulesDeleteResponses[keyof PodJobSchedulesDeleteResponses]
+
+export type PodAppletJobsData = {
+  body?: never
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs'
+}
+
+export type PodAppletJobsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletJobsError = PodAppletJobsErrors[keyof PodAppletJobsErrors]
+
+export type PodAppletJobsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    jobs: Array<AutomationJobType>
+  }
+}
+
+export type PodAppletJobsResponse = PodAppletJobsResponses[keyof PodAppletJobsResponses]
+
+export type PodAppletJobCreateData = {
+  /**
+   * Request body for the podAppletJobCreate operation on applet_job_operation resource
+   */
+  body: {
+    data: {
+      action_key: string
+      authorization_kind?: string | null
+      config?: {
+        [key: string]: unknown
+      } | null
+      label?: string | null
+    }
+  }
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs'
+}
+
+export type PodAppletJobCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletJobCreateError = PodAppletJobCreateErrors[keyof PodAppletJobCreateErrors]
+
+export type PodAppletJobCreateResponses = {
   /**
    * Success
    */
   201: {
-    code: string
-    id: string
-    url: string
+    job: AutomationJobType
   }
 }
 
-export type CreatePodInvitationResponse = CreatePodInvitationResponses[keyof CreatePodInvitationResponses]
+export type PodAppletJobCreateResponse = PodAppletJobCreateResponses[keyof PodAppletJobCreateResponses]
 
-export type RevokePodInvitationData = {
+export type MetaGlobalContractsData = {
   body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/contracts'
+}
+
+export type MetaGlobalContractsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaGlobalContractsError = MetaGlobalContractsErrors[keyof MetaGlobalContractsErrors]
+
+export type MetaGlobalContractsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_edit: boolean
+    contracts: Array<{
+      content_markdown: string
+      content_xml: string
+      effective_markdown: string
+      metadata: {
+        [key: string]: unknown
+      }
+      mode: string
+      revision: number
+      slot: string
+    }>
+  }
+}
+
+export type MetaGlobalContractsResponse = MetaGlobalContractsResponses[keyof MetaGlobalContractsResponses]
+
+export type PodJobSchedulesListData = {
+  body?: never
+  path: {
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules'
+}
+
+export type PodJobSchedulesListErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesListError = PodJobSchedulesListErrors[keyof PodJobSchedulesListErrors]
+
+export type PodJobSchedulesListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesListResponse = PodJobSchedulesListResponses[keyof PodJobSchedulesListResponses]
+
+export type PodJobSchedulesPutData = {
+  /**
+   * Request body for the podJobSchedulesPut operation on applet_job_operation resource
+   */
+  body?: {
+    data: {
+      id?: string | null
+      idempotency_key?: string | null
+      name?: string | null
+      payload?: {
+        [key: string]: unknown
+      } | null
+      schedule?: {
+        [key: string]: unknown
+      } | null
+      timezone?: string | null
+    }
+  }
+  path: {
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules'
+}
+
+export type PodJobSchedulesPutErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesPutError = PodJobSchedulesPutErrors[keyof PodJobSchedulesPutErrors]
+
+export type PodJobSchedulesPutResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesPutResponse = PodJobSchedulesPutResponses[keyof PodJobSchedulesPutResponses]
+
+export type PodJobWebhooksResumeData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/resume'
+}
+
+export type PodJobWebhooksResumeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksResumeError = PodJobWebhooksResumeErrors[keyof PodJobWebhooksResumeErrors]
+
+export type PodJobWebhooksResumeResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksResumeResponse = PodJobWebhooksResumeResponses[keyof PodJobWebhooksResumeResponses]
+
+export type MetaSkillsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/skills'
+}
+
+export type MetaSkillsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillsError = MetaSkillsErrors[keyof MetaSkillsErrors]
+
+export type MetaSkillsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_create: boolean
+    skills: Array<{
+      agent_plugin_id?: string | null
+      assistant_enabled: boolean
+      can_bind_all: boolean
+      can_delete: boolean
+      can_edit: boolean
+      colleague_count: number
+      description: string
+      enabled_for_all: boolean
+      id: string
+      manifest_markdown: string
+      manifest_xml: string
+      metadata: {
+        [key: string]: unknown
+      }
+      name: string
+      revision: number
+      slug: string
+      source_kind: string
+    }>
+  }
+}
+
+export type MetaSkillsResponse = MetaSkillsResponses[keyof MetaSkillsResponses]
+
+export type MetaCreateSkillData = {
+  /**
+   * Request body for the metaCreateSkill operation on meta_library resource
+   */
+  body: {
+    data: {
+      manifest_xml: string
+      metadata: {
+        [key: string]: unknown
+      }
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/skills'
+}
+
+export type MetaCreateSkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaCreateSkillError = MetaCreateSkillErrors[keyof MetaCreateSkillErrors]
+
+export type MetaCreateSkillResponses = {
+  /**
+   * Success
+   */
+  201: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaCreateSkillResponse = MetaCreateSkillResponses[keyof MetaCreateSkillResponses]
+
+export type MetaSkillFileData = {
+  body?: never
+  path: {
+    slug: string
+  }
+  query: {
+    path: string
+  }
+  url: '/api/v2/pod/meta/skills/{slug}/file'
+}
+
+export type MetaSkillFileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillFileError = MetaSkillFileErrors[keyof MetaSkillFileErrors]
+
+export type MetaSkillFileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    content_base64: string
+    revision: number
+  }
+}
+
+export type MetaSkillFileResponse = MetaSkillFileResponses[keyof MetaSkillFileResponses]
+
+export type MetaSkillChangeFileData = {
+  /**
+   * Request body for the metaSkillChangeFile operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      new_path?: string | null
+      path: string
+    }
+  }
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}/file'
+}
+
+export type MetaSkillChangeFileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillChangeFileError = MetaSkillChangeFileErrors[keyof MetaSkillChangeFileErrors]
+
+export type MetaSkillChangeFileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaSkillChangeFileResponse = MetaSkillChangeFileResponses[keyof MetaSkillChangeFileResponses]
+
+export type MetaSkillPutFileData = {
+  /**
+   * Request body for the metaSkillPutFile operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      content_base64: string
+      content_type: string
+      mode: number
+      path: string
+    }
+  }
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}/file'
+}
+
+export type MetaSkillPutFileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillPutFileError = MetaSkillPutFileErrors[keyof MetaSkillPutFileErrors]
+
+export type MetaSkillPutFileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaSkillPutFileResponse = MetaSkillPutFileResponses[keyof MetaSkillPutFileResponses]
+
+export type PodBaseQueryData = {
+  /**
+   * Request body for the podBaseQuery operation on pod_base_operation resource
+   */
+  body?: {
+    data: {
+      filter?: {
+        conditions: Array<{
+          field_id: string
+          operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
+          value?: unknown | null
+        }>
+        conjunction: 'and' | 'or'
+      } | null
+      group?: {
+        field_id: string
+        value?: unknown | null
+        value_json?: string | null
+      } | null
+      ids?: Array<string> | null
+      local?: boolean | null
+      page_size?: number | null
+      page_token?: string | null
+      sort?: Array<{
+        direction: 'asc' | 'desc'
+        field_id: string
+      }> | null
+    }
+  }
   path: {
     id: string
   }
   query?: never
-  url: '/api/v2/pod/admin/invitations/{id}'
+  url: '/api/v2/pod/tables/{id}/query'
 }
 
-export type RevokePodInvitationErrors = {
+export type PodBaseQueryErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type RevokePodInvitationError = RevokePodInvitationErrors[keyof RevokePodInvitationErrors]
+export type PodBaseQueryError = PodBaseQueryErrors[keyof PodBaseQueryErrors]
 
-export type RevokePodInvitationResponses = {
-  /**
-   * Success
-   */
-  200: {
-    ok: boolean
-  }
-}
-
-export type RevokePodInvitationResponse = RevokePodInvitationResponses[keyof RevokePodInvitationResponses]
-
-export type PodAdminMembersData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/admin/members'
-}
-
-export type PodAdminMembersErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodAdminMembersError = PodAdminMembersErrors[keyof PodAdminMembersErrors]
-
-export type PodAdminMembersResponses = {
-  /**
-   * Success
-   */
-  200: {
-    members: Array<{
-      administrator: boolean
-      credentials: Array<{
-        id: string
-        identifier: string
-        kind: string
-        provider: string
-      }>
-      displayName: string
-      email?: string | null
-      membership: string
-      status: string
-      uid: string
-    }>
-  }
-}
-
-export type PodAdminMembersResponse = PodAdminMembersResponses[keyof PodAdminMembersResponses]
-
-export type CreatePodMemberData = {
-  /**
-   * Request body for the createPodMember operation on pod_admin_operation resource
-   */
-  body: {
-    data: {
-      displayName: string
-      email: string
-      membership: 'member' | 'guest'
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/admin/members'
-}
-
-export type CreatePodMemberErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type CreatePodMemberError = CreatePodMemberErrors[keyof CreatePodMemberErrors]
-
-export type CreatePodMemberResponses = {
+export type PodBaseQueryResponses = {
   /**
    * Success
    */
   201: {
+    complete: boolean
+    data_version: number
+    page_token?: string | null
+    records: Array<{
+      created_at: string
+      created_by: string
+      data: {
+        [key: string]:
+          | string
+          | number
+          | boolean
+          | null
+          | Array<unknown>
+          | {
+              [key: string]: unknown
+            }
+      }
+      id: string
+      updated_at: string
+      updated_by: string
+      versions: {
+        [key: string]: number
+      }
+    }>
+  }
+}
+
+export type PodBaseQueryResponse = PodBaseQueryResponses[keyof PodBaseQueryResponses]
+
+export type PodAppletJobDeleteData = {
+  body?: never
+  path: {
+    id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{id}'
+}
+
+export type PodAppletJobDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletJobDeleteError = PodAppletJobDeleteErrors[keyof PodAppletJobDeleteErrors]
+
+export type PodAppletJobDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    job: AutomationJobType
+  }
+}
+
+export type PodAppletJobDeleteResponse = PodAppletJobDeleteResponses[keyof PodAppletJobDeleteResponses]
+
+export type PodAppletJobConfigureData = {
+  /**
+   * Request body for the podAppletJobConfigure operation on applet_job_operation resource
+   */
+  body?: {
+    data: {
+      config?: {
+        [key: string]: unknown
+      } | null
+      label?: string | null
+    }
+  }
+  path: {
+    id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{id}'
+}
+
+export type PodAppletJobConfigureErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletJobConfigureError = PodAppletJobConfigureErrors[keyof PodAppletJobConfigureErrors]
+
+export type PodAppletJobConfigureResponses = {
+  /**
+   * Success
+   */
+  200: {
+    job: AutomationJobType
+  }
+}
+
+export type PodAppletJobConfigureResponse = PodAppletJobConfigureResponses[keyof PodAppletJobConfigureResponses]
+
+export type PodPageHistoryRestoreData = {
+  /**
+   * Request body for the podPageHistoryRestore operation on pod_document_history_operation resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      updated_at: string
+    }
+  }
+  path: {
+    snapshot_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/history/{snapshot_id}/restore'
+}
+
+export type PodPageHistoryRestoreErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageHistoryRestoreError = PodPageHistoryRestoreErrors[keyof PodPageHistoryRestoreErrors]
+
+export type PodPageHistoryRestoreResponses = {
+  /**
+   * Success
+   */
+  201: {
+    content: PodPageContentType
+    page: PodPageType
+  }
+}
+
+export type PodPageHistoryRestoreResponse = PodPageHistoryRestoreResponses[keyof PodPageHistoryRestoreResponses]
+
+export type PodModelProfilesData = {
+  body?: never
+  path: {
     uid: string
   }
+  query?: never
+  url: '/api/v2/pod/agents/{uid}/model-profiles'
 }
 
-export type CreatePodMemberResponse = CreatePodMemberResponses[keyof CreatePodMemberResponses]
+export type PodModelProfilesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodModelProfilesError = PodModelProfilesErrors[keyof PodModelProfilesErrors]
+
+export type PodModelProfilesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    profiles: Array<{
+      description: string
+      name: string
+    }>
+  }
+}
+
+export type PodModelProfilesResponse = PodModelProfilesResponses[keyof PodModelProfilesResponses]
+
+export type PodAppletOwnerData = {
+  /**
+   * Request body for the podAppletOwner operation on pod_page_operation resource
+   */
+  body: {
+    data: {
+      owner_uid: string
+    }
+  }
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/applet-owner'
+}
+
+export type PodAppletOwnerErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletOwnerError = PodAppletOwnerErrors[keyof PodAppletOwnerErrors]
+
+export type PodAppletOwnerResponses = {
+  /**
+   * Success
+   */
+  200: {
+    page: PodPageType
+  }
+}
+
+export type PodAppletOwnerResponse = PodAppletOwnerResponses[keyof PodAppletOwnerResponses]
+
+export type PodJobWebhooksCancelData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/cancel'
+}
+
+export type PodJobWebhooksCancelErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksCancelError = PodJobWebhooksCancelErrors[keyof PodJobWebhooksCancelErrors]
+
+export type PodJobWebhooksCancelResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksCancelResponse = PodJobWebhooksCancelResponses[keyof PodJobWebhooksCancelResponses]
+
+export type PodConnectorTriggersRetryData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/connectors/triggers/{id}/retry'
+}
+
+export type PodConnectorTriggersRetryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorTriggersRetryError = PodConnectorTriggersRetryErrors[keyof PodConnectorTriggersRetryErrors]
+
+export type PodConnectorTriggersRetryResponses = {
+  /**
+   * Success
+   */
+  201: {
+    trigger: {
+      auth_config_id: string
+      config: {
+        [key: string]: unknown
+      }
+      config_ref: string
+      connected_account_id?: string | null
+      connected_account_status?: string | null
+      external_subscription_id?: string | null
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      owner_principal_uid?: string | null
+      plugin_id: string
+      scope_key: string
+      status: string
+      trigger_type: string
+      updated_at: string
+    }
+  }
+}
+
+export type PodConnectorTriggersRetryResponse =
+  PodConnectorTriggersRetryResponses[keyof PodConnectorTriggersRetryResponses]
+
+export type MetaAgentContractsData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/agents/{uid}/contracts'
+}
+
+export type MetaAgentContractsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaAgentContractsError = MetaAgentContractsErrors[keyof MetaAgentContractsErrors]
+
+export type MetaAgentContractsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_edit: boolean
+    contracts: Array<{
+      content_markdown: string
+      content_xml: string
+      effective_markdown: string
+      metadata: {
+        [key: string]: unknown
+      }
+      mode: string
+      revision: number
+      slot: string
+    }>
+  }
+}
+
+export type MetaAgentContractsResponse = MetaAgentContractsResponses[keyof MetaAgentContractsResponses]
+
+export type PodAppletJobRunsData = {
+  body?: never
+  path: {
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/runs'
+}
+
+export type PodAppletJobRunsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletJobRunsError = PodAppletJobRunsErrors[keyof PodAppletJobRunsErrors]
+
+export type PodAppletJobRunsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    runs: Array<AutomationJobRunType>
+  }
+}
+
+export type PodAppletJobRunsResponse = PodAppletJobRunsResponses[keyof PodAppletJobRunsResponses]
+
+export type MetaDeleteSkillData = {
+  body?: never
+  path: {
+    slug: string
+  }
+  query: {
+    base_revision: number
+  }
+  url: '/api/v2/pod/meta/skills/{slug}'
+}
+
+export type MetaDeleteSkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaDeleteSkillError = MetaDeleteSkillErrors[keyof MetaDeleteSkillErrors]
+
+export type MetaDeleteSkillResponses = {
+  /**
+   * Success
+   */
+  200: boolean
+}
+
+export type MetaDeleteSkillResponse = MetaDeleteSkillResponses[keyof MetaDeleteSkillResponses]
+
+export type MetaSkillData = {
+  body?: never
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}'
+}
+
+export type MetaSkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillError = MetaSkillErrors[keyof MetaSkillErrors]
+
+export type MetaSkillResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_uids: Array<string>
+    files: Array<{
+      content_type: string
+      id: string
+      mode: number
+      relative_path: string
+    }>
+    skill: {
+      agent_plugin_id?: string | null
+      assistant_enabled: boolean
+      can_bind_all: boolean
+      can_delete: boolean
+      can_edit: boolean
+      colleague_count: number
+      description: string
+      enabled_for_all: boolean
+      id: string
+      manifest_markdown: string
+      manifest_xml: string
+      metadata: {
+        [key: string]: unknown
+      }
+      name: string
+      revision: number
+      slug: string
+      source_kind: string
+    }
+  }
+}
+
+export type MetaSkillResponse = MetaSkillResponses[keyof MetaSkillResponses]
+
+export type MetaSaveSkillData = {
+  /**
+   * Request body for the metaSaveSkill operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      manifest_xml: string
+      metadata: {
+        [key: string]: unknown
+      }
+      new_slug?: string | null
+    }
+  }
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}'
+}
+
+export type MetaSaveSkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSaveSkillError = MetaSaveSkillErrors[keyof MetaSaveSkillErrors]
+
+export type MetaSaveSkillResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaSaveSkillResponse = MetaSaveSkillResponses[keyof MetaSaveSkillResponses]
+
+export type PodConversationAttentionData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/conversations/attention'
+}
+
+export type PodConversationAttentionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConversationAttentionError = PodConversationAttentionErrors[keyof PodConversationAttentionErrors]
+
+export type PodConversationAttentionResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    accessScope: 'participants' | 'anchor_page'
+    agent?: {
+      active: boolean
+      displayName: string
+      uid: string
+    } | null
+    agents: Array<{
+      active: boolean
+      agentType?: string | null
+      aliases?: Array<string> | null
+      avatarURL?: string | null
+      canChat?: boolean | null
+      directConversationID?: string | null
+      displayName: string
+      mayIntervene: boolean
+      modelProfile?: string | null
+      role?: string | null
+      type: string
+      uid: string
+    }>
+    canDelete: boolean
+    canManage: boolean
+    conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
+    createdBy: string
+    id: string
+    lastActivityAt: string
+    lastMessageSeq: number
+    latestMessagePreview?: string | null
+    pageID?: string | null
+    participants: Array<{
+      active: boolean
+      agentType?: string | null
+      aliases?: Array<string> | null
+      avatarURL?: string | null
+      canChat?: boolean | null
+      directConversationID?: string | null
+      displayName: string
+      mayIntervene: boolean
+      modelProfile?: string | null
+      role?: string | null
+      type: string
+      uid: string
+    }>
+    roomMode: 'dm' | 'group'
+    rowStatus: string
+    searchMatch?: {
+      excerpt: string
+      seq: number
+    } | null
+    title: string
+    titleCustomized: boolean
+    viewer: {
+      lastReadSeq: number
+      lastVisitedAt?: string | null
+      muted: boolean
+      pinned: boolean
+      uid: string
+    }
+  }>
+}
+
+export type PodConversationAttentionResponse =
+  PodConversationAttentionResponses[keyof PodConversationAttentionResponses]
+
+export type PodPageNavigationData = {
+  body?: never
+  path?: never
+  query?: {
+    active_page_id?: string
+  }
+  url: '/api/v2/pod/pages/navigation'
+}
+
+export type PodPageNavigationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageNavigationError = PodPageNavigationErrors[keyof PodPageNavigationErrors]
+
+export type PodPageNavigationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    directories: Array<{
+      can_create_private: boolean
+      can_create_space: boolean
+      can_manage_space: boolean
+      next_cursor?: string | null
+      pages: Array<{
+        actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
+        has_children: boolean
+        icon?: string | null
+        id: string
+        inherit_permissions: boolean
+        metadata: {
+          [key: string]: unknown
+        }
+        name: string
+        parent_id?: string | null
+        position?: string | null
+        private_owner_uid?: string | null
+        role: 'view' | 'contribute' | 'edit' | 'manage'
+        system_key?: string | null
+        title: string
+        type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
+      }>
+      parent_id?: string | null
+      principal_uid: string
+      scope: string
+    }>
+    path: Array<{
+      actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
+      has_children: boolean
+      icon?: string | null
+      id: string
+      inherit_permissions: boolean
+      metadata: {
+        [key: string]: unknown
+      }
+      name: string
+      parent_id?: string | null
+      position?: string | null
+      private_owner_uid?: string | null
+      role: 'view' | 'contribute' | 'edit' | 'manage'
+      system_key?: string | null
+      title: string
+      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
+    }>
+  }
+}
+
+export type PodPageNavigationResponse = PodPageNavigationResponses[keyof PodPageNavigationResponses]
+
+export type DeleteConversationData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    forceStop?: boolean
+  }
+  url: '/api/v2/pod/conversations/{id}'
+}
+
+export type DeleteConversationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteConversationError = DeleteConversationErrors[keyof DeleteConversationErrors]
+
+export type DeleteConversationResponses = {
+  /**
+   * Success
+   */
+  200: boolean
+}
+
+export type DeleteConversationResponse = DeleteConversationResponses[keyof DeleteConversationResponses]
+
+export type ConversationDetailData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    beforeSeq?: number
+    loadedFirstSeq?: number
+  }
+  url: '/api/v2/pod/conversations/{id}'
+}
+
+export type ConversationDetailErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ConversationDetailError = ConversationDetailErrors[keyof ConversationDetailErrors]
+
+export type ConversationDetailResponses = {
+  /**
+   * Success
+   */
+  200: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
+    conversation: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
+        active: boolean
+        displayName: string
+        uid: string
+      } | null
+      agents: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
+      createdBy: string
+      id: string
+      lastActivityAt: string
+      lastMessageSeq: number
+      latestMessagePreview?: string | null
+      pageID?: string | null
+      participants: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
+      title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        lastVisitedAt?: string | null
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
+    }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
+    messageRange: {
+      firstSeq: number
+      lastSeq: number
+    }
+    messages: Array<{
+      attachments: Array<{
+        attachment_id?: number | null
+        content_type?: string | null
+        mime_type?: string | null
+        name: string
+        node_id?: string | null
+        object_id: string
+        path: string
+        position: number
+        resource_type?: string | null
+        size: number
+        upload_id?: string | null
+      }>
+      authorArchived: boolean
+      authorDisplayName: string
+      authorType: 'human' | 'agent' | 'system'
+      authorUID?: string | null
+      createdAt: string
+      id: string
+      kind: 'message' | 'notice'
+      links: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
+      }>
+      replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
+      seq: number
+      signalID?: string | null
+      text: string
+    }>
+    olderMessagesBeforeSeq?: number | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
+      }>
+      fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      interaction_id: string
+      messageID: string
+      question: string
+      state: string
+      tool_call_id: string
+    }>
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
+        agentUID: string
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
+      }
+    }>
+    removedMessageIDs: Array<string>
+  }
+}
+
+export type ConversationDetailResponse = ConversationDetailResponses[keyof ConversationDetailResponses]
+
+export type UpdateConversationData = {
+  /**
+   * Request body for the updateConversation operation on pod_chat_operation resource
+   */
+  body?: {
+    data: {
+      accessScope?: 'participants' | 'anchor_page' | null
+      lastReadSeq?: number | null
+      muted?: boolean | null
+      pinned?: boolean | null
+      title?: string | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}'
+}
+
+export type UpdateConversationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateConversationError = UpdateConversationErrors[keyof UpdateConversationErrors]
+
+export type UpdateConversationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
+    conversation: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
+        active: boolean
+        displayName: string
+        uid: string
+      } | null
+      agents: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
+      createdBy: string
+      id: string
+      lastActivityAt: string
+      lastMessageSeq: number
+      latestMessagePreview?: string | null
+      pageID?: string | null
+      participants: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
+      title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        lastVisitedAt?: string | null
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
+    }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
+    messageRange: {
+      firstSeq: number
+      lastSeq: number
+    }
+    messages: Array<{
+      attachments: Array<{
+        attachment_id?: number | null
+        content_type?: string | null
+        mime_type?: string | null
+        name: string
+        node_id?: string | null
+        object_id: string
+        path: string
+        position: number
+        resource_type?: string | null
+        size: number
+        upload_id?: string | null
+      }>
+      authorArchived: boolean
+      authorDisplayName: string
+      authorType: 'human' | 'agent' | 'system'
+      authorUID?: string | null
+      createdAt: string
+      id: string
+      kind: 'message' | 'notice'
+      links: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
+      }>
+      replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
+      seq: number
+      signalID?: string | null
+      text: string
+    }>
+    olderMessagesBeforeSeq?: number | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
+      }>
+      fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      interaction_id: string
+      messageID: string
+      question: string
+      state: string
+      tool_call_id: string
+    }>
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
+        agentUID: string
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
+      }
+    }>
+    removedMessageIDs: Array<string>
+  }
+}
+
+export type UpdateConversationResponse = UpdateConversationResponses[keyof UpdateConversationResponses]
+
+export type ResolvePodActionCardData = {
+  /**
+   * Request body for the resolvePodActionCard operation on pod_chat_operation resource
+   */
+  body: {
+    data: {
+      decision: 'confirm' | 'cancel'
+    }
+  }
+  path: {
+    card_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/action-cards/{card_id}/resolve'
+}
+
+export type ResolvePodActionCardErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResolvePodActionCardError = ResolvePodActionCardErrors[keyof ResolvePodActionCardErrors]
+
+export type ResolvePodActionCardResponses = {
+  /**
+   * Success
+   */
+  201: {
+    action_kind: string
+    agent_uid: string
+    card_id: string
+    conversation_id: string
+    conversation_kind: string
+    interaction_id: string
+    payload: {
+      [key: string]: unknown
+    }
+    resolution_note?: string | null
+    resolved_at?: string | null
+    resolved_by_name?: string | null
+    resolved_by_uid?: string | null
+    status: string
+    summary: string
+    target_node_id?: string | null
+  }
+}
+
+export type ResolvePodActionCardResponse = ResolvePodActionCardResponses[keyof ResolvePodActionCardResponses]
+
+export type PodBaseTablesData = {
+  body?: never
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/bases/{page_id}'
+}
+
+export type PodBaseTablesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseTablesError = PodBaseTablesErrors[keyof PodBaseTablesErrors]
+
+export type PodBaseTablesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    tables: Array<PodBaseTableType>
+  }
+}
+
+export type PodBaseTablesResponse = PodBaseTablesResponses[keyof PodBaseTablesResponses]
+
+export type AnswerConversationInteractionData = {
+  /**
+   * Request body for the answerConversationInteraction operation on pod_chat_operation resource
+   */
+  body?: {
+    data: {
+      attachments?: Array<string> | null
+      choiceID?: string | null
+      links?: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }> | null
+      mentions?: Array<{
+        displayName?: string | null
+        type: 'human' | 'agent'
+        uid: string
+      }> | null
+      text?: string | null
+      values?: {
+        [key: string]: unknown
+      } | null
+    }
+  }
+  path: {
+    interaction_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/interactions/{interaction_id}/answer'
+}
+
+export type AnswerConversationInteractionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type AnswerConversationInteractionError =
+  AnswerConversationInteractionErrors[keyof AnswerConversationInteractionErrors]
+
+export type AnswerConversationInteractionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
+    conversation: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
+        active: boolean
+        displayName: string
+        uid: string
+      } | null
+      agents: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
+      createdBy: string
+      id: string
+      lastActivityAt: string
+      lastMessageSeq: number
+      latestMessagePreview?: string | null
+      pageID?: string | null
+      participants: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
+      title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        lastVisitedAt?: string | null
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
+    }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
+    messageRange: {
+      firstSeq: number
+      lastSeq: number
+    }
+    messages: Array<{
+      attachments: Array<{
+        attachment_id?: number | null
+        content_type?: string | null
+        mime_type?: string | null
+        name: string
+        node_id?: string | null
+        object_id: string
+        path: string
+        position: number
+        resource_type?: string | null
+        size: number
+        upload_id?: string | null
+      }>
+      authorArchived: boolean
+      authorDisplayName: string
+      authorType: 'human' | 'agent' | 'system'
+      authorUID?: string | null
+      createdAt: string
+      id: string
+      kind: 'message' | 'notice'
+      links: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
+      }>
+      replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
+      seq: number
+      signalID?: string | null
+      text: string
+    }>
+    olderMessagesBeforeSeq?: number | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
+      }>
+      fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      interaction_id: string
+      messageID: string
+      question: string
+      state: string
+      tool_call_id: string
+    }>
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
+        agentUID: string
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
+      }
+    }>
+    removedMessageIDs: Array<string>
+  }
+}
+
+export type AnswerConversationInteractionResponse =
+  AnswerConversationInteractionResponses[keyof AnswerConversationInteractionResponses]
+
+export type GetPodActionCardData = {
+  body?: never
+  path: {
+    card_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/action-cards/{card_id}'
+}
+
+export type GetPodActionCardErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetPodActionCardError = GetPodActionCardErrors[keyof GetPodActionCardErrors]
+
+export type GetPodActionCardResponses = {
+  /**
+   * Success
+   */
+  200: {
+    action_kind: string
+    agent_uid: string
+    card_id: string
+    conversation_id: string
+    conversation_kind: string
+    interaction_id: string
+    payload: {
+      [key: string]: unknown
+    }
+    resolution_note?: string | null
+    resolved_at?: string | null
+    resolved_by_name?: string | null
+    resolved_by_uid?: string | null
+    status: string
+    summary: string
+    target_node_id?: string | null
+  }
+}
+
+export type GetPodActionCardResponse = GetPodActionCardResponses[keyof GetPodActionCardResponses]
+
+export type PodPageCommentDeleteData = {
+  body?: never
+  path: {
+    comment_id: string
+    id: string
+  }
+  query: {
+    version: number
+  }
+  url: '/api/v2/pod/pages/{id}/comments/{comment_id}'
+}
+
+export type PodPageCommentDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageCommentDeleteError = PodPageCommentDeleteErrors[keyof PodPageCommentDeleteErrors]
+
+export type PodPageCommentDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    comment: {
+      activity_at: string
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      anchor_outdated: boolean
+      anchor_present: boolean
+      anchor_revision?: number | null
+      author: {
+        avatar_url?: string | null
+        kind?: 'human' | 'agent' | 'system' | null
+        name?: string | null
+        principal_uid: string
+        tenant_id: string
+      }
+      body?: string | null
+      can_delete: boolean
+      can_edit: boolean
+      can_reanchor: boolean
+      can_resolve: boolean
+      created_at: string
+      deleted_at?: string | null
+      id: string
+      quote?: string | null
+      resolved_at?: string | null
+      resolved_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      root_id?: string | null
+      updated_at: string
+      version: number
+    }
+    revision: number
+  }
+}
+
+export type PodPageCommentDeleteResponse = PodPageCommentDeleteResponses[keyof PodPageCommentDeleteResponses]
+
+export type PodCommentReadData = {
+  body?: never
+  path: {
+    comment_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/comments/{comment_id}'
+}
+
+export type PodCommentReadErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodCommentReadError = PodCommentReadErrors[keyof PodCommentReadErrors]
+
+export type PodCommentReadResponses = {
+  /**
+   * Success
+   */
+  200: {
+    revision: number
+    thread: {
+      activity_at: string
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      anchor_outdated: boolean
+      anchor_present: boolean
+      anchor_revision?: number | null
+      author: {
+        avatar_url?: string | null
+        kind?: 'human' | 'agent' | 'system' | null
+        name?: string | null
+        principal_uid: string
+        tenant_id: string
+      }
+      body?: string | null
+      can_delete: boolean
+      can_edit: boolean
+      can_reanchor: boolean
+      can_resolve: boolean
+      created_at: string
+      deleted_at?: string | null
+      id: string
+      quote?: string | null
+      replies: Array<{
+        activity_at: string
+        anchor?: {
+          [key: string]: unknown
+        } | null
+        anchor_outdated: boolean
+        anchor_present: boolean
+        anchor_revision?: number | null
+        author: {
+          avatar_url?: string | null
+          kind?: 'human' | 'agent' | 'system' | null
+          name?: string | null
+          principal_uid: string
+          tenant_id: string
+        }
+        body?: string | null
+        can_delete: boolean
+        can_edit: boolean
+        can_reanchor: boolean
+        can_resolve: boolean
+        created_at: string
+        deleted_at?: string | null
+        id: string
+        quote?: string | null
+        resolved_at?: string | null
+        resolved_by?: {
+          tenant_id: string
+          uid: string
+        } | null
+        root_id?: string | null
+        updated_at: string
+        version: number
+      }>
+      resolved_at?: string | null
+      resolved_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      root_id?: string | null
+      unread: boolean
+      updated_at: string
+      version: number
+    }
+  }
+}
+
+export type PodCommentReadResponse = PodCommentReadResponses[keyof PodCommentReadResponses]
+
+export type PodPageCommentUpdateData = {
+  /**
+   * Request body for the podPageCommentUpdate operation on pod_document_comment_operation resource
+   */
+  body: {
+    data: {
+      body: string
+      mentioned_agent_uids?: Array<string> | null
+      version: number
+    }
+  }
+  path: {
+    comment_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/comments/{comment_id}'
+}
+
+export type PodPageCommentUpdateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageCommentUpdateError = PodPageCommentUpdateErrors[keyof PodPageCommentUpdateErrors]
+
+export type PodPageCommentUpdateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    comment: {
+      activity_at: string
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      anchor_outdated: boolean
+      anchor_present: boolean
+      anchor_revision?: number | null
+      author: {
+        avatar_url?: string | null
+        kind?: 'human' | 'agent' | 'system' | null
+        name?: string | null
+        principal_uid: string
+        tenant_id: string
+      }
+      body?: string | null
+      can_delete: boolean
+      can_edit: boolean
+      can_reanchor: boolean
+      can_resolve: boolean
+      created_at: string
+      deleted_at?: string | null
+      id: string
+      quote?: string | null
+      resolved_at?: string | null
+      resolved_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      root_id?: string | null
+      updated_at: string
+      version: number
+    }
+    revision: number
+  }
+}
+
+export type PodPageCommentUpdateResponse = PodPageCommentUpdateResponses[keyof PodPageCommentUpdateResponses]
 
 export type ChangePodMembershipData = {
   /**
@@ -1868,109 +4427,364 @@ export type ChangePodMembershipResponses = {
 
 export type ChangePodMembershipResponse = ChangePodMembershipResponses[keyof ChangePodMembershipResponses]
 
-export type SetPodAdministratorData = {
-  /**
-   * Request body for the setPodAdministrator operation on pod_admin_operation resource
-   */
-  body: {
-    data: {
-      administrator: boolean
-    }
-  }
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v2/pod/admin/members/{uid}/administrator'
-}
-
-export type SetPodAdministratorErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type SetPodAdministratorError = SetPodAdministratorErrors[keyof SetPodAdministratorErrors]
-
-export type SetPodAdministratorResponses = {
-  /**
-   * Success
-   */
-  200: {
-    ok: boolean
-  }
-}
-
-export type SetPodAdministratorResponse = SetPodAdministratorResponses[keyof SetPodAdministratorResponses]
-
-export type UnbindPodMemberCredentialData = {
+export type PodPageViewersData = {
   body?: never
   path: {
-    credential_id: string
-    uid: string
+    id: string
   }
-  query?: never
-  url: '/api/v2/pod/admin/members/{uid}/credentials/{credential_id}'
+  query?: {
+    cursor?: string
+    limit?: number
+  }
+  url: '/api/v2/pod/pages/{id}/viewers'
 }
 
-export type UnbindPodMemberCredentialErrors = {
+export type PodPageViewersErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type UnbindPodMemberCredentialError = UnbindPodMemberCredentialErrors[keyof UnbindPodMemberCredentialErrors]
+export type PodPageViewersError = PodPageViewersErrors[keyof PodPageViewersErrors]
 
-export type UnbindPodMemberCredentialResponses = {
+export type PodPageViewersResponses = {
   /**
    * Success
    */
   200: {
-    ok: boolean
+    next_cursor?: string | null
+    total: number
+    viewers: Array<{
+      person: {
+        avatar_url?: string | null
+        kind?: 'human' | 'agent' | 'system' | null
+        name?: string | null
+        principal_uid: string
+        tenant_id: string
+      }
+      visited_at: string
+    }>
   }
 }
 
-export type UnbindPodMemberCredentialResponse =
-  UnbindPodMemberCredentialResponses[keyof UnbindPodMemberCredentialResponses]
+export type PodPageViewersResponse = PodPageViewersResponses[keyof PodPageViewersResponses]
 
-export type RenamePodMemberData = {
+export type ResolveConversationActionCardData = {
   /**
-   * Request body for the renamePodMember operation on pod_admin_operation resource
+   * Request body for the resolveConversationActionCard operation on pod_chat_operation resource
    */
   body: {
     data: {
-      new_uid: string
+      decision: 'confirm' | 'cancel'
     }
   }
   path: {
-    uid: string
+    card_id: string
+    id: string
   }
   query?: never
-  url: '/api/v2/pod/admin/members/{uid}/rename'
+  url: '/api/v2/pod/conversations/{id}/action-cards/{card_id}/resolve'
 }
 
-export type RenamePodMemberErrors = {
+export type ResolveConversationActionCardErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type RenamePodMemberError = RenamePodMemberErrors[keyof RenamePodMemberErrors]
+export type ResolveConversationActionCardError =
+  ResolveConversationActionCardErrors[keyof ResolveConversationActionCardErrors]
 
-export type RenamePodMemberResponses = {
+export type ResolveConversationActionCardResponses = {
   /**
    * Success
    */
   201: {
-    base_repair_error?: string | null
-    uid: string
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
+    conversation: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
+        active: boolean
+        displayName: string
+        uid: string
+      } | null
+      agents: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
+      createdBy: string
+      id: string
+      lastActivityAt: string
+      lastMessageSeq: number
+      latestMessagePreview?: string | null
+      pageID?: string | null
+      participants: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
+      title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        lastVisitedAt?: string | null
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
+    }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
+    messageRange: {
+      firstSeq: number
+      lastSeq: number
+    }
+    messages: Array<{
+      attachments: Array<{
+        attachment_id?: number | null
+        content_type?: string | null
+        mime_type?: string | null
+        name: string
+        node_id?: string | null
+        object_id: string
+        path: string
+        position: number
+        resource_type?: string | null
+        size: number
+        upload_id?: string | null
+      }>
+      authorArchived: boolean
+      authorDisplayName: string
+      authorType: 'human' | 'agent' | 'system'
+      authorUID?: string | null
+      createdAt: string
+      id: string
+      kind: 'message' | 'notice'
+      links: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
+      }>
+      replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
+      seq: number
+      signalID?: string | null
+      text: string
+    }>
+    olderMessagesBeforeSeq?: number | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
+      }>
+      fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      interaction_id: string
+      messageID: string
+      question: string
+      state: string
+      tool_call_id: string
+    }>
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
+        agentUID: string
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
+      }
+    }>
+    removedMessageIDs: Array<string>
   }
 }
 
-export type RenamePodMemberResponse = RenamePodMemberResponses[keyof RenamePodMemberResponses]
+export type ResolveConversationActionCardResponse =
+  ResolveConversationActionCardResponses[keyof ResolveConversationActionCardResponses]
+
+export type PodBaseCopyData = {
+  /**
+   * Request body for the podBaseCopy operation on pod_base_operation resource
+   */
+  body?: {
+    data: {
+      filter?: {
+        conditions: Array<{
+          field_id: string
+          operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
+          value?: unknown | null
+        }>
+        conjunction: 'and' | 'or'
+      } | null
+      parent_id?: string | null
+      private_owner_uid?: string | null
+      title?: string | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/tables/{id}/copy'
+}
+
+export type PodBaseCopyErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseCopyError = PodBaseCopyErrors[keyof PodBaseCopyErrors]
+
+export type PodBaseCopyResponses = {
+  /**
+   * Success
+   */
+  201: {
+    page: PodPageType
+    table: PodBaseTableType
+  }
+}
+
+export type PodBaseCopyResponse = PodBaseCopyResponses[keyof PodBaseCopyResponses]
 
 export type RestorePodMemberData = {
   /**
@@ -2008,33 +4822,84 @@ export type RestorePodMemberResponses = {
 
 export type RestorePodMemberResponse = RestorePodMemberResponses[keyof RestorePodMemberResponses]
 
-export type DisablePodMemberData = {
-  /**
-   * Request body for the disablePodMember operation on pod_admin_operation resource
-   */
-  body: {
-    data: {
-      disposition: 'suspended' | 'offboarded'
-      reason: string
-    }
-  }
+export type StopPodPeerExchangeData = {
+  body?: never
   path: {
-    uid: string
+    exchange_id: string
+    id: string
   }
   query?: never
-  url: '/api/v2/pod/admin/members/{uid}/restrictions'
+  url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}/stop'
 }
 
-export type DisablePodMemberErrors = {
+export type StopPodPeerExchangeErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type DisablePodMemberError = DisablePodMemberErrors[keyof DisablePodMemberErrors]
+export type StopPodPeerExchangeError = StopPodPeerExchangeErrors[keyof StopPodPeerExchangeErrors]
 
-export type DisablePodMemberResponses = {
+export type StopPodPeerExchangeResponses = {
+  /**
+   * Success
+   */
+  201: boolean
+}
+
+export type StopPodPeerExchangeResponse = StopPodPeerExchangeResponses[keyof StopPodPeerExchangeResponses]
+
+export type PodJobWebhooksPauseData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/pause'
+}
+
+export type PodJobWebhooksPauseErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksPauseError = PodJobWebhooksPauseErrors[keyof PodJobWebhooksPauseErrors]
+
+export type PodJobWebhooksPauseResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksPauseResponse = PodJobWebhooksPauseResponses[keyof PodJobWebhooksPauseResponses]
+
+export type SyncPodDirectoryData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/identity-providers/{provider_id}/syncs'
+}
+
+export type SyncPodDirectoryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SyncPodDirectoryError = SyncPodDirectoryErrors[keyof SyncPodDirectoryErrors]
+
+export type SyncPodDirectoryResponses = {
   /**
    * Success
    */
@@ -2043,546 +4908,7 @@ export type DisablePodMemberResponses = {
   }
 }
 
-export type DisablePodMemberResponse = DisablePodMemberResponses[keyof DisablePodMemberResponses]
-
-export type PodAdminSettingsData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/admin/settings'
-}
-
-export type PodAdminSettingsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodAdminSettingsError = PodAdminSettingsErrors[keyof PodAdminSettingsErrors]
-
-export type PodAdminSettingsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    allowExternalGuests: boolean
-    defaultLocale: string
-    displayName: string
-    emailAvailable: boolean
-    loginPolicy: {
-      allow_email_otp: boolean
-      allow_invite_links: boolean
-      allow_member_credential_change: boolean
-      allowed_email_domains: Array<string>
-      require_sso_for_members: boolean
-    }
-  }
-}
-
-export type PodAdminSettingsResponse = PodAdminSettingsResponses[keyof PodAdminSettingsResponses]
-
-export type UpdatePodAdminSettingsData = {
-  /**
-   * Request body for the updatePodAdminSettings operation on pod_admin_operation resource
-   */
-  body: {
-    data: {
-      allowExternalGuests: boolean
-      defaultLocale: string
-      displayName: string
-      loginPolicy: {
-        allow_email_otp: boolean
-        allow_invite_links: boolean
-        allow_member_credential_change: boolean
-        allowed_email_domains: Array<string>
-        require_sso_for_members: boolean
-      }
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/admin/settings'
-}
-
-export type UpdatePodAdminSettingsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type UpdatePodAdminSettingsError = UpdatePodAdminSettingsErrors[keyof UpdatePodAdminSettingsErrors]
-
-export type UpdatePodAdminSettingsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    allowExternalGuests: boolean
-    defaultLocale: string
-    displayName: string
-    emailAvailable: boolean
-    loginPolicy: {
-      allow_email_otp: boolean
-      allow_invite_links: boolean
-      allow_member_credential_change: boolean
-      allowed_email_domains: Array<string>
-      require_sso_for_members: boolean
-    }
-  }
-}
-
-export type UpdatePodAdminSettingsResponse = UpdatePodAdminSettingsResponses[keyof UpdatePodAdminSettingsResponses]
-
-export type PodAgentsData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/agents'
-}
-
-export type PodAgentsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodAgentsError = PodAgentsErrors[keyof PodAgentsErrors]
-
-export type PodAgentsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    agents: Array<{
-      active: boolean
-      agentType?: string | null
-      aliases?: Array<string> | null
-      avatarURL?: string | null
-      canChat?: boolean | null
-      directConversationID?: string | null
-      displayName: string
-      mayIntervene: boolean
-      modelProfile?: string | null
-      role?: string | null
-      type: string
-      uid: string
-    }>
-    personalAssistant?: {
-      active: boolean
-      agentType?: string | null
-      aliases?: Array<string> | null
-      avatarURL?: string | null
-      canChat?: boolean | null
-      directConversationID?: string | null
-      displayName: string
-      mayIntervene: boolean
-      modelProfile?: string | null
-      role?: string | null
-      type: string
-      uid: string
-    } | null
-    personalAssistantAvailable: boolean
-  }
-}
-
-export type PodAgentsResponse = PodAgentsResponses[keyof PodAgentsResponses]
-
-export type PodModelProfilesData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v2/pod/agents/{uid}/model-profiles'
-}
-
-export type PodModelProfilesErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodModelProfilesError = PodModelProfilesErrors[keyof PodModelProfilesErrors]
-
-export type PodModelProfilesResponses = {
-  /**
-   * Success
-   */
-  200: {
-    profiles: Array<{
-      description: string
-      name: string
-    }>
-  }
-}
-
-export type PodModelProfilesResponse = PodModelProfilesResponses[keyof PodModelProfilesResponses]
-
-export type PodBaseTablesData = {
-  body?: never
-  path: {
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/bases/{page_id}'
-}
-
-export type PodBaseTablesErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseTablesError = PodBaseTablesErrors[keyof PodBaseTablesErrors]
-
-export type PodBaseTablesResponses = {
-  /**
-   * Success
-   */
-  200: {
-    tables: Array<PodBaseTableType>
-  }
-}
-
-export type PodBaseTablesResponse = PodBaseTablesResponses[keyof PodBaseTablesResponses]
-
-export type PodBaseTableCreateData = {
-  /**
-   * Request body for the podBaseTableCreate operation on pod_base_operation resource
-   */
-  body?: {
-    data: {
-      name?: string | null
-    }
-  }
-  path: {
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/bases/{page_id}/tables'
-}
-
-export type PodBaseTableCreateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseTableCreateError = PodBaseTableCreateErrors[keyof PodBaseTableCreateErrors]
-
-export type PodBaseTableCreateResponses = {
-  /**
-   * Success
-   */
-  201: {
-    table: PodBaseTableType
-  }
-}
-
-export type PodBaseTableCreateResponse = PodBaseTableCreateResponses[keyof PodBaseTableCreateResponses]
-
-export type PodCommentAttentionData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/comments/attention'
-}
-
-export type PodCommentAttentionErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodCommentAttentionError = PodCommentAttentionErrors[keyof PodCommentAttentionErrors]
-
-export type PodCommentAttentionResponses = {
-  /**
-   * Success
-   */
-  200: Array<{
-    activity_at: string
-    page: PodPageType
-    unread_count: number
-  }>
-}
-
-export type PodCommentAttentionResponse = PodCommentAttentionResponses[keyof PodCommentAttentionResponses]
-
-export type PodConnectorsCatalogData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/connectors'
-}
-
-export type PodConnectorsCatalogErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodConnectorsCatalogError = PodConnectorsCatalogErrors[keyof PodConnectorsCatalogErrors]
-
-export type PodConnectorsCatalogResponses = {
-  /**
-   * Success
-   */
-  200: {
-    can_manage: boolean
-    connectors?: Array<{
-      auth_schemes: Array<string>
-      credential_fields?: Array<{
-        [key: string]: unknown
-      }> | null
-      display_name: string
-      event_streams?: Array<{
-        event_types: Array<string>
-        id: string
-        label: string
-      }> | null
-      id: string
-      personal_credential_fields?: Array<{
-        [key: string]: unknown
-      }> | null
-      personal_credentials: boolean
-      plugin_id: string
-      public_fields?: Array<{
-        [key: string]: unknown
-      }> | null
-      toolkits: Array<string>
-      trigger_types?: Array<{
-        [key: string]: unknown
-      }> | null
-    }> | null
-    oauth_callback_url: string
-  }
-}
-
-export type PodConnectorsCatalogResponse = PodConnectorsCatalogResponses[keyof PodConnectorsCatalogResponses]
-
-export type PodConnectorAccountsListData = {
-  body?: never
-  path?: never
-  query?: {
-    scope?: string
-  }
-  url: '/api/v2/pod/connectors/accounts'
-}
-
-export type PodConnectorAccountsListErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodConnectorAccountsListError = PodConnectorAccountsListErrors[keyof PodConnectorAccountsListErrors]
-
-export type PodConnectorAccountsListResponses = {
-  /**
-   * Success
-   */
-  200: {
-    accounts: Array<{
-      account_key: string
-      auth_config_id: string
-      expires_at?: string | null
-      external_subject_id?: string | null
-      granted_scopes: Array<string>
-      id: string
-      last_error?: {
-        [key: string]: unknown
-      } | null
-      owner_principal_uid?: string | null
-      plugin_id: string
-      public_metadata: {
-        [key: string]: unknown
-      }
-      refresh_expires_at?: string | null
-      status: string
-      subject_kind: string
-      updated_at: string
-    }>
-  }
-}
-
-export type PodConnectorAccountsListResponse =
-  PodConnectorAccountsListResponses[keyof PodConnectorAccountsListResponses]
-
-export type PodConnectorAccountsConnectPersonalData = {
-  /**
-   * Request body for the podConnectorAccountsConnectPersonal operation on connector_operation resource
-   */
-  body: {
-    data: {
-      connection: string
-      credentials: {
-        [key: string]: unknown
-      }
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/connectors/accounts/connect-personal'
-}
-
-export type PodConnectorAccountsConnectPersonalErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodConnectorAccountsConnectPersonalError =
-  PodConnectorAccountsConnectPersonalErrors[keyof PodConnectorAccountsConnectPersonalErrors]
-
-export type PodConnectorAccountsConnectPersonalResponses = {
-  /**
-   * Success
-   */
-  201: {
-    account: {
-      account_key: string
-      auth_config_id: string
-      expires_at?: string | null
-      external_subject_id?: string | null
-      granted_scopes: Array<string>
-      id: string
-      last_error?: {
-        [key: string]: unknown
-      } | null
-      owner_principal_uid?: string | null
-      plugin_id: string
-      public_metadata: {
-        [key: string]: unknown
-      }
-      refresh_expires_at?: string | null
-      status: string
-      subject_kind: string
-      updated_at: string
-    }
-  }
-}
-
-export type PodConnectorAccountsConnectPersonalResponse =
-  PodConnectorAccountsConnectPersonalResponses[keyof PodConnectorAccountsConnectPersonalResponses]
-
-export type PodConnectorAccountsConnectTeamData = {
-  /**
-   * Request body for the podConnectorAccountsConnectTeam operation on connector_operation resource
-   */
-  body: {
-    data: {
-      connection: string
-      credentials: {
-        [key: string]: unknown
-      }
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/connectors/accounts/connect-team'
-}
-
-export type PodConnectorAccountsConnectTeamErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodConnectorAccountsConnectTeamError =
-  PodConnectorAccountsConnectTeamErrors[keyof PodConnectorAccountsConnectTeamErrors]
-
-export type PodConnectorAccountsConnectTeamResponses = {
-  /**
-   * Success
-   */
-  201: {
-    account: {
-      account_key: string
-      auth_config_id: string
-      expires_at?: string | null
-      external_subject_id?: string | null
-      granted_scopes: Array<string>
-      id: string
-      last_error?: {
-        [key: string]: unknown
-      } | null
-      owner_principal_uid?: string | null
-      plugin_id: string
-      public_metadata: {
-        [key: string]: unknown
-      }
-      refresh_expires_at?: string | null
-      status: string
-      subject_kind: string
-      updated_at: string
-    }
-  }
-}
-
-export type PodConnectorAccountsConnectTeamResponse =
-  PodConnectorAccountsConnectTeamResponses[keyof PodConnectorAccountsConnectTeamResponses]
-
-export type PodConnectorAccountsDisconnectData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/connectors/accounts/{id}'
-}
-
-export type PodConnectorAccountsDisconnectErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodConnectorAccountsDisconnectError =
-  PodConnectorAccountsDisconnectErrors[keyof PodConnectorAccountsDisconnectErrors]
-
-export type PodConnectorAccountsDisconnectResponses = {
-  /**
-   * Success
-   */
-  200: {
-    account: {
-      account_key: string
-      auth_config_id: string
-      expires_at?: string | null
-      external_subject_id?: string | null
-      granted_scopes: Array<string>
-      id: string
-      last_error?: {
-        [key: string]: unknown
-      } | null
-      owner_principal_uid?: string | null
-      plugin_id: string
-      public_metadata: {
-        [key: string]: unknown
-      }
-      refresh_expires_at?: string | null
-      status: string
-      subject_kind: string
-      updated_at: string
-    }
-  }
-}
-
-export type PodConnectorAccountsDisconnectResponse =
-  PodConnectorAccountsDisconnectResponses[keyof PodConnectorAccountsDisconnectResponses]
+export type SyncPodDirectoryResponse = SyncPodDirectoryResponses[keyof SyncPodDirectoryResponses]
 
 export type PodConnectorAuthConfigsListData = {
   body?: never
@@ -2689,6 +5015,2523 @@ export type PodConnectorAuthConfigsCreateResponses = {
 export type PodConnectorAuthConfigsCreateResponse =
   PodConnectorAuthConfigsCreateResponses[keyof PodConnectorAuthConfigsCreateResponses]
 
+export type PodFilesData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/files'
+}
+
+export type PodFilesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodFilesError = PodFilesErrors[keyof PodFilesErrors]
+
+export type PodFilesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    files: Array<{
+      content_type?: string | null
+      object_id: string
+      path: string
+      sha256: string
+      size: number
+    }>
+    page_id: string
+    revision: number
+    routes?: Array<string> | null
+  }
+}
+
+export type PodFilesResponse = PodFilesResponses[keyof PodFilesResponses]
+
+export type PodChatTeammatesData = {
+  body?: never
+  path?: never
+  query?: {
+    query?: string
+  }
+  url: '/api/v2/pod/teammates'
+}
+
+export type PodChatTeammatesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodChatTeammatesError = PodChatTeammatesErrors[keyof PodChatTeammatesErrors]
+
+export type PodChatTeammatesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    teammates: Array<{
+      active: boolean
+      agentType?: string | null
+      aliases?: Array<string> | null
+      avatarURL?: string | null
+      canChat?: boolean | null
+      directConversationID?: string | null
+      displayName: string
+      mayIntervene: boolean
+      modelProfile?: string | null
+      role?: string | null
+      type: string
+      uid: string
+    }>
+  }
+}
+
+export type PodChatTeammatesResponse = PodChatTeammatesResponses[keyof PodChatTeammatesResponses]
+
+export type RenamePodAgentData = {
+  /**
+   * Request body for the renamePodAgent operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      new_uid: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/agents/{uid}/rename'
+}
+
+export type RenamePodAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RenamePodAgentError = RenamePodAgentErrors[keyof RenamePodAgentErrors]
+
+export type RenamePodAgentResponses = {
+  /**
+   * Success
+   */
+  201: {
+    base_repair_error?: string | null
+    uid: string
+  }
+}
+
+export type RenamePodAgentResponse = RenamePodAgentResponses[keyof RenamePodAgentResponses]
+
+export type PodConnectorAccountsConnectPersonalData = {
+  /**
+   * Request body for the podConnectorAccountsConnectPersonal operation on connector_operation resource
+   */
+  body: {
+    data: {
+      connection: string
+      credentials: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/connectors/accounts/connect-personal'
+}
+
+export type PodConnectorAccountsConnectPersonalErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorAccountsConnectPersonalError =
+  PodConnectorAccountsConnectPersonalErrors[keyof PodConnectorAccountsConnectPersonalErrors]
+
+export type PodConnectorAccountsConnectPersonalResponses = {
+  /**
+   * Success
+   */
+  201: {
+    account: {
+      account_key: string
+      auth_config_id: string
+      expires_at?: string | null
+      external_subject_id?: string | null
+      granted_scopes: Array<string>
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      owner_principal_uid?: string | null
+      plugin_id: string
+      public_metadata: {
+        [key: string]: unknown
+      }
+      refresh_expires_at?: string | null
+      status: string
+      subject_kind: string
+      updated_at: string
+    }
+  }
+}
+
+export type PodConnectorAccountsConnectPersonalResponse =
+  PodConnectorAccountsConnectPersonalResponses[keyof PodConnectorAccountsConnectPersonalResponses]
+
+export type VerifyPodEmailBindingData = {
+  /**
+   * Request body for the verifyPodEmailBinding operation on pod_member_account resource
+   */
+  body: {
+    data: {
+      challengeID: string
+      code: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/me/email/verifications'
+}
+
+export type VerifyPodEmailBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type VerifyPodEmailBindingError = VerifyPodEmailBindingErrors[keyof VerifyPodEmailBindingErrors]
+
+export type VerifyPodEmailBindingResponses = {
+  /**
+   * Success
+   */
+  201: {
+    authenticationRef: string
+    csrfToken: string
+    ok: boolean
+  }
+}
+
+export type VerifyPodEmailBindingResponse = VerifyPodEmailBindingResponses[keyof VerifyPodEmailBindingResponses]
+
+export type PodPagePurgeData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/purge'
+}
+
+export type PodPagePurgeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPagePurgeError = PodPagePurgeErrors[keyof PodPagePurgeErrors]
+
+export type PodPagePurgeResponses = {
+  /**
+   * Success
+   */
+  201: {
+    page: PodPageType
+  }
+}
+
+export type PodPagePurgeResponse = PodPagePurgeResponses[keyof PodPagePurgeResponses]
+
+export type PodFileCopyData = {
+  /**
+   * Request body for the podFileCopy operation on pod_file_operation resource
+   */
+  body: {
+    data: {
+      base_object_id?: string | null
+      message_id: string
+      position: number
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/copy-file'
+}
+
+export type PodFileCopyErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodFileCopyError = PodFileCopyErrors[keyof PodFileCopyErrors]
+
+export type PodFileCopyResponses = {
+  /**
+   * Success
+   */
+  201: {
+    file: {
+      content_type?: string | null
+      object_id: string
+      path: string
+      sha256: string
+      size: number
+    }
+    page_id: string
+    revision: number
+    src?: string | null
+  }
+}
+
+export type PodFileCopyResponse = PodFileCopyResponses[keyof PodFileCopyResponses]
+
+export type PodJobSchedulesPauseData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/pause'
+}
+
+export type PodJobSchedulesPauseErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesPauseError = PodJobSchedulesPauseErrors[keyof PodJobSchedulesPauseErrors]
+
+export type PodJobSchedulesPauseResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesPauseResponse = PodJobSchedulesPauseResponses[keyof PodJobSchedulesPauseResponses]
+
+export type PodAgentsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/agents'
+}
+
+export type PodAgentsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAgentsError = PodAgentsErrors[keyof PodAgentsErrors]
+
+export type PodAgentsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agents: Array<{
+      active: boolean
+      agentType?: string | null
+      aliases?: Array<string> | null
+      avatarURL?: string | null
+      canChat?: boolean | null
+      directConversationID?: string | null
+      displayName: string
+      mayIntervene: boolean
+      modelProfile?: string | null
+      role?: string | null
+      type: string
+      uid: string
+    }>
+    personalAssistant?: {
+      active: boolean
+      agentType?: string | null
+      aliases?: Array<string> | null
+      avatarURL?: string | null
+      canChat?: boolean | null
+      directConversationID?: string | null
+      displayName: string
+      mayIntervene: boolean
+      modelProfile?: string | null
+      role?: string | null
+      type: string
+      uid: string
+    } | null
+    personalAssistantAvailable: boolean
+  }
+}
+
+export type PodAgentsResponse = PodAgentsResponses[keyof PodAgentsResponses]
+
+export type ConversationExecutionData = {
+  body?: never
+  path: {
+    run_id: number
+    kind: 'background_agent_job' | 'workflow'
+    id: string
+  }
+  query?: {
+    cursor?: string
+  }
+  url: '/api/v2/pod/conversations/{id}/executions/{kind}/{run_id}'
+}
+
+export type ConversationExecutionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ConversationExecutionError = ConversationExecutionErrors[keyof ConversationExecutionErrors]
+
+export type ConversationExecutionResponses = {
+  /**
+   * Success
+   */
+  200: {
+    nextCursor?: string | null
+    text: string
+  }
+}
+
+export type ConversationExecutionResponse = ConversationExecutionResponses[keyof ConversationExecutionResponses]
+
+export type PodSpreadsheetRestoreData = {
+  body?: never
+  path: {
+    version_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/spreadsheet/versions/{version_id}/restore'
+}
+
+export type PodSpreadsheetRestoreErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodSpreadsheetRestoreError = PodSpreadsheetRestoreErrors[keyof PodSpreadsheetRestoreErrors]
+
+export type PodSpreadsheetRestoreResponses = {
+  /**
+   * Success
+   */
+  201: {
+    file: {
+      content_type?: string | null
+      object_id: string
+      path: string
+      sha256: string
+      size: number
+    }
+    page_id: string
+    revision: number
+  }
+}
+
+export type PodSpreadsheetRestoreResponse = PodSpreadsheetRestoreResponses[keyof PodSpreadsheetRestoreResponses]
+
+export type PodBaseAggregateData = {
+  /**
+   * Request body for the podBaseAggregate operation on pod_base_operation resource
+   */
+  body: {
+    data: {
+      filter?: {
+        conditions: Array<{
+          field_id: string
+          operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
+          value?: unknown | null
+        }>
+        conjunction: 'and' | 'or'
+      } | null
+      group_by?: Array<{
+        bucket?: 'day' | 'week' | 'month' | 'quarter' | 'year' | null
+        field_id: string
+      }> | null
+      metrics: Array<{
+        alias: string
+        field_id?: string | null
+        operation: 'count' | 'sum' | 'avg' | 'min' | 'max'
+      }>
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/tables/{id}/aggregate'
+}
+
+export type PodBaseAggregateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseAggregateError = PodBaseAggregateErrors[keyof PodBaseAggregateErrors]
+
+export type PodBaseAggregateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data_version: number
+    groups: Array<{
+      metrics: {
+        [key: string]:
+          | string
+          | number
+          | boolean
+          | null
+          | Array<unknown>
+          | {
+              [key: string]: unknown
+            }
+      }
+      value_json: Array<string | null>
+      values: Array<
+        | string
+        | number
+        | boolean
+        | null
+        | Array<unknown>
+        | {
+            [key: string]: unknown
+          }
+        | null
+      >
+    }>
+  }
+}
+
+export type PodBaseAggregateResponse = PodBaseAggregateResponses[keyof PodBaseAggregateResponses]
+
+export type DisablePodMemberData = {
+  /**
+   * Request body for the disablePodMember operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      disposition: 'suspended' | 'offboarded'
+      reason: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/members/{uid}/restrictions'
+}
+
+export type DisablePodMemberErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DisablePodMemberError = DisablePodMemberErrors[keyof DisablePodMemberErrors]
+
+export type DisablePodMemberResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ok: boolean
+  }
+}
+
+export type DisablePodMemberResponse = DisablePodMemberResponses[keyof DisablePodMemberResponses]
+
+export type PodJobWebhooksDeleteData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}'
+}
+
+export type PodJobWebhooksDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksDeleteError = PodJobWebhooksDeleteErrors[keyof PodJobWebhooksDeleteErrors]
+
+export type PodJobWebhooksDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksDeleteResponse = PodJobWebhooksDeleteResponses[keyof PodJobWebhooksDeleteResponses]
+
+export type PodJobWebhooksUpdateData = {
+  /**
+   * Request body for the podJobWebhooksUpdate operation on applet_job_operation resource
+   */
+  body?: {
+    data: {
+      expires_at?: unknown | null
+      label?: string | null
+    }
+  }
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}'
+}
+
+export type PodJobWebhooksUpdateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksUpdateError = PodJobWebhooksUpdateErrors[keyof PodJobWebhooksUpdateErrors]
+
+export type PodJobWebhooksUpdateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksUpdateResponse = PodJobWebhooksUpdateResponses[keyof PodJobWebhooksUpdateResponses]
+
+export type PodBaseFieldCreateData = {
+  /**
+   * Request body for the podBaseFieldCreate operation on pod_base_operation resource
+   */
+  body?: {
+    data: {
+      config?: {
+        [key: string]: unknown
+      } | null
+      is_primary?: boolean | null
+      name?: string | null
+      position?: string | null
+      type?:
+        | 'text'
+        | 'number'
+        | 'select'
+        | 'datetime'
+        | 'checkbox'
+        | 'user'
+        | 'attachment'
+        | 'auto_number'
+        | 'link'
+        | 'formula'
+        | 'created_at'
+        | 'updated_at'
+        | 'created_by'
+        | 'updated_by'
+        | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/tables/{id}/fields'
+}
+
+export type PodBaseFieldCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseFieldCreateError = PodBaseFieldCreateErrors[keyof PodBaseFieldCreateErrors]
+
+export type PodBaseFieldCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    field: PodBaseFieldType
+  }
+}
+
+export type PodBaseFieldCreateResponse = PodBaseFieldCreateResponses[keyof PodBaseFieldCreateResponses]
+
+export type EnsurePodPersonalAssistantData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/personal-assistant'
+}
+
+export type EnsurePodPersonalAssistantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type EnsurePodPersonalAssistantError = EnsurePodPersonalAssistantErrors[keyof EnsurePodPersonalAssistantErrors]
+
+export type EnsurePodPersonalAssistantResponses = {
+  /**
+   * Success
+   */
+  201: {
+    active: boolean
+    agentType?: string | null
+    aliases?: Array<string> | null
+    avatarURL?: string | null
+    canChat?: boolean | null
+    directConversationID?: string | null
+    displayName: string
+    mayIntervene: boolean
+    modelProfile?: string | null
+    role?: string | null
+    type: string
+    uid: string
+  }
+}
+
+export type EnsurePodPersonalAssistantResponse =
+  EnsurePodPersonalAssistantResponses[keyof EnsurePodPersonalAssistantResponses]
+
+export type MetaSkillSetAllData = {
+  /**
+   * Request body for the metaSkillSetAll operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      enabled: boolean
+    }
+  }
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}/all'
+}
+
+export type MetaSkillSetAllErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillSetAllError = MetaSkillSetAllErrors[keyof MetaSkillSetAllErrors]
+
+export type MetaSkillSetAllResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaSkillSetAllResponse = MetaSkillSetAllResponses[keyof MetaSkillSetAllResponses]
+
+export type RequestPodEmailBindingData = {
+  /**
+   * Request body for the requestPodEmailBinding operation on pod_member_account resource
+   */
+  body: {
+    data: {
+      email: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/me/email/challenges'
+}
+
+export type RequestPodEmailBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RequestPodEmailBindingError = RequestPodEmailBindingErrors[keyof RequestPodEmailBindingErrors]
+
+export type RequestPodEmailBindingResponses = {
+  /**
+   * Success
+   */
+  201: {
+    challengeID: string
+  }
+}
+
+export type RequestPodEmailBindingResponse = RequestPodEmailBindingResponses[keyof RequestPodEmailBindingResponses]
+
+export type PodPageCommentAnchorData = {
+  /**
+   * Request body for the podPageCommentAnchor operation on pod_document_comment_operation resource
+   */
+  body: {
+    data: {
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      base_revision?: number | null
+      from?: number | null
+      quote?: string | null
+      to?: number | null
+      version: number
+    }
+  }
+  path: {
+    comment_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/comments/{comment_id}/anchor'
+}
+
+export type PodPageCommentAnchorErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageCommentAnchorError = PodPageCommentAnchorErrors[keyof PodPageCommentAnchorErrors]
+
+export type PodPageCommentAnchorResponses = {
+  /**
+   * Success
+   */
+  200: {
+    comment: {
+      activity_at: string
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      anchor_outdated: boolean
+      anchor_present: boolean
+      anchor_revision?: number | null
+      author: {
+        avatar_url?: string | null
+        kind?: 'human' | 'agent' | 'system' | null
+        name?: string | null
+        principal_uid: string
+        tenant_id: string
+      }
+      body?: string | null
+      can_delete: boolean
+      can_edit: boolean
+      can_reanchor: boolean
+      can_resolve: boolean
+      created_at: string
+      deleted_at?: string | null
+      id: string
+      quote?: string | null
+      resolved_at?: string | null
+      resolved_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      root_id?: string | null
+      updated_at: string
+      version: number
+    }
+    revision: number
+  }
+}
+
+export type PodPageCommentAnchorResponse = PodPageCommentAnchorResponses[keyof PodPageCommentAnchorResponses]
+
+export type PodPageRestoreData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/restore'
+}
+
+export type PodPageRestoreErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageRestoreError = PodPageRestoreErrors[keyof PodPageRestoreErrors]
+
+export type PodPageRestoreResponses = {
+  /**
+   * Success
+   */
+  201: {
+    page: PodPageType
+  }
+}
+
+export type PodPageRestoreResponse = PodPageRestoreResponses[keyof PodPageRestoreResponses]
+
+export type PodPageHistoryEntryData = {
+  body?: never
+  path: {
+    snapshot_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/history/{snapshot_id}'
+}
+
+export type PodPageHistoryEntryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageHistoryEntryError = PodPageHistoryEntryErrors[keyof PodPageHistoryEntryErrors]
+
+export type PodPageHistoryEntryResponses = {
+  /**
+   * Success
+   */
+  200: {
+    snapshot: {
+      author: {
+        avatar_url?: string | null
+        kind?: 'human' | 'agent' | 'system' | null
+        name?: string | null
+        principal_uid: string
+        tenant_id: string
+      }
+      content: string
+      created_at: string
+      document_updated_at: string
+      icon?: string | null
+      id: string
+      metadata: {
+        [key: string]: unknown
+      }
+      reason: 'created' | 'baseline' | 'checkpoint' | 'before_restore' | 'restored'
+      revision: number
+      title: string
+    }
+  }
+}
+
+export type PodPageHistoryEntryResponse = PodPageHistoryEntryResponses[keyof PodPageHistoryEntryResponses]
+
+export type RevokePodInvitationData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/invitations/{id}'
+}
+
+export type RevokePodInvitationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RevokePodInvitationError = RevokePodInvitationErrors[keyof RevokePodInvitationErrors]
+
+export type RevokePodInvitationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type RevokePodInvitationResponse = RevokePodInvitationResponses[keyof RevokePodInvitationResponses]
+
+export type PodConnectorsCatalogData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/connectors'
+}
+
+export type PodConnectorsCatalogErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorsCatalogError = PodConnectorsCatalogErrors[keyof PodConnectorsCatalogErrors]
+
+export type PodConnectorsCatalogResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_manage: boolean
+    connectors?: Array<{
+      auth_schemes: Array<string>
+      credential_fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      display_name: string
+      event_streams?: Array<{
+        event_types: Array<string>
+        id: string
+        label: string
+      }> | null
+      id: string
+      personal_credential_fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      personal_credentials: boolean
+      plugin_id: string
+      public_fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      toolkits: Array<string>
+      trigger_types?: Array<{
+        [key: string]: unknown
+      }> | null
+    }> | null
+    oauth_callback_url: string
+  }
+}
+
+export type PodConnectorsCatalogResponse = PodConnectorsCatalogResponses[keyof PodConnectorsCatalogResponses]
+
+export type PodPageChildrenData = {
+  body?: never
+  path?: never
+  query?: {
+    cursor?: string
+    details?: boolean
+    limit?: number
+    parent_id?: string
+    scope?: 'space' | 'private'
+  }
+  url: '/api/v2/pod/pages/children'
+}
+
+export type PodPageChildrenErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageChildrenError = PodPageChildrenErrors[keyof PodPageChildrenErrors]
+
+export type PodPageChildrenResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_create_private: boolean
+    can_create_space: boolean
+    can_manage_space: boolean
+    next_cursor?: string | null
+    pages: Array<{
+      actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
+      created_at?: string | null
+      created_by?: string | null
+      creator_name?: string | null
+      excerpt?: string | null
+      file?: {
+        content_type: string
+        path: string
+        sha256: string
+        size: number
+      } | null
+      has_children: boolean
+      icon?: string | null
+      id: string
+      inherit_permissions: boolean
+      metadata: {
+        [key: string]: unknown
+      }
+      name: string
+      parent_id?: string | null
+      position?: string | null
+      private_owner_uid?: string | null
+      role: 'view' | 'contribute' | 'edit' | 'manage'
+      system_key?: string | null
+      title: string
+      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
+      updated_at?: string | null
+    }>
+    principal_uid: string
+  }
+}
+
+export type PodPageChildrenResponse = PodPageChildrenResponses[keyof PodPageChildrenResponses]
+
+export type PodConnectorOAuthClaimData = {
+  /**
+   * Request body for the podConnectorOAuthClaim operation on connector_operation resource
+   */
+  body: {
+    data: {
+      completion_code: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/connectors/oauth/claim'
+}
+
+export type PodConnectorOAuthClaimErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorOAuthClaimError = PodConnectorOAuthClaimErrors[keyof PodConnectorOAuthClaimErrors]
+
+export type PodConnectorOAuthClaimResponses = {
+  /**
+   * Success
+   */
+  201: {
+    account: {
+      account_key: string
+      auth_config_id: string
+      expires_at?: string | null
+      external_subject_id?: string | null
+      granted_scopes: Array<string>
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      owner_principal_uid?: string | null
+      plugin_id: string
+      public_metadata: {
+        [key: string]: unknown
+      }
+      refresh_expires_at?: string | null
+      status: string
+      subject_kind: string
+      updated_at: string
+    }
+  }
+}
+
+export type PodConnectorOAuthClaimResponse = PodConnectorOAuthClaimResponses[keyof PodConnectorOAuthClaimResponses]
+
+export type PodAppletRunData = {
+  body?: never
+  path: {
+    id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/runs/{id}'
+}
+
+export type PodAppletRunErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletRunError = PodAppletRunErrors[keyof PodAppletRunErrors]
+
+export type PodAppletRunResponses = {
+  /**
+   * Success
+   */
+  200: {
+    run: AutomationJobRunType
+  }
+}
+
+export type PodAppletRunResponse = PodAppletRunResponses[keyof PodAppletRunResponses]
+
+export type PodPageUserStateData = {
+  /**
+   * Request body for the podPageUserState operation on pod_page_operation resource
+   */
+  body?: {
+    data: {
+      favorite?: boolean | null
+      hide_visits?: boolean | null
+      visited?: boolean | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/user-state'
+}
+
+export type PodPageUserStateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageUserStateError = PodPageUserStateErrors[keyof PodPageUserStateErrors]
+
+export type PodPageUserStateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    user_state: PodPageUserStateType
+  }
+}
+
+export type PodPageUserStateResponse = PodPageUserStateResponses[keyof PodPageUserStateResponses]
+
+export type ExitPodData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/me/membership'
+}
+
+export type ExitPodErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ExitPodError = ExitPodErrors[keyof ExitPodErrors]
+
+export type ExitPodResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ExitPodResponse = ExitPodResponses[keyof ExitPodResponses]
+
+export type GetPodInteractionData = {
+  body?: never
+  path: {
+    interaction_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/interactions/{interaction_id}'
+}
+
+export type GetPodInteractionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetPodInteractionError = GetPodInteractionErrors[keyof GetPodInteractionErrors]
+
+export type GetPodInteractionResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_uid: string
+    answer_text?: string | null
+    answered_by_name?: string | null
+    answered_by_uid?: string | null
+    conversation_id?: string | null
+    conversation_kind: string
+    fields: Array<{
+      [key: string]: unknown
+    }>
+    interaction_id: string
+    question: string
+    state: string
+  }
+}
+
+export type GetPodInteractionResponse = GetPodInteractionResponses[keyof GetPodInteractionResponses]
+
+export type PodConnectorAccountsConnectTeamData = {
+  /**
+   * Request body for the podConnectorAccountsConnectTeam operation on connector_operation resource
+   */
+  body: {
+    data: {
+      connection: string
+      credentials: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/connectors/accounts/connect-team'
+}
+
+export type PodConnectorAccountsConnectTeamErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorAccountsConnectTeamError =
+  PodConnectorAccountsConnectTeamErrors[keyof PodConnectorAccountsConnectTeamErrors]
+
+export type PodConnectorAccountsConnectTeamResponses = {
+  /**
+   * Success
+   */
+  201: {
+    account: {
+      account_key: string
+      auth_config_id: string
+      expires_at?: string | null
+      external_subject_id?: string | null
+      granted_scopes: Array<string>
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      owner_principal_uid?: string | null
+      plugin_id: string
+      public_metadata: {
+        [key: string]: unknown
+      }
+      refresh_expires_at?: string | null
+      status: string
+      subject_kind: string
+      updated_at: string
+    }
+  }
+}
+
+export type PodConnectorAccountsConnectTeamResponse =
+  PodConnectorAccountsConnectTeamResponses[keyof PodConnectorAccountsConnectTeamResponses]
+
+export type PostConversationMessageData = {
+  /**
+   * Request body for the postConversationMessage operation on pod_chat_operation resource
+   */
+  body: {
+    data: {
+      attachments?: Array<string> | null
+      deliveryMode?: 'steer' | 'queue' | null
+      links?: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }> | null
+      mentions?: Array<{
+        displayName?: string | null
+        type: 'human' | 'agent'
+        uid: string
+      }> | null
+      messageID: string
+      targetAgentUID?: string | null
+      text: string
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/messages'
+}
+
+export type PostConversationMessageErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PostConversationMessageError = PostConversationMessageErrors[keyof PostConversationMessageErrors]
+
+export type PostConversationMessageResponses = {
+  /**
+   * Success
+   */
+  201: {
+    activities: Array<{
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    }>
+    artifacts: {
+      attachments: Array<{
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        messageID: string
+      }>
+      pageIDs: Array<string>
+    }
+    conversation: {
+      accessScope: 'participants' | 'anchor_page'
+      agent?: {
+        active: boolean
+        displayName: string
+        uid: string
+      } | null
+      agents: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      canDelete: boolean
+      canManage: boolean
+      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
+      createdBy: string
+      id: string
+      lastActivityAt: string
+      lastMessageSeq: number
+      latestMessagePreview?: string | null
+      pageID?: string | null
+      participants: Array<{
+        active: boolean
+        agentType?: string | null
+        aliases?: Array<string> | null
+        avatarURL?: string | null
+        canChat?: boolean | null
+        directConversationID?: string | null
+        displayName: string
+        mayIntervene: boolean
+        modelProfile?: string | null
+        role?: string | null
+        type: string
+        uid: string
+      }>
+      roomMode: 'dm' | 'group'
+      rowStatus: string
+      searchMatch?: {
+        excerpt: string
+        seq: number
+      } | null
+      title: string
+      titleCustomized: boolean
+      viewer: {
+        lastReadSeq: number
+        lastVisitedAt?: string | null
+        muted: boolean
+        pinned: boolean
+        uid: string
+      }
+    }
+    latestInput?: {
+      agentUIDs: Array<string>
+      authorUID?: string | null
+      messageID: string
+    } | null
+    linkedRuns: Array<{
+      agentUID: string
+      createdAt: string
+      id: string
+      kind: 'background_agent_job' | 'workflow'
+      sourceMessageID?: string | null
+      sourceSignalID?: string | null
+      status: string
+      text?: string | null
+      title: string
+      updatedAt: string
+    }>
+    messageRange: {
+      firstSeq: number
+      lastSeq: number
+    }
+    messages: Array<{
+      attachments: Array<{
+        attachment_id?: number | null
+        content_type?: string | null
+        mime_type?: string | null
+        name: string
+        node_id?: string | null
+        object_id: string
+        path: string
+        position: number
+        resource_type?: string | null
+        size: number
+        upload_id?: string | null
+      }>
+      authorArchived: boolean
+      authorDisplayName: string
+      authorType: 'human' | 'agent' | 'system'
+      authorUID?: string | null
+      createdAt: string
+      id: string
+      kind: 'message' | 'notice'
+      links: Array<{
+        id: string
+        kind: 'page' | 'message'
+        quote?: string | null
+      }>
+      mentions: Array<{
+        [key: string]: unknown
+      }>
+      replyToMessageID?: string | null
+      richContent?: {
+        [key: string]: unknown
+      } | null
+      savedPages: Array<{
+        id: string
+        title: string
+      }>
+      seq: number
+      signalID?: string | null
+      text: string
+    }>
+    olderMessagesBeforeSeq?: number | null
+    pendingInteractions: Array<{
+      agentUID?: string | null
+      allow_free_text: boolean
+      choices: Array<{
+        description?: string | null
+        id: string
+        label: string
+      }>
+      fields?: Array<{
+        [key: string]: unknown
+      }> | null
+      interaction_id: string
+      messageID: string
+      question: string
+      state: string
+      tool_call_id: string
+    }>
+    pendingQueues: Array<{
+      agentUID: string
+      inputs: Array<{
+        agentUID: string
+        attachments: Array<{
+          attachment_id?: number | null
+          content_type?: string | null
+          mime_type?: string | null
+          name: string
+          node_id?: string | null
+          object_id: string
+          path: string
+          position: number
+          resource_type?: string | null
+          size: number
+          upload_id?: string | null
+        }>
+        authorUID?: string | null
+        deliveryMode: 'steer' | 'queue'
+        links: Array<{
+          id: string
+          kind: 'page' | 'message'
+          quote?: string | null
+        }>
+        mentions: Array<{
+          displayName?: string | null
+          type: 'human' | 'agent'
+          uid: string
+        }>
+        messageID: string
+        modelProfile: string
+        text: string
+      }>
+      paused: boolean
+      queueVersion: string
+      retryableMessageID?: string | null
+      workStatus: {
+        retryAt?: string | null
+        state: 'idle' | 'queued' | 'running' | 'retrying'
+      }
+    }>
+    removedMessageIDs: Array<string>
+  }
+}
+
+export type PostConversationMessageResponse = PostConversationMessageResponses[keyof PostConversationMessageResponses]
+
+export type PodSpreadsheetData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/spreadsheet'
+}
+
+export type PodSpreadsheetErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodSpreadsheetError = PodSpreadsheetErrors[keyof PodSpreadsheetErrors]
+
+export type PodSpreadsheetResponses = {
+  /**
+   * Success
+   */
+  200: {
+    file: {
+      content_type?: string | null
+      object_id: string
+      path: string
+      sha256: string
+      size: number
+    }
+    metadata?: {
+      [key: string]: unknown
+    } | null
+    ops: Array<{
+      client_id: string
+      client_seq: number
+      op: {
+        [key: string]: unknown
+      }
+      revision: number
+    }>
+    page_id: string
+    revision: number
+  }
+}
+
+export type PodSpreadsheetResponse = PodSpreadsheetResponses[keyof PodSpreadsheetResponses]
+
+export type PodBaseTableCreateData = {
+  /**
+   * Request body for the podBaseTableCreate operation on pod_base_operation resource
+   */
+  body?: {
+    data: {
+      name?: string | null
+    }
+  }
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/bases/{page_id}/tables'
+}
+
+export type PodBaseTableCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseTableCreateError = PodBaseTableCreateErrors[keyof PodBaseTableCreateErrors]
+
+export type PodBaseTableCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    table: PodBaseTableType
+  }
+}
+
+export type PodBaseTableCreateResponse = PodBaseTableCreateResponses[keyof PodBaseTableCreateResponses]
+
+export type PodPeerExchangeData = {
+  body?: never
+  path: {
+    exchange_id: string
+    id: string
+  }
+  query?: {
+    cursor?: number
+  }
+  url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}'
+}
+
+export type PodPeerExchangeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPeerExchangeError = PodPeerExchangeErrors[keyof PodPeerExchangeErrors]
+
+export type PodPeerExchangeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    activity?: {
+      agentUID: string
+      conversationID: string
+      epoch: number
+      phase?: {
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      } | null
+      responseID?: string | null
+      revision: number
+      sessionID: string
+      signalID?: string | null
+      state: 'active' | 'unavailable' | 'settled'
+      tools: Array<{
+        duration_ms?: number | null
+        label?: string | null
+        label_bindings?: {
+          [key: string]: unknown
+        } | null
+        label_key?: string | null
+        operation_id: string
+        phase?: string | null
+      }>
+    } | null
+    agentUID: string
+    id: string
+    messages: Array<{
+      authorUID?: string | null
+      execution?: {
+        duration_ms?: number | null
+        model?: string | null
+        status?: string | null
+        steps?: Array<{
+          duration_ms?: number | null
+          id: string
+          input?: string | null
+          output?: string | null
+          status: string
+          title: string
+          tool: string
+        }> | null
+        thinking_summary?: string | null
+        usage?: {
+          cached_input_tokens?: number | null
+          input_tokens?: number | null
+          models: Array<{
+            cached_input_tokens?: number | null
+            input_tokens?: number | null
+            model: string
+            model_profile?: string | null
+            output_tokens?: number | null
+            provider_model?: string | null
+            reasoning_tokens?: number | null
+            reported_rounds: number
+            rounds: number
+            served_profile?: string | null
+          }>
+          output_tokens?: number | null
+          reasoning_tokens?: number | null
+          reported_rounds: number
+          rounds: number
+        } | null
+      } | null
+      id: string
+      seq: number
+      text?: string | null
+    }>
+    nextCursor?: number | null
+    status: string
+    text: string
+  }
+}
+
+export type PodPeerExchangeResponse = PodPeerExchangeResponses[keyof PodPeerExchangeResponses]
+
+export type UnbindPodCredentialData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/me/credentials/{id}'
+}
+
+export type UnbindPodCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UnbindPodCredentialError = UnbindPodCredentialErrors[keyof UnbindPodCredentialErrors]
+
+export type UnbindPodCredentialResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type UnbindPodCredentialResponse = UnbindPodCredentialResponses[keyof UnbindPodCredentialResponses]
+
+export type PodEventBindingsData = {
+  body?: never
+  path?: never
+  query?: {
+    config_ref?: string
+    job_id?: number
+  }
+  url: '/api/v2/pod/signal-bindings'
+}
+
+export type PodEventBindingsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodEventBindingsError = PodEventBindingsErrors[keyof PodEventBindingsErrors]
+
+export type PodEventBindingsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    bindings: Array<{
+      adapter: string
+      agent_uid?: string | null
+      automation_job_id?: number | null
+      config_ref: string
+      enabled: boolean
+      filters: {
+        [key: string]: unknown
+      }
+      id: string
+      name: string
+      routing_mode: 'ai_colleague' | 'sender_personal_assistant' | 'action'
+      target: {
+        [key: string]: unknown
+      }
+      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+      unavailable_reason?: string | null
+      unmatched_sender_policy: 'manual_review' | 'create_standalone'
+      watched_field_ids?: Array<string> | null
+    }>
+  }
+}
+
+export type PodEventBindingsResponse = PodEventBindingsResponses[keyof PodEventBindingsResponses]
+
+export type PodEventBindingPutData = {
+  /**
+   * Request body for the podEventBindingPut operation on event_binding_operation resource
+   */
+  body: {
+    data: {
+      agent_uid?: string | null
+      automation_job_id?: number | null
+      config_ref: string
+      enabled?: boolean | null
+      filters?: {
+        [key: string]: unknown
+      } | null
+      id?: string | null
+      name?: string | null
+      target?: {
+        [key: string]: unknown
+      } | null
+      watched_field_ids?: Array<string> | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/signal-bindings'
+}
+
+export type PodEventBindingPutErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodEventBindingPutError = PodEventBindingPutErrors[keyof PodEventBindingPutErrors]
+
+export type PodEventBindingPutResponses = {
+  /**
+   * Success
+   */
+  200: {
+    binding: {
+      adapter: string
+      agent_uid?: string | null
+      automation_job_id?: number | null
+      config_ref: string
+      enabled: boolean
+      filters: {
+        [key: string]: unknown
+      }
+      id: string
+      name: string
+      routing_mode: 'ai_colleague' | 'sender_personal_assistant' | 'action'
+      target: {
+        [key: string]: unknown
+      }
+      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+      unavailable_reason?: string | null
+      unmatched_sender_policy: 'manual_review' | 'create_standalone'
+      watched_field_ids?: Array<string> | null
+    }
+  }
+}
+
+export type PodEventBindingPutResponse = PodEventBindingPutResponses[keyof PodEventBindingPutResponses]
+
+export type PodPageCommentResolveData = {
+  /**
+   * Request body for the podPageCommentResolve operation on pod_document_comment_operation resource
+   */
+  body: {
+    data: {
+      resolved: boolean
+      version: number
+    }
+  }
+  path: {
+    comment_id: string
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/comments/{comment_id}/resolution'
+}
+
+export type PodPageCommentResolveErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageCommentResolveError = PodPageCommentResolveErrors[keyof PodPageCommentResolveErrors]
+
+export type PodPageCommentResolveResponses = {
+  /**
+   * Success
+   */
+  200: {
+    comment: {
+      activity_at: string
+      anchor?: {
+        [key: string]: unknown
+      } | null
+      anchor_outdated: boolean
+      anchor_present: boolean
+      anchor_revision?: number | null
+      author: {
+        avatar_url?: string | null
+        kind?: 'human' | 'agent' | 'system' | null
+        name?: string | null
+        principal_uid: string
+        tenant_id: string
+      }
+      body?: string | null
+      can_delete: boolean
+      can_edit: boolean
+      can_reanchor: boolean
+      can_resolve: boolean
+      created_at: string
+      deleted_at?: string | null
+      id: string
+      quote?: string | null
+      resolved_at?: string | null
+      resolved_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      root_id?: string | null
+      updated_at: string
+      version: number
+    }
+    revision: number
+  }
+}
+
+export type PodPageCommentResolveResponse = PodPageCommentResolveResponses[keyof PodPageCommentResolveResponses]
+
+export type PodAdminMembersData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/members'
+}
+
+export type PodAdminMembersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAdminMembersError = PodAdminMembersErrors[keyof PodAdminMembersErrors]
+
+export type PodAdminMembersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    members: Array<{
+      administrator: boolean
+      credentials: Array<{
+        id: string
+        identifier: string
+        kind: string
+        provider: string
+      }>
+      displayName: string
+      email?: string | null
+      membership: string
+      status: string
+      uid: string
+    }>
+  }
+}
+
+export type PodAdminMembersResponse = PodAdminMembersResponses[keyof PodAdminMembersResponses]
+
+export type CreatePodMemberData = {
+  /**
+   * Request body for the createPodMember operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      displayName: string
+      email: string
+      membership: 'member' | 'guest'
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/members'
+}
+
+export type CreatePodMemberErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreatePodMemberError = CreatePodMemberErrors[keyof CreatePodMemberErrors]
+
+export type CreatePodMemberResponses = {
+  /**
+   * Success
+   */
+  201: {
+    uid: string
+  }
+}
+
+export type CreatePodMemberResponse = CreatePodMemberResponses[keyof CreatePodMemberResponses]
+
+export type PodSubjectsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/subjects'
+}
+
+export type PodSubjectsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodSubjectsError = PodSubjectsErrors[keyof PodSubjectsErrors]
+
+export type PodSubjectsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    subjects: Array<{
+      avatar_url?: string | null
+      built_in?: boolean | null
+      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
+      group_id?: string | null
+      group_slug?: string | null
+      kind: 'human' | 'agent' | 'group' | 'userset'
+      membership?: 'member' | 'guest' | null
+      name: string
+      principal_uid?: string | null
+      subtitle?: string | null
+    }>
+  }
+}
+
+export type PodSubjectsResponse = PodSubjectsResponses[keyof PodSubjectsResponses]
+
+export type PodBaseFieldDeleteData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query: {
+    version: number
+  }
+  url: '/api/v2/pod/fields/{id}'
+}
+
+export type PodBaseFieldDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseFieldDeleteError = PodBaseFieldDeleteErrors[keyof PodBaseFieldDeleteErrors]
+
+export type PodBaseFieldDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    field: PodBaseFieldType
+  }
+}
+
+export type PodBaseFieldDeleteResponse = PodBaseFieldDeleteResponses[keyof PodBaseFieldDeleteResponses]
+
+export type PodBaseFieldUpdateData = {
+  /**
+   * Request body for the podBaseFieldUpdate operation on pod_base_operation resource
+   */
+  body: {
+    data: {
+      clear_invalid?: boolean | null
+      config?: {
+        [key: string]: unknown
+      } | null
+      name?: string | null
+      position?: string | null
+      type?:
+        | 'text'
+        | 'number'
+        | 'select'
+        | 'datetime'
+        | 'checkbox'
+        | 'user'
+        | 'attachment'
+        | 'auto_number'
+        | 'link'
+        | 'formula'
+        | 'created_at'
+        | 'updated_at'
+        | 'created_by'
+        | 'updated_by'
+        | null
+      version: number
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/fields/{id}'
+}
+
+export type PodBaseFieldUpdateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseFieldUpdateError = PodBaseFieldUpdateErrors[keyof PodBaseFieldUpdateErrors]
+
+export type PodBaseFieldUpdateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    field: PodBaseFieldType
+  }
+}
+
+export type PodBaseFieldUpdateResponse = PodBaseFieldUpdateResponses[keyof PodBaseFieldUpdateResponses]
+
+export type CreatePodIdentityProviderData = {
+  /**
+   * Request body for the createPodIdentityProvider operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      enabled: boolean
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/identity-providers/{provider_id}'
+}
+
+export type CreatePodIdentityProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreatePodIdentityProviderError = CreatePodIdentityProviderErrors[keyof CreatePodIdentityProviderErrors]
+
+export type CreatePodIdentityProviderResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ok: boolean
+  }
+}
+
+export type CreatePodIdentityProviderResponse =
+  CreatePodIdentityProviderResponses[keyof CreatePodIdentityProviderResponses]
+
+export type SavePodIdentityProviderData = {
+  /**
+   * Request body for the savePodIdentityProvider operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      enabled: boolean
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/identity-providers/{provider_id}'
+}
+
+export type SavePodIdentityProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SavePodIdentityProviderError = SavePodIdentityProviderErrors[keyof SavePodIdentityProviderErrors]
+
+export type SavePodIdentityProviderResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SavePodIdentityProviderResponse = SavePodIdentityProviderResponses[keyof SavePodIdentityProviderResponses]
+
+export type PodJobSchedulesRunsData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/runs'
+}
+
+export type PodJobSchedulesRunsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesRunsError = PodJobSchedulesRunsErrors[keyof PodJobSchedulesRunsErrors]
+
+export type PodJobSchedulesRunsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesRunsResponse = PodJobSchedulesRunsResponses[keyof PodJobSchedulesRunsResponses]
+
+export type PodPageDeleteData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}'
+}
+
+export type PodPageDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageDeleteError = PodPageDeleteErrors[keyof PodPageDeleteErrors]
+
+export type PodPageDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    descendant_count: number
+    page: PodPageType
+  }
+}
+
+export type PodPageDeleteResponse = PodPageDeleteResponses[keyof PodPageDeleteResponses]
+
+export type PodPageReadData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}'
+}
+
+export type PodPageReadErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageReadError = PodPageReadErrors[keyof PodPageReadErrors]
+
+export type PodPageReadResponses = {
+  /**
+   * Success
+   */
+  200: {
+    actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
+    ancestors: Array<PodPageType>
+    child_count: number
+    content?: PodPageContentType | null
+    fact_learning?: {
+      enabled: boolean
+      inherited: boolean
+    } | null
+    page: PodPageType
+    role: 'view' | 'contribute' | 'edit' | 'manage'
+    source_conversation?: {
+      deleted?: boolean | null
+      id?: string | null
+      message_id?: string | null
+      title?: string | null
+    } | null
+  }
+}
+
+export type PodPageReadResponse = PodPageReadResponses[keyof PodPageReadResponses]
+
+export type PodPageUpdateData = {
+  /**
+   * Request body for the podPageUpdate operation on pod_page_operation resource
+   */
+  body?: {
+    data: {
+      children_view?: {
+        collapsed?: boolean | null
+        field_order?: Array<'created_by' | 'updated_at' | 'created_at'> | null
+        view?: 'list' | 'grid' | 'table' | null
+        visible_fields?: Array<'created_by' | 'updated_at' | 'created_at'> | null
+      } | null
+      /**
+       * Required whenever title is supplied; the title read before editing.
+       */
+      expected_title?: string | null
+      extract_facts?: boolean | null
+      icon?: string | null
+      title?: string | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}'
+}
+
+export type PodPageUpdateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageUpdateError = PodPageUpdateErrors[keyof PodPageUpdateErrors]
+
+export type PodPageUpdateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    page: PodPageType
+  }
+}
+
+export type PodPageUpdateResponse = PodPageUpdateResponses[keyof PodPageUpdateResponses]
+
+export type PodPageCommentSummaryData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/comments/summary'
+}
+
+export type PodPageCommentSummaryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageCommentSummaryError = PodPageCommentSummaryErrors[keyof PodPageCommentSummaryErrors]
+
+export type PodPageCommentSummaryResponses = {
+  /**
+   * Success
+   */
+  200: {
+    activity_at?: string | null
+    open_count: number
+    resolved_ids: Array<string>
+    unread_count: number
+  }
+}
+
+export type PodPageCommentSummaryResponse = PodPageCommentSummaryResponses[keyof PodPageCommentSummaryResponses]
+
 export type PodConnectorAuthConfigsUpdateData = {
   /**
    * Request body for the podConnectorAuthConfigsUpdate operation on connector_operation resource
@@ -2751,6 +7594,427 @@ export type PodConnectorAuthConfigsUpdateResponses = {
 export type PodConnectorAuthConfigsUpdateResponse =
   PodConnectorAuthConfigsUpdateResponses[keyof PodConnectorAuthConfigsUpdateResponses]
 
+export type EnablePodAgentData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/agents/{uid}/enable'
+}
+
+export type EnablePodAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type EnablePodAgentError = EnablePodAgentErrors[keyof EnablePodAgentErrors]
+
+export type EnablePodAgentResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ok: boolean
+  }
+}
+
+export type EnablePodAgentResponse = EnablePodAgentResponses[keyof EnablePodAgentResponses]
+
+export type MetaBrainData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/meta/brain'
+}
+
+export type MetaBrainErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaBrainError = MetaBrainErrors[keyof MetaBrainErrors]
+
+export type MetaBrainResponses = {
+  /**
+   * Success
+   */
+  200: {
+    categories: Array<{
+      can_edit: boolean
+      id: string
+      name: string
+    }>
+    links: Array<{
+      from_page_id: string
+      link_type: string
+      to_page_id: string
+    }>
+    nodes: Array<{
+      id: string
+      slug: string
+      title: string
+      type: string
+    }>
+  }
+}
+
+export type MetaBrainResponse = MetaBrainResponses[keyof MetaBrainResponses]
+
+export type PodKnowledgePanelData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/knowledge'
+}
+
+export type PodKnowledgePanelErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodKnowledgePanelError = PodKnowledgePanelErrors[keyof PodKnowledgePanelErrors]
+
+export type PodKnowledgePanelResponses = {
+  /**
+   * Success
+   */
+  200: {
+    panel: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type PodKnowledgePanelResponse = PodKnowledgePanelResponses[keyof PodKnowledgePanelResponses]
+
+export type PodJobWebhooksListData = {
+  body?: never
+  path: {
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks'
+}
+
+export type PodJobWebhooksListErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksListError = PodJobWebhooksListErrors[keyof PodJobWebhooksListErrors]
+
+export type PodJobWebhooksListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksListResponse = PodJobWebhooksListResponses[keyof PodJobWebhooksListResponses]
+
+export type PodJobWebhooksCreateData = {
+  /**
+   * Request body for the podJobWebhooksCreate operation on applet_job_operation resource
+   */
+  body: {
+    data: {
+      event_format?: string | null
+      expires_at: unknown
+      label: string
+      mode?: string | null
+    }
+  }
+  path: {
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks'
+}
+
+export type PodJobWebhooksCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobWebhooksCreateError = PodJobWebhooksCreateErrors[keyof PodJobWebhooksCreateErrors]
+
+export type PodJobWebhooksCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobWebhooksCreateResponse = PodJobWebhooksCreateResponses[keyof PodJobWebhooksCreateResponses]
+
+export type PodAdminAgentsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/agents'
+}
+
+export type PodAdminAgentsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAdminAgentsError = PodAdminAgentsErrors[keyof PodAdminAgentsErrors]
+
+export type PodAdminAgentsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agents: Array<{
+      displayName: string
+      ownerUID: string
+      status: 'active' | 'disabled'
+      type: 'ai_colleague' | 'personal_assistant'
+      uid: string
+    }>
+  }
+}
+
+export type PodAdminAgentsResponse = PodAdminAgentsResponses[keyof PodAdminAgentsResponses]
+
+export type SetPodAdministratorData = {
+  /**
+   * Request body for the setPodAdministrator operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      administrator: boolean
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/members/{uid}/administrator'
+}
+
+export type SetPodAdministratorErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetPodAdministratorError = SetPodAdministratorErrors[keyof SetPodAdministratorErrors]
+
+export type SetPodAdministratorResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SetPodAdministratorResponse = SetPodAdministratorResponses[keyof SetPodAdministratorResponses]
+
+export type PodMentionsResolveData = {
+  /**
+   * Request body for the podMentionsResolve operation on pod_page_operation resource
+   */
+  body?: {
+    data: {
+      context_page_id?: string | null
+      page_ids?: Array<string> | null
+      principal_uids?: Array<string> | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/mentions/resolve'
+}
+
+export type PodMentionsResolveErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodMentionsResolveError = PodMentionsResolveErrors[keyof PodMentionsResolveErrors]
+
+export type PodMentionsResolveResponses = {
+  /**
+   * Success
+   */
+  201: {
+    pages: Array<{
+      access: 'ok' | 'trashed' | 'restricted'
+      ancestors?: Array<string> | null
+      excerpt?: string | null
+      file?: {
+        content_type: string
+        path: string
+        sha256: string
+        size: number
+      } | null
+      icon?: string | null
+      id: string
+      private_owner_uid?: string | null
+      system_key?: string | null
+      title?: string | null
+      type?: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | null
+      updated_at?: string | null
+    }>
+    principals: Array<{
+      access: 'ok' | 'disabled' | 'restricted'
+      aliases?: Array<string> | null
+      avatar_url?: string | null
+      email?: string | null
+      job_title?: string | null
+      kind?: 'human' | 'agent' | null
+      membership?: 'member' | 'guest' | null
+      name?: string | null
+      principal_uid: string
+      role?: string | null
+    }>
+    space_name: string
+  }
+}
+
+export type PodMentionsResolveResponse = PodMentionsResolveResponses[keyof PodMentionsResolveResponses]
+
+export type PodPageListData = {
+  body?: never
+  path?: never
+  query?: {
+    domain?: 'pages' | 'brain' | 'all'
+    query?: string
+    scope?: 'all' | 'space' | 'private' | 'shared' | 'recent' | 'favorites' | 'trash'
+  }
+  url: '/api/v2/pod/pages'
+}
+
+export type PodPageListErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageListError = PodPageListErrors[keyof PodPageListErrors]
+
+export type PodPageListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    pages: Array<PodPageType>
+    trash_retention_days?: number | null
+  }
+}
+
+export type PodPageListResponse = PodPageListResponses[keyof PodPageListResponses]
+
+export type PodPageCreateData = {
+  /**
+   * Request body for the podPageCreate operation on pod_page_operation resource
+   */
+  body?: {
+    data: {
+      attachment_position?: number | null
+      children_view?: {
+        collapsed?: boolean | null
+        field_order?: Array<'created_by' | 'updated_at' | 'created_at'> | null
+        view?: 'list' | 'grid' | 'table' | null
+        visible_fields?: Array<'created_by' | 'updated_at' | 'created_at'> | null
+      } | null
+      icon?: string | null
+      metadata?: {
+        [key: string]: unknown
+      } | null
+      parent_id?: string | null
+      position?: string | null
+      private_owner_uid?: string | null
+      saved_from_message_id?: string | null
+      title?: string | null
+      type?: 'doc' | 'knowledge' | 'base' | 'file' | null
+      xml?: string | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/pages'
+}
+
+export type PodPageCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageCreateError = PodPageCreateErrors[keyof PodPageCreateErrors]
+
+export type PodPageCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    page: PodPageType
+  }
+}
+
+export type PodPageCreateResponse = PodPageCreateResponses[keyof PodPageCreateResponses]
+
+export type UnbindPodMemberCredentialData = {
+  body?: never
+  path: {
+    credential_id: string
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/members/{uid}/credentials/{credential_id}'
+}
+
+export type UnbindPodMemberCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UnbindPodMemberCredentialError = UnbindPodMemberCredentialErrors[keyof UnbindPodMemberCredentialErrors]
+
+export type UnbindPodMemberCredentialResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type UnbindPodMemberCredentialResponse =
+  UnbindPodMemberCredentialResponses[keyof UnbindPodMemberCredentialResponses]
+
 export type PodConnectorOAuthBeginData = {
   /**
    * Request body for the podConnectorOAuthBegin operation on connector_operation resource
@@ -2790,34 +8054,110 @@ export type PodConnectorOAuthBeginResponses = {
 
 export type PodConnectorOAuthBeginResponse = PodConnectorOAuthBeginResponses[keyof PodConnectorOAuthBeginResponses]
 
-export type PodConnectorOAuthClaimData = {
-  /**
-   * Request body for the podConnectorOAuthClaim operation on connector_operation resource
-   */
-  body: {
-    data: {
-      completion_code: string
-    }
+export type PodConnectorTriggersDeleteData = {
+  body?: never
+  path: {
+    id: string
   }
-  path?: never
   query?: never
-  url: '/api/v2/pod/connectors/oauth/claim'
+  url: '/api/v2/pod/connectors/triggers/{id}'
 }
 
-export type PodConnectorOAuthClaimErrors = {
+export type PodConnectorTriggersDeleteErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodConnectorOAuthClaimError = PodConnectorOAuthClaimErrors[keyof PodConnectorOAuthClaimErrors]
+export type PodConnectorTriggersDeleteError = PodConnectorTriggersDeleteErrors[keyof PodConnectorTriggersDeleteErrors]
 
-export type PodConnectorOAuthClaimResponses = {
+export type PodConnectorTriggersDeleteResponses = {
   /**
    * Success
    */
-  201: {
+  200: {
+    trigger: {
+      auth_config_id: string
+      config: {
+        [key: string]: unknown
+      }
+      config_ref: string
+      connected_account_id?: string | null
+      connected_account_status?: string | null
+      external_subscription_id?: string | null
+      id: string
+      last_error?: {
+        [key: string]: unknown
+      } | null
+      owner_principal_uid?: string | null
+      plugin_id: string
+      scope_key: string
+      status: string
+      trigger_type: string
+      updated_at: string
+    }
+  }
+}
+
+export type PodConnectorTriggersDeleteResponse =
+  PodConnectorTriggersDeleteResponses[keyof PodConnectorTriggersDeleteResponses]
+
+export type PodKnowledgeExportData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    snapshot_id?: string
+  }
+  url: '/api/v2/pod/pages/{id}/knowledge/export'
+}
+
+export type PodKnowledgeExportErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodKnowledgeExportError = PodKnowledgeExportErrors[keyof PodKnowledgeExportErrors]
+
+export type PodKnowledgeExportResponses = {
+  /**
+   * Success
+   */
+  200: {
+    markdown: string
+  }
+}
+
+export type PodKnowledgeExportResponse = PodKnowledgeExportResponses[keyof PodKnowledgeExportResponses]
+
+export type PodConnectorAccountsDisconnectData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/connectors/accounts/{id}'
+}
+
+export type PodConnectorAccountsDisconnectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodConnectorAccountsDisconnectError =
+  PodConnectorAccountsDisconnectErrors[keyof PodConnectorAccountsDisconnectErrors]
+
+export type PodConnectorAccountsDisconnectResponses = {
+  /**
+   * Success
+   */
+  200: {
     account: {
       account_key: string
       auth_config_id: string
@@ -2841,7 +8181,447 @@ export type PodConnectorOAuthClaimResponses = {
   }
 }
 
-export type PodConnectorOAuthClaimResponse = PodConnectorOAuthClaimResponses[keyof PodConnectorOAuthClaimResponses]
+export type PodConnectorAccountsDisconnectResponse =
+  PodConnectorAccountsDisconnectResponses[keyof PodConnectorAccountsDisconnectResponses]
+
+export type PodAdminSettingsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/settings'
+}
+
+export type PodAdminSettingsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAdminSettingsError = PodAdminSettingsErrors[keyof PodAdminSettingsErrors]
+
+export type PodAdminSettingsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    allowExternalGuests: boolean
+    defaultLocale: string
+    displayName: string
+    emailAvailable: boolean
+    loginPolicy: {
+      allow_email_otp: boolean
+      allow_invite_links: boolean
+      allow_member_credential_change: boolean
+      allowed_email_domains: Array<string>
+      require_sso_for_members: boolean
+    }
+  }
+}
+
+export type PodAdminSettingsResponse = PodAdminSettingsResponses[keyof PodAdminSettingsResponses]
+
+export type UpdatePodAdminSettingsData = {
+  /**
+   * Request body for the updatePodAdminSettings operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      allowExternalGuests: boolean
+      defaultLocale: string
+      displayName: string
+      loginPolicy: {
+        allow_email_otp: boolean
+        allow_invite_links: boolean
+        allow_member_credential_change: boolean
+        allowed_email_domains: Array<string>
+        require_sso_for_members: boolean
+      }
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/settings'
+}
+
+export type UpdatePodAdminSettingsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdatePodAdminSettingsError = UpdatePodAdminSettingsErrors[keyof UpdatePodAdminSettingsErrors]
+
+export type UpdatePodAdminSettingsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    allowExternalGuests: boolean
+    defaultLocale: string
+    displayName: string
+    emailAvailable: boolean
+    loginPolicy: {
+      allow_email_otp: boolean
+      allow_invite_links: boolean
+      allow_member_credential_change: boolean
+      allowed_email_domains: Array<string>
+      require_sso_for_members: boolean
+    }
+  }
+}
+
+export type UpdatePodAdminSettingsResponse = UpdatePodAdminSettingsResponses[keyof UpdatePodAdminSettingsResponses]
+
+export type PodRealtimeTokenData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/realtime-token'
+}
+
+export type PodRealtimeTokenErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodRealtimeTokenError = PodRealtimeTokenErrors[keyof PodRealtimeTokenErrors]
+
+export type PodRealtimeTokenResponses = {
+  /**
+   * Success
+   */
+  200: {
+    principal: {
+      name: string
+      uid: string
+    }
+    token: string
+  }
+}
+
+export type PodRealtimeTokenResponse = PodRealtimeTokenResponses[keyof PodRealtimeTokenResponses]
+
+export type PodEmbedsDeleteData = {
+  /**
+   * Request body for the podEmbedsDelete operation on pod_page_operation resource
+   */
+  body: {
+    data: {
+      refs: Array<string>
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/embeds/delete'
+}
+
+export type PodEmbedsDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodEmbedsDeleteError = PodEmbedsDeleteErrors[keyof PodEmbedsDeleteErrors]
+
+export type PodEmbedsDeleteResponses = {
+  /**
+   * Success
+   */
+  201: boolean
+}
+
+export type PodEmbedsDeleteResponse = PodEmbedsDeleteResponses[keyof PodEmbedsDeleteResponses]
+
+export type PodBaseTableConfigureData = {
+  /**
+   * Request body for the podBaseTableConfigure operation on pod_base_operation resource
+   */
+  body?: {
+    data: {
+      emit_changes?: boolean | null
+      unique_field_ids?: Array<string> | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/tables/{id}/settings'
+}
+
+export type PodBaseTableConfigureErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseTableConfigureError = PodBaseTableConfigureErrors[keyof PodBaseTableConfigureErrors]
+
+export type PodBaseTableConfigureResponses = {
+  /**
+   * Success
+   */
+  200: {
+    table: PodBaseTableType
+  }
+}
+
+export type PodBaseTableConfigureResponse = PodBaseTableConfigureResponses[keyof PodBaseTableConfigureResponses]
+
+export type PodJobSchedulesResumeData = {
+  body?: never
+  path: {
+    id: string
+    job_id: number
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/resume'
+}
+
+export type PodJobSchedulesResumeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodJobSchedulesResumeError = PodJobSchedulesResumeErrors[keyof PodJobSchedulesResumeErrors]
+
+export type PodJobSchedulesResumeResponses = {
+  /**
+   * Success
+   */
+  201: {
+    [key: string]: unknown
+  }
+}
+
+export type PodJobSchedulesResumeResponse = PodJobSchedulesResumeResponses[keyof PodJobSchedulesResumeResponses]
+
+export type PodAppletJobActionsData = {
+  body?: never
+  path: {
+    page_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{page_id}/job-actions'
+}
+
+export type PodAppletJobActionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAppletJobActionsError = PodAppletJobActionsErrors[keyof PodAppletJobActionsErrors]
+
+export type PodAppletJobActionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    actions: Array<string>
+  }
+}
+
+export type PodAppletJobActionsResponse = PodAppletJobActionsResponses[keyof PodAppletJobActionsResponses]
+
+export type PodSpaceAgentDeleteData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/space/agents/{uid}'
+}
+
+export type PodSpaceAgentDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodSpaceAgentDeleteError = PodSpaceAgentDeleteErrors[keyof PodSpaceAgentDeleteErrors]
+
+export type PodSpaceAgentDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    principal_uid: string
+  }
+}
+
+export type PodSpaceAgentDeleteResponse = PodSpaceAgentDeleteResponses[keyof PodSpaceAgentDeleteResponses]
+
+export type PodNextStepsData = {
+  /**
+   * Request body for the podNextSteps operation on pod_chat_operation resource
+   */
+  body?: {
+    data: {
+      locale?: string | null
+      refresh?: boolean | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/next-steps'
+}
+
+export type PodNextStepsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodNextStepsError = PodNextStepsErrors[keyof PodNextStepsErrors]
+
+export type PodNextStepsResponses = {
+  /**
+   * Success
+   */
+  201: {
+    steps: Array<{
+      ambitious: boolean
+      effort: string
+      id: string
+      outcome: string
+      title: string
+      whyNow: string
+    }>
+  }
+}
+
+export type PodNextStepsResponse = PodNextStepsResponses[keyof PodNextStepsResponses]
+
+export type PodBaseViewCreateData = {
+  /**
+   * Request body for the podBaseViewCreate operation on pod_base_operation resource
+   */
+  body?: {
+    data: {
+      config?: {
+        [key: string]: unknown
+      } | null
+      name?: string | null
+      position?: string | null
+      type?: 'grid' | 'kanban' | 'gallery' | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/tables/{id}/views'
+}
+
+export type PodBaseViewCreateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseViewCreateError = PodBaseViewCreateErrors[keyof PodBaseViewCreateErrors]
+
+export type PodBaseViewCreateResponses = {
+  /**
+   * Success
+   */
+  201: {
+    view: PodBaseViewType
+  }
+}
+
+export type PodBaseViewCreateResponse = PodBaseViewCreateResponses[keyof PodBaseViewCreateResponses]
+
+export type PodAdminInvitationsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/invitations'
+}
+
+export type PodAdminInvitationsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAdminInvitationsError = PodAdminInvitationsErrors[keyof PodAdminInvitationsErrors]
+
+export type PodAdminInvitationsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    invitations: Array<{
+      expires_at: string
+      id: string
+      invited_email?: string | null
+      kind: string
+      max_uses?: number | null
+      membership: string
+      revoked_at?: string | null
+      used_count: number
+    }>
+  }
+}
+
+export type PodAdminInvitationsResponse = PodAdminInvitationsResponses[keyof PodAdminInvitationsResponses]
+
+export type CreatePodInvitationData = {
+  /**
+   * Request body for the createPodInvitation operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      email?: string | null
+      expiresAt: unknown
+      maxUses?: number | null
+      membership: 'member' | 'guest'
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/invitations'
+}
+
+export type CreatePodInvitationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreatePodInvitationError = CreatePodInvitationErrors[keyof CreatePodInvitationErrors]
+
+export type CreatePodInvitationResponses = {
+  /**
+   * Success
+   */
+  201: {
+    code: string
+    id: string
+    url: string
+  }
+}
+
+export type CreatePodInvitationResponse = CreatePodInvitationResponses[keyof CreatePodInvitationResponses]
 
 export type PodConnectorTriggersListData = {
   body?: never
@@ -2951,103 +8731,498 @@ export type PodConnectorTriggersCreateResponses = {
 export type PodConnectorTriggersCreateResponse =
   PodConnectorTriggersCreateResponses[keyof PodConnectorTriggersCreateResponses]
 
-export type PodConnectorTriggersDeleteData = {
+export type PodPageHistoryData = {
   body?: never
   path: {
     id: string
   }
-  query?: never
-  url: '/api/v2/pod/connectors/triggers/{id}'
+  query?: {
+    cursor?: string
+    limit?: number
+  }
+  url: '/api/v2/pod/pages/{id}/history'
 }
 
-export type PodConnectorTriggersDeleteErrors = {
+export type PodPageHistoryErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodConnectorTriggersDeleteError = PodConnectorTriggersDeleteErrors[keyof PodConnectorTriggersDeleteErrors]
+export type PodPageHistoryError = PodPageHistoryErrors[keyof PodPageHistoryErrors]
 
-export type PodConnectorTriggersDeleteResponses = {
+export type PodPageHistoryResponses = {
   /**
    * Success
    */
   200: {
-    trigger: {
-      auth_config_id: string
-      config: {
+    current_revision: number
+    current_updated_at: string
+    next_cursor?: string | null
+    snapshots: Array<{
+      author: {
+        avatar_url?: string | null
+        kind?: 'human' | 'agent' | 'system' | null
+        name?: string | null
+        principal_uid: string
+        tenant_id: string
+      }
+      created_at: string
+      document_updated_at: string
+      icon?: string | null
+      id: string
+      metadata: {
         [key: string]: unknown
       }
-      config_ref: string
-      connected_account_id?: string | null
-      connected_account_status?: string | null
-      external_subscription_id?: string | null
-      id: string
-      last_error?: {
-        [key: string]: unknown
-      } | null
-      owner_principal_uid?: string | null
-      plugin_id: string
-      scope_key: string
-      status: string
-      trigger_type: string
-      updated_at: string
-    }
+      reason: 'created' | 'baseline' | 'checkpoint' | 'before_restore' | 'restored'
+      revision: number
+      title: string
+    }>
   }
 }
 
-export type PodConnectorTriggersDeleteResponse =
-  PodConnectorTriggersDeleteResponses[keyof PodConnectorTriggersDeleteResponses]
+export type PodPageHistoryResponse = PodPageHistoryResponses[keyof PodPageHistoryResponses]
 
-export type PodConnectorTriggersRetryData = {
+export type PodSpreadsheetVersionsData = {
   body?: never
   path: {
     id: string
   }
   query?: never
-  url: '/api/v2/pod/connectors/triggers/{id}/retry'
+  url: '/api/v2/pod/pages/{id}/spreadsheet/versions'
 }
 
-export type PodConnectorTriggersRetryErrors = {
+export type PodSpreadsheetVersionsErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodConnectorTriggersRetryError = PodConnectorTriggersRetryErrors[keyof PodConnectorTriggersRetryErrors]
+export type PodSpreadsheetVersionsError = PodSpreadsheetVersionsErrors[keyof PodSpreadsheetVersionsErrors]
 
-export type PodConnectorTriggersRetryResponses = {
+export type PodSpreadsheetVersionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    versions: Array<{
+      author: {
+        avatar_url?: string | null
+        kind?: 'human' | 'agent' | 'system' | null
+        name?: string | null
+        principal_uid: string
+        tenant_id: string
+      }
+      created_at: string
+      file_name: string
+      id: string
+      reason: 'created' | 'uploaded' | 'checkpoint' | 'before_restore' | 'restored'
+      revision: number
+      sha256: string
+      size: number
+    }>
+  }
+}
+
+export type PodSpreadsheetVersionsResponse = PodSpreadsheetVersionsResponses[keyof PodSpreadsheetVersionsResponses]
+
+export type PodBaseViewDeleteData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query: {
+    version: number
+  }
+  url: '/api/v2/pod/views/{id}'
+}
+
+export type PodBaseViewDeleteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseViewDeleteError = PodBaseViewDeleteErrors[keyof PodBaseViewDeleteErrors]
+
+export type PodBaseViewDeleteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    view: PodBaseViewType
+  }
+}
+
+export type PodBaseViewDeleteResponse = PodBaseViewDeleteResponses[keyof PodBaseViewDeleteResponses]
+
+export type PodBaseViewUpdateData = {
+  /**
+   * Request body for the podBaseViewUpdate operation on pod_base_operation resource
+   */
+  body: {
+    data: {
+      config?: {
+        [key: string]: unknown
+      } | null
+      name?: string | null
+      position?: string | null
+      type?: 'grid' | 'kanban' | 'gallery' | null
+      version: number
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/views/{id}'
+}
+
+export type PodBaseViewUpdateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseViewUpdateError = PodBaseViewUpdateErrors[keyof PodBaseViewUpdateErrors]
+
+export type PodBaseViewUpdateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    view: PodBaseViewType
+  }
+}
+
+export type PodBaseViewUpdateResponse = PodBaseViewUpdateResponses[keyof PodBaseViewUpdateResponses]
+
+export type PodBaseWriteData = {
+  /**
+   * Request body for the podBaseWrite operation on pod_base_operation resource
+   */
+  body?: {
+    data: {
+      creates?: Array<{
+        data: {
+          [key: string]: unknown
+        }
+        id?: string | null
+      }> | null
+      deletes?: Array<{
+        expected_versions: {
+          [key: string]: number
+        }
+        id: string
+      }> | null
+      updates?: Array<{
+        data: {
+          [key: string]: unknown
+        }
+        expected_versions: {
+          [key: string]: number
+        }
+        id: string
+      }> | null
+      upserts?: Array<{
+        data: {
+          [key: string]: unknown
+        }
+      }> | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/tables/{id}/records'
+}
+
+export type PodBaseWriteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodBaseWriteError = PodBaseWriteErrors[keyof PodBaseWriteErrors]
+
+export type PodBaseWriteResponses = {
   /**
    * Success
    */
   201: {
-    trigger: {
-      auth_config_id: string
-      config: {
-        [key: string]: unknown
+    data_version: number
+    deleted_ids: Array<string>
+    records: Array<{
+      created_at: string
+      created_by: string
+      data: {
+        [key: string]:
+          | string
+          | number
+          | boolean
+          | null
+          | Array<unknown>
+          | {
+              [key: string]: unknown
+            }
       }
-      config_ref: string
-      connected_account_id?: string | null
-      connected_account_status?: string | null
-      external_subscription_id?: string | null
       id: string
-      last_error?: {
-        [key: string]: unknown
-      } | null
-      owner_principal_uid?: string | null
-      plugin_id: string
-      scope_key: string
-      status: string
-      trigger_type: string
       updated_at: string
-    }
+      updated_by: string
+      versions: {
+        [key: string]: number
+      }
+    }>
   }
 }
 
-export type PodConnectorTriggersRetryResponse =
-  PodConnectorTriggersRetryResponses[keyof PodConnectorTriggersRetryResponses]
+export type PodBaseWriteResponse = PodBaseWriteResponses[keyof PodBaseWriteResponses]
+
+export type PodPageSharingData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/sharing'
+}
+
+export type PodPageSharingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageSharingError = PodPageSharingErrors[keyof PodPageSharingErrors]
+
+export type PodPageSharingResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_manage: boolean
+    grants: Array<{
+      actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
+      avatar_url?: string | null
+      built_in?: boolean | null
+      condition?: string | null
+      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
+      group_id?: string | null
+      group_slug?: string | null
+      inactive_in_private: boolean
+      kind: 'human' | 'agent' | 'group' | 'userset'
+      membership?: 'member' | 'guest' | null
+      name: string
+      principal_uid?: string | null
+      role: 'view' | 'contribute' | 'edit' | 'manage'
+      rule_kind: 'role' | 'advanced'
+      source_action?: string | null
+      source_node_id?: string | null
+      source_page?: {
+        accessible?: boolean | null
+        icon?: string | null
+        id?: string | null
+        title?: string | null
+      } | null
+      subtitle?: string | null
+      target_scope?: string | null
+    }>
+    inherit_permissions: boolean
+    inherited: Array<{
+      avatar_url?: string | null
+      built_in?: boolean | null
+      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
+      group_id?: string | null
+      group_slug?: string | null
+      kind: 'human' | 'agent' | 'group' | 'userset'
+      membership?: 'member' | 'guest' | null
+      name: string
+      origin: 'space_admin' | 'space_default' | 'space_agent' | 'private_owner' | 'ancestor'
+      principal_uid?: string | null
+      role: 'view' | 'contribute' | 'edit' | 'manage'
+      subtitle?: string | null
+    }>
+    scope_kind: 'space' | 'private'
+    sharing_version: string
+    space_name: string
+    space_role?: 'view' | 'contribute' | 'edit' | 'manage' | null
+    subjects: Array<{
+      avatar_url?: string | null
+      built_in?: boolean | null
+      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
+      group_id?: string | null
+      group_slug?: string | null
+      kind: 'human' | 'agent' | 'group' | 'userset'
+      membership?: 'member' | 'guest' | null
+      name: string
+      principal_uid?: string | null
+      subtitle?: string | null
+    }>
+  }
+}
+
+export type PodPageSharingResponse = PodPageSharingResponses[keyof PodPageSharingResponses]
+
+export type PodPageSharingUpdateData = {
+  /**
+   * Request body for the podPageSharingUpdate operation on pod_page_operation resource
+   */
+  body?: {
+    data: {
+      inherit_permissions?: boolean | null
+      removes?: Array<{
+        condition?: string | null
+        group_id?: string | null
+        principal_uid?: string | null
+        source_action?: string | null
+        source_node_id?: string | null
+        target_scope: string
+      }> | null
+      upserts?: Array<{
+        group_id?: string | null
+        principal_uid?: string | null
+        role: 'view' | 'contribute' | 'edit' | 'manage'
+        target_scope?: string | null
+      }> | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/sharing'
+}
+
+export type PodPageSharingUpdateErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageSharingUpdateError = PodPageSharingUpdateErrors[keyof PodPageSharingUpdateErrors]
+
+export type PodPageSharingUpdateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_manage: boolean
+    grants: Array<{
+      actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
+      avatar_url?: string | null
+      built_in?: boolean | null
+      condition?: string | null
+      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
+      group_id?: string | null
+      group_slug?: string | null
+      inactive_in_private: boolean
+      kind: 'human' | 'agent' | 'group' | 'userset'
+      membership?: 'member' | 'guest' | null
+      name: string
+      principal_uid?: string | null
+      role: 'view' | 'contribute' | 'edit' | 'manage'
+      rule_kind: 'role' | 'advanced'
+      source_action?: string | null
+      source_node_id?: string | null
+      source_page?: {
+        accessible?: boolean | null
+        icon?: string | null
+        id?: string | null
+        title?: string | null
+      } | null
+      subtitle?: string | null
+      target_scope?: string | null
+    }>
+    inherit_permissions: boolean
+    inherited: Array<{
+      avatar_url?: string | null
+      built_in?: boolean | null
+      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
+      group_id?: string | null
+      group_slug?: string | null
+      kind: 'human' | 'agent' | 'group' | 'userset'
+      membership?: 'member' | 'guest' | null
+      name: string
+      origin: 'space_admin' | 'space_default' | 'space_agent' | 'private_owner' | 'ancestor'
+      principal_uid?: string | null
+      role: 'view' | 'contribute' | 'edit' | 'manage'
+      subtitle?: string | null
+    }>
+    scope_kind: 'space' | 'private'
+    sharing_version: string
+    space_name: string
+    space_role?: 'view' | 'contribute' | 'edit' | 'manage' | null
+    subjects: Array<{
+      avatar_url?: string | null
+      built_in?: boolean | null
+      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
+      group_id?: string | null
+      group_slug?: string | null
+      kind: 'human' | 'agent' | 'group' | 'userset'
+      membership?: 'member' | 'guest' | null
+      name: string
+      principal_uid?: string | null
+      subtitle?: string | null
+    }>
+  }
+}
+
+export type PodPageSharingUpdateResponse = PodPageSharingUpdateResponses[keyof PodPageSharingUpdateResponses]
+
+export type PodPageSharingWriteData = {
+  /**
+   * Request body for the podPageSharingWrite operation on pod_page_operation resource
+   */
+  body: {
+    data: {
+      grants?: Array<{
+        actions?: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'> | null
+        condition?: string | null
+        group_id?: string | null
+        principal_uid?: string | null
+        role?: 'view' | 'contribute' | 'edit' | 'manage' | null
+        source_action?: string | null
+        source_node_id?: string | null
+        target_scope?: string | null
+      }> | null
+      inherit_permissions?: boolean | null
+      sharing_version: string
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/pages/{id}/sharing'
+}
+
+export type PodPageSharingWriteErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageSharingWriteError = PodPageSharingWriteErrors[keyof PodPageSharingWriteErrors]
+
+export type PodPageSharingWriteResponses = {
+  /**
+   * Success
+   */
+  200: {
+    page: PodPageType
+  }
+}
+
+export type PodPageSharingWriteResponse = PodPageSharingWriteResponses[keyof PodPageSharingWriteResponses]
 
 export type PodConversationsData = {
   body?: never
@@ -3373,6 +9548,9 @@ export type CreateConversationResponses = {
         id: string
         label: string
       }>
+      fields?: Array<{
+        [key: string]: unknown
+      }> | null
       interaction_id: string
       messageID: string
       question: string
@@ -3426,2483 +9604,137 @@ export type CreateConversationResponses = {
 
 export type CreateConversationResponse = CreateConversationResponses[keyof CreateConversationResponses]
 
-export type PodConversationAttentionData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/conversations/attention'
-}
-
-export type PodConversationAttentionErrors = {
+export type MetaImportSkillData = {
   /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodConversationAttentionError = PodConversationAttentionErrors[keyof PodConversationAttentionErrors]
-
-export type PodConversationAttentionResponses = {
-  /**
-   * Success
-   */
-  200: Array<{
-    accessScope: 'participants' | 'anchor_page'
-    agent?: {
-      active: boolean
-      displayName: string
-      uid: string
-    } | null
-    agents: Array<{
-      active: boolean
-      agentType?: string | null
-      aliases?: Array<string> | null
-      avatarURL?: string | null
-      canChat?: boolean | null
-      directConversationID?: string | null
-      displayName: string
-      mayIntervene: boolean
-      modelProfile?: string | null
-      role?: string | null
-      type: string
-      uid: string
-    }>
-    canDelete: boolean
-    canManage: boolean
-    conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
-    createdBy: string
-    id: string
-    lastActivityAt: string
-    lastMessageSeq: number
-    latestMessagePreview?: string | null
-    pageID?: string | null
-    participants: Array<{
-      active: boolean
-      agentType?: string | null
-      aliases?: Array<string> | null
-      avatarURL?: string | null
-      canChat?: boolean | null
-      directConversationID?: string | null
-      displayName: string
-      mayIntervene: boolean
-      modelProfile?: string | null
-      role?: string | null
-      type: string
-      uid: string
-    }>
-    roomMode: 'dm' | 'group'
-    rowStatus: string
-    searchMatch?: {
-      excerpt: string
-      seq: number
-    } | null
-    title: string
-    titleCustomized: boolean
-    viewer: {
-      lastReadSeq: number
-      lastVisitedAt?: string | null
-      muted: boolean
-      pinned: boolean
-      uid: string
-    }
-  }>
-}
-
-export type PodConversationAttentionResponse =
-  PodConversationAttentionResponses[keyof PodConversationAttentionResponses]
-
-export type DeleteConversationData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: {
-    forceStop?: boolean
-  }
-  url: '/api/v2/pod/conversations/{id}'
-}
-
-export type DeleteConversationErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type DeleteConversationError = DeleteConversationErrors[keyof DeleteConversationErrors]
-
-export type DeleteConversationResponses = {
-  /**
-   * Success
-   */
-  200: boolean
-}
-
-export type DeleteConversationResponse = DeleteConversationResponses[keyof DeleteConversationResponses]
-
-export type ConversationDetailData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: {
-    beforeSeq?: number
-    loadedFirstSeq?: number
-  }
-  url: '/api/v2/pod/conversations/{id}'
-}
-
-export type ConversationDetailErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ConversationDetailError = ConversationDetailErrors[keyof ConversationDetailErrors]
-
-export type ConversationDetailResponses = {
-  /**
-   * Success
-   */
-  200: {
-    activities: Array<{
-      agentUID: string
-      conversationID: string
-      epoch: number
-      phase?: {
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      } | null
-      responseID?: string | null
-      revision: number
-      sessionID: string
-      signalID?: string | null
-      state: 'active' | 'unavailable' | 'settled'
-      tools: Array<{
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      }>
-    }>
-    artifacts: {
-      attachments: Array<{
-        attachments: Array<{
-          attachment_id?: number | null
-          content_type?: string | null
-          mime_type?: string | null
-          name: string
-          node_id?: string | null
-          object_id: string
-          path: string
-          position: number
-          resource_type?: string | null
-          size: number
-          upload_id?: string | null
-        }>
-        messageID: string
-      }>
-      pageIDs: Array<string>
-    }
-    conversation: {
-      accessScope: 'participants' | 'anchor_page'
-      agent?: {
-        active: boolean
-        displayName: string
-        uid: string
-      } | null
-      agents: Array<{
-        active: boolean
-        agentType?: string | null
-        aliases?: Array<string> | null
-        avatarURL?: string | null
-        canChat?: boolean | null
-        directConversationID?: string | null
-        displayName: string
-        mayIntervene: boolean
-        modelProfile?: string | null
-        role?: string | null
-        type: string
-        uid: string
-      }>
-      canDelete: boolean
-      canManage: boolean
-      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
-      createdBy: string
-      id: string
-      lastActivityAt: string
-      lastMessageSeq: number
-      latestMessagePreview?: string | null
-      pageID?: string | null
-      participants: Array<{
-        active: boolean
-        agentType?: string | null
-        aliases?: Array<string> | null
-        avatarURL?: string | null
-        canChat?: boolean | null
-        directConversationID?: string | null
-        displayName: string
-        mayIntervene: boolean
-        modelProfile?: string | null
-        role?: string | null
-        type: string
-        uid: string
-      }>
-      roomMode: 'dm' | 'group'
-      rowStatus: string
-      searchMatch?: {
-        excerpt: string
-        seq: number
-      } | null
-      title: string
-      titleCustomized: boolean
-      viewer: {
-        lastReadSeq: number
-        lastVisitedAt?: string | null
-        muted: boolean
-        pinned: boolean
-        uid: string
-      }
-    }
-    latestInput?: {
-      agentUIDs: Array<string>
-      authorUID?: string | null
-      messageID: string
-    } | null
-    linkedRuns: Array<{
-      agentUID: string
-      createdAt: string
-      id: string
-      kind: 'background_agent_job' | 'workflow'
-      sourceMessageID?: string | null
-      sourceSignalID?: string | null
-      status: string
-      text?: string | null
-      title: string
-      updatedAt: string
-    }>
-    messageRange: {
-      firstSeq: number
-      lastSeq: number
-    }
-    messages: Array<{
-      attachments: Array<{
-        attachment_id?: number | null
-        content_type?: string | null
-        mime_type?: string | null
-        name: string
-        node_id?: string | null
-        object_id: string
-        path: string
-        position: number
-        resource_type?: string | null
-        size: number
-        upload_id?: string | null
-      }>
-      authorArchived: boolean
-      authorDisplayName: string
-      authorType: 'human' | 'agent' | 'system'
-      authorUID?: string | null
-      createdAt: string
-      id: string
-      kind: 'message' | 'notice'
-      links: Array<{
-        id: string
-        kind: 'page' | 'message'
-        quote?: string | null
-      }>
-      mentions: Array<{
-        [key: string]: unknown
-      }>
-      replyToMessageID?: string | null
-      richContent?: {
-        [key: string]: unknown
-      } | null
-      savedPages: Array<{
-        id: string
-        title: string
-      }>
-      seq: number
-      signalID?: string | null
-      text: string
-    }>
-    olderMessagesBeforeSeq?: number | null
-    pendingInteractions: Array<{
-      agentUID?: string | null
-      allow_free_text: boolean
-      choices: Array<{
-        description?: string | null
-        id: string
-        label: string
-      }>
-      interaction_id: string
-      messageID: string
-      question: string
-      state: string
-      tool_call_id: string
-    }>
-    pendingQueues: Array<{
-      agentUID: string
-      inputs: Array<{
-        agentUID: string
-        attachments: Array<{
-          attachment_id?: number | null
-          content_type?: string | null
-          mime_type?: string | null
-          name: string
-          node_id?: string | null
-          object_id: string
-          path: string
-          position: number
-          resource_type?: string | null
-          size: number
-          upload_id?: string | null
-        }>
-        authorUID?: string | null
-        deliveryMode: 'steer' | 'queue'
-        links: Array<{
-          id: string
-          kind: 'page' | 'message'
-          quote?: string | null
-        }>
-        mentions: Array<{
-          displayName?: string | null
-          type: 'human' | 'agent'
-          uid: string
-        }>
-        messageID: string
-        modelProfile: string
-        text: string
-      }>
-      paused: boolean
-      queueVersion: string
-      retryableMessageID?: string | null
-      workStatus: {
-        retryAt?: string | null
-        state: 'idle' | 'queued' | 'running' | 'retrying'
-      }
-    }>
-    removedMessageIDs: Array<string>
-  }
-}
-
-export type ConversationDetailResponse = ConversationDetailResponses[keyof ConversationDetailResponses]
-
-export type UpdateConversationData = {
-  /**
-   * Request body for the updateConversation operation on pod_chat_operation resource
-   */
-  body?: {
-    data: {
-      accessScope?: 'participants' | 'anchor_page' | null
-      lastReadSeq?: number | null
-      muted?: boolean | null
-      pinned?: boolean | null
-      title?: string | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/conversations/{id}'
-}
-
-export type UpdateConversationErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type UpdateConversationError = UpdateConversationErrors[keyof UpdateConversationErrors]
-
-export type UpdateConversationResponses = {
-  /**
-   * Success
-   */
-  200: {
-    activities: Array<{
-      agentUID: string
-      conversationID: string
-      epoch: number
-      phase?: {
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      } | null
-      responseID?: string | null
-      revision: number
-      sessionID: string
-      signalID?: string | null
-      state: 'active' | 'unavailable' | 'settled'
-      tools: Array<{
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      }>
-    }>
-    artifacts: {
-      attachments: Array<{
-        attachments: Array<{
-          attachment_id?: number | null
-          content_type?: string | null
-          mime_type?: string | null
-          name: string
-          node_id?: string | null
-          object_id: string
-          path: string
-          position: number
-          resource_type?: string | null
-          size: number
-          upload_id?: string | null
-        }>
-        messageID: string
-      }>
-      pageIDs: Array<string>
-    }
-    conversation: {
-      accessScope: 'participants' | 'anchor_page'
-      agent?: {
-        active: boolean
-        displayName: string
-        uid: string
-      } | null
-      agents: Array<{
-        active: boolean
-        agentType?: string | null
-        aliases?: Array<string> | null
-        avatarURL?: string | null
-        canChat?: boolean | null
-        directConversationID?: string | null
-        displayName: string
-        mayIntervene: boolean
-        modelProfile?: string | null
-        role?: string | null
-        type: string
-        uid: string
-      }>
-      canDelete: boolean
-      canManage: boolean
-      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
-      createdBy: string
-      id: string
-      lastActivityAt: string
-      lastMessageSeq: number
-      latestMessagePreview?: string | null
-      pageID?: string | null
-      participants: Array<{
-        active: boolean
-        agentType?: string | null
-        aliases?: Array<string> | null
-        avatarURL?: string | null
-        canChat?: boolean | null
-        directConversationID?: string | null
-        displayName: string
-        mayIntervene: boolean
-        modelProfile?: string | null
-        role?: string | null
-        type: string
-        uid: string
-      }>
-      roomMode: 'dm' | 'group'
-      rowStatus: string
-      searchMatch?: {
-        excerpt: string
-        seq: number
-      } | null
-      title: string
-      titleCustomized: boolean
-      viewer: {
-        lastReadSeq: number
-        lastVisitedAt?: string | null
-        muted: boolean
-        pinned: boolean
-        uid: string
-      }
-    }
-    latestInput?: {
-      agentUIDs: Array<string>
-      authorUID?: string | null
-      messageID: string
-    } | null
-    linkedRuns: Array<{
-      agentUID: string
-      createdAt: string
-      id: string
-      kind: 'background_agent_job' | 'workflow'
-      sourceMessageID?: string | null
-      sourceSignalID?: string | null
-      status: string
-      text?: string | null
-      title: string
-      updatedAt: string
-    }>
-    messageRange: {
-      firstSeq: number
-      lastSeq: number
-    }
-    messages: Array<{
-      attachments: Array<{
-        attachment_id?: number | null
-        content_type?: string | null
-        mime_type?: string | null
-        name: string
-        node_id?: string | null
-        object_id: string
-        path: string
-        position: number
-        resource_type?: string | null
-        size: number
-        upload_id?: string | null
-      }>
-      authorArchived: boolean
-      authorDisplayName: string
-      authorType: 'human' | 'agent' | 'system'
-      authorUID?: string | null
-      createdAt: string
-      id: string
-      kind: 'message' | 'notice'
-      links: Array<{
-        id: string
-        kind: 'page' | 'message'
-        quote?: string | null
-      }>
-      mentions: Array<{
-        [key: string]: unknown
-      }>
-      replyToMessageID?: string | null
-      richContent?: {
-        [key: string]: unknown
-      } | null
-      savedPages: Array<{
-        id: string
-        title: string
-      }>
-      seq: number
-      signalID?: string | null
-      text: string
-    }>
-    olderMessagesBeforeSeq?: number | null
-    pendingInteractions: Array<{
-      agentUID?: string | null
-      allow_free_text: boolean
-      choices: Array<{
-        description?: string | null
-        id: string
-        label: string
-      }>
-      interaction_id: string
-      messageID: string
-      question: string
-      state: string
-      tool_call_id: string
-    }>
-    pendingQueues: Array<{
-      agentUID: string
-      inputs: Array<{
-        agentUID: string
-        attachments: Array<{
-          attachment_id?: number | null
-          content_type?: string | null
-          mime_type?: string | null
-          name: string
-          node_id?: string | null
-          object_id: string
-          path: string
-          position: number
-          resource_type?: string | null
-          size: number
-          upload_id?: string | null
-        }>
-        authorUID?: string | null
-        deliveryMode: 'steer' | 'queue'
-        links: Array<{
-          id: string
-          kind: 'page' | 'message'
-          quote?: string | null
-        }>
-        mentions: Array<{
-          displayName?: string | null
-          type: 'human' | 'agent'
-          uid: string
-        }>
-        messageID: string
-        modelProfile: string
-        text: string
-      }>
-      paused: boolean
-      queueVersion: string
-      retryableMessageID?: string | null
-      workStatus: {
-        retryAt?: string | null
-        state: 'idle' | 'queued' | 'running' | 'retrying'
-      }
-    }>
-    removedMessageIDs: Array<string>
-  }
-}
-
-export type UpdateConversationResponse = UpdateConversationResponses[keyof UpdateConversationResponses]
-
-export type ResolveConversationActionCardData = {
-  /**
-   * Request body for the resolveConversationActionCard operation on pod_chat_operation resource
+   * Request body for the metaImportSkill operation on meta_library resource
    */
   body: {
     data: {
-      decision: 'confirm' | 'cancel'
+      content_base64: string
+      slug: string
     }
   }
-  path: {
-    card_id: string
-    id: string
-  }
+  path?: never
   query?: never
-  url: '/api/v2/pod/conversations/{id}/action-cards/{card_id}/resolve'
+  url: '/api/v2/pod/meta/skills/import'
 }
 
-export type ResolveConversationActionCardErrors = {
+export type MetaImportSkillErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type ResolveConversationActionCardError =
-  ResolveConversationActionCardErrors[keyof ResolveConversationActionCardErrors]
+export type MetaImportSkillError = MetaImportSkillErrors[keyof MetaImportSkillErrors]
 
-export type ResolveConversationActionCardResponses = {
+export type MetaImportSkillResponses = {
   /**
    * Success
    */
   201: {
-    activities: Array<{
-      agentUID: string
-      conversationID: string
-      epoch: number
-      phase?: {
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      } | null
-      responseID?: string | null
-      revision: number
-      sessionID: string
-      signalID?: string | null
-      state: 'active' | 'unavailable' | 'settled'
-      tools: Array<{
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      }>
-    }>
-    artifacts: {
-      attachments: Array<{
-        attachments: Array<{
-          attachment_id?: number | null
-          content_type?: string | null
-          mime_type?: string | null
-          name: string
-          node_id?: string | null
-          object_id: string
-          path: string
-          position: number
-          resource_type?: string | null
-          size: number
-          upload_id?: string | null
-        }>
-        messageID: string
-      }>
-      pageIDs: Array<string>
-    }
-    conversation: {
-      accessScope: 'participants' | 'anchor_page'
-      agent?: {
-        active: boolean
-        displayName: string
-        uid: string
-      } | null
-      agents: Array<{
-        active: boolean
-        agentType?: string | null
-        aliases?: Array<string> | null
-        avatarURL?: string | null
-        canChat?: boolean | null
-        directConversationID?: string | null
-        displayName: string
-        mayIntervene: boolean
-        modelProfile?: string | null
-        role?: string | null
-        type: string
-        uid: string
-      }>
-      canDelete: boolean
-      canManage: boolean
-      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
-      createdBy: string
-      id: string
-      lastActivityAt: string
-      lastMessageSeq: number
-      latestMessagePreview?: string | null
-      pageID?: string | null
-      participants: Array<{
-        active: boolean
-        agentType?: string | null
-        aliases?: Array<string> | null
-        avatarURL?: string | null
-        canChat?: boolean | null
-        directConversationID?: string | null
-        displayName: string
-        mayIntervene: boolean
-        modelProfile?: string | null
-        role?: string | null
-        type: string
-        uid: string
-      }>
-      roomMode: 'dm' | 'group'
-      rowStatus: string
-      searchMatch?: {
-        excerpt: string
-        seq: number
-      } | null
-      title: string
-      titleCustomized: boolean
-      viewer: {
-        lastReadSeq: number
-        lastVisitedAt?: string | null
-        muted: boolean
-        pinned: boolean
-        uid: string
-      }
-    }
-    latestInput?: {
-      agentUIDs: Array<string>
-      authorUID?: string | null
-      messageID: string
-    } | null
-    linkedRuns: Array<{
-      agentUID: string
-      createdAt: string
-      id: string
-      kind: 'background_agent_job' | 'workflow'
-      sourceMessageID?: string | null
-      sourceSignalID?: string | null
-      status: string
-      text?: string | null
-      title: string
-      updatedAt: string
-    }>
-    messageRange: {
-      firstSeq: number
-      lastSeq: number
-    }
-    messages: Array<{
-      attachments: Array<{
-        attachment_id?: number | null
-        content_type?: string | null
-        mime_type?: string | null
-        name: string
-        node_id?: string | null
-        object_id: string
-        path: string
-        position: number
-        resource_type?: string | null
-        size: number
-        upload_id?: string | null
-      }>
-      authorArchived: boolean
-      authorDisplayName: string
-      authorType: 'human' | 'agent' | 'system'
-      authorUID?: string | null
-      createdAt: string
-      id: string
-      kind: 'message' | 'notice'
-      links: Array<{
-        id: string
-        kind: 'page' | 'message'
-        quote?: string | null
-      }>
-      mentions: Array<{
-        [key: string]: unknown
-      }>
-      replyToMessageID?: string | null
-      richContent?: {
-        [key: string]: unknown
-      } | null
-      savedPages: Array<{
-        id: string
-        title: string
-      }>
-      seq: number
-      signalID?: string | null
-      text: string
-    }>
-    olderMessagesBeforeSeq?: number | null
-    pendingInteractions: Array<{
-      agentUID?: string | null
-      allow_free_text: boolean
-      choices: Array<{
-        description?: string | null
-        id: string
-        label: string
-      }>
-      interaction_id: string
-      messageID: string
-      question: string
-      state: string
-      tool_call_id: string
-    }>
-    pendingQueues: Array<{
-      agentUID: string
-      inputs: Array<{
-        agentUID: string
-        attachments: Array<{
-          attachment_id?: number | null
-          content_type?: string | null
-          mime_type?: string | null
-          name: string
-          node_id?: string | null
-          object_id: string
-          path: string
-          position: number
-          resource_type?: string | null
-          size: number
-          upload_id?: string | null
-        }>
-        authorUID?: string | null
-        deliveryMode: 'steer' | 'queue'
-        links: Array<{
-          id: string
-          kind: 'page' | 'message'
-          quote?: string | null
-        }>
-        mentions: Array<{
-          displayName?: string | null
-          type: 'human' | 'agent'
-          uid: string
-        }>
-        messageID: string
-        modelProfile: string
-        text: string
-      }>
-      paused: boolean
-      queueVersion: string
-      retryableMessageID?: string | null
-      workStatus: {
-        retryAt?: string | null
-        state: 'idle' | 'queued' | 'running' | 'retrying'
-      }
-    }>
-    removedMessageIDs: Array<string>
-  }
-}
-
-export type ResolveConversationActionCardResponse =
-  ResolveConversationActionCardResponses[keyof ResolveConversationActionCardResponses]
-
-export type ConversationExecutionData = {
-  body?: never
-  path: {
-    run_id: number
-    kind: 'background_agent_job' | 'workflow'
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
     id: string
-  }
-  query?: {
-    cursor?: string
-  }
-  url: '/api/v2/pod/conversations/{id}/executions/{kind}/{run_id}'
-}
-
-export type ConversationExecutionErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ConversationExecutionError = ConversationExecutionErrors[keyof ConversationExecutionErrors]
-
-export type ConversationExecutionResponses = {
-  /**
-   * Success
-   */
-  200: {
-    nextCursor?: string | null
-    text: string
-  }
-}
-
-export type ConversationExecutionResponse = ConversationExecutionResponses[keyof ConversationExecutionResponses]
-
-export type AnswerConversationInteractionData = {
-  /**
-   * Request body for the answerConversationInteraction operation on pod_chat_operation resource
-   */
-  body?: {
-    data: {
-      attachments?: Array<string> | null
-      choiceID?: string | null
-      links?: Array<{
-        id: string
-        kind: 'page' | 'message'
-        quote?: string | null
-      }> | null
-      mentions?: Array<{
-        displayName?: string | null
-        type: 'human' | 'agent'
-        uid: string
-      }> | null
-      text?: string | null
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
     }
-  }
-  path: {
-    interaction_id: string
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/conversations/{id}/interactions/{interaction_id}/answer'
-}
-
-export type AnswerConversationInteractionErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type AnswerConversationInteractionError =
-  AnswerConversationInteractionErrors[keyof AnswerConversationInteractionErrors]
-
-export type AnswerConversationInteractionResponses = {
-  /**
-   * Success
-   */
-  201: {
-    activities: Array<{
-      agentUID: string
-      conversationID: string
-      epoch: number
-      phase?: {
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      } | null
-      responseID?: string | null
-      revision: number
-      sessionID: string
-      signalID?: string | null
-      state: 'active' | 'unavailable' | 'settled'
-      tools: Array<{
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      }>
-    }>
-    artifacts: {
-      attachments: Array<{
-        attachments: Array<{
-          attachment_id?: number | null
-          content_type?: string | null
-          mime_type?: string | null
-          name: string
-          node_id?: string | null
-          object_id: string
-          path: string
-          position: number
-          resource_type?: string | null
-          size: number
-          upload_id?: string | null
-        }>
-        messageID: string
-      }>
-      pageIDs: Array<string>
-    }
-    conversation: {
-      accessScope: 'participants' | 'anchor_page'
-      agent?: {
-        active: boolean
-        displayName: string
-        uid: string
-      } | null
-      agents: Array<{
-        active: boolean
-        agentType?: string | null
-        aliases?: Array<string> | null
-        avatarURL?: string | null
-        canChat?: boolean | null
-        directConversationID?: string | null
-        displayName: string
-        mayIntervene: boolean
-        modelProfile?: string | null
-        role?: string | null
-        type: string
-        uid: string
-      }>
-      canDelete: boolean
-      canManage: boolean
-      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
-      createdBy: string
-      id: string
-      lastActivityAt: string
-      lastMessageSeq: number
-      latestMessagePreview?: string | null
-      pageID?: string | null
-      participants: Array<{
-        active: boolean
-        agentType?: string | null
-        aliases?: Array<string> | null
-        avatarURL?: string | null
-        canChat?: boolean | null
-        directConversationID?: string | null
-        displayName: string
-        mayIntervene: boolean
-        modelProfile?: string | null
-        role?: string | null
-        type: string
-        uid: string
-      }>
-      roomMode: 'dm' | 'group'
-      rowStatus: string
-      searchMatch?: {
-        excerpt: string
-        seq: number
-      } | null
-      title: string
-      titleCustomized: boolean
-      viewer: {
-        lastReadSeq: number
-        lastVisitedAt?: string | null
-        muted: boolean
-        pinned: boolean
-        uid: string
-      }
-    }
-    latestInput?: {
-      agentUIDs: Array<string>
-      authorUID?: string | null
-      messageID: string
-    } | null
-    linkedRuns: Array<{
-      agentUID: string
-      createdAt: string
-      id: string
-      kind: 'background_agent_job' | 'workflow'
-      sourceMessageID?: string | null
-      sourceSignalID?: string | null
-      status: string
-      text?: string | null
-      title: string
-      updatedAt: string
-    }>
-    messageRange: {
-      firstSeq: number
-      lastSeq: number
-    }
-    messages: Array<{
-      attachments: Array<{
-        attachment_id?: number | null
-        content_type?: string | null
-        mime_type?: string | null
-        name: string
-        node_id?: string | null
-        object_id: string
-        path: string
-        position: number
-        resource_type?: string | null
-        size: number
-        upload_id?: string | null
-      }>
-      authorArchived: boolean
-      authorDisplayName: string
-      authorType: 'human' | 'agent' | 'system'
-      authorUID?: string | null
-      createdAt: string
-      id: string
-      kind: 'message' | 'notice'
-      links: Array<{
-        id: string
-        kind: 'page' | 'message'
-        quote?: string | null
-      }>
-      mentions: Array<{
-        [key: string]: unknown
-      }>
-      replyToMessageID?: string | null
-      richContent?: {
-        [key: string]: unknown
-      } | null
-      savedPages: Array<{
-        id: string
-        title: string
-      }>
-      seq: number
-      signalID?: string | null
-      text: string
-    }>
-    olderMessagesBeforeSeq?: number | null
-    pendingInteractions: Array<{
-      agentUID?: string | null
-      allow_free_text: boolean
-      choices: Array<{
-        description?: string | null
-        id: string
-        label: string
-      }>
-      interaction_id: string
-      messageID: string
-      question: string
-      state: string
-      tool_call_id: string
-    }>
-    pendingQueues: Array<{
-      agentUID: string
-      inputs: Array<{
-        agentUID: string
-        attachments: Array<{
-          attachment_id?: number | null
-          content_type?: string | null
-          mime_type?: string | null
-          name: string
-          node_id?: string | null
-          object_id: string
-          path: string
-          position: number
-          resource_type?: string | null
-          size: number
-          upload_id?: string | null
-        }>
-        authorUID?: string | null
-        deliveryMode: 'steer' | 'queue'
-        links: Array<{
-          id: string
-          kind: 'page' | 'message'
-          quote?: string | null
-        }>
-        mentions: Array<{
-          displayName?: string | null
-          type: 'human' | 'agent'
-          uid: string
-        }>
-        messageID: string
-        modelProfile: string
-        text: string
-      }>
-      paused: boolean
-      queueVersion: string
-      retryableMessageID?: string | null
-      workStatus: {
-        retryAt?: string | null
-        state: 'idle' | 'queued' | 'running' | 'retrying'
-      }
-    }>
-    removedMessageIDs: Array<string>
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
   }
 }
 
-export type AnswerConversationInteractionResponse =
-  AnswerConversationInteractionResponses[keyof AnswerConversationInteractionResponses]
+export type MetaImportSkillResponse = MetaImportSkillResponses[keyof MetaImportSkillResponses]
 
-export type PostConversationMessageData = {
+export type PodPageCommentsReadData = {
   /**
-   * Request body for the postConversationMessage operation on pod_chat_operation resource
+   * Request body for the podPageCommentsRead operation on pod_document_comment_operation resource
    */
   body: {
     data: {
-      attachments?: Array<string> | null
-      deliveryMode?: 'steer' | 'queue' | null
-      links?: Array<{
-        id: string
-        kind: 'page' | 'message'
-        quote?: string | null
-      }> | null
-      mentions?: Array<{
-        displayName?: string | null
-        type: 'human' | 'agent'
-        uid: string
-      }> | null
-      messageID: string
-      targetAgentUID?: string | null
-      text: string
+      through: string
     }
   }
   path: {
     id: string
   }
   query?: never
-  url: '/api/v2/pod/conversations/{id}/messages'
+  url: '/api/v2/pod/pages/{id}/comments/read'
 }
 
-export type PostConversationMessageErrors = {
+export type PodPageCommentsReadErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PostConversationMessageError = PostConversationMessageErrors[keyof PostConversationMessageErrors]
+export type PodPageCommentsReadError = PodPageCommentsReadErrors[keyof PodPageCommentsReadErrors]
 
-export type PostConversationMessageResponses = {
-  /**
-   * Success
-   */
-  201: {
-    activities: Array<{
-      agentUID: string
-      conversationID: string
-      epoch: number
-      phase?: {
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      } | null
-      responseID?: string | null
-      revision: number
-      sessionID: string
-      signalID?: string | null
-      state: 'active' | 'unavailable' | 'settled'
-      tools: Array<{
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      }>
-    }>
-    artifacts: {
-      attachments: Array<{
-        attachments: Array<{
-          attachment_id?: number | null
-          content_type?: string | null
-          mime_type?: string | null
-          name: string
-          node_id?: string | null
-          object_id: string
-          path: string
-          position: number
-          resource_type?: string | null
-          size: number
-          upload_id?: string | null
-        }>
-        messageID: string
-      }>
-      pageIDs: Array<string>
-    }
-    conversation: {
-      accessScope: 'participants' | 'anchor_page'
-      agent?: {
-        active: boolean
-        displayName: string
-        uid: string
-      } | null
-      agents: Array<{
-        active: boolean
-        agentType?: string | null
-        aliases?: Array<string> | null
-        avatarURL?: string | null
-        canChat?: boolean | null
-        directConversationID?: string | null
-        displayName: string
-        mayIntervene: boolean
-        modelProfile?: string | null
-        role?: string | null
-        type: string
-        uid: string
-      }>
-      canDelete: boolean
-      canManage: boolean
-      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
-      createdBy: string
-      id: string
-      lastActivityAt: string
-      lastMessageSeq: number
-      latestMessagePreview?: string | null
-      pageID?: string | null
-      participants: Array<{
-        active: boolean
-        agentType?: string | null
-        aliases?: Array<string> | null
-        avatarURL?: string | null
-        canChat?: boolean | null
-        directConversationID?: string | null
-        displayName: string
-        mayIntervene: boolean
-        modelProfile?: string | null
-        role?: string | null
-        type: string
-        uid: string
-      }>
-      roomMode: 'dm' | 'group'
-      rowStatus: string
-      searchMatch?: {
-        excerpt: string
-        seq: number
-      } | null
-      title: string
-      titleCustomized: boolean
-      viewer: {
-        lastReadSeq: number
-        lastVisitedAt?: string | null
-        muted: boolean
-        pinned: boolean
-        uid: string
-      }
-    }
-    latestInput?: {
-      agentUIDs: Array<string>
-      authorUID?: string | null
-      messageID: string
-    } | null
-    linkedRuns: Array<{
-      agentUID: string
-      createdAt: string
-      id: string
-      kind: 'background_agent_job' | 'workflow'
-      sourceMessageID?: string | null
-      sourceSignalID?: string | null
-      status: string
-      text?: string | null
-      title: string
-      updatedAt: string
-    }>
-    messageRange: {
-      firstSeq: number
-      lastSeq: number
-    }
-    messages: Array<{
-      attachments: Array<{
-        attachment_id?: number | null
-        content_type?: string | null
-        mime_type?: string | null
-        name: string
-        node_id?: string | null
-        object_id: string
-        path: string
-        position: number
-        resource_type?: string | null
-        size: number
-        upload_id?: string | null
-      }>
-      authorArchived: boolean
-      authorDisplayName: string
-      authorType: 'human' | 'agent' | 'system'
-      authorUID?: string | null
-      createdAt: string
-      id: string
-      kind: 'message' | 'notice'
-      links: Array<{
-        id: string
-        kind: 'page' | 'message'
-        quote?: string | null
-      }>
-      mentions: Array<{
-        [key: string]: unknown
-      }>
-      replyToMessageID?: string | null
-      richContent?: {
-        [key: string]: unknown
-      } | null
-      savedPages: Array<{
-        id: string
-        title: string
-      }>
-      seq: number
-      signalID?: string | null
-      text: string
-    }>
-    olderMessagesBeforeSeq?: number | null
-    pendingInteractions: Array<{
-      agentUID?: string | null
-      allow_free_text: boolean
-      choices: Array<{
-        description?: string | null
-        id: string
-        label: string
-      }>
-      interaction_id: string
-      messageID: string
-      question: string
-      state: string
-      tool_call_id: string
-    }>
-    pendingQueues: Array<{
-      agentUID: string
-      inputs: Array<{
-        agentUID: string
-        attachments: Array<{
-          attachment_id?: number | null
-          content_type?: string | null
-          mime_type?: string | null
-          name: string
-          node_id?: string | null
-          object_id: string
-          path: string
-          position: number
-          resource_type?: string | null
-          size: number
-          upload_id?: string | null
-        }>
-        authorUID?: string | null
-        deliveryMode: 'steer' | 'queue'
-        links: Array<{
-          id: string
-          kind: 'page' | 'message'
-          quote?: string | null
-        }>
-        mentions: Array<{
-          displayName?: string | null
-          type: 'human' | 'agent'
-          uid: string
-        }>
-        messageID: string
-        modelProfile: string
-        text: string
-      }>
-      paused: boolean
-      queueVersion: string
-      retryableMessageID?: string | null
-      workStatus: {
-        retryAt?: string | null
-        state: 'idle' | 'queued' | 'running' | 'retrying'
-      }
-    }>
-    removedMessageIDs: Array<string>
-  }
-}
-
-export type PostConversationMessageResponse = PostConversationMessageResponses[keyof PostConversationMessageResponses]
-
-export type PodModelSelectionData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: {
-    agentUID?: string
-  }
-  url: '/api/v2/pod/conversations/{id}/model-profile'
-}
-
-export type PodModelSelectionErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodModelSelectionError = PodModelSelectionErrors[keyof PodModelSelectionErrors]
-
-export type PodModelSelectionResponses = {
+export type PodPageCommentsReadResponses = {
   /**
    * Success
    */
   200: {
-    activeProfile?: string | null
-    profile?: string | null
-    profiles: Array<{
-      description: string
-      name: string
-    }>
+    activity_at?: string | null
+    open_count: number
+    resolved_ids: Array<string>
+    unread_count: number
   }
 }
 
-export type PodModelSelectionResponse = PodModelSelectionResponses[keyof PodModelSelectionResponses]
+export type PodPageCommentsReadResponse = PodPageCommentsReadResponses[keyof PodPageCommentsReadResponses]
 
-export type SetPodModelSelectionData = {
+export type PodDocumentWriteData = {
   /**
-   * Request body for the setPodModelSelection operation on pod_chat_operation resource
-   */
-  body?: {
-    data: {
-      agentUID?: string | null
-      profile?: string | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/conversations/{id}/model-profile'
-}
-
-export type SetPodModelSelectionErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type SetPodModelSelectionError = SetPodModelSelectionErrors[keyof SetPodModelSelectionErrors]
-
-export type SetPodModelSelectionResponses = {
-  /**
-   * Success
-   */
-  200: {
-    activeProfile?: string | null
-    profile?: string | null
-    profiles: Array<{
-      description: string
-      name: string
-    }>
-  }
-}
-
-export type SetPodModelSelectionResponse = SetPodModelSelectionResponses[keyof SetPodModelSelectionResponses]
-
-export type UpdateConversationParticipantsData = {
-  /**
-   * Request body for the updateConversationParticipants operation on pod_chat_operation resource
-   */
-  body?: {
-    data: {
-      addUIDs?: Array<string> | null
-      agentUID?: string | null
-      mayIntervene?: boolean | null
-      removeUIDs?: Array<string> | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/conversations/{id}/participants'
-}
-
-export type UpdateConversationParticipantsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type UpdateConversationParticipantsError =
-  UpdateConversationParticipantsErrors[keyof UpdateConversationParticipantsErrors]
-
-export type UpdateConversationParticipantsResponses = {
-  /**
-   * Success
-   */
-  201: boolean
-}
-
-export type UpdateConversationParticipantsResponse =
-  UpdateConversationParticipantsResponses[keyof UpdateConversationParticipantsResponses]
-
-export type PodPeerExchangeData = {
-  body?: never
-  path: {
-    exchange_id: string
-    id: string
-  }
-  query?: {
-    cursor?: number
-  }
-  url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}'
-}
-
-export type PodPeerExchangeErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPeerExchangeError = PodPeerExchangeErrors[keyof PodPeerExchangeErrors]
-
-export type PodPeerExchangeResponses = {
-  /**
-   * Success
-   */
-  200: {
-    activity?: {
-      agentUID: string
-      conversationID: string
-      epoch: number
-      phase?: {
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      } | null
-      responseID?: string | null
-      revision: number
-      sessionID: string
-      signalID?: string | null
-      state: 'active' | 'unavailable' | 'settled'
-      tools: Array<{
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      }>
-    } | null
-    agentUID: string
-    id: string
-    messages: Array<{
-      authorUID?: string | null
-      execution?: {
-        [key: string]: unknown
-      } | null
-      id: string
-      seq: number
-      text?: string | null
-    }>
-    nextCursor?: number | null
-    status: string
-    text: string
-  }
-}
-
-export type PodPeerExchangeResponse = PodPeerExchangeResponses[keyof PodPeerExchangeResponses]
-
-export type StopPodPeerExchangeData = {
-  body?: never
-  path: {
-    exchange_id: string
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}/stop'
-}
-
-export type StopPodPeerExchangeErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type StopPodPeerExchangeError = StopPodPeerExchangeErrors[keyof StopPodPeerExchangeErrors]
-
-export type StopPodPeerExchangeResponses = {
-  /**
-   * Success
-   */
-  201: boolean
-}
-
-export type StopPodPeerExchangeResponse = StopPodPeerExchangeResponses[keyof StopPodPeerExchangeResponses]
-
-export type UpdateConversationQueueData = {
-  /**
-   * Request body for the updateConversationQueue operation on pod_chat_operation resource
+   * Request body for the podDocumentWrite operation on pod_page_operation resource
    */
   body: {
     data: {
-      action: 'edit' | 'steer' | 'retract' | 'reorder' | 'stop' | 'resume' | 'regenerate' | 'edit_last'
-      agentUID: string
-      commandID?: string | null
-      expectedLinks?: Array<{
-        id: string
-        kind: 'page' | 'message'
-        quote?: string | null
-      }> | null
-      expectedMentions?: Array<{
-        displayName?: string | null
-        type: 'human' | 'agent'
-        uid: string
-      }> | null
-      expectedText?: string | null
-      expectedVersion?: string | null
-      links?: Array<{
-        id: string
-        kind: 'page' | 'message'
-        quote?: string | null
-      }> | null
-      mentions?: Array<{
-        displayName?: string | null
-        type: 'human' | 'agent'
-        uid: string
-      }> | null
-      messageID?: string | null
-      messageIDs?: Array<string> | null
-      text?: string | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/conversations/{id}/queue'
-}
-
-export type UpdateConversationQueueErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type UpdateConversationQueueError = UpdateConversationQueueErrors[keyof UpdateConversationQueueErrors]
-
-export type UpdateConversationQueueResponses = {
-  /**
-   * Success
-   */
-  201: {
-    activities: Array<{
-      agentUID: string
-      conversationID: string
-      epoch: number
-      phase?: {
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      } | null
-      responseID?: string | null
-      revision: number
-      sessionID: string
-      signalID?: string | null
-      state: 'active' | 'unavailable' | 'settled'
-      tools: Array<{
-        duration_ms?: number | null
-        label?: string | null
-        label_bindings?: {
-          [key: string]: unknown
-        } | null
-        label_key?: string | null
-        operation_id: string
-        phase?: string | null
-      }>
-    }>
-    artifacts: {
-      attachments: Array<{
-        attachments: Array<{
-          attachment_id?: number | null
-          content_type?: string | null
-          mime_type?: string | null
-          name: string
-          node_id?: string | null
-          object_id: string
-          path: string
-          position: number
-          resource_type?: string | null
-          size: number
-          upload_id?: string | null
-        }>
-        messageID: string
-      }>
-      pageIDs: Array<string>
-    }
-    conversation: {
-      accessScope: 'participants' | 'anchor_page'
-      agent?: {
-        active: boolean
-        displayName: string
-        uid: string
-      } | null
-      agents: Array<{
-        active: boolean
-        agentType?: string | null
-        aliases?: Array<string> | null
-        avatarURL?: string | null
-        canChat?: boolean | null
-        directConversationID?: string | null
-        displayName: string
-        mayIntervene: boolean
-        modelProfile?: string | null
-        role?: string | null
-        type: string
-        uid: string
-      }>
-      canDelete: boolean
-      canManage: boolean
-      conversationKind: 'assistant_task' | 'colleague_dm' | 'group'
-      createdBy: string
-      id: string
-      lastActivityAt: string
-      lastMessageSeq: number
-      latestMessagePreview?: string | null
-      pageID?: string | null
-      participants: Array<{
-        active: boolean
-        agentType?: string | null
-        aliases?: Array<string> | null
-        avatarURL?: string | null
-        canChat?: boolean | null
-        directConversationID?: string | null
-        displayName: string
-        mayIntervene: boolean
-        modelProfile?: string | null
-        role?: string | null
-        type: string
-        uid: string
-      }>
-      roomMode: 'dm' | 'group'
-      rowStatus: string
-      searchMatch?: {
-        excerpt: string
-        seq: number
-      } | null
-      title: string
-      titleCustomized: boolean
-      viewer: {
-        lastReadSeq: number
-        lastVisitedAt?: string | null
-        muted: boolean
-        pinned: boolean
-        uid: string
-      }
-    }
-    latestInput?: {
-      agentUIDs: Array<string>
-      authorUID?: string | null
-      messageID: string
-    } | null
-    linkedRuns: Array<{
-      agentUID: string
-      createdAt: string
-      id: string
-      kind: 'background_agent_job' | 'workflow'
-      sourceMessageID?: string | null
-      sourceSignalID?: string | null
-      status: string
-      text?: string | null
-      title: string
-      updatedAt: string
-    }>
-    messageRange: {
-      firstSeq: number
-      lastSeq: number
-    }
-    messages: Array<{
-      attachments: Array<{
-        attachment_id?: number | null
-        content_type?: string | null
-        mime_type?: string | null
-        name: string
-        node_id?: string | null
-        object_id: string
-        path: string
-        position: number
-        resource_type?: string | null
-        size: number
-        upload_id?: string | null
-      }>
-      authorArchived: boolean
-      authorDisplayName: string
-      authorType: 'human' | 'agent' | 'system'
-      authorUID?: string | null
-      createdAt: string
-      id: string
-      kind: 'message' | 'notice'
-      links: Array<{
-        id: string
-        kind: 'page' | 'message'
-        quote?: string | null
-      }>
-      mentions: Array<{
-        [key: string]: unknown
-      }>
-      replyToMessageID?: string | null
-      richContent?: {
+      base_revision: number
+      metadata?: {
         [key: string]: unknown
       } | null
-      savedPages: Array<{
-        id: string
-        title: string
-      }>
-      seq: number
-      signalID?: string | null
-      text: string
-    }>
-    olderMessagesBeforeSeq?: number | null
-    pendingInteractions: Array<{
-      agentUID?: string | null
-      allow_free_text: boolean
-      choices: Array<{
-        description?: string | null
-        id: string
-        label: string
-      }>
-      interaction_id: string
-      messageID: string
-      question: string
-      state: string
-      tool_call_id: string
-    }>
-    pendingQueues: Array<{
-      agentUID: string
-      inputs: Array<{
-        agentUID: string
-        attachments: Array<{
-          attachment_id?: number | null
-          content_type?: string | null
-          mime_type?: string | null
-          name: string
-          node_id?: string | null
-          object_id: string
-          path: string
-          position: number
-          resource_type?: string | null
-          size: number
-          upload_id?: string | null
-        }>
-        authorUID?: string | null
-        deliveryMode: 'steer' | 'queue'
-        links: Array<{
-          id: string
-          kind: 'page' | 'message'
-          quote?: string | null
-        }>
-        mentions: Array<{
-          displayName?: string | null
-          type: 'human' | 'agent'
-          uid: string
-        }>
-        messageID: string
-        modelProfile: string
-        text: string
-      }>
-      paused: boolean
-      queueVersion: string
-      retryableMessageID?: string | null
-      workStatus: {
-        retryAt?: string | null
-        state: 'idle' | 'queued' | 'running' | 'retrying'
-      }
-    }>
-    removedMessageIDs: Array<string>
-  }
-}
-
-export type UpdateConversationQueueResponse = UpdateConversationQueueResponses[keyof UpdateConversationQueueResponses]
-
-export type PodReplySuggestionData = {
-  /**
-   * Request body for the podReplySuggestion operation on pod_chat_operation resource
-   */
-  body?: {
-    data: {
-      locale?: string | null
+      xml: string
     }
   }
   path: {
     id: string
   }
   query?: never
-  url: '/api/v2/pod/conversations/{id}/reply-suggestion'
+  url: '/api/v2/pod/pages/{id}/content'
 }
 
-export type PodReplySuggestionErrors = {
+export type PodDocumentWriteErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodReplySuggestionError = PodReplySuggestionErrors[keyof PodReplySuggestionErrors]
+export type PodDocumentWriteError = PodDocumentWriteErrors[keyof PodDocumentWriteErrors]
 
-export type PodReplySuggestionResponses = {
-  /**
-   * Success
-   */
-  201: {
-    messageID?: string | null
-    text?: string | null
-  }
-}
-
-export type PodReplySuggestionResponse = PodReplySuggestionResponses[keyof PodReplySuggestionResponses]
-
-export type PodBaseFieldDeleteData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query: {
-    version: number
-  }
-  url: '/api/v2/pod/fields/{id}'
-}
-
-export type PodBaseFieldDeleteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseFieldDeleteError = PodBaseFieldDeleteErrors[keyof PodBaseFieldDeleteErrors]
-
-export type PodBaseFieldDeleteResponses = {
+export type PodDocumentWriteResponses = {
   /**
    * Success
    */
   200: {
-    field: PodBaseFieldType
+    content?: PodPageContentType | null
+    page: PodPageType
   }
 }
 
-export type PodBaseFieldDeleteResponse = PodBaseFieldDeleteResponses[keyof PodBaseFieldDeleteResponses]
-
-export type PodBaseFieldUpdateData = {
-  /**
-   * Request body for the podBaseFieldUpdate operation on pod_base_operation resource
-   */
-  body: {
-    data: {
-      clear_invalid?: boolean | null
-      config?: {
-        [key: string]: unknown
-      } | null
-      name?: string | null
-      position?: string | null
-      type?:
-        | 'text'
-        | 'number'
-        | 'select'
-        | 'datetime'
-        | 'checkbox'
-        | 'user'
-        | 'attachment'
-        | 'auto_number'
-        | 'link'
-        | 'formula'
-        | 'created_at'
-        | 'updated_at'
-        | 'created_by'
-        | 'updated_by'
-        | null
-      version: number
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/fields/{id}'
-}
-
-export type PodBaseFieldUpdateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseFieldUpdateError = PodBaseFieldUpdateErrors[keyof PodBaseFieldUpdateErrors]
-
-export type PodBaseFieldUpdateResponses = {
-  /**
-   * Success
-   */
-  200: {
-    field: PodBaseFieldType
-  }
-}
-
-export type PodBaseFieldUpdateResponse = PodBaseFieldUpdateResponses[keyof PodBaseFieldUpdateResponses]
-
-export type PodMeData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/me'
-}
-
-export type PodMeErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodMeError = PodMeErrors[keyof PodMeErrors]
-
-export type PodMeResponses = {
-  /**
-   * Success
-   */
-  200: {
-    credentialChangeAllowed: boolean
-    credentials: Array<{
-      id: string
-      identifier: string
-      kind: string
-      provider: string
-    }>
-    displayName: string
-    managed: boolean
-  }
-}
-
-export type PodMeResponse = PodMeResponses[keyof PodMeResponses]
-
-export type UpdatePodProfileData = {
-  /**
-   * Request body for the updatePodProfile operation on pod_member_account resource
-   */
-  body: {
-    data: {
-      displayName: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/me'
-}
-
-export type UpdatePodProfileErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type UpdatePodProfileError = UpdatePodProfileErrors[keyof UpdatePodProfileErrors]
-
-export type UpdatePodProfileResponses = {
-  /**
-   * Success
-   */
-  200: {
-    displayName: string
-  }
-}
-
-export type UpdatePodProfileResponse = UpdatePodProfileResponses[keyof UpdatePodProfileResponses]
-
-export type UnbindPodCredentialData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/me/credentials/{id}'
-}
-
-export type UnbindPodCredentialErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type UnbindPodCredentialError = UnbindPodCredentialErrors[keyof UnbindPodCredentialErrors]
-
-export type UnbindPodCredentialResponses = {
-  /**
-   * Success
-   */
-  200: {
-    ok: boolean
-  }
-}
-
-export type UnbindPodCredentialResponse = UnbindPodCredentialResponses[keyof UnbindPodCredentialResponses]
-
-export type RequestPodEmailBindingData = {
-  /**
-   * Request body for the requestPodEmailBinding operation on pod_member_account resource
-   */
-  body: {
-    data: {
-      email: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/me/email/challenges'
-}
-
-export type RequestPodEmailBindingErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type RequestPodEmailBindingError = RequestPodEmailBindingErrors[keyof RequestPodEmailBindingErrors]
-
-export type RequestPodEmailBindingResponses = {
-  /**
-   * Success
-   */
-  201: {
-    challengeID: string
-  }
-}
-
-export type RequestPodEmailBindingResponse = RequestPodEmailBindingResponses[keyof RequestPodEmailBindingResponses]
-
-export type VerifyPodEmailBindingData = {
-  /**
-   * Request body for the verifyPodEmailBinding operation on pod_member_account resource
-   */
-  body: {
-    data: {
-      challengeID: string
-      code: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/me/email/verifications'
-}
-
-export type VerifyPodEmailBindingErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type VerifyPodEmailBindingError = VerifyPodEmailBindingErrors[keyof VerifyPodEmailBindingErrors]
-
-export type VerifyPodEmailBindingResponses = {
-  /**
-   * Success
-   */
-  201: {
-    authenticationRef: string
-    csrfToken: string
-    ok: boolean
-  }
-}
-
-export type VerifyPodEmailBindingResponse = VerifyPodEmailBindingResponses[keyof VerifyPodEmailBindingResponses]
-
-export type ExitPodData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/me/membership'
-}
-
-export type ExitPodErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ExitPodError = ExitPodErrors[keyof ExitPodErrors]
-
-export type ExitPodResponses = {
-  /**
-   * Success
-   */
-  200: {
-    ok: boolean
-  }
-}
-
-export type ExitPodResponse = ExitPodResponses[keyof ExitPodResponses]
-
-export type ReauthenticatePodMemberData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/me/reauthentication'
-}
-
-export type ReauthenticatePodMemberErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ReauthenticatePodMemberError = ReauthenticatePodMemberErrors[keyof ReauthenticatePodMemberErrors]
-
-export type ReauthenticatePodMemberResponses = {
-  /**
-   * Success
-   */
-  201: {
-    loginURL: string
-  }
-}
-
-export type ReauthenticatePodMemberResponse = ReauthenticatePodMemberResponses[keyof ReauthenticatePodMemberResponses]
-
-export type PodMentionCandidatesData = {
-  body?: never
-  path?: never
-  query?: {
-    category?: 'all' | 'page' | 'principal'
-    current_page_id?: string
-    limit?: number
-    query?: string
-  }
-  url: '/api/v2/pod/mentions/candidates'
-}
-
-export type PodMentionCandidatesErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodMentionCandidatesError = PodMentionCandidatesErrors[keyof PodMentionCandidatesErrors]
-
-export type PodMentionCandidatesResponses = {
-  /**
-   * Success
-   */
-  200: {
-    pages: Array<{
-      ancestors: Array<string>
-      icon?: string | null
-      id: string
-      private_owner_uid?: string | null
-      system_key?: string | null
-      title: string
-      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
-      updated_at: string
-    }>
-    principals: Array<{
-      aliases?: Array<string> | null
-      avatar_url?: string | null
-      email?: string | null
-      job_title?: string | null
-      kind: 'human' | 'agent'
-      membership?: 'member' | 'guest' | null
-      name: string
-      principal_uid: string
-      role?: string | null
-    }>
-    ranking: Array<{
-      id: string
-      kind: 'page' | 'principal'
-    }>
-    space_name: string
-    total_all_matches: number
-  }
-}
-
-export type PodMentionCandidatesResponse = PodMentionCandidatesResponses[keyof PodMentionCandidatesResponses]
-
-export type PodMentionsResolveData = {
-  /**
-   * Request body for the podMentionsResolve operation on pod_page_operation resource
-   */
-  body?: {
-    data: {
-      context_page_id?: string | null
-      page_ids?: Array<string> | null
-      principal_uids?: Array<string> | null
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/mentions/resolve'
-}
-
-export type PodMentionsResolveErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodMentionsResolveError = PodMentionsResolveErrors[keyof PodMentionsResolveErrors]
-
-export type PodMentionsResolveResponses = {
-  /**
-   * Success
-   */
-  201: {
-    pages: Array<{
-      access: 'ok' | 'trashed' | 'restricted'
-      ancestors?: Array<string> | null
-      excerpt?: string | null
-      file?: {
-        content_type: string
-        path: string
-        sha256: string
-        size: number
-      } | null
-      icon?: string | null
-      id: string
-      private_owner_uid?: string | null
-      system_key?: string | null
-      title?: string | null
-      type?: 'doc' | 'knowledge' | 'base' | 'applet' | 'file' | null
-      updated_at?: string | null
-    }>
-    principals: Array<{
-      access: 'ok' | 'disabled' | 'restricted'
-      aliases?: Array<string> | null
-      avatar_url?: string | null
-      email?: string | null
-      job_title?: string | null
-      kind?: 'human' | 'agent' | null
-      membership?: 'member' | 'guest' | null
-      name?: string | null
-      principal_uid: string
-      role?: string | null
-    }>
-    space_name: string
-  }
-}
-
-export type PodMentionsResolveResponse = PodMentionsResolveResponses[keyof PodMentionsResolveResponses]
+export type PodDocumentWriteResponse = PodDocumentWriteResponses[keyof PodDocumentWriteResponses]
 
 export type MetaAgentsData = {
   body?: never
@@ -5983,1298 +9815,51 @@ export type MetaCreateAgentResponses = {
 
 export type MetaCreateAgentResponse = MetaCreateAgentResponses[keyof MetaCreateAgentResponses]
 
-export type MetaAgentData = {
+export type PodPageInsightsData = {
   body?: never
   path: {
-    uid: string
+    id: string
   }
   query?: never
-  url: '/api/v2/pod/meta/agents/{uid}'
+  url: '/api/v2/pod/pages/{id}/insights'
 }
 
-export type MetaAgentErrors = {
+export type PodPageInsightsErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type MetaAgentError = MetaAgentErrors[keyof MetaAgentErrors]
+export type PodPageInsightsError = PodPageInsightsErrors[keyof PodPageInsightsErrors]
 
-export type MetaAgentResponses = {
+export type PodPageInsightsResponses = {
   /**
    * Success
    */
   200: {
-    avatar_url?: string | null
-    can_bind: boolean
-    can_edit: boolean
-    display_name: string
-    role?: string | null
-    type: string
-    uid: string
-  }
-}
-
-export type MetaAgentResponse = MetaAgentResponses[keyof MetaAgentResponses]
-
-export type MetaUpdateAgentData = {
-  /**
-   * Request body for the metaUpdateAgent operation on meta_agent resource
-   */
-  body: {
-    data: {
+    can_view_readers: boolean
+    contributors: Array<{
       avatar_url?: string | null
-      display_name: string
-    }
-  }
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v2/pod/meta/agents/{uid}'
-}
-
-export type MetaUpdateAgentErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaUpdateAgentError = MetaUpdateAgentErrors[keyof MetaUpdateAgentErrors]
-
-export type MetaUpdateAgentResponses = {
-  /**
-   * Success
-   */
-  200: {
-    avatar_url?: string | null
-    can_bind: boolean
-    can_edit: boolean
-    display_name: string
-    role?: string | null
-    type: string
-    uid: string
-  }
-}
-
-export type MetaUpdateAgentResponse = MetaUpdateAgentResponses[keyof MetaUpdateAgentResponses]
-
-export type MetaAgentContractsData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v2/pod/meta/agents/{uid}/contracts'
-}
-
-export type MetaAgentContractsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaAgentContractsError = MetaAgentContractsErrors[keyof MetaAgentContractsErrors]
-
-export type MetaAgentContractsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    can_edit: boolean
-    contracts: Array<{
-      content_markdown: string
-      content_xml: string
-      effective_markdown: string
-      metadata: {
-        [key: string]: unknown
-      }
-      mode: string
-      revision: number
-      slot: string
-    }>
-  }
-}
-
-export type MetaAgentContractsResponse = MetaAgentContractsResponses[keyof MetaAgentContractsResponses]
-
-export type MetaSaveAgentContractData = {
-  /**
-   * Request body for the metaSaveAgentContract operation on meta_library resource
-   */
-  body: {
-    data: {
-      base_revision: number
-      content_xml: string
-      metadata: {
-        [key: string]: unknown
-      }
-      mode: 'inherit' | 'append' | 'override'
-    }
-  }
-  path: {
-    slot: 'agents' | 'design'
-    uid: string
-  }
-  query?: never
-  url: '/api/v2/pod/meta/agents/{uid}/contracts/{slot}'
-}
-
-export type MetaSaveAgentContractErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaSaveAgentContractError = MetaSaveAgentContractErrors[keyof MetaSaveAgentContractErrors]
-
-export type MetaSaveAgentContractResponses = {
-  /**
-   * Success
-   */
-  200: {
-    content_markdown: string
-    content_xml: string
-    metadata: {
-      [key: string]: unknown
-    }
-    mode: string
-    revision: number
-    slot: string
-  }
-}
-
-export type MetaSaveAgentContractResponse = MetaSaveAgentContractResponses[keyof MetaSaveAgentContractResponses]
-
-export type MetaBrainData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/meta/brain'
-}
-
-export type MetaBrainErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaBrainError = MetaBrainErrors[keyof MetaBrainErrors]
-
-export type MetaBrainResponses = {
-  /**
-   * Success
-   */
-  200: {
-    categories: Array<{
-      can_edit: boolean
-      id: string
-      name: string
-    }>
-    links: Array<{
-      from_page_id: string
-      link_type: string
-      to_page_id: string
-    }>
-    nodes: Array<{
-      id: string
-      slug: string
-      title: string
-      type: string
-    }>
-  }
-}
-
-export type MetaBrainResponse = MetaBrainResponses[keyof MetaBrainResponses]
-
-export type MetaGlobalContractsData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/meta/contracts'
-}
-
-export type MetaGlobalContractsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaGlobalContractsError = MetaGlobalContractsErrors[keyof MetaGlobalContractsErrors]
-
-export type MetaGlobalContractsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    can_edit: boolean
-    contracts: Array<{
-      content_markdown: string
-      content_xml: string
-      effective_markdown: string
-      metadata: {
-        [key: string]: unknown
-      }
-      mode: string
-      revision: number
-      slot: string
-    }>
-  }
-}
-
-export type MetaGlobalContractsResponse = MetaGlobalContractsResponses[keyof MetaGlobalContractsResponses]
-
-export type MetaSaveGlobalContractData = {
-  /**
-   * Request body for the metaSaveGlobalContract operation on meta_library resource
-   */
-  body: {
-    data: {
-      base_revision: number
-      content_xml: string
-      metadata: {
-        [key: string]: unknown
-      }
-      mode: 'inherit' | 'append' | 'override'
-    }
-  }
-  path: {
-    slot: 'agents' | 'design'
-  }
-  query?: never
-  url: '/api/v2/pod/meta/contracts/{slot}'
-}
-
-export type MetaSaveGlobalContractErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaSaveGlobalContractError = MetaSaveGlobalContractErrors[keyof MetaSaveGlobalContractErrors]
-
-export type MetaSaveGlobalContractResponses = {
-  /**
-   * Success
-   */
-  200: {
-    content_markdown: string
-    content_xml: string
-    metadata: {
-      [key: string]: unknown
-    }
-    mode: string
-    revision: number
-    slot: string
-  }
-}
-
-export type MetaSaveGlobalContractResponse = MetaSaveGlobalContractResponses[keyof MetaSaveGlobalContractResponses]
-
-export type MetaSkillsData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/meta/skills'
-}
-
-export type MetaSkillsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaSkillsError = MetaSkillsErrors[keyof MetaSkillsErrors]
-
-export type MetaSkillsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    can_create: boolean
-    skills: Array<{
-      agent_plugin_id?: string | null
-      assistant_enabled: boolean
-      can_bind_all: boolean
-      can_delete: boolean
-      can_edit: boolean
-      colleague_count: number
-      description: string
-      enabled_for_all: boolean
-      id: string
-      manifest_markdown: string
-      manifest_xml: string
-      metadata: {
-        [key: string]: unknown
-      }
-      name: string
-      revision: number
-      slug: string
-      source_kind: string
-    }>
-  }
-}
-
-export type MetaSkillsResponse = MetaSkillsResponses[keyof MetaSkillsResponses]
-
-export type MetaCreateSkillData = {
-  /**
-   * Request body for the metaCreateSkill operation on meta_library resource
-   */
-  body: {
-    data: {
-      manifest_xml: string
-      metadata: {
-        [key: string]: unknown
-      }
-      slug: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/meta/skills'
-}
-
-export type MetaCreateSkillErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaCreateSkillError = MetaCreateSkillErrors[keyof MetaCreateSkillErrors]
-
-export type MetaCreateSkillResponses = {
-  /**
-   * Success
-   */
-  201: {
-    agent_plugin_id?: string | null
-    assistant_enabled: boolean
-    can_bind_all: boolean
-    can_delete: boolean
-    can_edit: boolean
-    colleague_count: number
-    description: string
-    enabled_for_all: boolean
-    id: string
-    manifest_markdown: string
-    manifest_xml: string
-    metadata: {
-      [key: string]: unknown
-    }
-    name: string
-    revision: number
-    slug: string
-    source_kind: string
-  }
-}
-
-export type MetaCreateSkillResponse = MetaCreateSkillResponses[keyof MetaCreateSkillResponses]
-
-export type MetaImportSkillData = {
-  /**
-   * Request body for the metaImportSkill operation on meta_library resource
-   */
-  body: {
-    data: {
-      content_base64: string
-      slug: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/meta/skills/import'
-}
-
-export type MetaImportSkillErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaImportSkillError = MetaImportSkillErrors[keyof MetaImportSkillErrors]
-
-export type MetaImportSkillResponses = {
-  /**
-   * Success
-   */
-  201: {
-    agent_plugin_id?: string | null
-    assistant_enabled: boolean
-    can_bind_all: boolean
-    can_delete: boolean
-    can_edit: boolean
-    colleague_count: number
-    description: string
-    enabled_for_all: boolean
-    id: string
-    manifest_markdown: string
-    manifest_xml: string
-    metadata: {
-      [key: string]: unknown
-    }
-    name: string
-    revision: number
-    slug: string
-    source_kind: string
-  }
-}
-
-export type MetaImportSkillResponse = MetaImportSkillResponses[keyof MetaImportSkillResponses]
-
-export type MetaDeleteSkillData = {
-  body?: never
-  path: {
-    slug: string
-  }
-  query: {
-    base_revision: number
-  }
-  url: '/api/v2/pod/meta/skills/{slug}'
-}
-
-export type MetaDeleteSkillErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaDeleteSkillError = MetaDeleteSkillErrors[keyof MetaDeleteSkillErrors]
-
-export type MetaDeleteSkillResponses = {
-  /**
-   * Success
-   */
-  200: boolean
-}
-
-export type MetaDeleteSkillResponse = MetaDeleteSkillResponses[keyof MetaDeleteSkillResponses]
-
-export type MetaSkillData = {
-  body?: never
-  path: {
-    slug: string
-  }
-  query?: never
-  url: '/api/v2/pod/meta/skills/{slug}'
-}
-
-export type MetaSkillErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaSkillError = MetaSkillErrors[keyof MetaSkillErrors]
-
-export type MetaSkillResponses = {
-  /**
-   * Success
-   */
-  200: {
-    agent_uids: Array<string>
-    files: Array<{
-      content_type: string
-      id: string
-      mode: number
-      relative_path: string
-    }>
-    skill: {
-      agent_plugin_id?: string | null
-      assistant_enabled: boolean
-      can_bind_all: boolean
-      can_delete: boolean
-      can_edit: boolean
-      colleague_count: number
-      description: string
-      enabled_for_all: boolean
-      id: string
-      manifest_markdown: string
-      manifest_xml: string
-      metadata: {
-        [key: string]: unknown
-      }
-      name: string
-      revision: number
-      slug: string
-      source_kind: string
-    }
-  }
-}
-
-export type MetaSkillResponse = MetaSkillResponses[keyof MetaSkillResponses]
-
-export type MetaSaveSkillData = {
-  /**
-   * Request body for the metaSaveSkill operation on meta_library resource
-   */
-  body: {
-    data: {
-      base_revision: number
-      manifest_xml: string
-      metadata: {
-        [key: string]: unknown
-      }
-      new_slug?: string | null
-    }
-  }
-  path: {
-    slug: string
-  }
-  query?: never
-  url: '/api/v2/pod/meta/skills/{slug}'
-}
-
-export type MetaSaveSkillErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaSaveSkillError = MetaSaveSkillErrors[keyof MetaSaveSkillErrors]
-
-export type MetaSaveSkillResponses = {
-  /**
-   * Success
-   */
-  200: {
-    agent_plugin_id?: string | null
-    assistant_enabled: boolean
-    can_bind_all: boolean
-    can_delete: boolean
-    can_edit: boolean
-    colleague_count: number
-    description: string
-    enabled_for_all: boolean
-    id: string
-    manifest_markdown: string
-    manifest_xml: string
-    metadata: {
-      [key: string]: unknown
-    }
-    name: string
-    revision: number
-    slug: string
-    source_kind: string
-  }
-}
-
-export type MetaSaveSkillResponse = MetaSaveSkillResponses[keyof MetaSaveSkillResponses]
-
-export type MetaSkillSetAllData = {
-  /**
-   * Request body for the metaSkillSetAll operation on meta_library resource
-   */
-  body: {
-    data: {
-      base_revision: number
-      enabled: boolean
-    }
-  }
-  path: {
-    slug: string
-  }
-  query?: never
-  url: '/api/v2/pod/meta/skills/{slug}/all'
-}
-
-export type MetaSkillSetAllErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaSkillSetAllError = MetaSkillSetAllErrors[keyof MetaSkillSetAllErrors]
-
-export type MetaSkillSetAllResponses = {
-  /**
-   * Success
-   */
-  200: {
-    agent_plugin_id?: string | null
-    assistant_enabled: boolean
-    can_bind_all: boolean
-    can_delete: boolean
-    can_edit: boolean
-    colleague_count: number
-    description: string
-    enabled_for_all: boolean
-    id: string
-    manifest_markdown: string
-    manifest_xml: string
-    metadata: {
-      [key: string]: unknown
-    }
-    name: string
-    revision: number
-    slug: string
-    source_kind: string
-  }
-}
-
-export type MetaSkillSetAllResponse = MetaSkillSetAllResponses[keyof MetaSkillSetAllResponses]
-
-export type MetaSkillSetBindingData = {
-  /**
-   * Request body for the metaSkillSetBinding operation on meta_library resource
-   */
-  body: {
-    data: {
-      agent_uid: string
-      enabled: boolean
-    }
-  }
-  path: {
-    slug: string
-  }
-  query?: never
-  url: '/api/v2/pod/meta/skills/{slug}/bindings'
-}
-
-export type MetaSkillSetBindingErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaSkillSetBindingError = MetaSkillSetBindingErrors[keyof MetaSkillSetBindingErrors]
-
-export type MetaSkillSetBindingResponses = {
-  /**
-   * Success
-   */
-  200: {
-    agent_plugin_id?: string | null
-    assistant_enabled: boolean
-    can_bind_all: boolean
-    can_delete: boolean
-    can_edit: boolean
-    colleague_count: number
-    description: string
-    enabled_for_all: boolean
-    id: string
-    manifest_markdown: string
-    manifest_xml: string
-    metadata: {
-      [key: string]: unknown
-    }
-    name: string
-    revision: number
-    slug: string
-    source_kind: string
-  }
-}
-
-export type MetaSkillSetBindingResponse = MetaSkillSetBindingResponses[keyof MetaSkillSetBindingResponses]
-
-export type MetaSkillFileData = {
-  body?: never
-  path: {
-    slug: string
-  }
-  query: {
-    path: string
-  }
-  url: '/api/v2/pod/meta/skills/{slug}/file'
-}
-
-export type MetaSkillFileErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaSkillFileError = MetaSkillFileErrors[keyof MetaSkillFileErrors]
-
-export type MetaSkillFileResponses = {
-  /**
-   * Success
-   */
-  200: {
-    content_base64: string
-    revision: number
-  }
-}
-
-export type MetaSkillFileResponse = MetaSkillFileResponses[keyof MetaSkillFileResponses]
-
-export type MetaSkillChangeFileData = {
-  /**
-   * Request body for the metaSkillChangeFile operation on meta_library resource
-   */
-  body: {
-    data: {
-      base_revision: number
-      new_path?: string | null
-      path: string
-    }
-  }
-  path: {
-    slug: string
-  }
-  query?: never
-  url: '/api/v2/pod/meta/skills/{slug}/file'
-}
-
-export type MetaSkillChangeFileErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaSkillChangeFileError = MetaSkillChangeFileErrors[keyof MetaSkillChangeFileErrors]
-
-export type MetaSkillChangeFileResponses = {
-  /**
-   * Success
-   */
-  200: {
-    agent_plugin_id?: string | null
-    assistant_enabled: boolean
-    can_bind_all: boolean
-    can_delete: boolean
-    can_edit: boolean
-    colleague_count: number
-    description: string
-    enabled_for_all: boolean
-    id: string
-    manifest_markdown: string
-    manifest_xml: string
-    metadata: {
-      [key: string]: unknown
-    }
-    name: string
-    revision: number
-    slug: string
-    source_kind: string
-  }
-}
-
-export type MetaSkillChangeFileResponse = MetaSkillChangeFileResponses[keyof MetaSkillChangeFileResponses]
-
-export type MetaSkillPutFileData = {
-  /**
-   * Request body for the metaSkillPutFile operation on meta_library resource
-   */
-  body: {
-    data: {
-      base_revision: number
-      content_base64: string
-      content_type: string
-      mode: number
-      path: string
-    }
-  }
-  path: {
-    slug: string
-  }
-  query?: never
-  url: '/api/v2/pod/meta/skills/{slug}/file'
-}
-
-export type MetaSkillPutFileErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type MetaSkillPutFileError = MetaSkillPutFileErrors[keyof MetaSkillPutFileErrors]
-
-export type MetaSkillPutFileResponses = {
-  /**
-   * Success
-   */
-  200: {
-    agent_plugin_id?: string | null
-    assistant_enabled: boolean
-    can_bind_all: boolean
-    can_delete: boolean
-    can_edit: boolean
-    colleague_count: number
-    description: string
-    enabled_for_all: boolean
-    id: string
-    manifest_markdown: string
-    manifest_xml: string
-    metadata: {
-      [key: string]: unknown
-    }
-    name: string
-    revision: number
-    slug: string
-    source_kind: string
-  }
-}
-
-export type MetaSkillPutFileResponse = MetaSkillPutFileResponses[keyof MetaSkillPutFileResponses]
-
-export type PodNextStepsData = {
-  /**
-   * Request body for the podNextSteps operation on pod_chat_operation resource
-   */
-  body?: {
-    data: {
-      locale?: string | null
-      refresh?: boolean | null
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/next-steps'
-}
-
-export type PodNextStepsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodNextStepsError = PodNextStepsErrors[keyof PodNextStepsErrors]
-
-export type PodNextStepsResponses = {
-  /**
-   * Success
-   */
-  201: {
-    steps: Array<{
-      ambitious: boolean
-      effort: string
-      id: string
-      outcome: string
-      title: string
-      whyNow: string
-    }>
-  }
-}
-
-export type PodNextStepsResponse = PodNextStepsResponses[keyof PodNextStepsResponses]
-
-export type ChoosePodNextStepData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/next-steps/{id}/choose'
-}
-
-export type ChoosePodNextStepErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ChoosePodNextStepError = ChoosePodNextStepErrors[keyof ChoosePodNextStepErrors]
-
-export type ChoosePodNextStepResponses = {
-  /**
-   * Success
-   */
-  201: boolean
-}
-
-export type ChoosePodNextStepResponse = ChoosePodNextStepResponses[keyof ChoosePodNextStepResponses]
-
-export type PodPageListData = {
-  body?: never
-  path?: never
-  query?: {
-    domain?: 'pages' | 'brain' | 'all'
-    query?: string
-    scope?: 'all' | 'space' | 'private' | 'shared' | 'recent' | 'favorites' | 'trash'
-  }
-  url: '/api/v2/pod/pages'
-}
-
-export type PodPageListErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageListError = PodPageListErrors[keyof PodPageListErrors]
-
-export type PodPageListResponses = {
-  /**
-   * Success
-   */
-  200: {
-    pages: Array<PodPageType>
-    trash_retention_days?: number | null
-  }
-}
-
-export type PodPageListResponse = PodPageListResponses[keyof PodPageListResponses]
-
-export type PodPageCreateData = {
-  /**
-   * Request body for the podPageCreate operation on pod_page_operation resource
-   */
-  body?: {
-    data: {
-      attachment_position?: number | null
-      children_view?: {
-        collapsed?: boolean | null
-        field_order?: Array<'created_by' | 'updated_at' | 'created_at'> | null
-        view?: 'list' | 'grid' | 'table' | null
-        visible_fields?: Array<'created_by' | 'updated_at' | 'created_at'> | null
-      } | null
-      icon?: string | null
-      metadata?: {
-        [key: string]: unknown
-      } | null
-      parent_id?: string | null
-      position?: string | null
-      private_owner_uid?: string | null
-      saved_from_message_id?: string | null
-      title?: string | null
-      type?: 'doc' | 'knowledge' | 'base' | 'file' | null
-      xml?: string | null
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/pages'
-}
-
-export type PodPageCreateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageCreateError = PodPageCreateErrors[keyof PodPageCreateErrors]
-
-export type PodPageCreateResponses = {
-  /**
-   * Success
-   */
-  201: {
-    page: PodPageType
-  }
-}
-
-export type PodPageCreateResponse = PodPageCreateResponses[keyof PodPageCreateResponses]
-
-export type PodPageChildrenData = {
-  body?: never
-  path?: never
-  query?: {
-    cursor?: string
-    details?: boolean
-    limit?: number
-    parent_id?: string
-    scope?: 'space' | 'private'
-  }
-  url: '/api/v2/pod/pages/children'
-}
-
-export type PodPageChildrenErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageChildrenError = PodPageChildrenErrors[keyof PodPageChildrenErrors]
-
-export type PodPageChildrenResponses = {
-  /**
-   * Success
-   */
-  200: {
-    can_create_private: boolean
-    can_create_space: boolean
-    can_manage_space: boolean
-    next_cursor?: string | null
-    pages: Array<{
-      actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
-      created_at?: string | null
-      created_by?: string | null
-      creator_name?: string | null
-      excerpt?: string | null
-      file?: {
-        content_type: string
-        path: string
-        sha256: string
-        size: number
-      } | null
-      has_children: boolean
-      icon?: string | null
-      id: string
-      inherit_permissions: boolean
-      metadata: {
-        [key: string]: unknown
-      }
-      name: string
-      parent_id?: string | null
-      position?: string | null
-      private_owner_uid?: string | null
-      role: 'view' | 'contribute' | 'edit' | 'manage'
-      system_key?: string | null
-      title: string
-      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
-      updated_at?: string | null
-    }>
-    principal_uid: string
-  }
-}
-
-export type PodPageChildrenResponse = PodPageChildrenResponses[keyof PodPageChildrenResponses]
-
-export type PodPageNavigationData = {
-  body?: never
-  path?: never
-  query?: {
-    active_page_id?: string
-  }
-  url: '/api/v2/pod/pages/navigation'
-}
-
-export type PodPageNavigationErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageNavigationError = PodPageNavigationErrors[keyof PodPageNavigationErrors]
-
-export type PodPageNavigationResponses = {
-  /**
-   * Success
-   */
-  200: {
-    directories: Array<{
-      can_create_private: boolean
-      can_create_space: boolean
-      can_manage_space: boolean
-      next_cursor?: string | null
-      pages: Array<{
-        actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
-        has_children: boolean
-        icon?: string | null
-        id: string
-        inherit_permissions: boolean
-        metadata: {
-          [key: string]: unknown
-        }
-        name: string
-        parent_id?: string | null
-        position?: string | null
-        private_owner_uid?: string | null
-        role: 'view' | 'contribute' | 'edit' | 'manage'
-        system_key?: string | null
-        title: string
-        type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
-      }>
-      parent_id?: string | null
+      kind?: 'human' | 'agent' | 'system' | null
+      name?: string | null
       principal_uid: string
-      scope: string
+      role: 'creator' | 'last_edited' | 'previously_edited'
+      tenant_id: string
     }>
-    path: Array<{
-      actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
-      has_children: boolean
-      icon?: string | null
-      id: string
-      inherit_permissions: boolean
-      metadata: {
-        [key: string]: unknown
-      }
-      name: string
-      parent_id?: string | null
-      position?: string | null
-      private_owner_uid?: string | null
-      role: 'view' | 'contribute' | 'edit' | 'manage'
-      system_key?: string | null
-      title: string
-      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
+    created_at: string
+    daily: Array<{
+      comments: number
+      day: string
+      edits: number
+      views: number
     }>
+    hide_visits: boolean
+    updated_at: string
   }
 }
 
-export type PodPageNavigationResponse = PodPageNavigationResponses[keyof PodPageNavigationResponses]
-
-export type PodPageSearchData = {
-  body?: never
-  path?: never
-  query: {
-    domain?: 'pages' | 'brain' | 'all'
-    embeddable?: boolean
-    exclude_subtree_of?: string
-    query: string
-    required_action?: 'node_view' | 'node_edit'
-  }
-  url: '/api/v2/pod/pages/search'
-}
-
-export type PodPageSearchErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageSearchError = PodPageSearchErrors[keyof PodPageSearchErrors]
-
-export type PodPageSearchResponses = {
-  /**
-   * Success
-   */
-  200: {
-    ancestors: Array<PodPageType>
-    can_create_private: boolean
-    can_create_space: boolean
-    pages: Array<PodPageType>
-    principal_uid: string
-  }
-}
-
-export type PodPageSearchResponse = PodPageSearchResponses[keyof PodPageSearchResponses]
-
-export type PodPageDeleteData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}'
-}
-
-export type PodPageDeleteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageDeleteError = PodPageDeleteErrors[keyof PodPageDeleteErrors]
-
-export type PodPageDeleteResponses = {
-  /**
-   * Success
-   */
-  200: {
-    descendant_count: number
-    page: PodPageType
-  }
-}
-
-export type PodPageDeleteResponse = PodPageDeleteResponses[keyof PodPageDeleteResponses]
-
-export type PodPageReadData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}'
-}
-
-export type PodPageReadErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageReadError = PodPageReadErrors[keyof PodPageReadErrors]
-
-export type PodPageReadResponses = {
-  /**
-   * Success
-   */
-  200: {
-    actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
-    ancestors: Array<PodPageType>
-    child_count: number
-    content?: PodPageContentType | null
-    fact_learning?: {
-      enabled: boolean
-      inherited: boolean
-    } | null
-    page: PodPageType
-    role: 'view' | 'contribute' | 'edit' | 'manage'
-    source_conversation?: {
-      deleted?: boolean | null
-      id?: string | null
-      message_id?: string | null
-      title?: string | null
-    } | null
-  }
-}
-
-export type PodPageReadResponse = PodPageReadResponses[keyof PodPageReadResponses]
-
-export type PodPageUpdateData = {
-  /**
-   * Request body for the podPageUpdate operation on pod_page_operation resource
-   */
-  body?: {
-    data: {
-      children_view?: {
-        collapsed?: boolean | null
-        field_order?: Array<'created_by' | 'updated_at' | 'created_at'> | null
-        view?: 'list' | 'grid' | 'table' | null
-        visible_fields?: Array<'created_by' | 'updated_at' | 'created_at'> | null
-      } | null
-      /**
-       * Required whenever title is supplied; the title read before editing.
-       */
-      expected_title?: string | null
-      extract_facts?: boolean | null
-      icon?: string | null
-      title?: string | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}'
-}
-
-export type PodPageUpdateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageUpdateError = PodPageUpdateErrors[keyof PodPageUpdateErrors]
-
-export type PodPageUpdateResponses = {
-  /**
-   * Success
-   */
-  200: {
-    page: PodPageType
-  }
-}
-
-export type PodPageUpdateResponse = PodPageUpdateResponses[keyof PodPageUpdateResponses]
+export type PodPageInsightsResponse = PodPageInsightsResponses[keyof PodPageInsightsResponses]
 
 export type PodPageCommentsData = {
   body?: never
@@ -7455,2341 +10040,588 @@ export type PodPageCommentCreateResponses = {
 
 export type PodPageCommentCreateResponse = PodPageCommentCreateResponses[keyof PodPageCommentCreateResponses]
 
-export type PodPageCommentsReadData = {
-  /**
-   * Request body for the podPageCommentsRead operation on pod_document_comment_operation resource
-   */
-  body: {
-    data: {
-      through: string
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/comments/read'
-}
-
-export type PodPageCommentsReadErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageCommentsReadError = PodPageCommentsReadErrors[keyof PodPageCommentsReadErrors]
-
-export type PodPageCommentsReadResponses = {
-  /**
-   * Success
-   */
-  200: {
-    activity_at?: string | null
-    open_count: number
-    resolved_ids: Array<string>
-    unread_count: number
-  }
-}
-
-export type PodPageCommentsReadResponse = PodPageCommentsReadResponses[keyof PodPageCommentsReadResponses]
-
-export type PodPageCommentSummaryData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/comments/summary'
-}
-
-export type PodPageCommentSummaryErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageCommentSummaryError = PodPageCommentSummaryErrors[keyof PodPageCommentSummaryErrors]
-
-export type PodPageCommentSummaryResponses = {
-  /**
-   * Success
-   */
-  200: {
-    activity_at?: string | null
-    open_count: number
-    resolved_ids: Array<string>
-    unread_count: number
-  }
-}
-
-export type PodPageCommentSummaryResponse = PodPageCommentSummaryResponses[keyof PodPageCommentSummaryResponses]
-
-export type PodPageCommentDeleteData = {
-  body?: never
-  path: {
-    comment_id: string
-    id: string
-  }
-  query: {
-    version: number
-  }
-  url: '/api/v2/pod/pages/{id}/comments/{comment_id}'
-}
-
-export type PodPageCommentDeleteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageCommentDeleteError = PodPageCommentDeleteErrors[keyof PodPageCommentDeleteErrors]
-
-export type PodPageCommentDeleteResponses = {
-  /**
-   * Success
-   */
-  200: {
-    comment: {
-      activity_at: string
-      anchor?: {
-        [key: string]: unknown
-      } | null
-      anchor_outdated: boolean
-      anchor_present: boolean
-      anchor_revision?: number | null
-      author: {
-        avatar_url?: string | null
-        kind?: 'human' | 'agent' | 'system' | null
-        name?: string | null
-        principal_uid: string
-        tenant_id: string
-      }
-      body?: string | null
-      can_delete: boolean
-      can_edit: boolean
-      can_reanchor: boolean
-      can_resolve: boolean
-      created_at: string
-      deleted_at?: string | null
-      id: string
-      quote?: string | null
-      resolved_at?: string | null
-      resolved_by?: {
-        tenant_id: string
-        uid: string
-      } | null
-      root_id?: string | null
-      updated_at: string
-      version: number
-    }
-    revision: number
-  }
-}
-
-export type PodPageCommentDeleteResponse = PodPageCommentDeleteResponses[keyof PodPageCommentDeleteResponses]
-
-export type PodCommentReadData = {
-  body?: never
-  path: {
-    comment_id: string
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/comments/{comment_id}'
-}
-
-export type PodCommentReadErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodCommentReadError = PodCommentReadErrors[keyof PodCommentReadErrors]
-
-export type PodCommentReadResponses = {
-  /**
-   * Success
-   */
-  200: {
-    revision: number
-    thread: {
-      activity_at: string
-      anchor?: {
-        [key: string]: unknown
-      } | null
-      anchor_outdated: boolean
-      anchor_present: boolean
-      anchor_revision?: number | null
-      author: {
-        avatar_url?: string | null
-        kind?: 'human' | 'agent' | 'system' | null
-        name?: string | null
-        principal_uid: string
-        tenant_id: string
-      }
-      body?: string | null
-      can_delete: boolean
-      can_edit: boolean
-      can_reanchor: boolean
-      can_resolve: boolean
-      created_at: string
-      deleted_at?: string | null
-      id: string
-      quote?: string | null
-      replies: Array<{
-        activity_at: string
-        anchor?: {
-          [key: string]: unknown
-        } | null
-        anchor_outdated: boolean
-        anchor_present: boolean
-        anchor_revision?: number | null
-        author: {
-          avatar_url?: string | null
-          kind?: 'human' | 'agent' | 'system' | null
-          name?: string | null
-          principal_uid: string
-          tenant_id: string
-        }
-        body?: string | null
-        can_delete: boolean
-        can_edit: boolean
-        can_reanchor: boolean
-        can_resolve: boolean
-        created_at: string
-        deleted_at?: string | null
-        id: string
-        quote?: string | null
-        resolved_at?: string | null
-        resolved_by?: {
-          tenant_id: string
-          uid: string
-        } | null
-        root_id?: string | null
-        updated_at: string
-        version: number
-      }>
-      resolved_at?: string | null
-      resolved_by?: {
-        tenant_id: string
-        uid: string
-      } | null
-      root_id?: string | null
-      unread: boolean
-      updated_at: string
-      version: number
-    }
-  }
-}
-
-export type PodCommentReadResponse = PodCommentReadResponses[keyof PodCommentReadResponses]
-
-export type PodPageCommentUpdateData = {
-  /**
-   * Request body for the podPageCommentUpdate operation on pod_document_comment_operation resource
-   */
-  body: {
-    data: {
-      body: string
-      mentioned_agent_uids?: Array<string> | null
-      version: number
-    }
-  }
-  path: {
-    comment_id: string
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/comments/{comment_id}'
-}
-
-export type PodPageCommentUpdateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageCommentUpdateError = PodPageCommentUpdateErrors[keyof PodPageCommentUpdateErrors]
-
-export type PodPageCommentUpdateResponses = {
-  /**
-   * Success
-   */
-  200: {
-    comment: {
-      activity_at: string
-      anchor?: {
-        [key: string]: unknown
-      } | null
-      anchor_outdated: boolean
-      anchor_present: boolean
-      anchor_revision?: number | null
-      author: {
-        avatar_url?: string | null
-        kind?: 'human' | 'agent' | 'system' | null
-        name?: string | null
-        principal_uid: string
-        tenant_id: string
-      }
-      body?: string | null
-      can_delete: boolean
-      can_edit: boolean
-      can_reanchor: boolean
-      can_resolve: boolean
-      created_at: string
-      deleted_at?: string | null
-      id: string
-      quote?: string | null
-      resolved_at?: string | null
-      resolved_by?: {
-        tenant_id: string
-        uid: string
-      } | null
-      root_id?: string | null
-      updated_at: string
-      version: number
-    }
-    revision: number
-  }
-}
-
-export type PodPageCommentUpdateResponse = PodPageCommentUpdateResponses[keyof PodPageCommentUpdateResponses]
-
-export type PodPageCommentAnchorData = {
-  /**
-   * Request body for the podPageCommentAnchor operation on pod_document_comment_operation resource
-   */
-  body: {
-    data: {
-      anchor?: {
-        [key: string]: unknown
-      } | null
-      base_revision?: number | null
-      from?: number | null
-      quote?: string | null
-      to?: number | null
-      version: number
-    }
-  }
-  path: {
-    comment_id: string
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/comments/{comment_id}/anchor'
-}
-
-export type PodPageCommentAnchorErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageCommentAnchorError = PodPageCommentAnchorErrors[keyof PodPageCommentAnchorErrors]
-
-export type PodPageCommentAnchorResponses = {
-  /**
-   * Success
-   */
-  200: {
-    comment: {
-      activity_at: string
-      anchor?: {
-        [key: string]: unknown
-      } | null
-      anchor_outdated: boolean
-      anchor_present: boolean
-      anchor_revision?: number | null
-      author: {
-        avatar_url?: string | null
-        kind?: 'human' | 'agent' | 'system' | null
-        name?: string | null
-        principal_uid: string
-        tenant_id: string
-      }
-      body?: string | null
-      can_delete: boolean
-      can_edit: boolean
-      can_reanchor: boolean
-      can_resolve: boolean
-      created_at: string
-      deleted_at?: string | null
-      id: string
-      quote?: string | null
-      resolved_at?: string | null
-      resolved_by?: {
-        tenant_id: string
-        uid: string
-      } | null
-      root_id?: string | null
-      updated_at: string
-      version: number
-    }
-    revision: number
-  }
-}
-
-export type PodPageCommentAnchorResponse = PodPageCommentAnchorResponses[keyof PodPageCommentAnchorResponses]
-
-export type PodPageCommentResolveData = {
-  /**
-   * Request body for the podPageCommentResolve operation on pod_document_comment_operation resource
-   */
-  body: {
-    data: {
-      resolved: boolean
-      version: number
-    }
-  }
-  path: {
-    comment_id: string
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/comments/{comment_id}/resolution'
-}
-
-export type PodPageCommentResolveErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageCommentResolveError = PodPageCommentResolveErrors[keyof PodPageCommentResolveErrors]
-
-export type PodPageCommentResolveResponses = {
-  /**
-   * Success
-   */
-  200: {
-    comment: {
-      activity_at: string
-      anchor?: {
-        [key: string]: unknown
-      } | null
-      anchor_outdated: boolean
-      anchor_present: boolean
-      anchor_revision?: number | null
-      author: {
-        avatar_url?: string | null
-        kind?: 'human' | 'agent' | 'system' | null
-        name?: string | null
-        principal_uid: string
-        tenant_id: string
-      }
-      body?: string | null
-      can_delete: boolean
-      can_edit: boolean
-      can_reanchor: boolean
-      can_resolve: boolean
-      created_at: string
-      deleted_at?: string | null
-      id: string
-      quote?: string | null
-      resolved_at?: string | null
-      resolved_by?: {
-        tenant_id: string
-        uid: string
-      } | null
-      root_id?: string | null
-      updated_at: string
-      version: number
-    }
-    revision: number
-  }
-}
-
-export type PodPageCommentResolveResponse = PodPageCommentResolveResponses[keyof PodPageCommentResolveResponses]
-
-export type PodDocumentWriteData = {
-  /**
-   * Request body for the podDocumentWrite operation on pod_page_operation resource
-   */
-  body: {
-    data: {
-      base_revision: number
-      metadata?: {
-        [key: string]: unknown
-      } | null
-      xml: string
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/content'
-}
-
-export type PodDocumentWriteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodDocumentWriteError = PodDocumentWriteErrors[keyof PodDocumentWriteErrors]
-
-export type PodDocumentWriteResponses = {
-  /**
-   * Success
-   */
-  200: {
-    content?: PodPageContentType | null
-    page: PodPageType
-  }
-}
-
-export type PodDocumentWriteResponse = PodDocumentWriteResponses[keyof PodDocumentWriteResponses]
-
-export type PodFileCopyData = {
-  /**
-   * Request body for the podFileCopy operation on pod_file_operation resource
-   */
-  body: {
-    data: {
-      base_object_id?: string | null
-      message_id: string
-      position: number
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/copy-file'
-}
-
-export type PodFileCopyErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodFileCopyError = PodFileCopyErrors[keyof PodFileCopyErrors]
-
-export type PodFileCopyResponses = {
-  /**
-   * Success
-   */
-  201: {
-    file: {
-      content_type?: string | null
-      object_id: string
-      path: string
-      sha256: string
-      size: number
-    }
-    page_id: string
-    revision: number
-    src?: string | null
-  }
-}
-
-export type PodFileCopyResponse = PodFileCopyResponses[keyof PodFileCopyResponses]
-
-export type PodEmbedsDeleteData = {
-  /**
-   * Request body for the podEmbedsDelete operation on pod_page_operation resource
-   */
-  body: {
-    data: {
-      refs: Array<string>
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/embeds/delete'
-}
-
-export type PodEmbedsDeleteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodEmbedsDeleteError = PodEmbedsDeleteErrors[keyof PodEmbedsDeleteErrors]
-
-export type PodEmbedsDeleteResponses = {
-  /**
-   * Success
-   */
-  201: boolean
-}
-
-export type PodEmbedsDeleteResponse = PodEmbedsDeleteResponses[keyof PodEmbedsDeleteResponses]
-
-export type PodFilesData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/files'
-}
-
-export type PodFilesErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodFilesError = PodFilesErrors[keyof PodFilesErrors]
-
-export type PodFilesResponses = {
-  /**
-   * Success
-   */
-  200: {
-    files: Array<{
-      content_type?: string | null
-      object_id: string
-      path: string
-      sha256: string
-      size: number
-    }>
-    page_id: string
-    revision: number
-    routes?: Array<string> | null
-  }
-}
-
-export type PodFilesResponse = PodFilesResponses[keyof PodFilesResponses]
-
-export type PodPageHistoryData = {
+export type PodModelSelectionData = {
   body?: never
   path: {
     id: string
   }
   query?: {
-    cursor?: string
-    limit?: number
+    agentUID?: string
   }
-  url: '/api/v2/pod/pages/{id}/history'
+  url: '/api/v2/pod/conversations/{id}/model-profile'
 }
 
-export type PodPageHistoryErrors = {
+export type PodModelSelectionErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodPageHistoryError = PodPageHistoryErrors[keyof PodPageHistoryErrors]
+export type PodModelSelectionError = PodModelSelectionErrors[keyof PodModelSelectionErrors]
 
-export type PodPageHistoryResponses = {
+export type PodModelSelectionResponses = {
   /**
    * Success
    */
   200: {
-    current_revision: number
-    current_updated_at: string
-    next_cursor?: string | null
-    snapshots: Array<{
-      author: {
-        avatar_url?: string | null
-        kind?: 'human' | 'agent' | 'system' | null
-        name?: string | null
-        principal_uid: string
-        tenant_id: string
-      }
-      created_at: string
-      document_updated_at: string
-      icon?: string | null
-      id: string
-      metadata: {
-        [key: string]: unknown
-      }
-      reason: 'created' | 'baseline' | 'checkpoint' | 'before_restore' | 'restored'
-      revision: number
-      title: string
+    activeProfile?: string | null
+    profile?: string | null
+    profiles: Array<{
+      description: string
+      name: string
     }>
   }
 }
 
-export type PodPageHistoryResponse = PodPageHistoryResponses[keyof PodPageHistoryResponses]
+export type PodModelSelectionResponse = PodModelSelectionResponses[keyof PodModelSelectionResponses]
 
-export type PodPageHistoryEntryData = {
-  body?: never
+export type SetPodModelSelectionData = {
+  /**
+   * Request body for the setPodModelSelection operation on pod_chat_operation resource
+   */
+  body?: {
+    data: {
+      agentUID?: string | null
+      profile?: string | null
+    }
+  }
   path: {
-    snapshot_id: string
     id: string
   }
   query?: never
-  url: '/api/v2/pod/pages/{id}/history/{snapshot_id}'
+  url: '/api/v2/pod/conversations/{id}/model-profile'
 }
 
-export type PodPageHistoryEntryErrors = {
+export type SetPodModelSelectionErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodPageHistoryEntryError = PodPageHistoryEntryErrors[keyof PodPageHistoryEntryErrors]
+export type SetPodModelSelectionError = SetPodModelSelectionErrors[keyof SetPodModelSelectionErrors]
 
-export type PodPageHistoryEntryResponses = {
+export type SetPodModelSelectionResponses = {
   /**
    * Success
    */
   200: {
-    snapshot: {
-      author: {
-        avatar_url?: string | null
-        kind?: 'human' | 'agent' | 'system' | null
-        name?: string | null
-        principal_uid: string
-        tenant_id: string
-      }
-      content: string
-      created_at: string
-      document_updated_at: string
+    activeProfile?: string | null
+    profile?: string | null
+    profiles: Array<{
+      description: string
+      name: string
+    }>
+  }
+}
+
+export type SetPodModelSelectionResponse = SetPodModelSelectionResponses[keyof SetPodModelSelectionResponses]
+
+export type PodMentionCandidatesData = {
+  body?: never
+  path?: never
+  query?: {
+    category?: 'all' | 'page' | 'principal'
+    current_page_id?: string
+    limit?: number
+    query?: string
+  }
+  url: '/api/v2/pod/mentions/candidates'
+}
+
+export type PodMentionCandidatesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodMentionCandidatesError = PodMentionCandidatesErrors[keyof PodMentionCandidatesErrors]
+
+export type PodMentionCandidatesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    pages: Array<{
+      ancestors: Array<string>
       icon?: string | null
       id: string
-      metadata: {
-        [key: string]: unknown
-      }
-      reason: 'created' | 'baseline' | 'checkpoint' | 'before_restore' | 'restored'
-      revision: number
+      private_owner_uid?: string | null
+      system_key?: string | null
       title: string
-    }
-  }
-}
-
-export type PodPageHistoryEntryResponse = PodPageHistoryEntryResponses[keyof PodPageHistoryEntryResponses]
-
-export type PodPageHistoryRestoreData = {
-  /**
-   * Request body for the podPageHistoryRestore operation on pod_document_history_operation resource
-   */
-  body: {
-    data: {
-      base_revision: number
+      type: 'doc' | 'knowledge' | 'base' | 'applet' | 'file'
       updated_at: string
-    }
-  }
-  path: {
-    snapshot_id: string
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/history/{snapshot_id}/restore'
-}
-
-export type PodPageHistoryRestoreErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageHistoryRestoreError = PodPageHistoryRestoreErrors[keyof PodPageHistoryRestoreErrors]
-
-export type PodPageHistoryRestoreResponses = {
-  /**
-   * Success
-   */
-  201: {
-    content: PodPageContentType
-    page: PodPageType
-  }
-}
-
-export type PodPageHistoryRestoreResponse = PodPageHistoryRestoreResponses[keyof PodPageHistoryRestoreResponses]
-
-export type PodPageInsightsData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/insights'
-}
-
-export type PodPageInsightsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageInsightsError = PodPageInsightsErrors[keyof PodPageInsightsErrors]
-
-export type PodPageInsightsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    can_view_readers: boolean
-    contributors: Array<{
+    }>
+    principals: Array<{
+      aliases?: Array<string> | null
       avatar_url?: string | null
-      kind?: 'human' | 'agent' | 'system' | null
-      name?: string | null
+      email?: string | null
+      job_title?: string | null
+      kind: 'human' | 'agent'
+      membership?: 'member' | 'guest' | null
+      name: string
       principal_uid: string
-      role: 'creator' | 'last_edited' | 'previously_edited'
-      tenant_id: string
+      role?: string | null
     }>
-    created_at: string
-    daily: Array<{
-      comments: number
-      day: string
-      edits: number
-      views: number
-    }>
-    hide_visits: boolean
-    updated_at: string
-  }
-}
-
-export type PodPageInsightsResponse = PodPageInsightsResponses[keyof PodPageInsightsResponses]
-
-export type PodKnowledgePanelData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/knowledge'
-}
-
-export type PodKnowledgePanelErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodKnowledgePanelError = PodKnowledgePanelErrors[keyof PodKnowledgePanelErrors]
-
-export type PodKnowledgePanelResponses = {
-  /**
-   * Success
-   */
-  200: {
-    panel: {
-      [key: string]: unknown
-    }
-  }
-}
-
-export type PodKnowledgePanelResponse = PodKnowledgePanelResponses[keyof PodKnowledgePanelResponses]
-
-export type PodKnowledgeExportData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: {
-    snapshot_id?: string
-  }
-  url: '/api/v2/pod/pages/{id}/knowledge/export'
-}
-
-export type PodKnowledgeExportErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodKnowledgeExportError = PodKnowledgeExportErrors[keyof PodKnowledgeExportErrors]
-
-export type PodKnowledgeExportResponses = {
-  /**
-   * Success
-   */
-  200: {
-    markdown: string
-  }
-}
-
-export type PodKnowledgeExportResponse = PodKnowledgeExportResponses[keyof PodKnowledgeExportResponses]
-
-export type PodPageMoveData = {
-  /**
-   * Request body for the podPageMove operation on pod_page_operation resource
-   */
-  body?: {
-    data: {
-      after_id?: string | null
-      before_id?: string | null
-      parent_id?: string | null
-      private_owner_uid?: string | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/move'
-}
-
-export type PodPageMoveErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageMoveError = PodPageMoveErrors[keyof PodPageMoveErrors]
-
-export type PodPageMoveResponses = {
-  /**
-   * Success
-   */
-  201: {
-    page: PodPageType
-    undo: {
-      after_id?: string | null
-      before_id?: string | null
-      parent_id?: string | null
-      private_owner_uid?: string | null
-    }
-  }
-}
-
-export type PodPageMoveResponse = PodPageMoveResponses[keyof PodPageMoveResponses]
-
-export type PodPagePurgeData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/purge'
-}
-
-export type PodPagePurgeErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPagePurgeError = PodPagePurgeErrors[keyof PodPagePurgeErrors]
-
-export type PodPagePurgeResponses = {
-  /**
-   * Success
-   */
-  201: {
-    page: PodPageType
-  }
-}
-
-export type PodPagePurgeResponse = PodPagePurgeResponses[keyof PodPagePurgeResponses]
-
-export type PodPageRestoreData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/restore'
-}
-
-export type PodPageRestoreErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageRestoreError = PodPageRestoreErrors[keyof PodPageRestoreErrors]
-
-export type PodPageRestoreResponses = {
-  /**
-   * Success
-   */
-  201: {
-    page: PodPageType
-  }
-}
-
-export type PodPageRestoreResponse = PodPageRestoreResponses[keyof PodPageRestoreResponses]
-
-export type PodPageSharingData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/sharing'
-}
-
-export type PodPageSharingErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageSharingError = PodPageSharingErrors[keyof PodPageSharingErrors]
-
-export type PodPageSharingResponses = {
-  /**
-   * Success
-   */
-  200: {
-    can_manage: boolean
-    grants: Array<{
-      actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
-      avatar_url?: string | null
-      built_in?: boolean | null
-      condition?: string | null
-      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
-      group_id?: string | null
-      group_slug?: string | null
-      inactive_in_private: boolean
-      kind: 'human' | 'agent' | 'group' | 'userset'
-      membership?: 'member' | 'guest' | null
-      name: string
-      principal_uid?: string | null
-      role: 'view' | 'contribute' | 'edit' | 'manage'
-      rule_kind: 'role' | 'advanced'
-      source_action?: string | null
-      source_node_id?: string | null
-      source_page?: {
-        accessible?: boolean | null
-        icon?: string | null
-        id?: string | null
-        title?: string | null
-      } | null
-      subtitle?: string | null
-      target_scope?: string | null
-    }>
-    inherit_permissions: boolean
-    inherited: Array<{
-      avatar_url?: string | null
-      built_in?: boolean | null
-      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
-      group_id?: string | null
-      group_slug?: string | null
-      kind: 'human' | 'agent' | 'group' | 'userset'
-      membership?: 'member' | 'guest' | null
-      name: string
-      origin: 'space_admin' | 'space_default' | 'space_agent' | 'private_owner' | 'ancestor'
-      principal_uid?: string | null
-      role: 'view' | 'contribute' | 'edit' | 'manage'
-      subtitle?: string | null
-    }>
-    scope_kind: 'space' | 'private'
-    sharing_version: string
-    space_name: string
-    space_role?: 'view' | 'contribute' | 'edit' | 'manage' | null
-    subjects: Array<{
-      avatar_url?: string | null
-      built_in?: boolean | null
-      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
-      group_id?: string | null
-      group_slug?: string | null
-      kind: 'human' | 'agent' | 'group' | 'userset'
-      membership?: 'member' | 'guest' | null
-      name: string
-      principal_uid?: string | null
-      subtitle?: string | null
-    }>
-  }
-}
-
-export type PodPageSharingResponse = PodPageSharingResponses[keyof PodPageSharingResponses]
-
-export type PodPageSharingUpdateData = {
-  /**
-   * Request body for the podPageSharingUpdate operation on pod_page_operation resource
-   */
-  body?: {
-    data: {
-      inherit_permissions?: boolean | null
-      removes?: Array<{
-        condition?: string | null
-        group_id?: string | null
-        principal_uid?: string | null
-        source_action?: string | null
-        source_node_id?: string | null
-        target_scope: string
-      }> | null
-      upserts?: Array<{
-        group_id?: string | null
-        principal_uid?: string | null
-        role: 'view' | 'contribute' | 'edit' | 'manage'
-        target_scope?: string | null
-      }> | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/sharing'
-}
-
-export type PodPageSharingUpdateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageSharingUpdateError = PodPageSharingUpdateErrors[keyof PodPageSharingUpdateErrors]
-
-export type PodPageSharingUpdateResponses = {
-  /**
-   * Success
-   */
-  200: {
-    can_manage: boolean
-    grants: Array<{
-      actions: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'>
-      avatar_url?: string | null
-      built_in?: boolean | null
-      condition?: string | null
-      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
-      group_id?: string | null
-      group_slug?: string | null
-      inactive_in_private: boolean
-      kind: 'human' | 'agent' | 'group' | 'userset'
-      membership?: 'member' | 'guest' | null
-      name: string
-      principal_uid?: string | null
-      role: 'view' | 'contribute' | 'edit' | 'manage'
-      rule_kind: 'role' | 'advanced'
-      source_action?: string | null
-      source_node_id?: string | null
-      source_page?: {
-        accessible?: boolean | null
-        icon?: string | null
-        id?: string | null
-        title?: string | null
-      } | null
-      subtitle?: string | null
-      target_scope?: string | null
-    }>
-    inherit_permissions: boolean
-    inherited: Array<{
-      avatar_url?: string | null
-      built_in?: boolean | null
-      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
-      group_id?: string | null
-      group_slug?: string | null
-      kind: 'human' | 'agent' | 'group' | 'userset'
-      membership?: 'member' | 'guest' | null
-      name: string
-      origin: 'space_admin' | 'space_default' | 'space_agent' | 'private_owner' | 'ancestor'
-      principal_uid?: string | null
-      role: 'view' | 'contribute' | 'edit' | 'manage'
-      subtitle?: string | null
-    }>
-    scope_kind: 'space' | 'private'
-    sharing_version: string
-    space_name: string
-    space_role?: 'view' | 'contribute' | 'edit' | 'manage' | null
-    subjects: Array<{
-      avatar_url?: string | null
-      built_in?: boolean | null
-      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
-      group_id?: string | null
-      group_slug?: string | null
-      kind: 'human' | 'agent' | 'group' | 'userset'
-      membership?: 'member' | 'guest' | null
-      name: string
-      principal_uid?: string | null
-      subtitle?: string | null
-    }>
-  }
-}
-
-export type PodPageSharingUpdateResponse = PodPageSharingUpdateResponses[keyof PodPageSharingUpdateResponses]
-
-export type PodPageSharingWriteData = {
-  /**
-   * Request body for the podPageSharingWrite operation on pod_page_operation resource
-   */
-  body: {
-    data: {
-      grants?: Array<{
-        actions?: Array<'node_view' | 'node_contribute' | 'node_edit' | 'node_manage' | 'node_comment'> | null
-        condition?: string | null
-        group_id?: string | null
-        principal_uid?: string | null
-        role?: 'view' | 'contribute' | 'edit' | 'manage' | null
-        source_action?: string | null
-        source_node_id?: string | null
-        target_scope?: string | null
-      }> | null
-      inherit_permissions?: boolean | null
-      sharing_version: string
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/sharing'
-}
-
-export type PodPageSharingWriteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageSharingWriteError = PodPageSharingWriteErrors[keyof PodPageSharingWriteErrors]
-
-export type PodPageSharingWriteResponses = {
-  /**
-   * Success
-   */
-  200: {
-    page: PodPageType
-  }
-}
-
-export type PodPageSharingWriteResponse = PodPageSharingWriteResponses[keyof PodPageSharingWriteResponses]
-
-export type PodSpreadsheetData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/spreadsheet'
-}
-
-export type PodSpreadsheetErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSpreadsheetError = PodSpreadsheetErrors[keyof PodSpreadsheetErrors]
-
-export type PodSpreadsheetResponses = {
-  /**
-   * Success
-   */
-  200: {
-    file: {
-      content_type?: string | null
-      object_id: string
-      path: string
-      sha256: string
-      size: number
-    }
-    metadata?: {
-      [key: string]: unknown
-    } | null
-    ops: Array<{
-      client_id: string
-      client_seq: number
-      op: {
-        [key: string]: unknown
-      }
-      revision: number
-    }>
-    page_id: string
-    revision: number
-  }
-}
-
-export type PodSpreadsheetResponse = PodSpreadsheetResponses[keyof PodSpreadsheetResponses]
-
-export type PodSpreadsheetVersionsData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{id}/spreadsheet/versions'
-}
-
-export type PodSpreadsheetVersionsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSpreadsheetVersionsError = PodSpreadsheetVersionsErrors[keyof PodSpreadsheetVersionsErrors]
-
-export type PodSpreadsheetVersionsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    versions: Array<{
-      author: {
-        avatar_url?: string | null
-        kind?: 'human' | 'agent' | 'system' | null
-        name?: string | null
-        principal_uid: string
-        tenant_id: string
-      }
-      created_at: string
-      file_name: string
+    ranking: Array<{
       id: string
-      reason: 'created' | 'uploaded' | 'checkpoint' | 'before_restore' | 'restored'
-      revision: number
-      sha256: string
-      size: number
+      kind: 'page' | 'principal'
     }>
+    space_name: string
+    total_all_matches: number
   }
 }
 
-export type PodSpreadsheetVersionsResponse = PodSpreadsheetVersionsResponses[keyof PodSpreadsheetVersionsResponses]
+export type PodMentionCandidatesResponse = PodMentionCandidatesResponses[keyof PodMentionCandidatesResponses]
 
-export type PodSpreadsheetRestoreData = {
-  body?: never
+export type RenamePodMemberData = {
+  /**
+   * Request body for the renamePodMember operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      new_uid: string
+    }
+  }
   path: {
-    version_id: string
-    id: string
+    uid: string
   }
   query?: never
-  url: '/api/v2/pod/pages/{id}/spreadsheet/versions/{version_id}/restore'
+  url: '/api/v2/pod/admin/members/{uid}/rename'
 }
 
-export type PodSpreadsheetRestoreErrors = {
+export type RenamePodMemberErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodSpreadsheetRestoreError = PodSpreadsheetRestoreErrors[keyof PodSpreadsheetRestoreErrors]
+export type RenamePodMemberError = RenamePodMemberErrors[keyof RenamePodMemberErrors]
 
-export type PodSpreadsheetRestoreResponses = {
+export type RenamePodMemberResponses = {
   /**
    * Success
    */
   201: {
-    file: {
-      content_type?: string | null
-      object_id: string
-      path: string
-      sha256: string
-      size: number
-    }
-    page_id: string
-    revision: number
+    base_repair_error?: string | null
+    uid: string
   }
 }
 
-export type PodSpreadsheetRestoreResponse = PodSpreadsheetRestoreResponses[keyof PodSpreadsheetRestoreResponses]
+export type RenamePodMemberResponse = RenamePodMemberResponses[keyof RenamePodMemberResponses]
 
-export type PodPageUserStateData = {
+export type PodSpreadsheetCreateData = {
   /**
-   * Request body for the podPageUserState operation on pod_page_operation resource
+   * Request body for the podSpreadsheetCreate operation on pod_spreadsheet_operation resource
    */
   body?: {
     data: {
-      favorite?: boolean | null
-      hide_visits?: boolean | null
-      visited?: boolean | null
+      parent_id?: string | null
+      private_owner_uid?: string | null
+      title?: string | null
     }
   }
-  path: {
-    id: string
-  }
+  path?: never
   query?: never
-  url: '/api/v2/pod/pages/{id}/user-state'
+  url: '/api/v2/pod/spreadsheet-pages'
 }
 
-export type PodPageUserStateErrors = {
+export type PodSpreadsheetCreateErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodPageUserStateError = PodPageUserStateErrors[keyof PodPageUserStateErrors]
+export type PodSpreadsheetCreateError = PodSpreadsheetCreateErrors[keyof PodSpreadsheetCreateErrors]
 
-export type PodPageUserStateResponses = {
+export type PodSpreadsheetCreateResponses = {
   /**
    * Success
    */
-  200: {
-    user_state: PodPageUserStateType
-  }
-}
-
-export type PodPageUserStateResponse = PodPageUserStateResponses[keyof PodPageUserStateResponses]
-
-export type PodPageViewersData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: {
-    cursor?: string
-    limit?: number
-  }
-  url: '/api/v2/pod/pages/{id}/viewers'
-}
-
-export type PodPageViewersErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodPageViewersError = PodPageViewersErrors[keyof PodPageViewersErrors]
-
-export type PodPageViewersResponses = {
-  /**
-   * Success
-   */
-  200: {
-    next_cursor?: string | null
-    total: number
-    viewers: Array<{
-      person: {
-        avatar_url?: string | null
-        kind?: 'human' | 'agent' | 'system' | null
-        name?: string | null
-        principal_uid: string
-        tenant_id: string
-      }
-      visited_at: string
-    }>
-  }
-}
-
-export type PodPageViewersResponse = PodPageViewersResponses[keyof PodPageViewersResponses]
-
-export type PodAppletOwnerData = {
-  /**
-   * Request body for the podAppletOwner operation on pod_page_operation resource
-   */
-  body: {
-    data: {
-      owner_uid: string
-    }
-  }
-  path: {
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/applet-owner'
-}
-
-export type PodAppletOwnerErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodAppletOwnerError = PodAppletOwnerErrors[keyof PodAppletOwnerErrors]
-
-export type PodAppletOwnerResponses = {
-  /**
-   * Success
-   */
-  200: {
+  201: {
     page: PodPageType
   }
 }
 
-export type PodAppletOwnerResponse = PodAppletOwnerResponses[keyof PodAppletOwnerResponses]
+export type PodSpreadsheetCreateResponse = PodSpreadsheetCreateResponses[keyof PodSpreadsheetCreateResponses]
 
-export type PodAppletJobActionsData = {
-  body?: never
-  path: {
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/job-actions'
-}
-
-export type PodAppletJobActionsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodAppletJobActionsError = PodAppletJobActionsErrors[keyof PodAppletJobActionsErrors]
-
-export type PodAppletJobActionsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    actions: Array<string>
-  }
-}
-
-export type PodAppletJobActionsResponse = PodAppletJobActionsResponses[keyof PodAppletJobActionsResponses]
-
-export type PodAppletJobsData = {
-  body?: never
-  path: {
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs'
-}
-
-export type PodAppletJobsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodAppletJobsError = PodAppletJobsErrors[keyof PodAppletJobsErrors]
-
-export type PodAppletJobsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    jobs: Array<AutomationJobType>
-  }
-}
-
-export type PodAppletJobsResponse = PodAppletJobsResponses[keyof PodAppletJobsResponses]
-
-export type PodAppletJobCreateData = {
-  /**
-   * Request body for the podAppletJobCreate operation on applet_job_operation resource
-   */
-  body: {
-    data: {
-      action_key: string
-      authorization_kind?: string | null
-      config?: {
-        [key: string]: unknown
-      } | null
-      label?: string | null
-    }
-  }
-  path: {
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs'
-}
-
-export type PodAppletJobCreateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodAppletJobCreateError = PodAppletJobCreateErrors[keyof PodAppletJobCreateErrors]
-
-export type PodAppletJobCreateResponses = {
-  /**
-   * Success
-   */
-  201: {
-    job: AutomationJobType
-  }
-}
-
-export type PodAppletJobCreateResponse = PodAppletJobCreateResponses[keyof PodAppletJobCreateResponses]
-
-export type PodAppletJobDeleteData = {
-  body?: never
-  path: {
-    id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{id}'
-}
-
-export type PodAppletJobDeleteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodAppletJobDeleteError = PodAppletJobDeleteErrors[keyof PodAppletJobDeleteErrors]
-
-export type PodAppletJobDeleteResponses = {
-  /**
-   * Success
-   */
-  200: {
-    job: AutomationJobType
-  }
-}
-
-export type PodAppletJobDeleteResponse = PodAppletJobDeleteResponses[keyof PodAppletJobDeleteResponses]
-
-export type PodAppletJobConfigureData = {
-  /**
-   * Request body for the podAppletJobConfigure operation on applet_job_operation resource
-   */
-  body?: {
-    data: {
-      config?: {
-        [key: string]: unknown
-      } | null
-      label?: string | null
-    }
-  }
-  path: {
-    id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{id}'
-}
-
-export type PodAppletJobConfigureErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodAppletJobConfigureError = PodAppletJobConfigureErrors[keyof PodAppletJobConfigureErrors]
-
-export type PodAppletJobConfigureResponses = {
-  /**
-   * Success
-   */
-  200: {
-    job: AutomationJobType
-  }
-}
-
-export type PodAppletJobConfigureResponse = PodAppletJobConfigureResponses[keyof PodAppletJobConfigureResponses]
-
-export type PodAppletJobRunsData = {
-  body?: never
-  path: {
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/runs'
-}
-
-export type PodAppletJobRunsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodAppletJobRunsError = PodAppletJobRunsErrors[keyof PodAppletJobRunsErrors]
-
-export type PodAppletJobRunsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    runs: Array<AutomationJobRunType>
-  }
-}
-
-export type PodAppletJobRunsResponse = PodAppletJobRunsResponses[keyof PodAppletJobRunsResponses]
-
-export type PodJobSchedulesListData = {
-  body?: never
-  path: {
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules'
-}
-
-export type PodJobSchedulesListErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobSchedulesListError = PodJobSchedulesListErrors[keyof PodJobSchedulesListErrors]
-
-export type PodJobSchedulesListResponses = {
-  /**
-   * Success
-   */
-  200: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobSchedulesListResponse = PodJobSchedulesListResponses[keyof PodJobSchedulesListResponses]
-
-export type PodJobSchedulesPutData = {
-  /**
-   * Request body for the podJobSchedulesPut operation on applet_job_operation resource
-   */
-  body?: {
-    data: {
-      id?: string | null
-      idempotency_key?: string | null
-      name?: string | null
-      payload?: {
-        [key: string]: unknown
-      } | null
-      schedule?: {
-        [key: string]: unknown
-      } | null
-      timezone?: string | null
-    }
-  }
-  path: {
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules'
-}
-
-export type PodJobSchedulesPutErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobSchedulesPutError = PodJobSchedulesPutErrors[keyof PodJobSchedulesPutErrors]
-
-export type PodJobSchedulesPutResponses = {
-  /**
-   * Success
-   */
-  200: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobSchedulesPutResponse = PodJobSchedulesPutResponses[keyof PodJobSchedulesPutResponses]
-
-export type PodJobSchedulesDeleteData = {
-  body?: never
-  path: {
-    id: string
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}'
-}
-
-export type PodJobSchedulesDeleteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobSchedulesDeleteError = PodJobSchedulesDeleteErrors[keyof PodJobSchedulesDeleteErrors]
-
-export type PodJobSchedulesDeleteResponses = {
-  /**
-   * Success
-   */
-  200: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobSchedulesDeleteResponse = PodJobSchedulesDeleteResponses[keyof PodJobSchedulesDeleteResponses]
-
-export type PodJobSchedulesPauseData = {
-  body?: never
-  path: {
-    id: string
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/pause'
-}
-
-export type PodJobSchedulesPauseErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobSchedulesPauseError = PodJobSchedulesPauseErrors[keyof PodJobSchedulesPauseErrors]
-
-export type PodJobSchedulesPauseResponses = {
-  /**
-   * Success
-   */
-  201: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobSchedulesPauseResponse = PodJobSchedulesPauseResponses[keyof PodJobSchedulesPauseResponses]
-
-export type PodJobSchedulesResumeData = {
-  body?: never
-  path: {
-    id: string
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/resume'
-}
-
-export type PodJobSchedulesResumeErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobSchedulesResumeError = PodJobSchedulesResumeErrors[keyof PodJobSchedulesResumeErrors]
-
-export type PodJobSchedulesResumeResponses = {
-  /**
-   * Success
-   */
-  201: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobSchedulesResumeResponse = PodJobSchedulesResumeResponses[keyof PodJobSchedulesResumeResponses]
-
-export type PodJobSchedulesRunData = {
-  /**
-   * Request body for the podJobSchedulesRun operation on applet_job_operation resource
-   */
-  body: {
-    data: {
-      idempotency_key: string
-    }
-  }
-  path: {
-    id: string
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/run'
-}
-
-export type PodJobSchedulesRunErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobSchedulesRunError = PodJobSchedulesRunErrors[keyof PodJobSchedulesRunErrors]
-
-export type PodJobSchedulesRunResponses = {
-  /**
-   * Success
-   */
-  201: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobSchedulesRunResponse = PodJobSchedulesRunResponses[keyof PodJobSchedulesRunResponses]
-
-export type PodJobSchedulesRunsData = {
-  body?: never
-  path: {
-    id: string
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/runs'
-}
-
-export type PodJobSchedulesRunsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobSchedulesRunsError = PodJobSchedulesRunsErrors[keyof PodJobSchedulesRunsErrors]
-
-export type PodJobSchedulesRunsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobSchedulesRunsResponse = PodJobSchedulesRunsResponses[keyof PodJobSchedulesRunsResponses]
-
-export type PodJobWebhooksListData = {
-  body?: never
-  path: {
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks'
-}
-
-export type PodJobWebhooksListErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobWebhooksListError = PodJobWebhooksListErrors[keyof PodJobWebhooksListErrors]
-
-export type PodJobWebhooksListResponses = {
-  /**
-   * Success
-   */
-  200: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobWebhooksListResponse = PodJobWebhooksListResponses[keyof PodJobWebhooksListResponses]
-
-export type PodJobWebhooksCreateData = {
-  /**
-   * Request body for the podJobWebhooksCreate operation on applet_job_operation resource
-   */
-  body: {
-    data: {
-      event_format?: string | null
-      expires_at: unknown
-      label: string
-      mode?: string | null
-    }
-  }
-  path: {
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks'
-}
-
-export type PodJobWebhooksCreateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobWebhooksCreateError = PodJobWebhooksCreateErrors[keyof PodJobWebhooksCreateErrors]
-
-export type PodJobWebhooksCreateResponses = {
-  /**
-   * Success
-   */
-  201: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobWebhooksCreateResponse = PodJobWebhooksCreateResponses[keyof PodJobWebhooksCreateResponses]
-
-export type PodJobWebhooksDeleteData = {
-  body?: never
-  path: {
-    id: string
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}'
-}
-
-export type PodJobWebhooksDeleteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobWebhooksDeleteError = PodJobWebhooksDeleteErrors[keyof PodJobWebhooksDeleteErrors]
-
-export type PodJobWebhooksDeleteResponses = {
-  /**
-   * Success
-   */
-  200: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobWebhooksDeleteResponse = PodJobWebhooksDeleteResponses[keyof PodJobWebhooksDeleteResponses]
-
-export type PodJobWebhooksUpdateData = {
-  /**
-   * Request body for the podJobWebhooksUpdate operation on applet_job_operation resource
-   */
-  body?: {
-    data: {
-      expires_at?: unknown | null
-      label?: string | null
-    }
-  }
-  path: {
-    id: string
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}'
-}
-
-export type PodJobWebhooksUpdateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobWebhooksUpdateError = PodJobWebhooksUpdateErrors[keyof PodJobWebhooksUpdateErrors]
-
-export type PodJobWebhooksUpdateResponses = {
-  /**
-   * Success
-   */
-  200: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobWebhooksUpdateResponse = PodJobWebhooksUpdateResponses[keyof PodJobWebhooksUpdateResponses]
-
-export type PodJobWebhooksCancelData = {
-  body?: never
-  path: {
-    id: string
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/cancel'
-}
-
-export type PodJobWebhooksCancelErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobWebhooksCancelError = PodJobWebhooksCancelErrors[keyof PodJobWebhooksCancelErrors]
-
-export type PodJobWebhooksCancelResponses = {
-  /**
-   * Success
-   */
-  201: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobWebhooksCancelResponse = PodJobWebhooksCancelResponses[keyof PodJobWebhooksCancelResponses]
-
-export type PodJobWebhooksPauseData = {
-  body?: never
-  path: {
-    id: string
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/pause'
-}
-
-export type PodJobWebhooksPauseErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobWebhooksPauseError = PodJobWebhooksPauseErrors[keyof PodJobWebhooksPauseErrors]
-
-export type PodJobWebhooksPauseResponses = {
-  /**
-   * Success
-   */
-  201: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobWebhooksPauseResponse = PodJobWebhooksPauseResponses[keyof PodJobWebhooksPauseResponses]
-
-export type PodJobWebhooksResumeData = {
-  body?: never
-  path: {
-    id: string
-    job_id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/resume'
-}
-
-export type PodJobWebhooksResumeErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodJobWebhooksResumeError = PodJobWebhooksResumeErrors[keyof PodJobWebhooksResumeErrors]
-
-export type PodJobWebhooksResumeResponses = {
-  /**
-   * Success
-   */
-  201: {
-    [key: string]: unknown
-  }
-}
-
-export type PodJobWebhooksResumeResponse = PodJobWebhooksResumeResponses[keyof PodJobWebhooksResumeResponses]
-
-export type PodAppletRunData = {
-  body?: never
-  path: {
-    id: number
-    page_id: string
-  }
-  query?: never
-  url: '/api/v2/pod/pages/{page_id}/runs/{id}'
-}
-
-export type PodAppletRunErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodAppletRunError = PodAppletRunErrors[keyof PodAppletRunErrors]
-
-export type PodAppletRunResponses = {
-  /**
-   * Success
-   */
-  200: {
-    run: AutomationJobRunType
-  }
-}
-
-export type PodAppletRunResponse = PodAppletRunResponses[keyof PodAppletRunResponses]
-
-export type EnsurePodPersonalAssistantData = {
+export type PodMeData = {
   body?: never
   path?: never
   query?: never
-  url: '/api/v2/pod/personal-assistant'
+  url: '/api/v2/pod/me'
 }
 
-export type EnsurePodPersonalAssistantErrors = {
+export type PodMeErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type EnsurePodPersonalAssistantError = EnsurePodPersonalAssistantErrors[keyof EnsurePodPersonalAssistantErrors]
+export type PodMeError = PodMeErrors[keyof PodMeErrors]
 
-export type EnsurePodPersonalAssistantResponses = {
+export type PodMeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    credentialChangeAllowed: boolean
+    credentials: Array<{
+      id: string
+      identifier: string
+      kind: string
+      provider: string
+    }>
+    displayName: string
+    managed: boolean
+  }
+}
+
+export type PodMeResponse = PodMeResponses[keyof PodMeResponses]
+
+export type UpdatePodProfileData = {
+  /**
+   * Request body for the updatePodProfile operation on pod_member_account resource
+   */
+  body: {
+    data: {
+      displayName: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/me'
+}
+
+export type UpdatePodProfileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdatePodProfileError = UpdatePodProfileErrors[keyof UpdatePodProfileErrors]
+
+export type UpdatePodProfileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    displayName: string
+  }
+}
+
+export type UpdatePodProfileResponse = UpdatePodProfileResponses[keyof UpdatePodProfileResponses]
+
+export type MetaSaveAgentContractData = {
+  /**
+   * Request body for the metaSaveAgentContract operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      content_xml: string
+      metadata: {
+        [key: string]: unknown
+      }
+      mode: 'inherit' | 'append' | 'override'
+    }
+  }
+  path: {
+    slot: 'agents' | 'design'
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/agents/{uid}/contracts/{slot}'
+}
+
+export type MetaSaveAgentContractErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSaveAgentContractError = MetaSaveAgentContractErrors[keyof MetaSaveAgentContractErrors]
+
+export type MetaSaveAgentContractResponses = {
+  /**
+   * Success
+   */
+  200: {
+    content_markdown: string
+    content_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    mode: string
+    revision: number
+    slot: string
+  }
+}
+
+export type MetaSaveAgentContractResponse = MetaSaveAgentContractResponses[keyof MetaSaveAgentContractResponses]
+
+export type ReauthenticatePodMemberData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/me/reauthentication'
+}
+
+export type ReauthenticatePodMemberErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ReauthenticatePodMemberError = ReauthenticatePodMemberErrors[keyof ReauthenticatePodMemberErrors]
+
+export type ReauthenticatePodMemberResponses = {
   /**
    * Success
    */
   201: {
-    active: boolean
-    agentType?: string | null
-    aliases?: Array<string> | null
-    avatarURL?: string | null
-    canChat?: boolean | null
-    directConversationID?: string | null
-    displayName: string
-    mayIntervene: boolean
-    modelProfile?: string | null
+    loginURL: string
+  }
+}
+
+export type ReauthenticatePodMemberResponse = ReauthenticatePodMemberResponses[keyof ReauthenticatePodMemberResponses]
+
+export type PodCommentAttentionData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/comments/attention'
+}
+
+export type PodCommentAttentionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodCommentAttentionError = PodCommentAttentionErrors[keyof PodCommentAttentionErrors]
+
+export type PodCommentAttentionResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    activity_at: string
+    page: PodPageType
+    unread_count: number
+  }>
+}
+
+export type PodCommentAttentionResponse = PodCommentAttentionResponses[keyof PodCommentAttentionResponses]
+
+export type PodPageSearchData = {
+  body?: never
+  path?: never
+  query: {
+    domain?: 'pages' | 'brain' | 'all'
+    embeddable?: boolean
+    exclude_subtree_of?: string
+    query: string
+    required_action?: 'node_view' | 'node_edit'
+  }
+  url: '/api/v2/pod/pages/search'
+}
+
+export type PodPageSearchErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageSearchError = PodPageSearchErrors[keyof PodPageSearchErrors]
+
+export type PodPageSearchResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ancestors: Array<PodPageType>
+    can_create_private: boolean
+    can_create_space: boolean
+    pages: Array<PodPageType>
+    principal_uid: string
+  }
+}
+
+export type PodPageSearchResponse = PodPageSearchResponses[keyof PodPageSearchResponses]
+
+export type MetaAgentData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/agents/{uid}'
+}
+
+export type MetaAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaAgentError = MetaAgentErrors[keyof MetaAgentErrors]
+
+export type MetaAgentResponses = {
+  /**
+   * Success
+   */
+  200: {
+    avatar_url?: string | null
+    can_bind: boolean
+    can_edit: boolean
+    display_name: string
     role?: string | null
     type: string
     uid: string
   }
 }
 
-export type EnsurePodPersonalAssistantResponse =
-  EnsurePodPersonalAssistantResponses[keyof EnsurePodPersonalAssistantResponses]
+export type MetaAgentResponse = MetaAgentResponses[keyof MetaAgentResponses]
 
-export type PodRealtimeTokenData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/realtime-token'
-}
-
-export type PodRealtimeTokenErrors = {
+export type MetaUpdateAgentData = {
   /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodRealtimeTokenError = PodRealtimeTokenErrors[keyof PodRealtimeTokenErrors]
-
-export type PodRealtimeTokenResponses = {
-  /**
-   * Success
-   */
-  200: {
-    principal: {
-      name: string
-      uid: string
-    }
-    token: string
-  }
-}
-
-export type PodRealtimeTokenResponse = PodRealtimeTokenResponses[keyof PodRealtimeTokenResponses]
-
-export type PodEventBindingsData = {
-  body?: never
-  path?: never
-  query?: {
-    config_ref?: string
-    job_id?: number
-  }
-  url: '/api/v2/pod/signal-bindings'
-}
-
-export type PodEventBindingsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodEventBindingsError = PodEventBindingsErrors[keyof PodEventBindingsErrors]
-
-export type PodEventBindingsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    bindings: Array<{
-      adapter: string
-      agent_uid?: string | null
-      automation_job_id?: number | null
-      config_ref: string
-      enabled: boolean
-      filters: {
-        [key: string]: unknown
-      }
-      id: string
-      name: string
-      routing_mode: 'ai_colleague' | 'sender_personal_assistant' | 'action'
-      target: {
-        [key: string]: unknown
-      }
-      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
-      unavailable_reason?: string | null
-      unmatched_sender_policy: 'manual_review' | 'create_standalone'
-      watched_field_ids?: Array<string> | null
-    }>
-  }
-}
-
-export type PodEventBindingsResponse = PodEventBindingsResponses[keyof PodEventBindingsResponses]
-
-export type PodEventBindingPutData = {
-  /**
-   * Request body for the podEventBindingPut operation on event_binding_operation resource
+   * Request body for the metaUpdateAgent operation on meta_agent resource
    */
   body: {
     data: {
-      agent_uid?: string | null
-      automation_job_id?: number | null
-      config_ref: string
-      enabled?: boolean | null
-      filters?: {
-        [key: string]: unknown
-      } | null
-      id?: string | null
-      name?: string | null
-      target?: {
-        [key: string]: unknown
-      } | null
-      watched_field_ids?: Array<string> | null
+      avatar_url?: string | null
+      display_name: string
     }
   }
-  path?: never
+  path: {
+    uid: string
+  }
   query?: never
-  url: '/api/v2/pod/signal-bindings'
+  url: '/api/v2/pod/meta/agents/{uid}'
 }
 
-export type PodEventBindingPutErrors = {
+export type MetaUpdateAgentErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type PodEventBindingPutError = PodEventBindingPutErrors[keyof PodEventBindingPutErrors]
+export type MetaUpdateAgentError = MetaUpdateAgentErrors[keyof MetaUpdateAgentErrors]
 
-export type PodEventBindingPutResponses = {
+export type MetaUpdateAgentResponses = {
   /**
    * Success
    */
   200: {
-    binding: {
-      adapter: string
-      agent_uid?: string | null
-      automation_job_id?: number | null
-      config_ref: string
-      enabled: boolean
-      filters: {
-        [key: string]: unknown
-      }
-      id: string
-      name: string
-      routing_mode: 'ai_colleague' | 'sender_personal_assistant' | 'action'
-      target: {
-        [key: string]: unknown
-      }
-      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
-      unavailable_reason?: string | null
-      unmatched_sender_policy: 'manual_review' | 'create_standalone'
-      watched_field_ids?: Array<string> | null
-    }
+    avatar_url?: string | null
+    can_bind: boolean
+    can_edit: boolean
+    display_name: string
+    role?: string | null
+    type: string
+    uid: string
   }
 }
 
-export type PodEventBindingPutResponse = PodEventBindingPutResponses[keyof PodEventBindingPutResponses]
+export type MetaUpdateAgentResponse = MetaUpdateAgentResponses[keyof MetaUpdateAgentResponses]
+
+export type PodReplySuggestionData = {
+  /**
+   * Request body for the podReplySuggestion operation on pod_chat_operation resource
+   */
+  body?: {
+    data: {
+      locale?: string | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/reply-suggestion'
+}
+
+export type PodReplySuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodReplySuggestionError = PodReplySuggestionErrors[keyof PodReplySuggestionErrors]
+
+export type PodReplySuggestionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    messageID?: string | null
+    text?: string | null
+  }
+}
+
+export type PodReplySuggestionResponse = PodReplySuggestionResponses[keyof PodReplySuggestionResponses]
+
+export type MetaSaveGlobalContractData = {
+  /**
+   * Request body for the metaSaveGlobalContract operation on meta_library resource
+   */
+  body: {
+    data: {
+      base_revision: number
+      content_xml: string
+      metadata: {
+        [key: string]: unknown
+      }
+      mode: 'inherit' | 'append' | 'override'
+    }
+  }
+  path: {
+    slot: 'agents' | 'design'
+  }
+  query?: never
+  url: '/api/v2/pod/meta/contracts/{slot}'
+}
+
+export type MetaSaveGlobalContractErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSaveGlobalContractError = MetaSaveGlobalContractErrors[keyof MetaSaveGlobalContractErrors]
+
+export type MetaSaveGlobalContractResponses = {
+  /**
+   * Success
+   */
+  200: {
+    content_markdown: string
+    content_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    mode: string
+    revision: number
+    slot: string
+  }
+}
+
+export type MetaSaveGlobalContractResponse = MetaSaveGlobalContractResponses[keyof MetaSaveGlobalContractResponses]
 
 export type PodSpaceData = {
   body?: never
@@ -9877,6 +10709,109 @@ export type PodSpaceWriteResponses = {
 
 export type PodSpaceWriteResponse = PodSpaceWriteResponses[keyof PodSpaceWriteResponses]
 
+export type AnswerPodInteractionData = {
+  /**
+   * Request body for the answerPodInteraction operation on pod_chat_operation resource
+   */
+  body: {
+    data: {
+      values: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path: {
+    interaction_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/interactions/{interaction_id}/answer'
+}
+
+export type AnswerPodInteractionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type AnswerPodInteractionError = AnswerPodInteractionErrors[keyof AnswerPodInteractionErrors]
+
+export type AnswerPodInteractionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    agent_uid: string
+    answer_text?: string | null
+    answered_by_name?: string | null
+    answered_by_uid?: string | null
+    conversation_id?: string | null
+    conversation_kind: string
+    fields: Array<{
+      [key: string]: unknown
+    }>
+    interaction_id: string
+    question: string
+    state: string
+  }
+}
+
+export type AnswerPodInteractionResponse = AnswerPodInteractionResponses[keyof AnswerPodInteractionResponses]
+
+export type MetaSkillSetBindingData = {
+  /**
+   * Request body for the metaSkillSetBinding operation on meta_library resource
+   */
+  body: {
+    data: {
+      agent_uid: string
+      enabled: boolean
+    }
+  }
+  path: {
+    slug: string
+  }
+  query?: never
+  url: '/api/v2/pod/meta/skills/{slug}/bindings'
+}
+
+export type MetaSkillSetBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MetaSkillSetBindingError = MetaSkillSetBindingErrors[keyof MetaSkillSetBindingErrors]
+
+export type MetaSkillSetBindingResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugin_id?: string | null
+    assistant_enabled: boolean
+    can_bind_all: boolean
+    can_delete: boolean
+    can_edit: boolean
+    colleague_count: number
+    description: string
+    enabled_for_all: boolean
+    id: string
+    manifest_markdown: string
+    manifest_xml: string
+    metadata: {
+      [key: string]: unknown
+    }
+    name: string
+    revision: number
+    slug: string
+    source_kind: string
+  }
+}
+
+export type MetaSkillSetBindingResponse = MetaSkillSetBindingResponses[keyof MetaSkillSetBindingResponses]
+
 export type PodSpaceAgentWriteData = {
   /**
    * Request body for the podSpaceAgentWrite operation on pod_page_operation resource
@@ -9912,793 +10847,3 @@ export type PodSpaceAgentWriteResponses = {
 }
 
 export type PodSpaceAgentWriteResponse = PodSpaceAgentWriteResponses[keyof PodSpaceAgentWriteResponses]
-
-export type PodSpaceAgentDeleteData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v2/pod/space/agents/{uid}'
-}
-
-export type PodSpaceAgentDeleteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSpaceAgentDeleteError = PodSpaceAgentDeleteErrors[keyof PodSpaceAgentDeleteErrors]
-
-export type PodSpaceAgentDeleteResponses = {
-  /**
-   * Success
-   */
-  200: {
-    principal_uid: string
-  }
-}
-
-export type PodSpaceAgentDeleteResponse = PodSpaceAgentDeleteResponses[keyof PodSpaceAgentDeleteResponses]
-
-export type PodSpreadsheetCreateData = {
-  /**
-   * Request body for the podSpreadsheetCreate operation on pod_spreadsheet_operation resource
-   */
-  body?: {
-    data: {
-      parent_id?: string | null
-      private_owner_uid?: string | null
-      title?: string | null
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/spreadsheet-pages'
-}
-
-export type PodSpreadsheetCreateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSpreadsheetCreateError = PodSpreadsheetCreateErrors[keyof PodSpreadsheetCreateErrors]
-
-export type PodSpreadsheetCreateResponses = {
-  /**
-   * Success
-   */
-  201: {
-    page: PodPageType
-  }
-}
-
-export type PodSpreadsheetCreateResponse = PodSpreadsheetCreateResponses[keyof PodSpreadsheetCreateResponses]
-
-export type PodSubjectsData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v2/pod/subjects'
-}
-
-export type PodSubjectsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodSubjectsError = PodSubjectsErrors[keyof PodSubjectsErrors]
-
-export type PodSubjectsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    subjects: Array<{
-      avatar_url?: string | null
-      built_in?: boolean | null
-      group_domain?: 'operator' | 'directory' | 'im_group' | 'signal_source' | null
-      group_id?: string | null
-      group_slug?: string | null
-      kind: 'human' | 'agent' | 'group' | 'userset'
-      membership?: 'member' | 'guest' | null
-      name: string
-      principal_uid?: string | null
-      subtitle?: string | null
-    }>
-  }
-}
-
-export type PodSubjectsResponse = PodSubjectsResponses[keyof PodSubjectsResponses]
-
-export type PodBaseTableDeleteData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/tables/{id}'
-}
-
-export type PodBaseTableDeleteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseTableDeleteError = PodBaseTableDeleteErrors[keyof PodBaseTableDeleteErrors]
-
-export type PodBaseTableDeleteResponses = {
-  /**
-   * Success
-   */
-  200: {
-    table: PodBaseTableType
-  }
-}
-
-export type PodBaseTableDeleteResponse = PodBaseTableDeleteResponses[keyof PodBaseTableDeleteResponses]
-
-export type PodBaseSchemaData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/tables/{id}'
-}
-
-export type PodBaseSchemaErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseSchemaError = PodBaseSchemaErrors[keyof PodBaseSchemaErrors]
-
-export type PodBaseSchemaResponses = {
-  /**
-   * Success
-   */
-  200: {
-    fields: Array<PodBaseFieldType>
-    limits: {
-      group_count: number
-      query_rows: number
-      record_bytes: number
-      statement_timeout_ms: number
-    }
-    local_query: {
-      jsonb_compare: boolean
-      text_contains_ascii: boolean
-    }
-    mode: 'local' | 'remote'
-    table: PodBaseTableType
-    timezone: string
-    views: Array<PodBaseViewType>
-  }
-}
-
-export type PodBaseSchemaResponse = PodBaseSchemaResponses[keyof PodBaseSchemaResponses]
-
-export type PodBaseTableRenameData = {
-  /**
-   * Request body for the podBaseTableRename operation on pod_base_operation resource
-   */
-  body: {
-    data: {
-      name: string
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/tables/{id}'
-}
-
-export type PodBaseTableRenameErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseTableRenameError = PodBaseTableRenameErrors[keyof PodBaseTableRenameErrors]
-
-export type PodBaseTableRenameResponses = {
-  /**
-   * Success
-   */
-  200: {
-    table: PodBaseTableType
-  }
-}
-
-export type PodBaseTableRenameResponse = PodBaseTableRenameResponses[keyof PodBaseTableRenameResponses]
-
-export type PodBaseAggregateData = {
-  /**
-   * Request body for the podBaseAggregate operation on pod_base_operation resource
-   */
-  body: {
-    data: {
-      filter?: {
-        conditions: Array<{
-          field_id: string
-          operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
-          value?: unknown | null
-        }>
-        conjunction: 'and' | 'or'
-      } | null
-      group_by?: Array<{
-        bucket?: 'day' | 'week' | 'month' | 'quarter' | 'year' | null
-        field_id: string
-      }> | null
-      metrics: Array<{
-        alias: string
-        field_id?: string | null
-        operation: 'count' | 'sum' | 'avg' | 'min' | 'max'
-      }>
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/tables/{id}/aggregate'
-}
-
-export type PodBaseAggregateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseAggregateError = PodBaseAggregateErrors[keyof PodBaseAggregateErrors]
-
-export type PodBaseAggregateResponses = {
-  /**
-   * Success
-   */
-  201: {
-    data_version: number
-    groups: Array<{
-      metrics: {
-        [key: string]:
-          | string
-          | number
-          | boolean
-          | null
-          | Array<unknown>
-          | {
-              [key: string]: unknown
-            }
-      }
-      value_json: Array<string | null>
-      values: Array<
-        | string
-        | number
-        | boolean
-        | null
-        | Array<unknown>
-        | {
-            [key: string]: unknown
-          }
-        | null
-      >
-    }>
-  }
-}
-
-export type PodBaseAggregateResponse = PodBaseAggregateResponses[keyof PodBaseAggregateResponses]
-
-export type PodBaseCopyData = {
-  /**
-   * Request body for the podBaseCopy operation on pod_base_operation resource
-   */
-  body?: {
-    data: {
-      filter?: {
-        conditions: Array<{
-          field_id: string
-          operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
-          value?: unknown | null
-        }>
-        conjunction: 'and' | 'or'
-      } | null
-      parent_id?: string | null
-      private_owner_uid?: string | null
-      title?: string | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/tables/{id}/copy'
-}
-
-export type PodBaseCopyErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseCopyError = PodBaseCopyErrors[keyof PodBaseCopyErrors]
-
-export type PodBaseCopyResponses = {
-  /**
-   * Success
-   */
-  201: {
-    page: PodPageType
-    table: PodBaseTableType
-  }
-}
-
-export type PodBaseCopyResponse = PodBaseCopyResponses[keyof PodBaseCopyResponses]
-
-export type PodBaseFieldCreateData = {
-  /**
-   * Request body for the podBaseFieldCreate operation on pod_base_operation resource
-   */
-  body?: {
-    data: {
-      config?: {
-        [key: string]: unknown
-      } | null
-      is_primary?: boolean | null
-      name?: string | null
-      position?: string | null
-      type?:
-        | 'text'
-        | 'number'
-        | 'select'
-        | 'datetime'
-        | 'checkbox'
-        | 'user'
-        | 'attachment'
-        | 'auto_number'
-        | 'link'
-        | 'formula'
-        | 'created_at'
-        | 'updated_at'
-        | 'created_by'
-        | 'updated_by'
-        | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/tables/{id}/fields'
-}
-
-export type PodBaseFieldCreateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseFieldCreateError = PodBaseFieldCreateErrors[keyof PodBaseFieldCreateErrors]
-
-export type PodBaseFieldCreateResponses = {
-  /**
-   * Success
-   */
-  201: {
-    field: PodBaseFieldType
-  }
-}
-
-export type PodBaseFieldCreateResponse = PodBaseFieldCreateResponses[keyof PodBaseFieldCreateResponses]
-
-export type PodBaseQueryData = {
-  /**
-   * Request body for the podBaseQuery operation on pod_base_operation resource
-   */
-  body?: {
-    data: {
-      filter?: {
-        conditions: Array<{
-          field_id: string
-          operator: 'is' | 'contains' | 'is_empty' | 'is_not_empty' | 'gt' | 'gte' | 'lt' | 'lte' | 'text_contains'
-          value?: unknown | null
-        }>
-        conjunction: 'and' | 'or'
-      } | null
-      group?: {
-        field_id: string
-        value?: unknown | null
-        value_json?: string | null
-      } | null
-      ids?: Array<string> | null
-      local?: boolean | null
-      page_size?: number | null
-      page_token?: string | null
-      sort?: Array<{
-        direction: 'asc' | 'desc'
-        field_id: string
-      }> | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/tables/{id}/query'
-}
-
-export type PodBaseQueryErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseQueryError = PodBaseQueryErrors[keyof PodBaseQueryErrors]
-
-export type PodBaseQueryResponses = {
-  /**
-   * Success
-   */
-  201: {
-    complete: boolean
-    data_version: number
-    page_token?: string | null
-    records: Array<{
-      created_at: string
-      created_by: string
-      data: {
-        [key: string]:
-          | string
-          | number
-          | boolean
-          | null
-          | Array<unknown>
-          | {
-              [key: string]: unknown
-            }
-      }
-      id: string
-      updated_at: string
-      updated_by: string
-      versions: {
-        [key: string]: number
-      }
-    }>
-  }
-}
-
-export type PodBaseQueryResponse = PodBaseQueryResponses[keyof PodBaseQueryResponses]
-
-export type PodBaseWriteData = {
-  /**
-   * Request body for the podBaseWrite operation on pod_base_operation resource
-   */
-  body?: {
-    data: {
-      creates?: Array<{
-        data: {
-          [key: string]: unknown
-        }
-        id?: string | null
-      }> | null
-      deletes?: Array<{
-        expected_versions: {
-          [key: string]: number
-        }
-        id: string
-      }> | null
-      updates?: Array<{
-        data: {
-          [key: string]: unknown
-        }
-        expected_versions: {
-          [key: string]: number
-        }
-        id: string
-      }> | null
-      upserts?: Array<{
-        data: {
-          [key: string]: unknown
-        }
-      }> | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/tables/{id}/records'
-}
-
-export type PodBaseWriteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseWriteError = PodBaseWriteErrors[keyof PodBaseWriteErrors]
-
-export type PodBaseWriteResponses = {
-  /**
-   * Success
-   */
-  201: {
-    data_version: number
-    deleted_ids: Array<string>
-    records: Array<{
-      created_at: string
-      created_by: string
-      data: {
-        [key: string]:
-          | string
-          | number
-          | boolean
-          | null
-          | Array<unknown>
-          | {
-              [key: string]: unknown
-            }
-      }
-      id: string
-      updated_at: string
-      updated_by: string
-      versions: {
-        [key: string]: number
-      }
-    }>
-  }
-}
-
-export type PodBaseWriteResponse = PodBaseWriteResponses[keyof PodBaseWriteResponses]
-
-export type PodBaseTableConfigureData = {
-  /**
-   * Request body for the podBaseTableConfigure operation on pod_base_operation resource
-   */
-  body?: {
-    data: {
-      emit_changes?: boolean | null
-      unique_field_ids?: Array<string> | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/tables/{id}/settings'
-}
-
-export type PodBaseTableConfigureErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseTableConfigureError = PodBaseTableConfigureErrors[keyof PodBaseTableConfigureErrors]
-
-export type PodBaseTableConfigureResponses = {
-  /**
-   * Success
-   */
-  200: {
-    table: PodBaseTableType
-  }
-}
-
-export type PodBaseTableConfigureResponse = PodBaseTableConfigureResponses[keyof PodBaseTableConfigureResponses]
-
-export type PodBaseViewCreateData = {
-  /**
-   * Request body for the podBaseViewCreate operation on pod_base_operation resource
-   */
-  body?: {
-    data: {
-      config?: {
-        [key: string]: unknown
-      } | null
-      name?: string | null
-      position?: string | null
-      type?: 'grid' | 'kanban' | 'gallery' | null
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/tables/{id}/views'
-}
-
-export type PodBaseViewCreateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseViewCreateError = PodBaseViewCreateErrors[keyof PodBaseViewCreateErrors]
-
-export type PodBaseViewCreateResponses = {
-  /**
-   * Success
-   */
-  201: {
-    view: PodBaseViewType
-  }
-}
-
-export type PodBaseViewCreateResponse = PodBaseViewCreateResponses[keyof PodBaseViewCreateResponses]
-
-export type PodChatTeammatesData = {
-  body?: never
-  path?: never
-  query?: {
-    query?: string
-  }
-  url: '/api/v2/pod/teammates'
-}
-
-export type PodChatTeammatesErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodChatTeammatesError = PodChatTeammatesErrors[keyof PodChatTeammatesErrors]
-
-export type PodChatTeammatesResponses = {
-  /**
-   * Success
-   */
-  200: {
-    teammates: Array<{
-      active: boolean
-      agentType?: string | null
-      aliases?: Array<string> | null
-      avatarURL?: string | null
-      canChat?: boolean | null
-      directConversationID?: string | null
-      displayName: string
-      mayIntervene: boolean
-      modelProfile?: string | null
-      role?: string | null
-      type: string
-      uid: string
-    }>
-  }
-}
-
-export type PodChatTeammatesResponse = PodChatTeammatesResponses[keyof PodChatTeammatesResponses]
-
-export type PodVersionsData = {
-  /**
-   * Request body for the podVersions operation on pod_page_operation resource
-   */
-  body?: {
-    data: {
-      pages?: Array<string> | null
-      tables?: Array<string> | null
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/pod/versions'
-}
-
-export type PodVersionsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodVersionsError = PodVersionsErrors[keyof PodVersionsErrors]
-
-export type PodVersionsResponses = {
-  /**
-   * Success
-   */
-  201: {
-    pages: Array<{
-      id: string
-      object_id?: string | null
-      revision: number
-    }>
-    tables: Array<{
-      data_version: number
-      id: string
-    }>
-  }
-}
-
-export type PodVersionsResponse = PodVersionsResponses[keyof PodVersionsResponses]
-
-export type PodBaseViewDeleteData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query: {
-    version: number
-  }
-  url: '/api/v2/pod/views/{id}'
-}
-
-export type PodBaseViewDeleteErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseViewDeleteError = PodBaseViewDeleteErrors[keyof PodBaseViewDeleteErrors]
-
-export type PodBaseViewDeleteResponses = {
-  /**
-   * Success
-   */
-  200: {
-    view: PodBaseViewType
-  }
-}
-
-export type PodBaseViewDeleteResponse = PodBaseViewDeleteResponses[keyof PodBaseViewDeleteResponses]
-
-export type PodBaseViewUpdateData = {
-  /**
-   * Request body for the podBaseViewUpdate operation on pod_base_operation resource
-   */
-  body: {
-    data: {
-      config?: {
-        [key: string]: unknown
-      } | null
-      name?: string | null
-      position?: string | null
-      type?: 'grid' | 'kanban' | 'gallery' | null
-      version: number
-    }
-  }
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v2/pod/views/{id}'
-}
-
-export type PodBaseViewUpdateErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type PodBaseViewUpdateError = PodBaseViewUpdateErrors[keyof PodBaseViewUpdateErrors]
-
-export type PodBaseViewUpdateResponses = {
-  /**
-   * Success
-   */
-  200: {
-    view: PodBaseViewType
-  }
-}
-
-export type PodBaseViewUpdateResponse = PodBaseViewUpdateResponses[keyof PodBaseViewUpdateResponses]

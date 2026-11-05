@@ -3,8 +3,9 @@ import { RiCheckLine, RiQuestionLine } from '@remixicon/react'
 import { useMutationState } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { requestErrorCode } from '../../common/request-errors'
-import type { ChatInteraction, ClarifyPrompt } from './types'
+import { requestErrorCode, requestErrorDetails } from '../../common/request-errors'
+import { ClarifyForm } from './clarify-form'
+import type { ChatInteraction, ClarifyField, ClarifyPrompt } from './types'
 import type { InteractionAnswer } from './room-api'
 
 export type ClarifyAnswer = InteractionAnswer
@@ -52,6 +53,11 @@ export function ChoiceCard({
       })
   }
   const choices = prompt.choices
+  const fields = (prompt.fields ?? []) as ClarifyField[]
+  const fieldErrors =
+    requestErrorCode(result?.error) === 'invalid_form_answer'
+      ? (requestErrorDetails(result?.error).fields as Record<string, string> | undefined)
+      : undefined
   const answerLabel = choices.find(choice => choice.id === interaction.choice_id)?.label || interaction.answer_text
   useEffect(() => {
     if (!enabled || !keyboardActive) return
@@ -85,28 +91,33 @@ export function ChoiceCard({
         </span>
       </div>
       <p className="pod-chat-choice-question">{prompt.question}</p>
-      <div className="pod-chat-choices">
-        {choices.map((choice, index) => {
-          const shortcut = enabled && keyboardActive && index < 4 ? String(index + 1) : undefined
-          return (
-            <Button
-              key={choice.id}
-              variant="outline"
-              className="pod-chat-choice"
-              disabled={!enabled}
-              aria-keyshortcuts={shortcut}
-              aria-pressed={interaction.choice_id === choice.id}
-              onClick={() => answer({ choiceID: choice.id })}>
-              <span>
-                <strong>{choice.label}</strong>
-                {choice.description && <small>{choice.description}</small>}
-              </span>
-              {shortcut && <kbd>{shortcut}</kbd>}
-            </Button>
-          )
-        })}
-      </div>
-      {interaction.state === 'pending' && prompt.allow_free_text && (
+      {fields.length > 0 && interaction.state === 'pending' && (
+        <ClarifyForm fields={fields} disabled={!enabled} errors={fieldErrors} onSubmit={values => answer({ values })} />
+      )}
+      {fields.length === 0 && (
+        <div className="pod-chat-choices">
+          {choices.map((choice, index) => {
+            const shortcut = enabled && keyboardActive && index < 4 ? String(index + 1) : undefined
+            return (
+              <Button
+                key={choice.id}
+                variant="outline"
+                className="pod-chat-choice"
+                disabled={!enabled}
+                aria-keyshortcuts={shortcut}
+                aria-pressed={interaction.choice_id === choice.id}
+                onClick={() => answer({ choiceID: choice.id })}>
+                <span>
+                  <strong>{choice.label}</strong>
+                  {choice.description && <small>{choice.description}</small>}
+                </span>
+                {shortcut && <kbd>{shortcut}</kbd>}
+              </Button>
+            )
+          })}
+        </div>
+      )}
+      {interaction.state === 'pending' && prompt.allow_free_text && fields.length === 0 && (
         <form
           className="pod-chat-choice-custom"
           onSubmit={event => {

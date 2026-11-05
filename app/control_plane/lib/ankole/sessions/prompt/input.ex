@@ -220,9 +220,16 @@ defmodule Ankole.Sessions.Prompt.Input do
   end
 
   defp event_text(payload, "conversation.message.addressed" = type, data) do
-    if is_map(data["entry"]),
-      do: entry(payload, type),
-      else: data["text"] || external_event(payload)
+    cond do
+      match?(%{"kind" => "form"}, data["interaction_answer"]) ->
+        form_answer(data["interaction_answer"])
+
+      is_map(data["entry"]) ->
+        entry(payload, type)
+
+      true ->
+        data["text"] || external_event(payload)
+    end
   end
 
   defp event_text(payload, type, _data)
@@ -554,9 +561,16 @@ defmodule Ankole.Sessions.Prompt.Input do
       {"choice", value} when is_binary(value) ->
         "The user invoked a structured card action.\nSelected value: #{value}\nContinue the conversation using this explicit user choice. Do not ask them to repeat it."
 
+      {"form", value} when is_binary(value) ->
+        form_answer(answer)
+
       _ ->
         "This structured card action uses an old or invalid data shape and is stale. Do not infer a user answer from it."
     end
+  end
+
+  defp form_answer(answer) do
+    "The user answered your clarification form.\nAnswer: #{answer["value"]}\nValues (JSON keyed by field id; select fields hold option values): #{JSON.encode!(answer["values"] || %{})}\nContinue the conversation using these explicit values. Do not ask them to repeat them."
   end
 
   defp checkback(data) do

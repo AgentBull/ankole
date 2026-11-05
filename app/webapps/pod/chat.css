@@ -1853,6 +1853,32 @@
 .pod-chat-choice-compose {
   padding: 0 12px 8px;
 }
+.pod-chat-choice-form {
+  display: grid;
+  gap: 14px;
+  padding: 0 14px 12px;
+}
+.pod-chat-choice-form-options {
+  display: grid;
+  gap: 6px;
+}
+.pod-chat-choice-form-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.pod-chat-choice-form-number {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-secondary);
+  font-size: 13px;
+}
+.pod-chat-choice-form > button[type='submit'] {
+  justify-self: start;
+}
 .pod-chat-answer-context {
   display: flex;
   align-items: flex-start;

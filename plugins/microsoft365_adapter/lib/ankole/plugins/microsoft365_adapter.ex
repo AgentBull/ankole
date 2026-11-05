@@ -9,6 +9,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
   alias Ankole.Plugins.Microsoft365Adapter.Config
   alias Ankole.Plugins.Microsoft365Adapter.Inbound
   alias Ankole.Plugins.Microsoft365Adapter.Delivery
+  alias Ankole.Plugins.Microsoft365Adapter.ReplyPreview
   alias Ankole.Plugins.Microsoft365Adapter.TeamsChannels
   alias Ankole.Plugins.Microsoft365Adapter.TeamsWebhook
 
@@ -71,6 +72,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
         observe_module: Inbound,
         deliver_module: Delivery,
+        preview_module: ReplyPreview,
         binding_saved_module: TeamsChannels,
         inbound_capabilities: [
           "entry_receive",
@@ -88,7 +90,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
           "edit_entry",
           "delete_entry",
           "divider",
-          "card"
+          "card",
+          "form"
         ]
       },
       %{

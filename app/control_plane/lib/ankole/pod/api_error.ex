@@ -57,6 +57,14 @@ defmodule Ankole.Pod.APIError do
 
   def public_error({:blob_missing, _}), do: public_error(:attachment_expired)
 
+  def public_error({:invalid_form_answer, fields}),
+    do: %{
+      code: "invalid_form_answer",
+      message: "Correct the highlighted fields",
+      status: 422,
+      details: %{fields: fields}
+    }
+
   def public_error(%{code: "oauth_consent_required"} = details),
     do: %{
       code: details.code,

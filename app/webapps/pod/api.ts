@@ -9,12 +9,15 @@ import type {
   ConversationDetailResponse,
   CreateConversationData,
   GetPodActionCardResponse,
+  GetPodInteractionResponse,
   UpdateConversationQueueData,
-  PodAgentsResponse
+  PodAgentsResponse,
+  PodPeerExchangeResponse
 } from './api/generated/types.gen'
 export { uploadAttachment } from './native-transfers'
 import {
   getPodActionCard,
+  getPodInteraction,
   podAgents,
   podConversations,
   podConversationAttention,
@@ -26,6 +29,7 @@ import {
 
 export type ConversationDetail = ConversationDetailResponse
 export type StandaloneActionCard = GetPodActionCardResponse
+export type StandaloneInteraction = GetPodInteractionResponse
 export type ConversationMessage = ConversationDetail['messages'][number]
 export type ConversationPendingInput = ConversationDetail['pendingQueues'][number]['inputs'][number]
 export type ConversationAttachment = ConversationMessage['attachments'][number]
@@ -34,6 +38,8 @@ export type ConversationQueueRequest = UpdateConversationQueueData['body']['data
 export type PodAgent = PodAgentsResponse['agents'][number]
 export type PodActivity = ConversationDetail['activities'][number]
 export type PodActivityItem = PodActivity['tools'][number]
+/** A Turn's work summary, which a message carries in `richContent.execution`. */
+export type PodExecution = NonNullable<PodPeerExchangeResponse['messages'][number]['execution']>
 
 /** Local attachment IDs identify the captured draft; the API receives only signed receipts. */
 export type MessageSubmission = Omit<
@@ -58,6 +64,7 @@ export const podKeys = {
   pageConversations: (pageID: string) => [...podKeys.conversations, 'page', pageID] as const,
   detail: (id: string) => [...contextKey(), 'conversation', id] as const,
   actionCard: (id: string) => [...contextKey(), 'action-card', id] as const,
+  interaction: (id: string) => [...contextKey(), 'interaction', id] as const,
   get nextSteps() {
     return [...contextKey(), 'next-steps'] as const
   },
@@ -67,6 +74,11 @@ export const podKeys = {
 export const actionCardQuery = (id: string) => ({
   queryKey: podKeys.actionCard(id),
   queryFn: ({ signal }: { signal: AbortSignal }) => getPodActionCard({ path: { card_id: id }, signal }),
+  retry: false
+})
+export const interactionQuery = (id: string) => ({
+  queryKey: podKeys.interaction(id),
+  queryFn: ({ signal }: { signal: AbortSignal }) => getPodInteraction({ path: { interaction_id: id }, signal }),
   retry: false
 })
 export const agentsQuery = {

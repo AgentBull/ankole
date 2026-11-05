@@ -175,8 +175,13 @@ defmodule Ankole.Sessions.Context do
              Keyword.get(opts, :request_context, %{})
              |> Map.put("custom_model_profiles", custom_model_profiles)
              # The usage ledger and traces attribute every provider round of
-             # this Turn to its Session.
+             # this Turn to its Session and to the model profile it requested.
              |> Map.put("session_id", session_key.session_id)
+             |> Ankole.Attrs.maybe_put("model_profile", model_ref["profile"])
+             |> Ankole.Attrs.maybe_put(
+               "served_profile",
+               model_ref["served_profile"] || model_ref["profile"]
+             )
            )
        }
        |> Ankole.Attrs.maybe_put(:hosted_tools, turn_basis.hosted_tools)}

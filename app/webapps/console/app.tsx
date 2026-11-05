@@ -29,6 +29,7 @@ const IdentityMappingsPage = lazyRouteComponent(() => import('./pages/identity-m
 const ProviderEditorPage = lazyRouteComponent(() => import('./pages/providers'), 'ProviderEditorPage')
 const ProvidersListPage = lazyRouteComponent(() => import('./pages/providers'), 'ProvidersListPage')
 const ModelProfilesPage = lazyRouteComponent(() => import('./pages/model-profiles'), 'ModelProfilesPage')
+const AIUsagePage = lazyRouteComponent(() => import('./pages/ai-usage'), 'AIUsagePage')
 const SettingEditorDrawer = lazyRouteComponent(() => import('./pages/settings'), 'SettingEditorDrawer')
 const SettingGroupDrawer = lazyRouteComponent(() => import('./pages/settings'), 'SettingGroupDrawer')
 const SettingsPage = lazyRouteComponent(() => import('./pages/settings'), 'SettingsPage')
@@ -204,6 +205,7 @@ export function createConsoleRouter(queryClient: QueryClient, slots: ConsoleAppS
         loader: loaders.providers
       }),
       createRoute({ getParentRoute: () => bodyRoute, path: 'model-profiles', component: ModelProfilesPage }),
+      createRoute({ getParentRoute: () => bodyRoute, path: 'ai-usage', component: AIUsagePage }),
       createRoute({ getParentRoute: () => bodyRoute, path: 'providers/new', component: ProviderEditorPage }),
       createRoute({ getParentRoute: () => bodyRoute, path: 'providers/$providerID', component: ProviderEditorPage }),
       createRoute({

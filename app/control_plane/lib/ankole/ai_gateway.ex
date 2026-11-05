@@ -36,6 +36,7 @@ defmodule Ankole.AIGateway do
     resource(Ankole.AIGateway.Schemas.Artifact)
     resource(Ankole.AIGateway.Schemas.CompactionArtifact)
     resource(Ankole.AIGateway.Schemas.UsageRecord)
+    resource(Ankole.AIGateway.UsageConsole)
 
     resource Ankole.AIGateway.Schemas.Conversation do
       # `get_conversation/3` reads a conversation of one subject.
@@ -64,6 +65,10 @@ defmodule Ankole.AIGateway do
                  Ankole.AIGateway.Schemas.Message do
         index(:console_list, name: "list_ai_gateway_messages", derive_sort?: false)
       end
+
+      route(Ankole.AIGateway.UsageConsole, :get, "/ai-gateway/usage", :summary,
+        name: "get_ai_gateway_usage"
+      )
     end
   end
 
@@ -351,6 +356,9 @@ defmodule Ankole.AIGateway do
   """
   @spec response_metadata(Ankole.AIGateway.Schemas.Message.t()) :: map()
   defdelegate response_metadata(response), to: Ankole.AIGateway.ResponseChain
+
+  @doc "Sums the counted model rounds of one Signal's work for its execution record."
+  defdelegate turn_usage(signal_id), to: UsageLedger
 
   @doc """
   Reads a conversation scoped to its owning Principal subject.

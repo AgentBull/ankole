@@ -10,6 +10,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.ResponseStream.UpstreamProgress
   alias Ankole.AIGateway.StatefulLifecycle
+  alias Ankole.AIGateway.Usage
   alias Ankole.AIGateway.HostedTools.StreamLoop
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Logging
@@ -1075,10 +1076,19 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp canonical_terminal(type, response), do: {type, response, terminal_error(type, response)}
 
   defp public_terminal_response("response.failed", response, %{} = error) do
-    Map.put(response, "error", Map.delete(error, "type"))
+    response
+    |> public_usage()
+    |> Map.put("error", Map.delete(error, "type"))
   end
 
-  defp public_terminal_response(_type, response, _error), do: response
+  defp public_terminal_response(_type, response, _error), do: public_usage(response)
+
+  # Durable metadata keeps unreported counts as `nil`; the public Responses
+  # usage object always carries integers.
+  defp public_usage(%{"usage" => usage} = response),
+    do: Map.put(response, "usage", Usage.normalize(usage))
+
+  defp public_usage(response), do: response
 
   defp response_has_incomplete_tool_call?(%{"output" => output}) when is_list(output),
     do: Enum.any?(output, &incomplete_tool_call_item?/1)

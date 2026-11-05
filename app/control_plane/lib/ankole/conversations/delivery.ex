@@ -212,7 +212,7 @@ defmodule Ankole.Conversations.Delivery do
                 "turn_completion_outcome" => Keyword.get(opts, :turn_completion_outcome)
               }
             },
-            fallback_visible_text: text,
+            fallback_visible_text: Keyword.get(opts, :fallback_text, text),
             idempotency_key: outbound_key
           },
           operation_attrs

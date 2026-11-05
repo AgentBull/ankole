@@ -40,8 +40,8 @@ It supports all three group-message policies (`addressed_only`,
 `observe_all`, and `may_intervene`), inbound capabilities `entry_receive`,
 `entry_removed`, `reaction_add`, `reaction_remove`, and `action_event`, and
 outbound capabilities `post_entry`, `reply_entry`, `edit_entry`, `delete_entry`,
-`outbound_reconciliation`, `add_reaction`, `remove_reaction`, `divider`, and
-`card`.
+`outbound_reconciliation`, `add_reaction`, `remove_reaction`, `divider`,
+`card`, `form`, and `action_notice`.
 
 On the identity side, the adapter supports OIDC authorization, OIDC code
 exchange, full directory sync, and real-time directory sync.
@@ -268,10 +268,19 @@ presentation:
   Delivery intent remains sole owner of terminal output (auth/permission errors
   mark `recovery_state` blocked until an operator updates the binding, which
   requeues both blocked previews and intents).
+- A form clarification renders inside one CardKit `form` container: each
+  field shows its label (marked optional when it is) and help text above an
+  `input` (text and number), `date_picker`, `select_static`,
+  `multi_select_static`, or a Yes/No `select_static` for a boolean, named by
+  the field ID so that `form_value` keys match the field IDs. A secondary
+  `open_url` button opens the same form in Pod. The callback response shows a
+  rejected submission's notice as an error toast, and the card keeps the
+  entered values for correction.
 - When a user answers an interactive clarification card, the adapter rebuilds
   that card from the durable reply-interaction checkpoint—stripping buttons and
-  forms and displaying the chosen or custom answer as plain text visible to all
-  chat members (or stripping controls without an answer when superseded).
+  forms and displaying the chosen or custom answer, or a form's answer summary,
+  as plain text visible to all chat members (or stripping controls without an
+  answer when superseded).
 
 Because previews are ephemeral presentation, `Conversations` commits the final
 public Agent Message only after the provider confirms the durable Delivery

@@ -264,7 +264,13 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
         codexHome: materialized.codexHome,
         env: threadEnv,
         runtime: runtimeConfig,
-        job: { jobID: turnStart.turn.job_id, attempt: turnStart.turn.attempt, signalID: turnStart.turn.signal_id },
+        job: {
+          jobID: turnStart.turn.job_id,
+          attempt: turnStart.turn.attempt,
+          signalID: turnStart.turn.signal_id,
+          humanUID:
+            typeof turnStart.request_context?.human_uid === 'string' ? turnStart.request_context.human_uid : undefined
+        },
         podInstructions: agentContext.conversation?.podInstructions,
         relatedContext:
           typeof turnStart.request_context?.related_context_index === 'string'

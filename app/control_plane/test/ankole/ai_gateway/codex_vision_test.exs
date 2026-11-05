@@ -107,9 +107,14 @@ defmodule Ankole.AIGateway.CodexVisionTest do
 
       assert length(fallback_opts) == 3
 
+      # The fallback keeps the Turn's context and names its own profile for the usage ledger.
       assert Map.new(fallback_opts) == %{
                caller: "codex_vision",
-               request_context: request_context,
+               request_context:
+                 Map.merge(request_context, %{
+                   "model_profile" => "vision_fallback",
+                   "served_profile" => "vision_fallback"
+                 }),
                subject_type: "agent"
              }
     after

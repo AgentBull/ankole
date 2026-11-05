@@ -205,6 +205,8 @@ defmodule Ankole.Observability do
     request_context =
       Map.merge(execution.spec.request_context, %{
         "signal_id" => execution.signal_id,
+        "human_uid" =>
+          Ankole.Principals.served_human_uid(execution.agent_uid, execution.event.human_uid),
         "session_epoch" => execution.epoch,
         "session_attempt" => execution.event.attempt_count
       })

@@ -25,6 +25,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.HostedTools.StreamLoop
   alias Ankole.AIGateway.UniversalAIRequest
+  alias Ankole.AIGateway.Usage
   alias Ankole.AIGateway.UsageLedger
   alias Ankole.Kernel.UniversalAIClient
 
@@ -208,10 +209,12 @@ defmodule Ankole.AIGateway.ResponseStream do
     {tool_loop, _prepared_request} = pop_tool_loop(prepared_request)
     loop = StreamLoop.new(tool_loop)
 
-    %{
-      upstream_response
-      | body: Map.put(body, "output", StreamLoop.rewrite_public_items(loop, output))
-    }
+    body =
+      body
+      |> Map.put("output", StreamLoop.rewrite_public_items(loop, output))
+      |> Map.put("usage", Usage.normalize(body["usage"]))
+
+    %{upstream_response | body: body}
   end
 
   def project_non_streaming_response(_prepared_request, upstream_response),

@@ -538,6 +538,8 @@ defmodule Ankole.Conversations.Native do
       "allow_free_text" => prompt["free_input"] == true
     }
 
+    clarify = Ankole.Attrs.maybe_put(clarify, "fields", prompt["fields"])
+
     presentation =
       ReplyPresentation.new(state: "awaiting_input")
       |> ReplyPresentation.interaction_request(event.id, prompt)
@@ -558,7 +560,8 @@ defmodule Ankole.Conversations.Native do
            Interactions.open_in_tx(
              event,
              presentation,
-             statement.now || DateTime.utc_now(:microsecond)
+             statement.now || DateTime.utc_now(:microsecond),
+             clarify: prompt
            ) do
       {:ok, PostResult.merge(posted, %PostResult{messages: [message]})}
     end
@@ -857,6 +860,10 @@ defmodule Ankole.Conversations.Native do
           do: Map.put(map, "answered_interaction_id", answered_interaction_id),
           else: map
       end)
+      |> Ankole.Attrs.maybe_put(
+        "interaction_answer",
+        Ankole.Attrs.get(input_attrs, :interaction_answer)
+      )
 
     attachments =
       Ankole.Conversations.Attachments.prepare_native_in_tx(
@@ -943,6 +950,10 @@ defmodule Ankole.Conversations.Native do
         id when is_binary(id) and id != "" -> Map.put(data, "answered_interaction_id", id)
         _ -> data
       end
+      |> Ankole.Attrs.maybe_put(
+        "interaction_answer",
+        get_in(message.rich_content || %{}, ["interaction_answer"])
+      )
 
     data =
       if message.attachments == [],

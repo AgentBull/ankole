@@ -80,6 +80,24 @@
         }
       },
       "encoded": "eyJzZWxlY3RvciI6InByb3ZpZGVyL21vZGVsIiwicHJvdmlkZXJfb3B0aW9ucyI6e30sInN1cHBvcnRzX3BhcmFsbGVsX3Rvb2xfY2FsbHMiOmZhbHNlLCJpbnB1dF9tb2RhbGl0aWVzIjpbInRleHQiXSwiam9iIjp7ImlkIjoxMTU1LCJhdHRlbXB0IjoyLCJzaWduYWxfaWQiOiIwMWExNWNmMS1kZGU2LTdlMzMtYTVjYi05MTdkZWI2N2ZiOWQifX0"
+    },
+    {
+      "name": "job_human",
+      "binding": {
+        "selector": "provider/model",
+        "provider_options": {},
+        "supports_parallel_tool_calls": false,
+        "input_modalities": [
+          "text"
+        ],
+        "job": {
+          "id": 1155,
+          "attempt": 2,
+          "signal_id": "01a15cf1-dde6-7e33-a5cb-917deb67fb9d",
+          "human_uid": "alice"
+        }
+      },
+      "encoded": "eyJzZWxlY3RvciI6InByb3ZpZGVyL21vZGVsIiwicHJvdmlkZXJfb3B0aW9ucyI6e30sInN1cHBvcnRzX3BhcmFsbGVsX3Rvb2xfY2FsbHMiOmZhbHNlLCJpbnB1dF9tb2RhbGl0aWVzIjpbInRleHQiXSwiam9iIjp7ImlkIjoxMTU1LCJhdHRlbXB0IjoyLCJzaWduYWxfaWQiOiIwMWExNWNmMS1kZGU2LTdlMzMtYTVjYi05MTdkZWI2N2ZiOWQiLCJodW1hbl91aWQiOiJhbGljZSJ9fQ"
     }
   ]
 }

@@ -66,7 +66,7 @@ defmodule Ankole.Sessions.Tools.Session do
                   "activity": "clarify",
                   "receipt": "none",
                   "visible_delivery": true,
-                  "description": "Ask the user one question only when the answer is necessary to choose the intended result or next action.\nUse the request and prior conversation before asking. Do not ask about a preference the user already gave or when a safe low-risk default is available.\nFor post-task feedback, ask only when the answer will decide whether to accept, revise, or continue the work.\nOn success it returns the normalized question and choices, records them durably, and ends the current turn. Do not emit another answer or call more tools; the user reply arrives as the next user message.",
+                  "description": "Ask the user one question only when the answer is necessary to choose the intended result or next action.\nUse the request and prior conversation before asking. Do not ask about a preference the user already gave or when a safe low-risk default is available.\nFor post-task feedback, ask only when the answer will decide whether to accept, revise, or continue the work.\nWhen the answer needs several typed values, pass fields instead of choices; keep forms to the few values you cannot proceed without.\nOn success it returns the normalized question, choices, and fields, records them durably, and ends the current turn. Do not emit another answer or call more tools; the user reply arrives as the next user message.",
                   "parameters": {
                     "type": "object",
                     "properties": {
@@ -111,7 +111,98 @@ defmodule Ankole.Sessions.Tools.Session do
                             }
                           ]
                         },
-                        "description": "Two to four materially different choices. Omit this field for an open-ended question. Include a no-action choice when the user may decline the action."
+                        "description": "Two to four materially different choices. Omit this field for an open-ended question or a form. Include a no-action choice when the user may decline the action."
+                      },
+                      "fields": {
+                        "minItems": 1,
+                        "maxItems": 5,
+                        "type": "array",
+                        "description": "A short form for answers that need several typed values (for example a quantity, a date, and destinations). Omit it for one choice or an open question; a form does not take choices and needs at least one required field. The user can still answer in their own words instead.",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9_]{0,39}$",
+                              "description": "Unique snake_case key of the value in the answer."
+                            },
+                            "label": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "help": {
+                              "type": "string",
+                              "maxLength": 200,
+                              "description": "Optional hint shown under the field."
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": ["text", "number", "date", "select", "multi_select", "boolean"]
+                            },
+                            "required": {
+                              "type": "boolean",
+                              "description": "Defaults to true."
+                            },
+                            "default": {
+                              "description": "Optional prefilled value valid for the field: a string, number, YYYY-MM-DD date, option value, list of option values, or boolean."
+                            },
+                            "max_length": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 1000,
+                              "description": "text only. Defaults to 200."
+                            },
+                            "multiline": {
+                              "type": "boolean",
+                              "description": "text only."
+                            },
+                            "integer": {
+                              "type": "boolean",
+                              "description": "number only: accept whole numbers only."
+                            },
+                            "min": {
+                              "type": ["number", "string"],
+                              "description": "number: lowest value. date: earliest YYYY-MM-DD date."
+                            },
+                            "max": {
+                              "type": ["number", "string"],
+                              "description": "number: highest value. date: latest YYYY-MM-DD date."
+                            },
+                            "unit": {
+                              "type": "string",
+                              "maxLength": 20,
+                              "description": "number only: unit label such as kg or USD."
+                            },
+                            "options": {
+                              "type": "array",
+                              "minItems": 2,
+                              "maxItems": 10,
+                              "description": "select and multi_select only. The answer uses option values.",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "value": {"type": "string", "minLength": 1, "maxLength": 100},
+                                  "label": {"type": "string", "minLength": 1, "maxLength": 80}
+                                },
+                                "required": ["value", "label"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "min_items": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "multi_select only."
+                            },
+                            "max_items": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "description": "multi_select only."
+                            }
+                          },
+                          "required": ["id", "label", "type"],
+                          "additionalProperties": false
+                        }
                       }
                     },
                     "required": [
@@ -408,21 +499,32 @@ defmodule Ankole.Sessions.Tools.Session do
           if item["description"] == item["label"], do: Map.delete(item, "description"), else: item
       end)
 
-    output = %{
-      "tool" => "clarify",
-      "ok" => true,
-      "question" => args["question"],
-      "choices" => choices
-    }
+    with {:ok, fields} <- clarify_fields(args["fields"], choices),
+         output =
+           Ankole.Attrs.maybe_put(
+             %{
+               "tool" => "clarify",
+               "ok" => true,
+               "question" => args["question"],
+               "choices" => choices
+             },
+             "fields",
+             if(fields != [], do: fields)
+           ),
+         {:ok, prompt} <-
+           Ankole.Conversations.Delivery.ClarifyPrompt.from_output(output, Run.call_id(call)) do
+      {:ok,
+       Tools.result(output,
+         terminate: true,
+         interaction: %{"kind" => "clarify", "prompt" => prompt}
+       )}
+    else
+      {:invalid_arguments, message} ->
+        {:ok, Tools.error("Invalid arguments for tool clarify: #{message}", "invalid_arguments")}
 
-    with {:ok, prompt} <-
-           Ankole.Conversations.Delivery.ClarifyPrompt.from_output(output, Run.call_id(call)),
-         do:
-           {:ok,
-            Tools.result(output,
-              terminate: true,
-              interaction: %{"kind" => "clarify", "prompt" => prompt}
-            )}
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   def execute(run, %{"name" => "propose_action_card"} = call, args) do
@@ -479,6 +581,18 @@ defmodule Ankole.Sessions.Tools.Session do
     case Ankole.Attrs.parse_datetime(text) do
       %DateTime{} = at -> {:ok, at}
       nil -> {:error, "since and until must be RFC 3339 times"}
+    end
+  end
+
+  defp clarify_fields(nil, _choices), do: {:ok, []}
+
+  defp clarify_fields(_fields, [_ | _]),
+    do: {:invalid_arguments, "a form clarify takes fields or choices, not both"}
+
+  defp clarify_fields(fields, []) do
+    case Ankole.Conversations.Delivery.ClarifyForm.definition(fields) do
+      {:ok, fields} -> {:ok, fields}
+      {:error, message} -> {:invalid_arguments, message}
     end
   end
 

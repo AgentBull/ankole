@@ -184,8 +184,8 @@ refresh_interval_ms = ${AIGATEWAY_AUTH_REFRESH_INTERVAL_MS}
 `
 }
 
-/** The Job attempt whose Codex thread composes the gateway requests. */
-export type CodexJobBindingIdentity = { jobID: number; attempt: number; signalID: string }
+/** The Job attempt whose Codex thread composes the gateway requests, and the Human it serves. */
+export type CodexJobBindingIdentity = { jobID: number; attempt: number; signalID: string; humanUID?: string }
 
 /**
  * Encodes the frozen model binding header. The optional Job identity lets the
@@ -207,7 +207,16 @@ export function encodeAIGatewayModelBinding(runtime: CodexRuntimeConfig, job?: C
             }
           }
         : {}),
-      ...(job ? { job: { id: job.jobID, attempt: job.attempt, signal_id: job.signalID } } : {})
+      ...(job
+        ? {
+            job: {
+              id: job.jobID,
+              attempt: job.attempt,
+              signal_id: job.signalID,
+              ...(job.humanUID ? { human_uid: job.humanUID } : {})
+            }
+          }
+        : {})
     }),
     'utf8'
   ).toString('base64url')

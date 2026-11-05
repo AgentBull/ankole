@@ -34,6 +34,7 @@ import { parseRouterSearch, stringifyRouterSearch, useSearchParams } from '../co
 import { uuidShorten } from '../common/uuid-url'
 import { knownPageTitle } from './use-page-metadata'
 import { StandaloneActionCardDialog } from './chat/standalone-action-card-dialog'
+import { StandaloneInteractionDialog } from './chat/standalone-interaction-dialog'
 import { PodCommandContext, PodCommandMenu, type PodCommandNavigationState } from './command-menu'
 import { SidebarLayoutModel } from './state/sidebar-layout'
 import './pod.css'
@@ -181,7 +182,8 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
         path: '/',
         validateSearch: (search: Record<string, unknown>) => ({
           agent: typeof search.agent === 'string' ? search.agent : undefined,
-          actionCard: typeof search.actionCard === 'string' ? search.actionCard : undefined
+          actionCard: typeof search.actionCard === 'string' ? search.actionCard : undefined,
+          interaction: typeof search.interaction === 'string' ? search.interaction : undefined
         }),
         beforeLoad: ({ search }) => {
           if (search.agent) throw redirect({ to: `/dm/${encodeURIComponent(search.agent)}`, replace: true })
@@ -344,11 +346,22 @@ function PodShell() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const actionCardID = searchParams.get('actionCard')?.trim() || undefined
+  const interactionID = searchParams.get('interaction')?.trim() || undefined
   const closeActionCardDialog = useCallback(() => {
     setSearchParams(
       prev => {
         const next = new URLSearchParams(prev)
         next.delete('actionCard')
+        return next
+      },
+      { replace: true, preventScrollReset: true }
+    )
+  }, [setSearchParams])
+  const closeInteractionDialog = useCallback(() => {
+    setSearchParams(
+      prev => {
+        const next = new URLSearchParams(prev)
+        next.delete('interaction')
         return next
       },
       { replace: true, preventScrollReset: true }
@@ -480,6 +493,9 @@ function PodShell() {
           </SidebarInset>
           <PodCommandMenu open={commandOpen} onOpenChange={setCommandOpen} returnFocus={commandReturnFocus} />
           {actionCardID && <StandaloneActionCardDialog cardID={actionCardID} onClose={closeActionCardDialog} />}
+          {interactionID && (
+            <StandaloneInteractionDialog interactionID={interactionID} onClose={closeInteractionDialog} />
+          )}
         </SidebarProvider>
       </TooltipProvider>
     </PodCommandContext>

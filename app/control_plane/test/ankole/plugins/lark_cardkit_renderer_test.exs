@@ -746,6 +746,128 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert state["text"]["i18n_content"]["zh_cn"] == "已失效，对话已继续"
   end
 
+  test "renders a typed form natively, links to Pod, and freezes the answer summary" do
+    source_event_id = Ecto.UUID.generate()
+
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.terminal("awaiting_input", "How should I ship it?")
+      |> ReplyPresentation.interaction_request(source_event_id, %{
+        "body" => "How should I ship it?",
+        "interaction_id" => "clarify:call-1",
+        "control_id" => "clarify-choice",
+        "version" => 1,
+        "free_input" => true,
+        "choices" => [],
+        "form_url" => "https://acme.ankole.test/?interaction=x",
+        "fields" => [
+          %{
+            "id" => "note",
+            "label" => "Note",
+            "type" => "text",
+            "required" => false,
+            "max_length" => 200,
+            "multiline" => true,
+            "help" => "Anything else"
+          },
+          %{
+            "id" => "quantity",
+            "label" => "Quantity",
+            "type" => "number",
+            "required" => true,
+            "default" => 2
+          },
+          %{
+            "id" => "ship_date",
+            "label" => "Ship date",
+            "type" => "date",
+            "required" => true,
+            "default" => "2026-11-20"
+          },
+          %{
+            "id" => "speed",
+            "label" => "Speed",
+            "type" => "select",
+            "required" => true,
+            "options" => [
+              %{"value" => "air", "label" => "Air"},
+              %{"value" => "sea", "label" => "Sea"}
+            ]
+          },
+          %{
+            "id" => "rush",
+            "label" => "Rush",
+            "type" => "boolean",
+            "required" => true,
+            "default" => false
+          }
+        ]
+      })
+
+    assert {:ok, card} = Renderer.render(presentation, mode: :terminal)
+    elements = get_in(card, ["body", "elements"])
+    refute Enum.any?(elements, &(&1["element_id"] in ["actions", "action_separator"]))
+
+    form = Enum.find(elements, &(&1["element_id"] == "action_form1"))
+    assert form["tag"] == "form"
+
+    components = Enum.filter(form["elements"], &is_binary(&1["name"]))
+
+    assert Enum.map(components, &{&1["tag"], &1["name"]}) == [
+             {"input", "note"},
+             {"input", "quantity"},
+             {"date_picker", "ship_date"},
+             {"select_static", "speed"},
+             {"select_static", "rush"},
+             {"button", "clarify-form"}
+           ]
+
+    [note, quantity, ship_date, speed, rush, submit] = components
+    assert note["input_type"] == "multiline_text"
+    refute note["required"]
+    assert quantity["default_value"] == "2"
+    assert quantity["required"]
+    assert ship_date["initial_date"] == "2026-11-20"
+    assert Enum.map(speed["options"], & &1["value"]) == ["air", "sea"]
+    assert Enum.map(rush["options"], & &1["value"]) == ["true", "false"]
+    assert rush["initial_option"] == "false"
+
+    labels = Enum.filter(form["elements"], &(&1["tag"] == "div"))
+    assert hd(labels)["text"]["i18n_content"]["zh_cn"] == "Note（选填）"
+    assert Enum.any?(labels, &(&1["text"]["content"] == "Anything else"))
+
+    assert submit["form_action_type"] == "submit"
+
+    assert [
+             %{
+               "type" => "callback",
+               "value" => %{"answerKind" => "form", "controlId" => "clarify-form"}
+             }
+           ] = submit["behaviors"]
+
+    link = Enum.find(elements, &(&1["element_id"] == "action_link"))
+    assert link["text"]["i18n_content"]["zh_cn"] == "在 Ankole 中打开"
+
+    assert link["behaviors"] == [
+             %{"type" => "open_url", "default_url" => "https://acme.ankole.test/?interaction=x"}
+           ]
+
+    answered =
+      ReplyPresentation.resolve_interaction(presentation, "answered", %{
+        "kind" => "form",
+        "interaction_id" => "clarify:call-1",
+        "value" => "Quantity: 2 · Speed: Air"
+      })
+
+    assert {:ok, card} = Renderer.render(answered, mode: :terminal)
+    elements = get_in(card, ["body", "elements"])
+    refute Enum.any?(elements, &(&1["element_id"] in ["action_form1", "action_link"]))
+
+    receipt = Enum.find(elements, &(&1["element_id"] == "interaction_answer"))
+    assert [%{"elements" => [_label, value]}] = receipt["columns"]
+    assert value["text"]["content"] == "Quantity: 2 · Speed: Air"
+  end
+
   test "does not expose a button without a complete durable interaction locator" do
     presentation =
       ReplyPresentation.new()

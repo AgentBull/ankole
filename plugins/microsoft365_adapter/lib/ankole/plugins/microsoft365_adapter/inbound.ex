@@ -328,8 +328,17 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
 
   defp decode_action_value(value) do
     case value do
-      %{"v" => _version, "value" => decoded} -> decoded
-      other -> other
+      %{"v" => _version, "value" => decoded} when is_map(decoded) ->
+        case AdaptiveCard.submitted_inputs(value) do
+          inputs when inputs == %{} -> decoded
+          inputs -> Map.put(decoded, "formValue", inputs)
+        end
+
+      %{"v" => _version, "value" => decoded} ->
+        decoded
+
+      other ->
+        other
     end
   end
 

@@ -358,10 +358,9 @@ defmodule Ankole.Sessions.Presentation do
              states
            ) do
       execution =
-        Ankole.Sessions.Presentation.Execution.from_chain(
-          chain.response_chain,
-          states
-        )
+        chain.response_chain
+        |> Ankole.Sessions.Presentation.Execution.from_chain(states)
+        |> put_usage(run)
 
       {:ok, Map.merge(chain, Map.put(projection, :execution, execution))}
     end
@@ -381,13 +380,19 @@ defmodule Ankole.Sessions.Presentation do
         end)
 
       {:ok,
-       Ankole.Sessions.Presentation.Execution.from_chain(
-         rows,
+       rows
+       |> Ankole.Sessions.Presentation.Execution.from_chain(
          Ankole.Sessions.RoundState.load(rows),
          status
-       )}
+       )
+       |> put_usage(run)}
     end
   end
+
+  # The usage ledger holds every counted round of the turn's Signal, including
+  # earlier attempts and side calls such as a vision fallback or a compaction.
+  defp put_usage(execution, run),
+    do: Ankole.Attrs.maybe_put(execution, "usage", Ankole.AIGateway.turn_usage(run.signal_id))
 
   @doc "Reads completed reasoning before the live Response of the same turn."
   def previous_thinking(run, response_id) do

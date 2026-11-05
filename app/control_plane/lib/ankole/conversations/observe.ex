@@ -193,6 +193,9 @@ defmodule Ankole.Conversations.Observe do
             :stale ->
               {:ok, %{status: :stale_action}}
 
+            {:invalid_form, notice} ->
+              {:ok, %{status: :invalid_form_answer, notice: notice}}
+
             {:accepted, resolution} ->
               append_reply_action(binding, fact, channel, resolution, now)
 

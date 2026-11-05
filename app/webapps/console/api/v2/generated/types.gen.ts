@@ -948,6 +948,26 @@ export type Error = {
 }
 
 /**
+ * A "Resource object" representing a ai_gateway_usage_summary
+ */
+export type AiGatewayUsageSummary = {
+  /**
+   * An attributes object for a ai_gateway_usage_summary
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a ai_gateway_usage_summary
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a signal_binding
  */
 export type SignalBinding = {
@@ -8305,6 +8325,75 @@ export type ListBrainObjectsResponses = {
 }
 
 export type ListBrainObjectsResponse = ListBrainObjectsResponses[keyof ListBrainObjectsResponses]
+
+export type GetAiGatewayUsageData = {
+  body?: never
+  path?: never
+  query?: {
+    days?: number
+  }
+  url: '/api/v2/ai-gateway/usage'
+}
+
+export type GetAiGatewayUsageErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetAiGatewayUsageError = GetAiGatewayUsageErrors[keyof GetAiGatewayUsageErrors]
+
+export type GetAiGatewayUsageResponses = {
+  /**
+   * Success
+   */
+  200: {
+    by_agent: Array<{
+      cached_input_tokens?: number | null
+      input_tokens?: number | null
+      key?: string | null
+      name?: string | null
+      output_tokens?: number | null
+      reasoning_tokens?: number | null
+      reported_rounds: number
+      rounds: number
+    }>
+    by_human: Array<{
+      cached_input_tokens?: number | null
+      input_tokens?: number | null
+      key?: string | null
+      name?: string | null
+      output_tokens?: number | null
+      reasoning_tokens?: number | null
+      reported_rounds: number
+      rounds: number
+    }>
+    by_origin: Array<{
+      cached_input_tokens?: number | null
+      input_tokens?: number | null
+      key?: string | null
+      name?: string | null
+      output_tokens?: number | null
+      reasoning_tokens?: number | null
+      reported_rounds: number
+      rounds: number
+    }>
+    total: {
+      cached_input_tokens?: number | null
+      input_tokens?: number | null
+      key?: string | null
+      name?: string | null
+      output_tokens?: number | null
+      reasoning_tokens?: number | null
+      reported_rounds: number
+      rounds: number
+    }
+    window_started_at: string
+  }
+}
+
+export type GetAiGatewayUsageResponse = GetAiGatewayUsageResponses[keyof GetAiGatewayUsageResponses]
 
 export type PutDefaultProviderHostedData = {
   /**

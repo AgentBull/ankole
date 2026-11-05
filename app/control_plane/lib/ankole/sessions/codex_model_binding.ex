@@ -47,41 +47,61 @@ defmodule Ankole.Sessions.CodexModelBinding do
 
   A Codex Job composes its own requests, so the Worker's frozen binding is the
   only carrier of the Job identity. The usage ledger and the traces read
-  `job_id`, `attempts`, `signal_id`, and `session_id` from the request context
-  under the same keys that a Session Turn writes.
+  `job_id`, `attempts`, `signal_id`, `session_id`, and `human_uid` from the
+  request context under the same keys that a Session Turn writes. The Worker
+  freezes `human_uid` from the attempt's turn context at admission.
   """
   @spec request_context(map() | nil, map()) :: map()
   def request_context(
-        %{"job" => %{"id" => id, "attempt" => attempt, "signal_id" => signal_id}},
+        %{"job" => %{"id" => id, "attempt" => attempt, "signal_id" => signal_id} = job},
         request_context
       )
       when is_map(request_context) do
-    Map.merge(request_context, %{
+    request_context
+    |> Map.merge(%{
       "job_id" => id,
       "attempts" => attempt,
       "signal_id" => signal_id,
       "session_id" => Ankole.BackgroundAgentJobs.job_session_id(id)
     })
+    |> Ankole.Attrs.maybe_put("human_uid", job["human_uid"])
   end
 
   def request_context(_binding, request_context) when is_map(request_context),
     do: request_context
 
   # The Worker names the Job attempt that composes the requests, so each
-  # provider round can be attributed to one Job.
+  # provider round can be attributed to one Job and the Human it serves.
   defp decode_job(nil), do: {:ok, nil}
 
-  defp decode_job(%{"id" => id, "attempt" => attempt, "signal_id" => signal_id})
+  defp decode_job(%{"id" => id, "attempt" => attempt, "signal_id" => signal_id} = job)
        when is_integer(attempt) and attempt >= 0 and is_binary(signal_id) do
     with true <- Ankole.ModelIntegerID.valid?(id),
-         {:ok, signal_id} <- Ecto.UUID.cast(signal_id) do
-      {:ok, %{"id" => id, "attempt" => attempt, "signal_id" => signal_id}}
+         {:ok, signal_id} <- Ecto.UUID.cast(signal_id),
+         {:ok, human_uid} <- decode_human_uid(Map.get(job, "human_uid")) do
+      {:ok,
+       Ankole.Attrs.maybe_put(
+         %{"id" => id, "attempt" => attempt, "signal_id" => signal_id},
+         "human_uid",
+         human_uid
+       )}
     else
       _invalid -> {:error, :invalid_codex_model_binding}
     end
   end
 
   defp decode_job(_value), do: {:error, :invalid_codex_model_binding}
+
+  defp decode_human_uid(nil), do: {:ok, nil}
+
+  defp decode_human_uid(uid) when is_binary(uid) do
+    case Ankole.Ecto.PrincipalKey.cast(uid) do
+      {:ok, uid} when is_binary(uid) -> {:ok, uid}
+      _invalid -> :error
+    end
+  end
+
+  defp decode_human_uid(_uid), do: :error
 
   @spec apply(map(), map() | nil, map()) :: map()
   def apply(request, binding, request_context \\ %{})

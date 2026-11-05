@@ -177,7 +177,11 @@ The package's `upstream_state` records `upstream_base_hash`, `content_hash` and
 managed file SHA-256 values and modes. A custom package using an upstream slug
 remains readable and manageable; renaming it lets synchronization install the
 shipped package. Renaming a custom package also updates its delivered lessons
-in the same transaction.
+in the same transaction. A tenant installs or updates its shipped packages in
+one synchronization at a time, so Turns that start together while those
+packages are missing or outdated wait for the first synchronization and then
+find the packages current; that synchronization uploads each package's files in
+parallel. A synchronization that finds every package current waits for none.
 
 Interactive turns read complete enabled packages at `/drive/Skills/<slug>/`.
 This read-only projection depends only on the current Agent identity and uses a

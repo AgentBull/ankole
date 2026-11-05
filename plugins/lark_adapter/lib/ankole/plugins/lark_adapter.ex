@@ -80,7 +80,9 @@ defmodule Ankole.Plugins.LarkAdapter do
           "add_reaction",
           "remove_reaction",
           "divider",
-          "card"
+          "card",
+          "form",
+          "action_notice"
         ]
       },
       %{

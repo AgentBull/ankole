@@ -327,8 +327,11 @@ defmodule Ankole.BackgroundAgentJobs.TurnEvidence do
   defp usage_line(usage) do
     total = usage["thread_total"] || %{}
 
-    ["USAGE: input #{total["input_tokens"] || 0}, output #{total["output_tokens"] || 0} tokens"]
+    ["USAGE: input #{tokens(total["input_tokens"])}, output #{tokens(total["output_tokens"])}"]
   end
+
+  defp tokens(count) when is_integer(count), do: "#{count} tokens"
+  defp tokens(_unreported), do: "not reported"
 
   defp head(nil, _limit), do: ""
   defp head(text, limit) when is_binary(text), do: String.slice(text, 0, limit)

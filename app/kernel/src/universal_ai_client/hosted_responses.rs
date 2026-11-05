@@ -655,7 +655,9 @@ async fn execute_hosted(
     let mut partial_images = 0u64;
     let mut provider_cost = 0.0f64;
     let mut visible_output = Vec::new();
-    let mut aggregate_usage = empty_usage();
+    // The main rounds keep unreported counts `null`; the public image aggregate
+    // keeps integer counts.
+    let mut aggregate_usage = Value::Null;
     let mut aggregate_image_usage = empty_usage();
     let mut response_size_budget =
         HostedResponseSizeBudget::new(base_spec, &public_request, outer_stream);
@@ -764,7 +766,6 @@ async fn execute_hosted(
                         usage,
                         metrics,
                     } => {
-                        add_usage(&mut aggregate_usage, &usage);
                         add_usage(&mut aggregate_image_usage, &usage);
                         successful_image_calls = successful_image_calls.saturating_add(1);
                         image_latency_ms = image_latency_ms.saturating_add(metrics.latency_ms);
@@ -823,12 +824,15 @@ async fn execute_hosted(
     };
     let public_body = json!({
         "id": api_resolver::generated_id("resp"),
-        "model": base_spec.response_context.model,
+        "model": final_body
+            .get("model")
+            .cloned()
+            .unwrap_or_else(|| json!(base_spec.response_context.model)),
         "status": final_body.get("status").cloned().unwrap_or_else(|| json!("completed")),
         "completed_at": final_body.get("completed_at").cloned().unwrap_or(Value::Null),
         "incomplete_details": final_body.get("incomplete_details").cloned().unwrap_or(Value::Null),
         "output": visible_output,
-        "usage": aggregate_usage,
+        "usage": composite_usage(&aggregate_usage, &aggregate_image_usage),
         "tool_usage": {"image_gen": aggregate_image_usage},
         "error": final_body.get("error").cloned().unwrap_or(Value::Null)
     });
@@ -1485,35 +1489,69 @@ fn empty_usage() -> Value {
     })
 }
 
+// Sums the counts that some round reported. A count that no round reported
+// stays `null`, so the aggregate never turns a missing count into zero.
 fn add_usage(total: &mut Value, usage: &Value) {
     let normalized = api_resolver::normalize_response_usage(usage);
-    for key in ["input_tokens", "output_tokens", "total_tokens"] {
-        let value = normalized.get(key).and_then(Value::as_u64).unwrap_or(0);
-        let current = total.get(key).and_then(Value::as_u64).unwrap_or(0);
-        total[key] = json!(current.saturating_add(value));
+    if normalized.is_null() {
+        return;
     }
-
-    add_nested_usage(total, &normalized, "input_tokens_details", "cached_tokens");
-    add_nested_usage(
-        total,
-        &normalized,
-        "output_tokens_details",
-        "reasoning_tokens",
-    );
+    if total.is_null() {
+        *total = normalized;
+        return;
+    }
+    for key in ["input_tokens", "output_tokens", "total_tokens"] {
+        total[key] = add_reported(total.get(key), normalized.get(key));
+    }
+    for (object_key, value_key) in [
+        ("input_tokens_details", "cached_tokens"),
+        ("output_tokens_details", "reasoning_tokens"),
+    ] {
+        total[object_key][value_key] = add_reported(
+            total
+                .get(object_key)
+                .and_then(|details| details.get(value_key)),
+            normalized
+                .get(object_key)
+                .and_then(|details| details.get(value_key)),
+        );
+    }
 }
 
-fn add_nested_usage(total: &mut Value, usage: &Value, object_key: &str, value_key: &str) {
-    let value = usage
-        .get(object_key)
-        .and_then(|details| details.get(value_key))
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let current = total
-        .get(object_key)
-        .and_then(|details| details.get(value_key))
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    total[object_key][value_key] = json!(current.saturating_add(value));
+// The composite usage adds the image tokens to each count that the main rounds
+// reported. A count that no main round reported stays `null`, so subtracting the
+// image usage later never turns an image-only report into a reported zero.
+fn composite_usage(main: &Value, image: &Value) -> Value {
+    if main.is_null() {
+        return Value::Null;
+    }
+    let mut total = main.clone();
+    for key in ["input_tokens", "output_tokens", "total_tokens"] {
+        if total[key].is_u64() {
+            total[key] = add_reported(main.get(key), image.get(key));
+        }
+    }
+    for (object_key, value_key) in [
+        ("input_tokens_details", "cached_tokens"),
+        ("output_tokens_details", "reasoning_tokens"),
+    ] {
+        if total[object_key][value_key].is_u64() {
+            total[object_key][value_key] = add_reported(
+                main[object_key].get(value_key),
+                image
+                    .get(object_key)
+                    .and_then(|details| details.get(value_key)),
+            );
+        }
+    }
+    total
+}
+
+fn add_reported(left: Option<&Value>, right: Option<&Value>) -> Value {
+    match (left.and_then(Value::as_u64), right.and_then(Value::as_u64)) {
+        (None, None) => Value::Null,
+        (left, right) => json!(left.unwrap_or(0).saturating_add(right.unwrap_or(0))),
+    }
 }
 
 #[cfg(test)]
@@ -1527,6 +1565,47 @@ mod tests {
     use super::test_support::*;
     use super::*;
     use tokio_tungstenite::tungstenite::{Message, accept};
+
+    #[test]
+    fn aggregate_usage_sums_only_reported_counts() {
+        let mut total = Value::Null;
+        add_usage(&mut total, &Value::Null);
+        assert!(total.is_null());
+
+        add_usage(&mut total, &json!({"input_tokens": 3}));
+        add_usage(&mut total, &json!({"input_tokens": 2, "output_tokens": 0}));
+        assert_eq!(total["input_tokens"], json!(5));
+        assert_eq!(total["output_tokens"], json!(0));
+        assert_eq!(total["input_tokens_details"]["cached_tokens"], Value::Null);
+    }
+
+    #[test]
+    fn composite_usage_adds_image_tokens_only_to_reported_main_counts() {
+        let image = json!({
+            "input_tokens": 20,
+            "output_tokens": 5,
+            "total_tokens": 25,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens_details": {"reasoning_tokens": 0}
+        });
+        assert!(composite_usage(&Value::Null, &image).is_null());
+
+        let mut main = Value::Null;
+        add_usage(&mut main, &json!({"input_tokens": 100}));
+        let usage = composite_usage(&main, &image);
+        assert_eq!(usage["input_tokens"], json!(120));
+        assert_eq!(usage["output_tokens"], Value::Null);
+        assert_eq!(usage["input_tokens_details"]["cached_tokens"], Value::Null);
+
+        // The public image aggregate keeps integers even when an image call reports nothing.
+        let mut image_aggregate = empty_usage();
+        add_usage(&mut image_aggregate, &json!({}));
+        assert_eq!(image_aggregate["input_tokens"], json!(0));
+        assert_eq!(
+            image_aggregate["input_tokens_details"]["cached_tokens"],
+            json!(0)
+        );
+    }
 
     /// Names the private fixture tool that must not enter public output.
     const HIDDEN_TOOL: &str = "__ankole_hosted_image_generation";
@@ -2899,7 +2978,7 @@ mod tests {
         assert_eq!(wrapper["hosted_tool_metadata"]["input_bytes"], 6);
         assert_eq!(wrapper["hosted_tool_metadata"]["output_bytes"], 5);
 
-        assert_eq!(body["model"], "main-model");
+        assert_eq!(body["model"], "upstream-main");
         assert_eq!(body["status"], "completed");
         assert_eq!(body["output"][0]["type"], "image_generation_call");
         assert_eq!(body["output"][0]["result"], "aW1hZ2U=");

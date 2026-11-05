@@ -30,7 +30,7 @@ The ledger has six origins, assigned in this priority order:
 1. `codex` for an Agent subject using the Codex protocol;
 2. `agent` for every other Agent subject;
 3. `oidc_human` for an OIDC Human subject, including explicit compaction;
-4. `compaction` for an internal `compaction.summary` caller;
+4. `compaction` for an internal `compaction.summary` or `compaction.upstream` caller;
 5. `applet` for an internal `pod_applet` caller; and
 6. `brain` for `brain` and phase-specific `brain.*` callers.
 
@@ -44,10 +44,17 @@ Embedding, rerank, web search, web fetch, and image generation do not write thes
 
 For each provider round that ends with `response.completed` or
 `response.incomplete`, the ledger records `usage.input_tokens` and
-`usage.output_tokens` as that provider reported them, and counts their sum.
-Cached input tokens remain part of `input_tokens` without separate weighting,
-and Ankole counts raw tokens equally regardless of which model ran. The ledger
-starts empty at deployment.
+`usage.output_tokens` as that provider reported them, and a quota window counts
+their sum. Cached input tokens remain part of `input_tokens` without separate
+weighting, and Ankole counts raw tokens equally regardless of which model ran.
+The ledger starts empty at deployment.
+
+A Provider does not always report usage. The ledger then records the round with
+`NULL` token counts, and the quota window adds nothing for it, so an Agent can
+use more tokens than its quota shows when its Provider omits usage. This is a
+known limitation: Ankole does not estimate unreported counts. The per-turn
+usage in the Pod work history and the Console Model usage page show how many
+rounds went unreported.
 
 The quota acts as a soft limit: AIGateway checks accumulated usage before
 dispatching a request and rejects the request when usage is already at or above
@@ -66,8 +73,13 @@ enforced by a plugin.
 | `id` | UUIDv7 primary key |
 | `subject_uid` | The executing Agent, Human, or system Principal |
 | `origin` | `agent`, `codex`, `oidc_human`, `compaction`, `applet`, or `brain`; only the first two enter Agent quota windows |
-| `model` | The resolved `provider_id/model` selector |
-| `input_tokens`, `output_tokens` | Non-negative provider usage of the round |
+| `model` | The requested `provider_id/model` selector |
+| `provider_model` | The model that the Provider reported, when it differs from the requested model; NULL otherwise |
+| `model_profile` | The model profile that the caller requested, such as `light`; NULL for an explicit `provider_id/model` selector |
+| `served_profile` | The profile whose model served the round, such as `primary` when `light` falls back to it; NULL without a profile |
+| `input_tokens`, `output_tokens` | Non-negative provider usage of the round; NULL when the Provider did not report the count |
+| `cached_input_tokens`, `reasoning_tokens` | The cached part of the input and the reasoning part of the output; NULL when not reported |
+| `human_uid` | The Human that the work serves (see [AIGateway](AIGateway.md)); NULL when the work serves no Human |
 | `session_id` | The Session whose Turn made the round; `job:<id>` for a Background Agent Job; NULL when unknown |
 | `signal_id` | The Signal that started that Turn; NULL when unknown |
 | `job_id` | The Background Agent Job that made the round; NULL for other work |
@@ -75,13 +87,15 @@ enforced by a plugin.
 | `inserted_at` | Record time; the window query uses it |
 
 PostgreSQL uses an index on `(subject_uid, inserted_at)` to compute the window
-sum, along with partial indexes on `job_id` and `(session_id, inserted_at)` for
-per-Job and per-Session sums. AIGateway reads the attribution columns from the
-round's request context; if an attribution value has the wrong shape, AIGateway
+sum, along with partial indexes on `job_id`, `(session_id, inserted_at)`, and
+`(tenant_id, signal_id)` for per-Job, per-Session, and per-turn sums, and an
+index on `(tenant_id, inserted_at)` for the Console Model usage page. AIGateway reads the attribution
+columns from the round's request context; if an attribution value has the wrong shape, AIGateway
 drops that value and writes `NULL` in that column so that malformed attribution
-never blocks quota accounting. While an Agent exists, AIGateway never updates or
-deletes its ledger rows; deleting the Agent Principal removes its ledger
-together with its other AIGateway records. If writing to the ledger fails (for
+never blocks quota accounting. AIGateway never updates or deletes ledger rows.
+The ledger is usage history, so deleting an Agent keeps its rows while its other
+AIGateway records go with it: `subject_uid` joins its Principal by value, and a
+Principal rename rewrites it. If writing to the ledger fails (for
 example, because of a database error), AIGateway logs a warning without failing
 the model response. See [AIGateway](AIGateway.md) for how Session Turns and
 Background Agent Jobs supply work identity.
@@ -113,7 +127,9 @@ window_end    = window_start + period_length
 ```
 
 An Agent's usage for the current window is the sum of its ledger rows with
-`inserted_at` at or after `window_start`. Operators can set `period_start_at` in
+`inserted_at` at or after `window_start` and at or after the Agent's creation.
+A deleted Agent's rows keep its uid, so a later Agent that reuses the uid starts
+without them. Operators can set `period_start_at` in
 the future; Ankole computes and counts the window preceding a future start time
 with the same formula.
 
@@ -278,7 +294,7 @@ creating the Agent through the dedicated token-quota route.
 ## Rules
 
 - AIGateway is the sole enforcement point; the preflight check in `Sessions.Admission` only avoids starting a model turn that would immediately fail.
-- `ai_gateway_usage_records` is append-only while the Agent exists and is the sole usage source for quota checks.
+- `ai_gateway_usage_records` is append-only, outlives the Agent, and is the sole usage source for quota checks.
 - Neither the Worker nor the control plane retries a quota rejection.
 - Resetting a quota starts a new period immediately without deleting ledger rows.
 - An Agent without a `token_quota` object has no token limit.

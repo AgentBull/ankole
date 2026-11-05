@@ -238,11 +238,9 @@ defmodule Ankole.Sessions.CodexModelBindingTest do
     @signal_id "01915f9d-5f00-7000-8000-000000000001"
 
     test "decodes the Job attempt and writes it into the request context" do
-      encoded =
-        encode_binding(%{"job" => %{"id" => 1234, "attempt" => 3, "signal_id" => @signal_id}})
-
-      assert {:ok, binding} = CodexModelBinding.decode(encoded)
-      assert binding["job"] == %{"id" => 1234, "attempt" => 3, "signal_id" => @signal_id}
+      job = %{"id" => 1234, "attempt" => 3, "signal_id" => @signal_id, "human_uid" => "alice"}
+      assert {:ok, binding} = CodexModelBinding.decode(encode_binding(%{"job" => job}))
+      assert binding["job"] == job
 
       context =
         CodexModelBinding.request_context(binding, %{
@@ -256,8 +254,13 @@ defmodule Ankole.Sessions.CodexModelBindingTest do
                "job_id" => 1234,
                "attempts" => 3,
                "signal_id" => @signal_id,
-               "session_id" => "job:1234"
+               "session_id" => "job:1234",
+               "human_uid" => "alice"
              }
+
+      without_human = Map.delete(job, "human_uid")
+      assert {:ok, binding} = CodexModelBinding.decode(encode_binding(%{"job" => without_human}))
+      refute Map.has_key?(CodexModelBinding.request_context(binding, %{}), "human_uid")
     end
 
     test "a binding without a Job leaves the request context unchanged" do

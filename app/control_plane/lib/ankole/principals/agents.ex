@@ -106,6 +106,19 @@ defmodule Ankole.Principals.Agents do
     end
   end
 
+  @doc """
+  Returns the Human that an Agent's work serves: the Human who asked for it,
+  or else the owner of a personal assistant. Other work serves no Human.
+  """
+  def served_human_uid(_agent_uid, human_uid) when is_binary(human_uid), do: human_uid
+
+  def served_human_uid(agent_uid, nil) do
+    case authority_uid(agent_uid) do
+      ^agent_uid -> nil
+      owner_uid -> owner_uid
+    end
+  end
+
   def display_name(%Principal{type: :agent} = principal) do
     name = short_name(principal)
 

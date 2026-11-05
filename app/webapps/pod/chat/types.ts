@@ -1,32 +1,38 @@
-import type { ConversationDetail, ConversationMessage, PodActivity } from '../api'
+import type { ConversationDetail, ConversationMessage, PodActivity, PodExecution } from '../api'
 
-export type ExecutionStep = {
-  id: string
-  tool: string
-  title: string
-  status: string
-  duration_ms?: number
-  input?: unknown
-  output?: unknown
-}
+export type ExecutionSummary = PodExecution
+export type ExecutionStep = NonNullable<ExecutionSummary['steps']>[number]
 
 type LinkedRun = ConversationDetail['linkedRuns'][number]
 
 export type LinkedExecution = LinkedRun & { agentName?: string }
 
-export type ExecutionSummary = {
-  duration_ms?: number
-  thinking_summary?: string
-  steps?: ExecutionStep[]
-  status?: string
-  model?: string
-}
+/** A token count is null when no round of the group reported it. */
+export type ExecutionUsage = NonNullable<ExecutionSummary['usage']>
+export type ExecutionModelUsage = ExecutionUsage['models'][number]
+export type ExecutionUsageTotals = Omit<ExecutionUsage, 'models'>
 
 export type ClarifyPrompt = Pick<
   ConversationDetail['pendingInteractions'][number],
-  'tool_call_id' | 'interaction_id' | 'question' | 'choices' | 'allow_free_text'
+  'tool_call_id' | 'interaction_id' | 'question' | 'choices' | 'allow_free_text' | 'fields'
 > &
   ChatInteraction
+
+/** One typed field of a structured clarify form, as the control plane normalized it. */
+export type ClarifyField = {
+  id: string
+  label: string
+  help?: string
+  required: boolean
+  default?: unknown
+} & (
+  | { type: 'text'; max_length: number; multiline: boolean }
+  | { type: 'number'; integer: boolean; min?: number; max?: number; unit?: string }
+  | { type: 'date'; min?: string; max?: string }
+  | { type: 'select'; options: { value: string; label: string }[] }
+  | { type: 'multi_select'; options: { value: string; label: string }[]; min_items?: number; max_items?: number }
+  | { type: 'boolean' }
+)
 
 export type ChatInteraction = {
   state: 'pending' | 'answered' | 'superseded'

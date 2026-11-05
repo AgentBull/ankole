@@ -14,8 +14,8 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
   def display_name, do: %{"default" => "Mock Signal Provider"}
 
   # `mock-provider` is a plain-text provider; `mock-rich-provider` also declares
-  # a reply-preview module, so a gateway test can cover the mutable reply
-  # surface and its terminal intent route in-process.
+  # a reply-preview module and native form cards, so a gateway test can cover
+  # the mutable reply surface and its terminal intent route in-process.
   @impl true
   def adapter_declarations do
     [
@@ -50,7 +50,8 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
         outbound_capabilities: [
           "post_entry",
           "reply_entry",
-          "outbound_reconciliation"
+          "outbound_reconciliation",
+          "form"
         ]
       }
     ]

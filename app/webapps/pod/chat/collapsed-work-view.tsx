@@ -4,6 +4,7 @@ import type { PodActivity, PodActivityItem } from '../api'
 import type { ExecutionStep, ExecutionSummary } from './types'
 import { ToolRunView, stepTitle, humanizeToolName } from './tool-run-view'
 import { formatElapsed } from './elapsed'
+import { UsageDetails, UsageSummary } from './execution-usage'
 
 export function CollapsedWorkView({
   execution,
@@ -27,6 +28,7 @@ export function CollapsedWorkView({
   }, [active, startedAt])
   const steps = execution.steps ?? []
   const thinking = execution.thinking_summary
+  const usage = active ? undefined : execution.usage
   const duration = active && startedAt ? Math.max(0, now - Date.parse(startedAt)) : execution.duration_ms
   const runningSteps = steps.filter(
     step =>
@@ -53,7 +55,7 @@ export function CollapsedWorkView({
     if ((active && !thinkingDisclosure) || urgent) setExpanded(true)
     else if (thinkingDisclosure) setExpanded(false)
   }, [active, thinkingDisclosure, urgent])
-  if (!steps.length && !thinking) {
+  if (!steps.length && !thinking && !usage) {
     if (!active) return null
     return (
       <div className="pod-chat-work pod-chat-work-status" role="status">
@@ -75,7 +77,7 @@ export function CollapsedWorkView({
           setExpanded(event.currentTarget.open)
         }
       }}>
-      <summary title={execution.model}>
+      <summary title={execution.model ?? undefined}>
         {active && <span className="pod-chat-working-dot" aria-hidden />}
         <span>
           {active
@@ -84,10 +86,14 @@ export function CollapsedWorkView({
               : (current && stepTitle(current)) || phaseLabel || t('pod.chat_timeline.thinking')
             : outcome
               ? t(`pod.chat_timeline.${outcome}_after`, { duration: formatElapsed(duration ?? 0, i18n.language) })
-              : t('pod.chat_timeline.worked_for', {
-                  duration: formatElapsed(duration ?? 0, i18n.language),
-                  count: steps.length
-                })}
+              : steps.length
+                ? t('pod.chat_timeline.worked_for', {
+                    duration: formatElapsed(duration ?? 0, i18n.language),
+                    count: steps.length
+                  })
+                : t('pod.chat_timeline.worked_for_plain', {
+                    duration: formatElapsed(duration ?? 0, i18n.language)
+                  })}
         </span>
         {active && duration != null && <time>{formatElapsed(duration, i18n.language)}</time>}
         {thinkingDisclosure && steps.length > 0 && (
@@ -96,6 +102,7 @@ export function CollapsedWorkView({
         {!active && pagesRead > 0 && (
           <span className="pod-chat-work-pages">· {t('pod.chat_timeline.pages_read', { count: pagesRead })}</span>
         )}
+        {usage && <UsageSummary usage={usage} />}
       </summary>
       {expanded && (
         <div className="pod-chat-work-content">
@@ -110,6 +117,7 @@ export function CollapsedWorkView({
             )
           )}
           <ToolRunView steps={steps} compact={active} />
+          {usage && <UsageDetails usage={usage} />}
         </div>
       )}
     </details>

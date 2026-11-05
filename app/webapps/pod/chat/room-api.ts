@@ -47,8 +47,10 @@ export function useRoomActions(id: string) {
       answerConversationInteraction({ path: { id, interaction_id: interactionID }, body: { data: answer } }),
     onSuccess,
     onError: error => {
-      if (requestErrorCode(error) === 'interaction_not_pending') void refreshConversationQueries(client, id)
-      else onError(error)
+      const code = requestErrorCode(error)
+      if (code === 'interaction_not_pending') void refreshConversationQueries(client, id)
+      // The form shows field errors inline and keeps the question pending.
+      else if (code !== 'invalid_form_answer') onError(error)
     }
   })
   const resolveActionCard = useMutation({

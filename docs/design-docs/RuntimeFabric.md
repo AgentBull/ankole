@@ -368,7 +368,10 @@ and unique constraints:
 - Frozen Codex model-binding headers use unpadded `base64url` UTF-8 JSON pinned
   by `app/kernel/proto/ankole/runtime_fabric/v1/codex_model_binding_vectors.json`
   (covering nested Provider options, image fallback, hosted Brain operations,
-  Unicode, and routing selector fields).
+  Unicode, routing selector fields, and the Job attempt block). The Job block
+  names the attempt's `id`, `attempt`, and `signal_id`, and the `human_uid`
+  that the Worker freezes from the attempt's turn context so that AIGateway
+  attributes every Codex round to the Human the Job serves.
 
 ## Execute Environment Tools and Codex Jobs
 

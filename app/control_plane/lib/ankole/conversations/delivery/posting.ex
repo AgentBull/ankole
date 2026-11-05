@@ -2,7 +2,7 @@ defmodule Ankole.Conversations.Delivery.Posting do
   @moduledoc "Commits the external effects of one statement to one validated target."
   alias Ankole.Conversations.{Delivery, PostResult, Statement}
   alias Ankole.Conversations.Target, as: StatementTarget
-  alias Ankole.Conversations.Delivery.Interactions
+  alias Ankole.Conversations.Delivery.{ClarifyPrompt, Interactions}
 
   def post_in_tx(target, %Statement{notice: %{} = notice} = statement) do
     with {:ok, intent} <-
@@ -39,28 +39,65 @@ defmodule Ankole.Conversations.Delivery.Posting do
     end
   end
 
+  # A form clarify always carries the Pod form link. A target whose card renders
+  # forms gets the form, with the link as a secondary option; any other target
+  # gets the question and the link as text. Either way the interaction stays
+  # pending until a valid submission or a newer turn.
+  defp reply_in_tx(
+         %{primary: true} = target,
+         %Statement{
+           completion: %{
+             clarify_prompt: %{"interactive_output" => %{"fields" => [_ | _]} = output}
+           }
+         } = statement,
+         opts
+       ) do
+    # A form card carries the Pod link as its own button, so only the fallback text repeats it.
+    text =
+      Statement.text(statement) <>
+        "\n\n" <> ClarifyPrompt.form_link_text(statement.signal.id, output)
+
+    if renders_forms?(target) do
+      output = Map.put(output, "form_url", ClarifyPrompt.form_url(statement.signal.id, output))
+
+      clarify_reply_in_tx(
+        statement,
+        Statement.text(statement),
+        output,
+        [fallback_text: text] ++ opts
+      )
+    else
+      with {:ok, intents} <-
+             Delivery.commit_final_reply_in_tx(
+               statement.signal,
+               statement.completion.final_response,
+               text,
+               opts
+             ),
+           {:ok, _} <-
+             Interactions.open_in_tx(
+               statement.signal,
+               List.first(intents).payload["reply_presentation"] || %{},
+               statement.now,
+               clarify: output
+             ) do
+        {:ok, intents}
+      end
+    end
+  end
+
   defp reply_in_tx(
          %{primary: true},
          %Statement{completion: %{clarify_prompt: %{} = prompt}} = statement,
          opts
-       ) do
-    with {:ok, intent} <-
-           Delivery.commit_clarify_reply_in_tx(
-             statement.signal,
-             statement.completion.final_response,
-             Statement.text(statement),
-             prompt["interactive_output"],
-             opts
-           ),
-         {:ok, _} <-
-           Interactions.open_in_tx(
-             statement.signal,
-             intent.payload["reply_presentation"],
-             statement.now
-           ) do
-      {:ok, [intent]}
-    end
-  end
+       ),
+       do:
+         clarify_reply_in_tx(
+           statement,
+           Statement.text(statement),
+           prompt["interactive_output"],
+           opts
+         )
 
   defp reply_in_tx(
          %{primary: true} = target,
@@ -118,6 +155,35 @@ defmodule Ankole.Conversations.Delivery.Posting do
       )
     else
       {:ok, []}
+    end
+  end
+
+  defp clarify_reply_in_tx(statement, text, output, opts) do
+    with {:ok, intent} <-
+           Delivery.commit_clarify_reply_in_tx(
+             statement.signal,
+             statement.completion.final_response,
+             text,
+             output,
+             opts
+           ),
+         {:ok, _} <-
+           Interactions.open_in_tx(
+             statement.signal,
+             intent.payload["reply_presentation"],
+             statement.now,
+             clarify: output
+           ) do
+      {:ok, [intent]}
+    end
+  end
+
+  defp renders_forms?(target) do
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(target.binding_id),
+         {:ok, adapter} <- Ankole.Signals.Adapters.fetch_delivery(binding.adapter) do
+      MapSet.member?(Delivery.Adapter.capabilities(adapter), :form)
+    else
+      _unavailable -> false
     end
   end
 

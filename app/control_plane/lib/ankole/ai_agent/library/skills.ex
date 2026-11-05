@@ -397,28 +397,47 @@ defmodule Ankole.AIAgent.Library.Skills do
     with {:ok, sources} <- Ankole.AIAgent.Library.shipped_skill_sources(), do: sync(sources)
   end
 
+  # Concurrent first Turns of a tenant would each install every shipped
+  # package, so installation runs one at a time per tenant and the later Turns
+  # find the packages current. A sync that finds every package current takes
+  # no lock.
   def sync(sources) do
-    existing = Map.new(list(), &{&1.slug, &1})
-    sources |> Enum.map(&sync_source(&1, existing)) |> Ankole.Attrs.collect_results()
-  end
-
-  defp sync_source(source, existing) do
-    case Map.fetch(existing, source.name) do
-      {:ok, skill} when skill.source_kind == :custom ->
-        # A shipped addition must leave an existing custom package manageable.
-        # Renaming the custom package lets the next sync install the shipped one.
-        {:ok, skill}
-
-      {:ok, skill} ->
-        if source.source_hash in [
-             skill.upstream_state["upstream_base_hash"],
-             skill.upstream_state["pending_upstream_hash"]
-           ], do: {:ok, skill}, else: prepare_source(source)
-
-      :error ->
-        prepare_source(source)
+    with {:ok, current} <- stored_by_slug() do
+      if Enum.any?(sources, &install?(&1, current[&1.name])) do
+        :global.trans({{__MODULE__, :sync, Repo.tenant_id!()}, self()}, fn -> install(sources) end)
+      else
+        {:ok, Enum.map(sources, &current[&1.name])}
+      end
     end
   end
+
+  defp install(sources) do
+    with {:ok, current} <- stored_by_slug() do
+      sources
+      |> Enum.map(fn source ->
+        skill = current[source.name]
+        if install?(source, skill), do: prepare_source(source), else: {:ok, skill}
+      end)
+      |> Ankole.Attrs.collect_results()
+    end
+  end
+
+  defp stored_by_slug do
+    with {:ok, skills} <- Ankole.Ash.read(Skill), do: {:ok, Map.new(skills, &{&1.slug, &1})}
+  end
+
+  # A shipped addition must leave an existing custom package manageable.
+  # Renaming the custom package lets the next sync install the shipped one.
+  defp install?(_source, %{source_kind: :custom}), do: false
+
+  defp install?(source, %{} = skill),
+    do:
+      source.source_hash not in [
+        skill.upstream_state["upstream_base_hash"],
+        skill.upstream_state["pending_upstream_hash"]
+      ]
+
+  defp install?(_source, nil), do: true
 
   defp prepare_source(source) do
     manifest = Enum.find(source.files, &(&1.path == "SKILL.md"))
@@ -427,17 +446,33 @@ defmodule Ankole.AIAgent.Library.Skills do
          {:ok, files} <-
            source.files
            |> Enum.reject(&(&1.path == "SKILL.md"))
-           |> Enum.map(fn file ->
-             with {:ok, path} <- file_path(file.path),
-                  {:ok, stored} <- Files.store(file.content),
-                  do: {:ok, Map.merge(file, %{path: path, stored: stored})}
-           end)
-           |> Ankole.Attrs.collect_results(),
+           |> store_files(),
          :ok <- validate_paths(Enum.map(files, & &1.path)) do
       Repo.transact_top_level(fn -> reconcile(source, content, files) end,
         after_commit: &Management.committed/1
       )
     end
+  end
+
+  # A shipped package can carry more than a hundred files, and each store waits
+  # on the object store, so the files of one package upload in parallel.
+  defp store_files(files) do
+    tenant_id = Repo.tenant_id!()
+
+    files
+    |> Task.async_stream(
+      fn file -> Repo.with_tenant(tenant_id, fn -> store_file(file) end) end,
+      max_concurrency: 8,
+      timeout: :infinity
+    )
+    |> Enum.map(fn {:ok, result} -> result end)
+    |> Ankole.Attrs.collect_results()
+  end
+
+  defp store_file(file) do
+    with {:ok, path} <- file_path(file.path),
+         {:ok, stored} <- Files.store(file.content),
+         do: {:ok, Map.merge(file, %{path: path, stored: stored})}
   end
 
   defp reconcile(source, content, prepared) do

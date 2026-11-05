@@ -58,6 +58,7 @@ import {
   getAgentLibraryCapabilities,
   getAgentTokenQuota,
   getAiGatewayConversation,
+  getAiGatewayUsage,
   getAppConfiguration,
   getAutomationJob,
   getBackgroundAgentJob,
@@ -338,6 +339,9 @@ import type {
   GetAiGatewayConversationData,
   GetAiGatewayConversationError,
   GetAiGatewayConversationResponse,
+  GetAiGatewayUsageData,
+  GetAiGatewayUsageError,
+  GetAiGatewayUsageResponse,
   GetAppConfigurationData,
   GetAppConfigurationError,
   GetAppConfigurationResponse,
@@ -3678,6 +3682,31 @@ export const listBrainObjectsInfiniteOptions = (options?: Options<ListBrainObjec
   )
   return opts as Omit<typeof opts, 'initialData'>
 }
+
+export const getAiGatewayUsageQueryKey = (options?: Options<GetAiGatewayUsageData>) =>
+  createQueryKey('getAiGatewayUsage', options)
+
+/**
+ * get_ai_gateway_usage operation on ai_gateway_usage_summary resource
+ */
+export const getAiGatewayUsageOptions = (options?: Options<GetAiGatewayUsageData>) =>
+  queryOptions<
+    GetAiGatewayUsageResponse,
+    GetAiGatewayUsageError,
+    GetAiGatewayUsageResponse,
+    ReturnType<typeof getAiGatewayUsageQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAiGatewayUsage({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getAiGatewayUsageQueryKey(options)
+  })
 
 /**
  * put_default_provider_hosted operation on agent_model_configuration resource

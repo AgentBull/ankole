@@ -504,12 +504,15 @@ defmodule Ankole.Conversations.Peers do
              message_id: message.id,
              target: %{agent_uid: source.agent_uid, conversation_id: peer.id},
              data:
-               Map.merge(source.data, %{
+               source.data
+               |> Map.delete("interaction_answer")
+               |> Map.merge(%{
                  "text" => attrs.text,
                  "peer_hop_count" => 0,
                  "root_human_signal_id" => id,
                  "answered_interaction_id" => attrs.answered_interaction_id
                })
+               |> Ankole.Attrs.maybe_put("interaction_answer", attrs[:interaction_answer])
            }) do
       {:ok,
        %{
@@ -540,12 +543,18 @@ defmodule Ankole.Conversations.Peers do
              message_id: message.id,
              target: %{agent_uid: peer.peer_target_uid, conversation_id: peer.id},
              data:
-               Map.merge(source.data, %{
+               source.data
+               |> Map.delete("interaction_answer")
+               |> Map.merge(%{
                  "text" => text,
                  "peer_hop_count" => 0,
                  "root_human_signal_id" => id,
                  "answered_interaction_id" => resolution["interaction_id"]
                })
+               |> Ankole.Attrs.maybe_put(
+                 "interaction_answer",
+                 if(resolution["answer"]["kind"] == "form", do: resolution["answer"])
+               )
            }) do
       {:ok, signal}
     end

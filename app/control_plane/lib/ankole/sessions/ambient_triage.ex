@@ -65,7 +65,13 @@ defmodule Ankole.Sessions.AmbientTriage do
            event: event,
            context: context,
            model_ref: runtime.model_ref,
-           request_context: runtime.request_context,
+           # Triage runs before the Turn exists, so it names the Signal and its
+           # Human for the usage ledger itself.
+           request_context:
+             Map.merge(runtime.request_context, %{
+               "signal_id" => event.id,
+               "human_uid" => Ankole.Principals.served_human_uid(key.agent_uid, event.human_uid)
+             }),
            candidates: Ambient.candidates(event)
          },
          {:ok, attrs} <- recognize(observation) do
