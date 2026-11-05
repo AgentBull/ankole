@@ -26,7 +26,8 @@ defmodule Ankole.Files.Vfs.Library do
   def children(scope, %{library_path: []}) do
     with {:ok, skills} <-
            AgentLibrary.enabled_skills_for_agent(scope.actor.principal.uid,
-             runtime_projection: scope[:runtime_projection]
+             runtime_projection: scope[:runtime_projection],
+             sync: false
            ),
          do:
            {:ok,
@@ -51,7 +52,8 @@ defmodule Ankole.Files.Vfs.Library do
 
   defp enabled_skill(scope, slug) do
     case AgentLibrary.enabled_skill(scope.actor.principal.uid, slug,
-           runtime_projection: scope[:runtime_projection]
+           runtime_projection: scope[:runtime_projection],
+           sync: false
          ) do
       {:error, reason} when reason in [:skill_not_found, :skill_not_enabled] ->
         {:error, :not_found}

@@ -19,6 +19,41 @@ defmodule AnkoleWeb.PodSocket do
     })
   end
 
+  @doc """
+  Validates browser WebSocket `Origin` headers against the canonical tenant Pod
+  origin configured on `AnkoleWeb.Endpoint`, before `Plug.RewriteOn` rewrites
+  proxy-terminated TLS schemes on the raw HTTP upgrade connection.
+  """
+  @spec check_origin?(URI.t()) :: boolean()
+  def check_origin?(%URI{} = uri) do
+    case AnkoleWeb.Endpoint.config(:check_origin) do
+      false ->
+        true
+
+      origins when is_list(origins) ->
+        Enum.any?(origins, &origin_matches?(uri, URI.parse(&1)))
+
+      _default ->
+        with {:ok, {:pod, tenant_id}} <- AnkoleWeb.Plugs.RequestHost.classify_uri(uri),
+             {:ok, tenant} <- Ankole.Tenants.get(tenant_id) do
+          origin_matches?(uri, URI.parse(AnkoleWeb.PodURL.tenant_origin(tenant)))
+        else
+          _ -> false
+        end
+    end
+  end
+
+  defp origin_matches?(%URI{} = uri, %URI{} = allowed) do
+    is_binary(uri.host) and
+      is_binary(allowed.host) and
+      (is_nil(allowed.scheme) or uri.scheme == allowed.scheme) and
+      String.downcase(uri.host) == String.downcase(allowed.host) and
+      (is_nil(allowed.port) or effective_port(uri) == effective_port(allowed))
+  end
+
+  defp effective_port(%URI{port: port}) when is_integer(port), do: port
+  defp effective_port(%URI{scheme: scheme}), do: URI.default_port(scheme)
+
   @impl true
   def connect(%{"token" => token}, socket, %{peer_data: %{address: address}} = info) do
     with {:ok, attrs} <-

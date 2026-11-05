@@ -1,6 +1,6 @@
 defmodule Ankole.AIAgent.Library.SourceReader do
   @moduledoc """
-  Reads shipped Skill bundles and default Agent contracts from the installation library.
+  Reads shipped Skill bundles from the installation library and provides compiled seed templates for Agent contracts.
   """
 
   alias Ankole.Kernel, as: NativeKernel
@@ -12,13 +12,38 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   @mission_file "MISSION.md"
   @design_file "DESIGN.md"
   @confidentiality_policy_file "ConfidentialityPolicy.md"
-  # Used only if the bundled templates are unreadable, so a fresh agent still
-  # gets usable runtime documents rather than failing to seed.
-  @fallback_soul "You are an Ankole AI colleague. Reply in plain text."
-  @fallback_mission ""
-  @fallback_design ""
-  @fallback_confidentiality_policy ""
   @ankole_runtimes ~w(any main background_job)
+
+  @compile_templates_root Path.join(@default_library_root, "templates")
+  @soul_template_path Path.join(@compile_templates_root, @soul_file)
+  @mission_template_path Path.join(@compile_templates_root, @mission_file)
+  @design_template_path Path.join(@compile_templates_root, @design_file)
+  @confidentiality_policy_template_path Path.join(
+                                          @compile_templates_root,
+                                          @confidentiality_policy_file
+                                        )
+  @pa_soul_template_path Path.join([@compile_templates_root, "personal-assistant", @soul_file])
+  @pa_mission_template_path Path.join([
+                              @compile_templates_root,
+                              "personal-assistant",
+                              @mission_file
+                            ])
+
+  @external_resource @soul_template_path
+  @external_resource @mission_template_path
+  @external_resource @design_template_path
+  @external_resource @confidentiality_policy_template_path
+  @external_resource @pa_soul_template_path
+  @external_resource @pa_mission_template_path
+
+  @default_soul_template File.read!(@soul_template_path)
+  @default_mission_template File.read!(@mission_template_path)
+  @default_design_template File.read!(@design_template_path)
+  @default_confidentiality_policy_template File.read!(@confidentiality_policy_template_path)
+  @personal_assistant_templates %{
+    @soul_file => File.read!(@pa_soul_template_path),
+    @mission_file => File.read!(@pa_mission_template_path)
+  }
 
   @doc """
   Reads every allowlisted builtin skill bundle from disk.
@@ -124,64 +149,37 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
-  def load_personal_assistant_template(path) do
-    File.read!(Path.join([@default_library_root, "templates", "personal-assistant", path]))
+  @doc """
+  Returns the compiled Personal Assistant seed template (`SOUL.md` or `MISSION.md`).
+  """
+  @spec load_personal_assistant_template(String.t()) :: String.t()
+  def load_personal_assistant_template(path) when is_binary(path) do
+    Map.fetch!(@personal_assistant_templates, path)
   end
 
   @doc """
-  Loads the default SOUL template, falling back to a minimal builtin value.
+  Returns the compiled default `SOUL.md` seed template.
   """
   @spec load_default_soul_template() :: String.t()
-  def load_default_soul_template, do: load_default_template(@soul_file, @fallback_soul)
+  def load_default_soul_template, do: @default_soul_template
 
   @doc """
-  Loads the default MISSION template, falling back to an empty document.
+  Returns the compiled default `MISSION.md` seed template.
   """
   @spec load_default_mission_template() :: String.t()
-  def load_default_mission_template, do: load_default_template(@mission_file, @fallback_mission)
+  def load_default_mission_template, do: @default_mission_template
 
   @doc """
-  Loads the default DESIGN template, falling back to an empty document.
+  Returns the compiled default `DESIGN.md` seed template.
   """
   @spec load_default_design_template() :: String.t()
-  def load_default_design_template, do: load_default_template(@design_file, @fallback_design)
+  def load_default_design_template, do: @default_design_template
 
   @doc """
-  Loads the default confidentiality policy template, falling back to an empty document.
+  Returns the compiled default `ConfidentialityPolicy.md` seed template.
   """
   @spec load_default_confidentiality_policy_template() :: String.t()
-  def load_default_confidentiality_policy_template do
-    load_default_template(@confidentiality_policy_file, @fallback_confidentiality_policy)
-  end
-
-  defp load_default_template(filename, fallback) do
-    root = templates_root()
-    ttl_ms = source_cache_ttl_ms()
-
-    if ttl_ms > 0 do
-      load_default_template_cached(root, filename, fallback, ttl_ms)
-    else
-      read_default_template(root, filename, fallback)
-    end
-  end
-
-  defp load_default_template_cached(root, filename, fallback, ttl_ms) do
-    key = {__MODULE__, :default_template, filename}
-
-    case Ankole.AIAgent.Library.SourceCache.fetch(key, root, ttl_ms, fn ->
-           File.read(Path.join(root, filename))
-         end) do
-      {:ok, content} -> content
-      {:error, _reason} -> fallback
-    end
-  end
-
-  defp read_default_template(root, filename, fallback) do
-    case File.read(Path.join(root, filename)) do
-      {:ok, content} -> content
-      {:error, _reason} -> fallback
-    end
-  end
+  def load_default_confidentiality_policy_template, do: @default_confidentiality_policy_template
 
   @doc false
   @spec read_skill_source(String.t(), String.t(), String.t()) ::
@@ -504,9 +502,9 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   end
 
   @doc """
-  The configured product library root. Every reader of shipped library
-  content — Skills and templates — resolves paths from this one owner, so the `ANKOLE_LIBRARY_ROOT`
-  release override applies to all of them.
+  The configured product library root. Shipped Skill bundles and Agent Plugins
+  resolve paths from this single owner so the `ANKOLE_LIBRARY_ROOT` release
+  override applies to all of them.
   """
   @spec library_root() :: String.t()
   def library_root do
@@ -516,7 +514,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   end
 
   defp skills_root, do: Path.join(library_root(), "skills")
-  defp templates_root, do: Path.join(library_root(), "templates")
 
   defp internal_skills_root do
     case Keyword.get(library_config(), :internal_skills_root) do

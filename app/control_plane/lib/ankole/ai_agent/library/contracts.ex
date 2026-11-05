@@ -13,18 +13,36 @@ defmodule Ankole.AIAgent.Library.Contracts do
   end
 
   def seed_agent_in_tx(uid, type) do
-    with :ok <- initialize_in_tx() do
+    with :ok <- ensure_initialized_in_tx() do
       if type == :personal_assistant do
-        markdown =
+        seed_if_absent(uid, :agents, fn ->
           join(
             SourceReader.load_personal_assistant_template("SOUL.md"),
             SourceReader.load_personal_assistant_template("MISSION.md"),
             "\n\n"
           )
-
-        with {:ok, _} <- seed(uid, :agents, markdown), do: :ok
+        end)
       else
         :ok
+      end
+    end
+  end
+
+  defp ensure_initialized_in_tx do
+    with :ok <- Repo.require_transaction(),
+         :ok <- seed_if_absent(nil, :agents, &default_agents/0),
+         :ok <- seed_if_absent(nil, :design, &SourceReader.load_default_design_template/0),
+         do: :ok
+  end
+
+  defp seed_if_absent(uid, slot, build_markdown) do
+    with {:ok, current} <- get(uid, slot) do
+      case current do
+        nil ->
+          with {:ok, _} <- seed(uid, slot, build_markdown.()), do: :ok
+
+        _existing ->
+          :ok
       end
     end
   end

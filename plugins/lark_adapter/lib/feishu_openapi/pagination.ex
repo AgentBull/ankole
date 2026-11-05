@@ -128,9 +128,10 @@ defmodule FeishuOpenAPI.Pagination do
               wrapped = Enum.map(items, &{:ok, &1})
               has_more = get_in_path(body, has_more_path)
               next_token = page_token(body, page_token_path, next_page_token_path)
+              valid_items? = is_list(raw_items) or (is_nil(raw_items) and has_more == false)
 
               cond do
-                strict and (not is_list(raw_items) or not is_boolean(has_more)) ->
+                strict and (not valid_items? or not is_boolean(has_more)) ->
                   {[
                      {:error,
                       %Error{code: :invalid_page, msg: "Page items and has_more are required"}}

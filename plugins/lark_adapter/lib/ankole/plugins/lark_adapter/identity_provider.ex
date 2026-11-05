@@ -217,7 +217,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     page_size = get_in(config, ["sync", "pageSize"]) || 50
     admission = get_in(config, ["sync", "admissionScope"]) || "none"
 
-    with {:ok, scope} <- directory_scope(client, admission),
+    with {:ok, scope} <- directory_scope(client),
          {:ok, expanded_scope} <- expand_group_scope(client, scope, page_size),
          {:ok, departments} <-
            collect_departments(client, expanded_scope["department_ids"], page_size),
@@ -229,7 +229,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
            ),
          {:ok, users} <- collect_directory_users(client, department_ids, page_size),
          {:ok, users} <- collect_explicit_users(client, expanded_scope["user_ids"], users),
-         {:ok, ^scope} <- directory_scope(client, admission),
+         {:ok, ^scope} <- directory_scope(client),
          {:ok, directory_group_index} <- AuthZ.external_directory_group_index(provider_id),
          {:ok, observations} <-
            sync_users(provider_id, Map.values(users), directory_group_index, ticket),
@@ -248,28 +248,35 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     end
   end
 
-  defp directory_scope(_client, "none"),
-    do: {:ok, %{"department_ids" => ["0"], "user_ids" => [], "group_ids" => []}}
-
-  defp directory_scope(client, "contact"),
-    do:
-      collect_scope(client, nil, MapSet.new(), %{
-        "department_ids" => [],
-        "user_ids" => [],
-        "group_ids" => []
-      })
+  defp directory_scope(client) do
+    collect_scope(client, nil, MapSet.new(), %{
+      "department_ids" => [],
+      "user_ids" => [],
+      "group_ids" => []
+    })
+  end
 
   defp collect_scope(client, cursor, seen, acc) do
     query = [user_id_type: "user_id", department_id_type: "department_id", page_size: 100]
     query = if cursor, do: Keyword.put(query, :page_token, cursor), else: query
 
-    with {:ok, %{"data" => data}} <- FeishuOpenAPI.get(client, "contact/v3/scopes", query: query),
+    with {:ok, %{"data" => data}} when is_map(data) <-
+           FeishuOpenAPI.get(client, "contact/v3/scopes", query: query),
          true <-
            Enum.all?(~w(user_ids department_ids group_ids), fn key ->
-             is_list(data[key]) and Enum.all?(data[key], &(is_binary(&1) and &1 != ""))
+             case Map.get(data, key) do
+               nil -> true
+               values when is_list(values) -> Enum.all?(values, &(is_binary(&1) and &1 != ""))
+               _ -> false
+             end
            end),
          true <- is_boolean(data["has_more"]) do
-      acc = Map.new(acc, fn {key, values} -> {key, Enum.sort(Enum.uniq(values ++ data[key]))} end)
+      acc =
+        Map.new(acc, fn {key, values} ->
+          page_values = Map.get(data, key) || []
+          {key, Enum.sort(Enum.uniq(values ++ page_values))}
+        end)
+
       next = data["page_token"]
 
       cond do

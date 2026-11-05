@@ -1,5 +1,19 @@
 # Changelog
 
+## Version 2.0.0-alpha.59 (2026-11-05)
+
+- Seed built-in Global and Personal Assistant contracts from compiled control-plane
+  templates and serve `/drive/Skills` directly from PostgreSQL, so Personal
+  Assistant creation and messaging work on packaged control-plane images without a
+  source checkout on disk.
+- Query authorized Feishu Contact scopes before enumerating departments and accept
+  omitted empty list fields in Feishu Contact v3 responses, so directory sync
+  succeeds when a Feishu app is granted specific departments instead of the root
+  department.
+- Validate `/pod/socket` WebSocket `Origin` headers against configured site and
+  tenant origins so browser Pod channels connect cleanly behind TLS-terminating
+  reverse proxies.
+
 ## Version 2.0.0-alpha.58 (2026-11-05)
 
 - Connect Pod workspaces, Agents, and Applets to managed cloud OAuth accounts and

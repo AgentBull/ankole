@@ -3316,6 +3316,15 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         )
 
         case conn.request_path do
+          "/open-apis/contact/v3/scopes" ->
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{
+                "department_ids" => ["0"],
+                "has_more" => false
+              }
+            })
+
           "/open-apis/contact/v3/departments/0/children" ->
             Req.Test.json(conn, %{
               "code" => 0,
@@ -3405,6 +3414,12 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              )
 
       assert Agent.get(requests, & &1) == [
+               {"/open-apis/contact/v3/scopes",
+                %{
+                  "department_id_type" => "department_id",
+                  "page_size" => "100",
+                  "user_id_type" => "user_id"
+                }},
                {"/open-apis/contact/v3/departments/0/children",
                 %{
                   "department_id_type" => "department_id",
@@ -3425,8 +3440,93 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                   "department_id_type" => "department_id",
                   "page_size" => "17",
                   "user_id_type" => "user_id"
+                }},
+               {"/open-apis/contact/v3/scopes",
+                %{
+                  "department_id_type" => "department_id",
+                  "page_size" => "100",
+                  "user_id_type" => "user_id"
                 }}
              ]
+    end
+
+    test "admissionScope none respects partial contact scopes instead of querying root department 0" do
+      config = put_in(identity_config(), ["sync", "admissionScope"], "none")
+
+      activation = %{
+        "provider_id" => "lark-main",
+        "adapter_id" => "lark",
+        "plugin_id" => "lark-adapter",
+        "config_key" => "principals.identity_providers.lark." <> "lark-main",
+        "enabled" => true
+      }
+
+      assert {:ok, persisted} = Ankole.IdentityProviders.Config.save_provider(activation, config)
+      config = persisted
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        case conn.request_path do
+          "/open-apis/contact/v3/scopes" ->
+            # Live Feishu omits empty `user_ids` and `group_ids` slices.
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{
+                "department_ids" => ["od_scoped_dept"],
+                "has_more" => false
+              }
+            })
+
+          "/open-apis/contact/v3/departments/0/children" ->
+            conn
+            |> Plug.Conn.put_status(403)
+            |> Req.Test.json(%{"code" => 40004, "msg" => "no dept authority error"})
+
+          "/open-apis/contact/v3/departments/od_scoped_dept" ->
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{
+                "department" => %{
+                  "department_id" => "od_scoped_dept",
+                  "parent_department_id" => "0",
+                  "name" => "Scoped Engineering"
+                }
+              }
+            })
+
+          "/open-apis/contact/v3/departments/od_scoped_dept/children" ->
+            # Live Feishu omits `items` when a department has no child departments.
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{"has_more" => false}
+            })
+
+          "/open-apis/contact/v3/users" ->
+            assert URI.decode_query(conn.query_string)["department_id"] == "od_scoped_dept"
+
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{
+                "items" => [
+                  %{
+                    "user_id" => "ou_scoped_member",
+                    "name" => "Scoped Member",
+                    "department_ids" => ["od_scoped_dept"]
+                  }
+                ],
+                "has_more" => false
+              }
+            })
+        end
+      end)
+
+      assert {:ok, %{users: 1, departments: 1}} =
+               IdentityProvider.sync_directory("lark-main", config)
+
+      state = Ankole.IdentityProviders.DirectoryAccess.state("lark-main")
+      assert state.status == :healthy
+      assert {:ok, _} = Principals.resolve_platform_subject("lark-main", "ou_scoped_member")
     end
 
     test "contact group scope collects every member page before approving a snapshot" do

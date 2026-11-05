@@ -361,7 +361,7 @@ defmodule Ankole.AIAgent.LibraryTest do
              "Public description."
   end
 
-  test "agent plugin sources and default templates cache per library root within TTL" do
+  test "agent plugin and skill sources cache per library root within TTL while seed templates stay compiled" do
     root_a = tmp_library_root!("cache-root-a")
     root_b = tmp_library_root!("cache-root-b")
     library_a = Path.join(root_a, "library")
@@ -371,10 +371,6 @@ defmodule Ankole.AIAgent.LibraryTest do
     write_skill!(Path.join([library_b, "skills", "beta"]), "beta", "Beta skill.", "# Beta")
     write_agent_plugin!(library_a, "plugin-alpha", "plugin-alpha-skill")
     write_agent_plugin!(library_b, "plugin-beta", "plugin-beta-skill")
-    File.mkdir_p!(Path.join(library_a, "templates"))
-    File.mkdir_p!(Path.join(library_b, "templates"))
-    File.write!(Path.join([library_a, "templates", "SOUL.md"]), "Soul A v1")
-    File.write!(Path.join([library_b, "templates", "SOUL.md"]), "Soul B v1")
 
     previous = Application.get_env(:ankole, Ankole.AIAgent.Library, [])
     on_exit(fn -> Application.put_env(:ankole, Ankole.AIAgent.Library, previous) end)
@@ -388,15 +384,15 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, [%{id: "plugin-alpha"}]} =
              AgentPlugins.SourceReader.read_trusted_agent_plugins()
 
-    assert SourceReader.load_default_soul_template() == "Soul A v1"
+    assert {:ok, [%{name: "alpha"}]} = SourceReader.read_builtin_skill_sources()
 
-    File.write!(Path.join([library_a, "templates", "SOUL.md"]), "Soul A v2")
     File.rm_rf!(Path.join([library_a, "agent-plugins", "plugin-alpha"]))
+    File.rm_rf!(Path.join([library_a, "skills", "alpha"]))
 
     assert {:ok, [%{id: "plugin-alpha"}]} =
              AgentPlugins.SourceReader.read_trusted_agent_plugins()
 
-    assert SourceReader.load_default_soul_template() == "Soul A v1"
+    assert {:ok, [%{name: "alpha"}]} = SourceReader.read_builtin_skill_sources()
 
     Application.put_env(:ankole, Ankole.AIAgent.Library,
       library_root: library_b,
@@ -407,7 +403,20 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, [%{id: "plugin-beta"}]} =
              AgentPlugins.SourceReader.read_trusted_agent_plugins()
 
-    assert SourceReader.load_default_soul_template() == "Soul B v1"
+    assert {:ok, [%{name: "beta"}]} = SourceReader.read_builtin_skill_sources()
+
+    # Personal Assistant seeding and document reads rely on compiled seed templates and
+    # PostgreSQL contracts rather than reading `templates/*.md` from `library_root` on disk.
+    refute File.exists?(Path.join(library_b, "templates"))
+    %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+    Ankole.PrincipalsFixtures.worker_provider_fixture(%{is_default: true})
+    assert {:ok, %{principal: pa}} = Ankole.Principals.ensure_personal_assistant(human.uid)
+
+    assert {:ok, %{"agents" => %{"content" => agents_md}, "design" => %{"content" => design_md}}} =
+             Library.list_agent_documents(pa.uid)
+
+    assert agents_md != ""
+    assert design_md != ""
   end
 
   defp tmp_library_root!(name) do

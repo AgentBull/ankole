@@ -43,6 +43,21 @@ defmodule FeishuOpenAPI.PaginationTest do
 
     assert [{:error, %{code: :invalid_page}}] =
              Pagination.stream(client, "contact/v3/users", strict: true) |> Enum.to_list()
+
+    # Feishu v3 omits `items` on empty terminal pages (`has_more: false`), which is valid,
+    # whereas omitting `items` while `has_more: true` remains invalid.
+    Req.Test.stub(FeishuOpenAPI.PaginationTest, fn conn ->
+      Req.Test.json(conn, %{"code" => 0, "data" => %{"has_more" => false}})
+    end)
+
+    assert [] == Pagination.stream(client, "contact/v3/users", strict: true) |> Enum.to_list()
+
+    Req.Test.stub(FeishuOpenAPI.PaginationTest, fn conn ->
+      Req.Test.json(conn, %{"code" => 0, "data" => %{"has_more" => true, "page_token" => "next"}})
+    end)
+
+    assert [{:error, %{code: :invalid_page}}] =
+             Pagination.stream(client, "contact/v3/users", strict: true) |> Enum.to_list()
   end
 
   test "iterates across pages and stops when has_more is false", %{client: client} do

@@ -45,7 +45,7 @@ defmodule AnkoleWeb.Endpoint do
 
   socket "/pod/socket", AnkoleWeb.PodSocket,
     websocket: [
-      check_origin: :conn,
+      check_origin: {__MODULE__, :check_pod_socket_origin?, []},
       connect_info: [:uri, :peer_data, :x_headers],
       max_frame_size: Ankole.Pod.DocumentWire.max_bytes(),
       timeout: 60_000
@@ -101,6 +101,8 @@ defmodule AnkoleWeb.Endpoint do
     conn = Plug.RewriteOn.call(%Plug.Conn{remote_ip: address, req_headers: headers}, @rewrite_on)
     conn.remote_ip
   end
+
+  def check_pod_socket_origin?(uri), do: AnkoleWeb.PodSocket.check_origin?(uri)
 
   # Keep business plug implementations out of the endpoint's compile dependencies.
   # Standard library plugs keep their normal compile-time initialization.

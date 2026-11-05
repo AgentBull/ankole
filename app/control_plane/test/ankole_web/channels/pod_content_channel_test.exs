@@ -1000,6 +1000,39 @@ defmodule AnkoleWeb.PodContentChannelTest do
     assert_receive {:DOWN, ^reference, :process, _, :normal}, 1_000
   end
 
+  test "PodSocket.check_origin?/1 accepts TLS-terminated tenant origins and rejects mismatched or non-Pod origins" do
+    {:ok, tenant} = Ankole.Tenants.get(Repo.tenant_id!())
+    previous = Application.fetch_env!(:ankole, AnkoleWeb.Endpoint)
+
+    on_exit(fn ->
+      Application.put_env(:ankole, AnkoleWeb.Endpoint, previous)
+      :ok = AnkoleWeb.Endpoint.config_change([{AnkoleWeb.Endpoint, previous}], [])
+    end)
+
+    site_host = Keyword.get(previous[:url] || [], :host, "ankole.localhost")
+
+    https_config =
+      previous
+      |> Keyword.delete(:check_origin)
+      |> Keyword.put(:url, host: site_host, scheme: "https", port: 443)
+
+    Application.put_env(:ankole, AnkoleWeb.Endpoint, https_config)
+    :ok = AnkoleWeb.Endpoint.config_change([{AnkoleWeb.Endpoint, https_config}], [])
+
+    canonical_pod_uri = URI.parse(AnkoleWeb.PodURL.tenant_origin(tenant))
+    assert PodSocket.check_origin?(canonical_pod_uri)
+
+    # Downgraded scheme, unexpected port, site host, and untrusted third-party origins are rejected.
+    refute PodSocket.check_origin?(%{canonical_pod_uri | scheme: "http", port: 80})
+    refute PodSocket.check_origin?(%{canonical_pod_uri | port: 8443})
+
+    refute PodSocket.check_origin?(
+             URI.parse(AnkoleWeb.PodURL.site_origin(%{scheme: :https, port: 443}))
+           )
+
+    refute PodSocket.check_origin?(URI.parse("https://evil.example"))
+  end
+
   defp authenticated_socket(principal, ip \\ {127, 0, 0, 1}) do
     token = socket_token(principal)
     {:ok, tenant} = Ankole.Tenants.get(Repo.tenant_id!())

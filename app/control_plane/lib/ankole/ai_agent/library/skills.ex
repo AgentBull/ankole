@@ -398,11 +398,12 @@ defmodule Ankole.AIAgent.Library.Skills do
   end
 
   def sync(sources) do
-    sources |> Enum.map(&sync_source/1) |> Ankole.Attrs.collect_results()
+    existing = Map.new(list(), &{&1.slug, &1})
+    sources |> Enum.map(&sync_source(&1, existing)) |> Ankole.Attrs.collect_results()
   end
 
-  defp sync_source(source) do
-    case get(source.name) do
+  defp sync_source(source, existing) do
+    case Map.fetch(existing, source.name) do
       {:ok, skill} when skill.source_kind == :custom ->
         # A shipped addition must leave an existing custom package manageable.
         # Renaming the custom package lets the next sync install the shipped one.
@@ -414,11 +415,8 @@ defmodule Ankole.AIAgent.Library.Skills do
              skill.upstream_state["pending_upstream_hash"]
            ], do: {:ok, skill}, else: prepare_source(source)
 
-      {:error, :not_found} ->
+      :error ->
         prepare_source(source)
-
-      error ->
-        error
     end
   end
 
