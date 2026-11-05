@@ -42,8 +42,8 @@ export function settingGroup(id: string) {
   return SETTING_GROUPS.find(group => group.id === id)
 }
 
-export function settingOwnerRoute(key: string): string | undefined {
-  return (
+export function settingOwnerRoute(key: string, scope?: 'global' | 'tenant'): string | undefined {
+  const base =
     SETTING_OWNER_ROUTES[key] ??
     (key.startsWith('ai_gateway.model_profiles.') || key.startsWith('ai_gateway.provider_hosted.')
       ? '/model-profiles'
@@ -53,7 +53,10 @@ export function settingOwnerRoute(key: string): string | undefined {
         : key.startsWith('signals.') && key !== 'signals.show_dead_letter_error_details'
           ? '/signals'
           : undefined)
-  )
+  if (!base || !scope) return base
+  if (key.startsWith('ai_agent.library.')) return `${base}&defaults_scope=${scope}`
+  if (key.startsWith('ai_gateway.')) return `${base}?defaults_scope=${scope}`
+  return base
 }
 
 export function settingDescription(

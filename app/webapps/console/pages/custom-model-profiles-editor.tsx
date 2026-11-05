@@ -315,7 +315,7 @@ function StoredCustomModelProfileEditor({
   if (draftStatus !== 'ready') return <Skeleton className="h-48 w-full" aria-busy="true" />
 
   const signals = model.profile
-  const draft = model.snapshot()
+  const draft = signals.draft.value
 
   return (
     <ModelProfileEditorCard

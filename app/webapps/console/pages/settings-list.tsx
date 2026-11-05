@@ -118,10 +118,8 @@ export function SettingsList() {
   )
 
   const ownerLink = (item: AppConfigurationItem) => {
-    let route = settingOwnerRoute(item.key)
+    const route = settingOwnerRoute(item.key, scope)
     if (!route) return null
-    if (item.key.startsWith('ai_agent.library.')) route += `&defaults_scope=${scope}`
-    if (item.key.startsWith('ai_gateway.')) route += `?defaults_scope=${scope}`
     const label =
       item.key === 'saas.require_invitation_code'
         ? 'owner_invitations'

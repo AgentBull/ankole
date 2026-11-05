@@ -37,7 +37,7 @@ const tenantRoots = new Set(
 )
 
 export function consoleTenantPage(path: string, search: URLSearchParams): 'site' | 'collection' | 'record' {
-  if (path === '/model-profiles' && search.get('defaults_scope') === 'global') return 'site'
+  if (path === '/model-profiles' && search.get('defaults_scope') !== 'tenant') return 'site'
   if (['/brain', '/access'].includes(path)) return 'site'
   if (
     (path === '/settings' || path.startsWith('/settings/') || path.startsWith('/worker-envs/')) &&

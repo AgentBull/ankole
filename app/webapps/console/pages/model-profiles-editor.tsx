@@ -214,7 +214,7 @@ export function ProfileEditor({
   useSignals()
   const { t } = useTranslation()
   const signals = model.profiles[profile]
-  const draft = model.snapshot(profile)
+  const draft = signals.draft.value
   const hasOverride = Object.hasOwn(configuration.overrides, profile)
   const persist = useMutation({
     mutationFn: async (input: ProfilePersistence) => {

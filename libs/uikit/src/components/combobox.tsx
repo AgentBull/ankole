@@ -41,7 +41,7 @@ function ComboboxInput({
   className,
   children,
   clearLabel = 'Clear selection',
-  disabled = false,
+  disabled,
   showTrigger = true,
   showClear = false,
   triggerLabel = 'Open options',

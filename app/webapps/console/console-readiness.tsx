@@ -180,7 +180,9 @@ export function readinessSteps(t: TFunction, readiness: ConsoleReadinessResponse
             )
           }),
       title: t('console.readiness.profiles_title'),
-      to: profileAgentUID ? `/agents/${encodeURIComponent(profileAgentUID)}#model-profiles` : '/model-profiles'
+      to: profileAgentUID
+        ? `/agents/${encodeURIComponent(profileAgentUID)}#model-profiles`
+        : '/model-profiles?defaults_scope=tenant'
     },
     {
       key: 'worker',

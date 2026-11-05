@@ -108,6 +108,10 @@ export function ModelProfileEditorCard({
   const selectedProvider = providers.find(provider => provider.provider_id === providerID)
   const selectedKind = providerKinds.find(kind => kind.provider_kind === selectedProvider?.provider_kind)
   const profileProviders = providersForProfile(providers, providerKinds, profile)
+  const selectableProviderIDs = [
+    ...profileProviders.map(provider => provider.provider_id),
+    ...(providerID && !profileProviders.some(provider => provider.provider_id === providerID) ? [providerID] : [])
+  ]
   const optionSettings = requestSettings(selectedKind)
   const basicOptionSettings = optionSettings.filter(setting => !setting.advanced)
   const advancedOptionSettings = optionSettings.filter(setting => setting.advanced)
@@ -250,8 +254,9 @@ export function ModelProfileEditorCard({
             <LabeledField label={t('console.models.provider')} error={providerError} required>
               <Select
                 disabled={disabled}
-                value={draft.providerID}
+                value={draft.providerID || null}
                 onValueChange={value => {
+                  if (!value) return
                   const nextProviderID = String(value)
                   onUpdate(
                     nextProviderID === draft.providerID
@@ -271,9 +276,9 @@ export function ModelProfileEditorCard({
                   emptyLabel={
                     providers.length === 0 ? t('console.models.provider_none') : t('console.models.provider_empty')
                   }>
-                  {profileProviders.map(provider => (
-                    <SelectItem key={provider.provider_id} value={provider.provider_id}>
-                      {provider.provider_id}
+                  {selectableProviderIDs.map(selectableID => (
+                    <SelectItem key={selectableID} value={selectableID}>
+                      {selectableID}
                     </SelectItem>
                   ))}
                 </SelectContent>

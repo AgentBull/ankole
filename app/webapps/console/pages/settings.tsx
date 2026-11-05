@@ -120,15 +120,10 @@ export function SettingEditorDrawer() {
   const [search] = useSearchParams()
   const key = params.key ?? ''
   const group = settingGroupID(key)
-  const owner = settingOwnerRoute(key)
+  const owner = settingOwnerRoute(key, settingsScope(search))
   if (group) return <Navigate to={`/settings/group/${group}`} search={settingsSearch(search, { focus: key })} replace />
   if (owner) {
-    return (
-      <Navigate
-        {...linkTarget(owner + (key.startsWith('ai_agent.library.') ? `&defaults_scope=${settingsScope(search)}` : ''))}
-        replace
-      />
-    )
+    return <Navigate {...linkTarget(owner)} replace />
   }
   return <SingleSettingEditorDrawer />
 }

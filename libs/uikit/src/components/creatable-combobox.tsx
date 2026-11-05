@@ -106,6 +106,7 @@ export function CreatableCombobox({
         aria-invalid={ariaInvalid}
         aria-label={ariaLabel}
         clearLabel={clearLabel}
+        disabled={disabled}
         id={id}
         placeholder={placeholder}
         showClear

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { effect } from '@preact/signals-react'
 import {
   CustomModelProfileModel,
   ModelProfilesModel,
@@ -209,6 +210,32 @@ describe('ModelProfilesModel', () => {
     })
     expect(model.profiles.primary.dirty.value).toBeFalse()
     expect(model.dirty.value).toBeFalse()
+    model[Symbol.dispose]()
+  })
+
+  test('notifies reactive draft subscribers across repeated dirty edits and validation errors', () => {
+    const model = new ModelProfilesModel()
+    model.initialize('defaults:global', {})
+
+    const seen: Array<{ providerID: string; model: string; error?: string }> = []
+    const dispose = effect(() => {
+      const draft = model.profiles.primary.draft.value
+      seen.push({ providerID: draft.providerID, model: draft.model, error: draft.error })
+    })
+
+    model.update('primary', { error: 'Provider is required' })
+    model.update('primary', { providerID: 'google_ai_studio_openai', error: undefined })
+    model.update('primary', { model: 'gemini-2.5-pro' })
+    model.update('primary', { providerID: 'openrouter', model: '' })
+
+    dispose()
+    expect(seen).toEqual([
+      { providerID: '', model: '', error: undefined },
+      { providerID: '', model: '', error: 'Provider is required' },
+      { providerID: 'google_ai_studio_openai', model: '', error: undefined },
+      { providerID: 'google_ai_studio_openai', model: 'gemini-2.5-pro', error: undefined },
+      { providerID: 'openrouter', model: '', error: undefined }
+    ])
     model[Symbol.dispose]()
   })
 })

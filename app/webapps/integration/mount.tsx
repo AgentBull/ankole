@@ -16,6 +16,7 @@ import {
 import { SetupApp } from '../setup/app'
 import { EmailOtpForm } from '../auth/email-otp-form'
 import { AppProviders, createQueryClient } from '../common/providers'
+import { applyDataTenantNavigation } from '../common/browser-session'
 import { loadLocale } from '../common/i18n'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { configureConsoleAPIClient } from '../console/api/client'
@@ -62,6 +63,7 @@ const app = setupSurface ? (
   <LoginTestPage />
 ) : consoleSurface ? (
   (() => {
+    applyDataTenantNavigation()
     configureConsoleAPIClient()
     const rootRoute = createRootRoute()
     const regressionNavRoute = createRoute({

@@ -13,49 +13,132 @@ const slots = [
   'rerank'
 ]
 
-async function fixture(page: Page) {
+const TENANT_ID = '11111111-1111-4111-8111-111111111111'
+
+async function fixture(page: Page, options: { initialURL?: string; unconfiguredSitePrimary?: boolean } = {}) {
   const overrides: Record<string, Record<string, Record<string, unknown>>> = { system: {}, ankole_brain: {} }
   const writes: { uid: string; slot: string; method: string }[] = []
-  const defaultOverrides: Record<string, Record<string, unknown>> = {}
-  const inherited = Object.fromEntries(
-    slots.map(slot => [
-      slot,
-      {
-        source: slot === 'rerank' ? 'global' : 'tenant',
-        resolved_from_profile: slot,
-        value: { provider_id: 'service-models', model: `pod-${slot}` }
-      }
-    ])
+  const defaultWrites: {
+    scope: string | null
+    slot: string
+    method: string
+    tenant: string | null
+    attrs?: Record<string, unknown>
+  }[] = []
+  const defaultRequests: { scope: string | null; tenant: string | null }[] = []
+  let systemPrincipalsRequests = 0
+  const siteOverrides: Record<string, Record<string, unknown>> = Object.fromEntries(
+    slots
+      .filter(slot => !(options.unconfiguredSitePrimary && slot === 'primary'))
+      .map(slot => [slot, { provider_id: 'service-models', model: `site-${slot}` }])
   )
-  const configuration = (uid?: string) => ({
-    overrides: uid ? overrides[uid] : defaultOverrides,
-    inherited,
-    effective: {
-      ...inherited,
-      ...Object.fromEntries(
-        Object.entries(uid ? overrides[uid]! : {}).map(([slot, value]) => [
-          slot,
-          {
-            value,
-            source: 'system',
-            resolved_from_profile: slot
-          }
-        ])
-      )
-    },
+  const podOverrides: Record<string, Record<string, unknown>> = Object.fromEntries(
+    slots.filter(slot => slot !== 'rerank').map(slot => [slot, { provider_id: 'service-models', model: `pod-${slot}` }])
+  )
+
+  const siteConfiguration = () => {
+    const effective = Object.fromEntries(
+      slots.map(slot => [
+        slot,
+        siteOverrides[slot]
+          ? { source: 'global', resolved_from_profile: slot, value: siteOverrides[slot] }
+          : { source: 'default', resolved_from_profile: slot, value: null }
+      ])
+    )
+    return {
+      overrides: siteOverrides,
+      inherited: {},
+      effective,
+      provider_hosted: { overrides: {}, inherited: {}, effective: {} }
+    }
+  }
+
+  const podEffective = () =>
+    Object.fromEntries(
+      slots.map(slot => {
+        if (podOverrides[slot]) {
+          return [slot, { source: 'tenant', resolved_from_profile: slot, value: podOverrides[slot] }]
+        }
+        if (siteOverrides[slot]) {
+          return [slot, { source: 'global', resolved_from_profile: slot, value: siteOverrides[slot] }]
+        }
+        return [slot, { source: 'default', resolved_from_profile: slot, value: null }]
+      })
+    )
+
+  const podConfiguration = () => ({
+    overrides: podOverrides,
+    inherited: Object.fromEntries(
+      slots
+        .filter(slot => Boolean(siteOverrides[slot]))
+        .map(slot => [slot, { source: 'global', resolved_from_profile: slot, value: siteOverrides[slot] }])
+    ),
+    effective: podEffective(),
     provider_hosted: { overrides: {}, inherited: {}, effective: {} }
   })
-  await page.route('**/api/v2/model-profiles**', route => {
-    if (route.request().method() === 'PUT') {
-      const slot = new URL(route.request().url()).pathname.split('/').at(-1)!
-      const value = route.request().postDataJSON().data.attrs
-      defaultOverrides[slot] = value
-      inherited[slot] = { source: 'tenant', resolved_from_profile: slot, value }
+
+  const systemConfiguration = (uid: string) => {
+    const inherited = podEffective()
+    return {
+      overrides: overrides[uid],
+      inherited,
+      effective: {
+        ...inherited,
+        ...Object.fromEntries(
+          Object.entries(overrides[uid]!).map(([slot, value]) => [
+            slot,
+            {
+              value,
+              source: 'system',
+              resolved_from_profile: slot
+            }
+          ])
+        )
+      },
+      provider_hosted: { overrides: {}, inherited: {}, effective: {} }
     }
-    return route.fulfill({ json: configuration() })
-  })
-  await page.route('**/api/v2/system-principals', route =>
+  }
+
+  await page.route('**/api/v2/site/tenants', route =>
     route.fulfill({
+      json: {
+        data: [
+          {
+            id: TENANT_ID,
+            type: 'tenant',
+            attributes: {
+              id: TENANT_ID,
+              slug: 'acme',
+              display_name: 'Acme',
+              suspended_at: null,
+              deleting_at: null
+            }
+          }
+        ]
+      }
+    })
+  )
+  await page.route('**/api/v2/model-profiles**', route => {
+    const url = new URL(route.request().url())
+    const method = route.request().method()
+    const tenant = route.request().headers()['x-ankole-tenant'] ?? null
+    if (method === 'GET') {
+      const scope = url.searchParams.get('defaults_scope')
+      defaultRequests.push({ scope, tenant })
+      return route.fulfill({ json: scope === 'global' ? siteConfiguration() : podConfiguration() })
+    }
+    const slot = url.pathname.split('/').at(-1)!
+    const body = method === 'PUT' ? route.request().postDataJSON().data : undefined
+    const scope = (body?.defaults_scope as string | undefined) ?? url.searchParams.get('defaults_scope')
+    defaultWrites.push({ scope: scope ?? null, slot, method, tenant, attrs: body?.attrs })
+    const store = scope === 'global' ? siteOverrides : podOverrides
+    if (method === 'PUT') store[slot] = body.attrs
+    if (method === 'DELETE') delete store[slot]
+    return route.fulfill({ json: scope === 'global' ? siteConfiguration() : podConfiguration() })
+  })
+  await page.route('**/api/v2/system-principals', route => {
+    systemPrincipalsRequests += 1
+    return route.fulfill({
       json: {
         system_principals: [
           { uid: 'system', purpose: 'Applet' },
@@ -63,7 +146,7 @@ async function fixture(page: Page) {
         ]
       }
     })
-  )
+  })
   await page.route('**/api/v2/system-principals/**', route => {
     const [, uid, slot] = new URL(route.request().url()).pathname.match(
       /system-principals\/([^/]+)\/model-profiles(?:\/(.+))?/
@@ -74,7 +157,7 @@ async function fixture(page: Page) {
       if (method === 'PUT') overrides[uid!]![slot] = route.request().postDataJSON().data.attrs
       if (method === 'DELETE') delete overrides[uid!]![slot]
     }
-    return route.fulfill({ json: configuration(uid) })
+    return route.fulfill({ json: systemConfiguration(uid!) })
   })
   await page.route('**/api/v2/site/ai-gateway/providers', route =>
     route.fulfill({
@@ -85,6 +168,17 @@ async function fixture(page: Page) {
             type: 'ai_gateway_provider',
             attributes: {
               provider_id: 'service-models',
+              provider_kind: 'openrouter',
+              disabled_at: null,
+              credential_pool: { entries: [] },
+              provider_metadata: {}
+            }
+          },
+          {
+            id: 'google_ai_studio_openai',
+            type: 'ai_gateway_provider',
+            attributes: {
+              provider_id: 'google_ai_studio_openai',
               provider_kind: 'openrouter',
               disabled_at: null,
               credential_pool: { entries: [] },
@@ -109,10 +203,88 @@ async function fixture(page: Page) {
     })
   )
   await page.route('**/api/v2/site/ai-gateway/models', route => route.fulfill({ json: { models: [] } }))
-  await page.goto('/model-profiles?defaults_scope=tenant&system_principal=ankole_brain')
-  await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(9)
-  return { writes, overrides }
+  const initialURL =
+    options.initialURL ?? `/model-profiles?defaults_scope=tenant&system_principal=ankole_brain&data_tenant=${TENANT_ID}`
+  await page.goto(initialURL)
+  if (initialURL.includes('system_principal=ankole_brain')) {
+    await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(9)
+  }
+  return {
+    writes,
+    overrides,
+    defaultWrites,
+    defaultRequests,
+    getSystemPrincipalsRequests: () => systemPrincipalsRequests
+  }
 }
+
+test('opens directly on Site defaults without a selected tenant and updates provider selection across edits', async ({
+  page
+}) => {
+  const server = await fixture(page, { initialURL: '/model-profiles', unconfiguredSitePrimary: true })
+  await expect(page.getByRole('tab', { name: 'Site defaults', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('combobox', { name: 'Tenant', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'System Principals', exact: true })).toHaveCount(0)
+
+  const primary = page.locator('form').filter({ has: page.getByRole('button', { name: /^Primary model/ }) })
+  await primary.getByRole('button', { name: /^Primary model/ }).click()
+
+  const modelInput = primary.getByRole('combobox', { name: 'Model', exact: true })
+  const providerSelect = primary.getByRole('combobox', { name: /^Provider/ })
+  await expect(modelInput).toBeDisabled()
+
+  await providerSelect.click()
+  await page.getByRole('option', { name: 'google_ai_studio_openai', exact: true }).click()
+  await expect(providerSelect).toContainText('google_ai_studio_openai')
+  await expect(modelInput).toBeEnabled()
+
+  await modelInput.fill('gemini-2.5-pro')
+  await page.getByRole('option', { name: /Use.*gemini-2.5-pro/ }).click()
+
+  // Switching provider while the draft is already dirty must still re-render the controlled Select and clear the stale model.
+  await providerSelect.click()
+  await page.getByRole('option', { name: 'service-models', exact: true }).click()
+  await expect(providerSelect).toContainText('service-models')
+  await expect(modelInput).toHaveValue('')
+
+  await modelInput.fill('site-primary-v2')
+  await page.getByRole('option', { name: /Use.*site-primary-v2/ }).click()
+  await primary.getByRole('button', { name: 'Save', exact: true }).click()
+
+  await expect
+    .poll(() => server.defaultWrites)
+    .toEqual([
+      {
+        scope: 'global',
+        slot: 'primary',
+        method: 'PUT',
+        tenant: null,
+        attrs: { provider_id: 'service-models', model: 'site-primary-v2', provider_options: {} }
+      }
+    ])
+})
+
+test('Pod defaults tab keeps scope tabs mounted when no tenant is selected and binds the chosen tenant', async ({
+  page
+}) => {
+  const server = await fixture(page, { initialURL: '/model-profiles' })
+  await expect.poll(() => server.defaultRequests).toEqual([{ scope: 'global', tenant: null }])
+
+  await page.getByRole('tab', { name: 'Pod defaults', exact: true }).click()
+  await expect(page.getByRole('tab', { name: 'Site defaults', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Pod defaults', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('status')).toContainText('Choose a tenant to view, create, or edit a record.')
+  expect(server.defaultRequests).toEqual([{ scope: 'global', tenant: null }])
+  expect(server.getSystemPrincipalsRequests()).toBe(0)
+
+  await page.getByRole('combobox', { name: 'Tenant', exact: true }).click()
+  await page.getByRole('option', { name: 'Acme (acme)', exact: true }).click()
+
+  await expect(page).toHaveURL(/defaults_scope=tenant/)
+  await expect(page.getByRole('tab', { name: 'Pod defaults', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('region', { name: 'ankole_brain', exact: true }).locator('form')).toHaveCount(9)
+  expect(server.defaultRequests).toContainEqual({ scope: 'tenant', tenant: TENANT_ID })
+})
 
 test('system editors expose all nine slots, save independently, and restore inheritance', async ({ page }) => {
   const server = await fixture(page)
@@ -146,9 +318,9 @@ test('system editors expose all nine slots, save independently, and restore inhe
 
 test('Site defaults do not show tenant system editors', async ({ page }) => {
   await fixture(page)
-  await page.getByRole('combobox', { name: 'Defaults scope', exact: true }).click()
-  await page.getByRole('option', { name: 'Site defaults', exact: true }).click()
+  await page.getByRole('tab', { name: 'Site defaults', exact: true }).click()
   await expect(page.getByRole('region', { name: 'System Principals', exact: true })).toHaveCount(0)
+  await expect(page).not.toHaveURL(/system_principal=/)
 })
 
 test('changing Pod defaults refreshes untouched system slots and preserves pending edits', async ({ page }) => {

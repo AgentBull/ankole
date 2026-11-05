@@ -1,5 +1,5 @@
 import { useMutation, useQuery, Link, useSearchParams } from '../tenant-context'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton } from '@ankole/uikit'
+import { Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from '@ankole/uikit'
 import { recordValue } from '@agentbull/active-support'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -20,7 +20,7 @@ import {
 } from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { ErrorBlock } from '../../common/error-block'
 import { dataTenantID } from '../../common/browser-session'
-import { PageHeader, PageStack } from '../console-page'
+import { PageHeader, PageStack, RefreshButton } from '../console-page'
 import { aiGatewayProviders } from '../state/provider-settings'
 import {
   ModelProfilesModel,
@@ -28,6 +28,7 @@ import {
   resolvedProviderHosted,
   type ProfileName
 } from '../state/model-profiles-model'
+import { TenantSwitcher } from '../tenant-switcher'
 import { ModelProfileEditorCard } from './model-profile-editor-card'
 import { ProfileEditor, useModelProfilesDraft } from './model-profiles-editor'
 
@@ -38,13 +39,26 @@ export function ModelProfilesPage() {
   const queryClient = useQueryClient()
   const model = useModel(ModelProfilesModel)
   const [params, setParams] = useSearchParams()
-  const scope: DefaultsScope = params.get('defaults_scope') === 'global' ? 'global' : 'tenant'
-  const configuration = useQuery(listDefaultModelProfilesOptions({ query: { defaults_scope: scope } }))
-  const systemPrincipals = useQuery({ ...listSystemPrincipalsOptions(), enabled: scope === 'tenant' })
+  const scope: DefaultsScope = params.get('defaults_scope') === 'tenant' ? 'tenant' : 'global'
+  const selectedTenantID = dataTenantID()
+  const canLoadConfiguration = scope === 'global' || Boolean(selectedTenantID)
+  const configuration = useQuery({
+    ...listDefaultModelProfilesOptions({ query: { defaults_scope: scope } }),
+    enabled: canLoadConfiguration
+  })
+  const systemPrincipals = useQuery({
+    ...listSystemPrincipalsOptions(),
+    enabled: scope === 'tenant' && Boolean(selectedTenantID)
+  })
   const providers = useBaseQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
   const providerKinds = useBaseQuery(listAiGatewayProviderKindsOptions())
   const modelCatalog = useBaseQuery(listAiGatewayModelsOptions())
-  const draftStatus = useModelProfilesDraft(model, `defaults:${scope}`, configuration.data)
+  const draftSourceKey = scope === 'global' ? 'defaults:global' : `defaults:tenant:${selectedTenantID ?? 'none'}`
+  const draftStatus = useModelProfilesDraft(
+    model,
+    draftSourceKey,
+    canLoadConfiguration ? configuration.data : undefined
+  )
   const saveProviderHosted = useMutation({
     ...putDefaultProviderHostedMutation(),
     onError: () => void queryClient.invalidateQueries()
@@ -75,92 +89,106 @@ export function ModelProfilesPage() {
       <PageHeader
         title={t('console.models.defaults_title')}
         description={t('console.models.defaults_description')}
-        actions={
-          <Select
-            value={scope}
-            onValueChange={value => {
-              const next = new URLSearchParams(params)
-              next.set('defaults_scope', String(value))
-              setParams(next)
-            }}>
-            <SelectTrigger aria-label={t('console.models.defaults_scope')} className="min-w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="tenant">{t('console.models.scope_tenant')}</SelectItem>
-              <SelectItem value="global">{t('console.models.scope_global')}</SelectItem>
-            </SelectContent>
-          </Select>
-        }
+        actions={<RefreshButton />}
       />
-      <div className="grid gap-1">
-        <h3 className="title-section">{t(`console.models.scope_${scope}`)}</h3>
-        <p className="text-sm leading-6 text-muted-foreground">{t(`console.models.scope_${scope}_description`)}</p>
-        {providers.data?.length === 0 ? (
-          <p className="text-sm leading-6 text-muted-foreground">
-            {t('console.models.provider_none_hint')}{' '}
-            <Link className="link" to="/providers/new">
-              {t('console.models.provider_none_action')}
-            </Link>
-          </p>
-        ) : null}
-      </div>
-      <ErrorBlock
-        error={
-          configuration.error ??
-          providers.error ??
-          providerKinds.error ??
-          modelCatalog.error ??
-          saveProviderHosted.error
-        }
-      />
-      {draftStatus === 'loading' ? (
-        <div className="grid gap-4" aria-busy="true">
-          <Skeleton className="h-48 w-full" />
-          <Skeleton className="h-48 w-full" />
-          <Skeleton className="h-48 w-full" />
-        </div>
-      ) : configuration.data ? (
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
-          {POD_PROFILE_NAMES.map(profile => (
-            <ProfileEditor
-              key={`${scope}:${profile}`}
-              configuration={configuration.data!}
-              model={model}
-              profile={profile}
-              providerHosted={providerHostedFor(profile)}
-              providerKinds={providerKinds.data?.provider_kinds ?? []}
-              providers={providers.data ?? []}
-              modelCatalog={modelCatalog.data?.models ?? []}
-              target={{ defaultsScope: scope }}
-            />
-          ))}
-        </div>
-      ) : null}
-      {scope === 'tenant' ? (
-        <section className="grid min-w-0 gap-6" aria-labelledby="system-principals-title">
+      <Tabs
+        value={scope}
+        onValueChange={value => {
+          const nextScope: DefaultsScope = value === 'tenant' ? 'tenant' : 'global'
+          const next = new URLSearchParams(params)
+          if (nextScope === 'global') {
+            next.delete('defaults_scope')
+            next.delete('system_principal')
+          } else {
+            next.set('defaults_scope', 'tenant')
+          }
+          setParams(next)
+        }}
+        className="min-w-0 gap-6">
+        <TabsList aria-label={t('console.models.defaults_scope')} className="max-w-full overflow-x-auto">
+          <TabsTrigger value="global">{t('console.models.scope_global')}</TabsTrigger>
+          <TabsTrigger value="tenant">{t('console.models.scope_tenant')}</TabsTrigger>
+        </TabsList>
+        <TabsContent key={scope} value={scope} className="grid min-w-0 gap-6">
           <div className="grid gap-1">
-            <h2 id="system-principals-title" className="title-section">
-              {t('console.models.system_principals_title')}
-            </h2>
-            <p className="text-sm leading-6 text-muted-foreground">
-              {t('console.models.system_principals_description')}
-            </p>
+            <h3 className="title-section">{t(`console.models.scope_${scope}`)}</h3>
+            <p className="text-sm leading-6 text-muted-foreground">{t(`console.models.scope_${scope}_description`)}</p>
+            {providers.data?.length === 0 ? (
+              <p className="text-sm leading-6 text-muted-foreground">
+                {t('console.models.provider_none_hint')}{' '}
+                <Link className="link" to="/providers/new">
+                  {t('console.models.provider_none_action')}
+                </Link>
+              </p>
+            ) : null}
           </div>
-          <ErrorBlock error={systemPrincipals.error} />
-          {systemPrincipals.isPending ? <Skeleton className="h-48 w-full" /> : null}
-          {systemPrincipals.data?.system_principals.map(service => (
-            <SystemPrincipalEditor
-              key={service.uid}
-              service={service}
-              selected={params.get('system_principal') === service.uid}
-              providers={providers.data ?? []}
-              providerKinds={providerKinds.data?.provider_kinds ?? []}
-              modelCatalog={modelCatalog.data?.models ?? []}
-            />
-          ))}
-        </section>
-      ) : null}
+          {scope === 'tenant' ? <TenantSwitcher record search={Object.fromEntries(params)} /> : null}
+          {scope === 'tenant' && !selectedTenantID ? (
+            <p role="status" className="text-sm text-muted-foreground">
+              {t('console.tenants.choose_for_record')}
+            </p>
+          ) : (
+            <>
+              <ErrorBlock
+                error={
+                  configuration.error ??
+                  providers.error ??
+                  providerKinds.error ??
+                  modelCatalog.error ??
+                  saveProviderHosted.error
+                }
+              />
+              {draftStatus === 'loading' ? (
+                <div className="grid gap-4" aria-busy="true">
+                  <Skeleton className="h-48 w-full" />
+                  <Skeleton className="h-48 w-full" />
+                  <Skeleton className="h-48 w-full" />
+                </div>
+              ) : configuration.data ? (
+                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 [&>*]:min-w-0">
+                  {POD_PROFILE_NAMES.map(profile => (
+                    <ProfileEditor
+                      key={`${scope}:${selectedTenantID ?? 'global'}:${profile}`}
+                      configuration={configuration.data!}
+                      model={model}
+                      profile={profile}
+                      providerHosted={providerHostedFor(profile)}
+                      providerKinds={providerKinds.data?.provider_kinds ?? []}
+                      providers={providers.data ?? []}
+                      modelCatalog={modelCatalog.data?.models ?? []}
+                      target={{ defaultsScope: scope }}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {scope === 'tenant' ? (
+                <section className="grid min-w-0 gap-6" aria-labelledby="system-principals-title">
+                  <div className="grid gap-1">
+                    <h2 id="system-principals-title" className="title-section">
+                      {t('console.models.system_principals_title')}
+                    </h2>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      {t('console.models.system_principals_description')}
+                    </p>
+                  </div>
+                  <ErrorBlock error={systemPrincipals.error} />
+                  {systemPrincipals.isPending ? <Skeleton className="h-48 w-full" /> : null}
+                  {systemPrincipals.data?.system_principals.map(service => (
+                    <SystemPrincipalEditor
+                      key={service.uid}
+                      service={service}
+                      selected={params.get('system_principal') === service.uid}
+                      providers={providers.data ?? []}
+                      providerKinds={providerKinds.data?.provider_kinds ?? []}
+                      modelCatalog={modelCatalog.data?.models ?? []}
+                    />
+                  ))}
+                </section>
+              ) : null}
+            </>
+          )}
+        </TabsContent>
+      </Tabs>
     </PageStack>
   )
 }

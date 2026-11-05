@@ -1,5 +1,12 @@
 # Changelog
 
+## Version 2.0.0-alpha.60 (2026-11-05)
+
+- Open Console `/model-profiles` on Site defaults across Pods with a dedicated Pod
+  defaults tab for tenant overrides and system Principal profiles, and link the
+  readiness model step to `/model-profiles?defaults_scope=tenant` when a Pod has
+  no Agent yet.
+
 ## Version 2.0.0-alpha.59 (2026-11-05)
 
 - Seed built-in Global and Personal Assistant contracts from compiled control-plane

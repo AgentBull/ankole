@@ -186,14 +186,30 @@ type ProfileSignals = ReturnType<typeof createProfileSignals>
 
 function createProfileSignals() {
   const initial = emptyProfileDraft()
+  const description = signal(initial.description)
+  const providerID = signal(initial.providerID)
+  const model = signal(initial.model)
+  const contextLength = signal(initial.contextLength)
+  const providerOptions = signal(initial.providerOptions)
+  const error = signal<string>()
+  const draft = computed<ProfileDraft>(() => ({
+    description: description.value,
+    providerID: providerID.value,
+    model: model.value,
+    contextLength: contextLength.value,
+    providerOptions: providerOptions.value,
+    error: error.value
+  }))
+
   return {
     source: signal(initial),
-    description: signal(initial.description),
-    providerID: signal(initial.providerID),
-    model: signal(initial.model),
-    contextLength: signal(initial.contextLength),
-    providerOptions: signal(initial.providerOptions),
-    error: signal<string>(),
+    description,
+    providerID,
+    model,
+    contextLength,
+    providerOptions,
+    error,
+    draft,
     dirty: signal(false),
     revision: signal(0)
   }

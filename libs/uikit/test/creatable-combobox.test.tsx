@@ -45,6 +45,23 @@ describe('CreatableCombobox', () => {
     expect(html).toContain('data-slot="combobox-clear"')
   })
 
+  test('disables the combobox input and trigger when disabled is true', () => {
+    const html = renderToStaticMarkup(
+      <CreatableCombobox
+        disabled
+        value=""
+        options={[{ value: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' }]}
+        placeholder="Select a provider first"
+        onValueChange={() => {}}
+      />
+    )
+
+    const inputTag = html.match(/<input[^>]*role="combobox"[^>]*>/)?.[0]
+    const triggerTag = html.match(/<button[^>]*aria-label="Open options"[^>]*>/)?.[0]
+    expect(inputTag).toContain('disabled=""')
+    expect(triggerTag).toContain('disabled=""')
+  })
+
   test('treats the selected label as display text instead of an active filter', () => {
     const options = [
       { value: 'gpt-5.6-sol', label: 'GPT-5.6-Sol' },

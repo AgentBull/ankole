@@ -23,7 +23,7 @@ test('tenant collections aggregate, records require a tenant, and site settings 
   expect(consoleTenantPage('/identity/shared', new URLSearchParams())).toBe('record')
   expect(consoleTenantPage('/identity/new', new URLSearchParams())).toBe('record')
   expect(consoleTenantPage('/providers', new URLSearchParams())).toBe('site')
-  expect(consoleTenantPage('/model-profiles', new URLSearchParams())).toBe('record')
+  expect(consoleTenantPage('/model-profiles', new URLSearchParams())).toBe('site')
   expect(consoleTenantPage('/model-profiles', new URLSearchParams('defaults_scope=tenant'))).toBe('record')
   expect(consoleTenantPage('/model-profiles', new URLSearchParams('defaults_scope=global'))).toBe('site')
   expect(consoleTenantPage('/tenants/new', new URLSearchParams())).toBe('site')

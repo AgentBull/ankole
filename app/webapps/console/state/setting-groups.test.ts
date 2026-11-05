@@ -77,6 +77,15 @@ describe('setting groups', () => {
 
   test('sends the identity activation list to the page that writes it', () => {
     expect(settingOwnerRoute('principals.identity_providers.active')).toBe('/identity')
+    expect(settingOwnerRoute('ai_gateway.model_profiles.primary', 'global')).toBe(
+      '/model-profiles?defaults_scope=global'
+    )
+    expect(settingOwnerRoute('ai_gateway.provider_hosted.web_search', 'tenant')).toBe(
+      '/model-profiles?defaults_scope=tenant'
+    )
+    expect(settingOwnerRoute('ai_agent.library.agent_plugin_defaults', 'global')).toBe(
+      '/agent-library?scope=__global__&tab=agent-plugins&defaults_scope=global'
+    )
     expect(settingOwnerRoute('observability.traces.enabled')).toBeUndefined()
     expect(settingOwnerRoute('principals.identity_providers.directory_full_sync_interval_minutes')).toBeUndefined()
   })

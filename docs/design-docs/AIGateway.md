@@ -133,8 +133,11 @@ Profile writes and deletions return the complete configuration so the editor
 can refresh inherited and fallback fields while preserving unsaved edits.
 When configuration queries refresh, fixed-slot editors also update untouched
 fields and preserve unsaved slot drafts.
-The Pod page uses the Console's selected tenant; Site defaults apply across Pods.
-The readiness model step links to Pod defaults when the Pod has no Agent.
+The Console's `/model-profiles` page opens on Site defaults across Pods and
+provides a Pod defaults tab that edits Pod overrides and system Principal
+profiles for the selected tenant, prompting for a tenant when none is selected.
+The readiness model step links to `/model-profiles?defaults_scope=tenant` when
+the Pod has no Agent.
 Provider disable and deletion check Agent options, every Site, Pod, and
 `system:<uid>` profile row, and model aliases of enabled OIDC Clients before
 allowing the operation. Tenant-owned references include the tenant ID, together
