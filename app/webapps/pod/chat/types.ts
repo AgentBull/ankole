@@ -10,7 +10,6 @@ export type LinkedExecution = LinkedRun & { agentName?: string }
 /** A token count is null when no round of the group reported it. */
 export type ExecutionUsage = NonNullable<ExecutionSummary['usage']>
 export type ExecutionModelUsage = ExecutionUsage['models'][number]
-export type ExecutionUsageTotals = Omit<ExecutionUsage, 'models'>
 
 export type ClarifyPrompt = Pick<
   ConversationDetail['pendingInteractions'][number],
