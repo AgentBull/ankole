@@ -701,3 +701,41 @@ fn anthropic_build_body_downgrades_forced_tool_choice_to_auto_when_thinking_is_e
         assert_eq!(none_body["tool_choice"], json!({"type": "none"}));
     }
 }
+
+#[test]
+fn anthropic_build_body_merges_consecutive_tool_outputs_into_one_user_message() {
+    let resolver = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        ResponseContext {
+            model: "claude-test".to_string(),
+            request: json!({
+                "input": [
+                    {"type": "message", "role": "user", "content": "check weather and time"},
+                    {"type": "function_call", "call_id": "call_1", "name": "weather", "arguments": "{\"city\":\"Paris\"}"},
+                    {"type": "function_call", "call_id": "call_2", "name": "clock", "arguments": "{\"tz\":\"UTC\"}"},
+                    {"type": "function_call_output", "call_id": "call_1", "output": "sunny"},
+                    {"type": "function_call_output", "call_id": "call_2", "output": "12:00"}
+                ]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        },
+    );
+
+    let body = Value::Object(resolver.build_body().unwrap());
+    let messages = body["messages"].as_array().unwrap();
+
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[0]["role"], "user");
+    assert_eq!(messages[1]["role"], "assistant");
+    assert_eq!(messages[1]["content"].as_array().unwrap().len(), 2);
+    assert_eq!(messages[2]["role"], "user");
+    assert_eq!(
+        messages[2]["content"],
+        json!([
+            {"type": "tool_result", "tool_use_id": "call_1", "content": "sunny"},
+            {"type": "tool_result", "tool_use_id": "call_2", "content": "12:00"}
+        ])
+    );
+}
