@@ -229,24 +229,24 @@ defmodule AnkoleWeb.Assets do
     |> then(fn {files, seen} -> {files |> Enum.reverse() |> Enum.uniq(), seen} end)
   end
 
-  @doc "Returns the import map and shared styles for an Applet document."
-  def applet_frame_tags do
-    entries = %{
-      "react" => "react",
-      "react/jsx-runtime" => "react-jsx-runtime",
-      "react/jsx-dev-runtime" => "react-jsx-dev-runtime",
-      "react-dom" => "react-dom",
-      "react-dom/client" => "react-dom-client",
-      "@ankole/uikit" => "uikit",
-      "@ankole/applet-sdk" => "applet-sdk"
-    }
+  @applet_vendor_entries [
+    {"react", "react"},
+    {"react/jsx-runtime", "react-jsx-runtime"},
+    {"react/jsx-dev-runtime", "react-jsx-dev-runtime"},
+    {"react-dom", "react-dom"},
+    {"react-dom/client", "react-dom-client"},
+    {"@ankole/applet-sdk", "applet-sdk"},
+    {"@ankole/uikit", "uikit"}
+  ]
 
+  @doc "Returns the import map, shared styles, and module preloads for an Applet document."
+  def applet_frame_tags do
     case dev_server() do
       nil ->
         manifest = read_manifest()
 
         chunks =
-          Map.new(entries, fn {name, entry} ->
+          Enum.map(@applet_vendor_entries, fn {name, entry} ->
             {name, Map.fetch!(manifest, "entrypoints/applet-vendor/" <> entry <> ".ts")}
           end)
 
@@ -255,20 +255,32 @@ defmodule AnkoleWeb.Assets do
             {name, IO.iodata_to_binary(asset_path(chunk["file"]))}
           end)
 
-        css = chunks |> Map.values() |> Enum.flat_map(&manifest_css(&1, manifest)) |> Enum.uniq()
+        css =
+          chunks
+          |> Enum.flat_map(fn {_name, chunk} -> manifest_css(chunk, manifest) end)
+          |> Enum.uniq()
+
+        preloads =
+          chunks
+          |> Enum.reject(fn {name, _chunk} -> name == "react/jsx-dev-runtime" end)
+          |> Enum.flat_map(fn {_name, %{"file" => file} = chunk} ->
+            [asset_path(file) | manifest_imports(chunk, manifest)]
+          end)
+          |> Enum.uniq()
 
         [
           ~s(<script type="importmap">),
           Torque.encode!(%{imports: imports}),
           "</script>",
-          Enum.map(css, &stylesheet_tag/1)
+          Enum.map(css, &stylesheet_tag/1),
+          Enum.map(preloads, &modulepreload_tag/1)
         ]
 
       server ->
         server = String.trim_trailing(server, "/")
 
         imports =
-          Map.new(entries, fn {name, entry} ->
+          Map.new(@applet_vendor_entries, fn {name, entry} ->
             {name, server <> "/entrypoints/applet-vendor/" <> entry <> ".ts"}
           end)
 

@@ -16,9 +16,10 @@ defmodule AnkoleWeb.PodExecutionLogTest do
     %{conn: conn, uid: uid, agent: agent, room: room, source: source}
   end
 
-  test "the room API walks every Job log page and excludes model context", ctx do
+  test "the room API walks every Job trajectory page, strips skill bodies, omits empty outcomes, and keeps human steers",
+       ctx do
     assert {:ok, %{job: job}} =
-             BackgroundAgentJobs.create_with_dispatch(%{
+             Ankole.SessionsCase.create_job_with_stub_driver(%{
                "source_signal_id" => ctx.source.id,
                "agent_uid" => ctx.agent.uid,
                "owner_session_id" => ctx.source.session_id,
@@ -28,27 +29,8 @@ defmodule AnkoleWeb.PodExecutionLogTest do
                "reply_route" => %{"conversation_id" => ctx.room.conversation.id}
              })
 
-    key = %{agent_uid: ctx.agent.uid, session_id: ctx.source.session_id}
-    assert {:ok, run} = Ankole.Sessions.Admission.admit(key, ctx.source)
-    assert {:ok, {:preparing, run}} = Ankole.Sessions.Model.prepare(run)
-
-    assert {:ok, _} =
-             Repo.transact(fn ->
-               BackgroundAgentJobs.Lifecycle.claim_attempt_in_tx(
-                 job.id,
-                 ctx.agent.uid,
-                 1,
-                 run.spec,
-                 10
-               )
-             end)
-
-    assert {:ok, %{job: job}} =
-             BackgroundAgentJobs.commit_status_with_wakeup(job.id, ctx.agent.uid, %{
-               "status" => "running",
-               "runtime_thread_id" => "room-log"
-             })
-
+    claim_and_start_job!(job, ctx)
+    job = BackgroundAgentJobs.get_job(job.id)
     now = DateTime.utc_now(:microsecond)
 
     visible_items =
@@ -56,17 +38,53 @@ defmodule AnkoleWeb.PodExecutionLogTest do
         %{"type" => "agentMessage", "id" => "step-#{index}", "text" => "Visible step #{index}."}
       end
 
-    items = [
-      %{
-        "type" => "userMessage",
-        "id" => "private-context",
-        "content" => [%{"type" => "text", "text" => "Private model context must not appear"}]
-      }
-      | visible_items
-    ]
+    items =
+      [
+        %{
+          "type" => "userMessage",
+          "id" => "private-context",
+          "content" => [%{"type" => "text", "text" => "Private model context must not appear"}]
+        },
+        %{
+          "type" => "userMessage",
+          "id" => "client:steer-1",
+          "content" => [%{"type" => "text", "text" => "Focus on HMAC webhook verification"}]
+        },
+        %{
+          "type" => "dynamicToolCall",
+          "id" => "skill-call-1",
+          "tool" => "skill_view",
+          "status" => "completed",
+          "arguments" => ~s({"name":"pod-content"}),
+          "contentItems" => [
+            %{
+              "type" => "inputText",
+              "text" =>
+                "<skill name=\"pod-content\" location=\"/drive/Skills/pod-content/SKILL.md\">\nConfidential skill system prompt\n</skill>"
+            }
+          ]
+        },
+        %{
+          "type" => "dynamicToolCall",
+          "id" => "write-skill-fail",
+          "tool" => "write_file",
+          "status" => "failed",
+          "success" => false,
+          "arguments" => ~s({"path":"/drive/Skills/pod-content/SKILL.md","content":"# nope"}),
+          "contentItems" => "Permission denied writing SKILL.md"
+        },
+        %{
+          "type" => "commandExecution",
+          "id" => "compound-skill-cmd",
+          "command" => "/bin/zsh -lc 'cat /drive/Skills/pod-content/SKILL.md && exit 2'",
+          "status" => "completed",
+          "exitCode" => 2,
+          "aggregatedOutput" => "Command failed after reading SKILL.md"
+        }
+      ] ++ visible_items
 
     assert {:ok, _turn} =
-             Repo.transact(fn ->
+             Repo.transact_top_level(fn ->
                Turns.upsert_from_worker_in_tx(job, %{
                  "attempt" => 1,
                  "runtime_thread_id" => "room-log",
@@ -88,14 +106,53 @@ defmodule AnkoleWeb.PodExecutionLogTest do
       "/api/v2/pod/conversations/#{ctx.room.conversation.id}/executions/background_agent_job/#{job.id}"
 
     first = api_response(api_get(ctx.conn, path), 200)
+    assert is_nil(first["outcomeText"])
+    assert first["task"] == "Read the report."
+    assert first["stoppable"] == true
+    assert first["canMessage"] == true
     assert is_binary(first["nextCursor"])
-    pages = collect_pages(ctx.conn, path, first)
-    text = Enum.map_join(pages, "\n", & &1["text"])
-    assert length(pages) > 1
-    assert text =~ "UTC · Agent · Completed"
 
-    for index <- 1..45, do: assert(text =~ "Visible step #{index}.")
-    refute text =~ "Private model context must not appear"
+    pages = collect_pages(ctx.conn, path, first)
+    assert length(pages) > 1
+
+    projected =
+      pages
+      |> Enum.reverse()
+      |> Enum.flat_map(& &1["items"])
+
+    encoded = Ankole.JSON.encode!(projected)
+    refute encoded =~ "Private model context must not appear"
+    refute encoded =~ "Confidential skill system prompt"
+    refute encoded =~ "<skill"
+
+    assert Enum.any?(projected, fn item ->
+             item["kind"] == "steer_message" and
+               item["text"] == "Focus on HMAC webhook verification"
+           end)
+
+    skill_item = Enum.find(projected, &(&1["id"] == "skill-call-1"))
+    assert skill_item["toolKind"] == "skill"
+    assert skill_item["skillName"] == "pod-content"
+    assert is_nil(skill_item["input"])
+    assert is_nil(skill_item["output"])
+
+    write_fail_item = Enum.find(projected, &(&1["id"] == "write-skill-fail"))
+    assert write_fail_item["toolKind"] == "tool"
+    assert write_fail_item["tool"] == "write_file"
+    assert write_fail_item["status"] == "failed"
+    assert write_fail_item["output"] == "Permission denied writing SKILL.md"
+
+    compound_cmd_item = Enum.find(projected, &(&1["id"] == "compound-skill-cmd"))
+    assert compound_cmd_item["toolKind"] == "command"
+    assert compound_cmd_item["status"] == "failed"
+    assert compound_cmd_item["command"]["exitCode"] == 2
+    assert compound_cmd_item["command"]["output"] == "Command failed after reading SKILL.md"
+
+    for index <- 1..45 do
+      assert Enum.any?(projected, fn item ->
+               item["kind"] == "message" and item["text"] == "Visible step #{index}."
+             end)
+    end
 
     other = create_room!(ctx.uid, ctx.agent.uid)
 
@@ -140,17 +197,133 @@ defmodule AnkoleWeb.PodExecutionLogTest do
     assert length(calls) == 105
     path = "/api/v2/pod/conversations/#{ctx.room.conversation.id}/executions/workflow/#{run.id}"
     first = api_response(api_get(ctx.conn, path), 200)
+    assert first["workflowCounts"]["total"] == 105
+    assert first["workflowCounts"]["queued"] == 105
+
     pages = collect_pages(ctx.conn, path, first)
     assert length(pages) == 3
-    text = Enum.map_join(pages, "\n", & &1["text"])
-    for index <- 0..104, do: assert(text =~ "Child #{index} · Queued")
+
+    items = Enum.flat_map(pages, & &1["items"])
+    assert length(items) == 105
+
+    for index <- 0..104 do
+      assert Enum.any?(items, fn item ->
+               item["kind"] == "workflow_call" and item["title"] == "Child #{index}" and
+                 item["status"] == "queued"
+             end)
+    end
+  end
+
+  test "the room API stops live executions and steers or respawns background jobs in the same workspace",
+       ctx do
+    assert {:ok, %{job: job}} =
+             Ankole.SessionsCase.create_job_with_stub_driver(%{
+               "source_signal_id" => ctx.source.id,
+               "agent_uid" => ctx.agent.uid,
+               "owner_session_id" => ctx.source.session_id,
+               "source_tool_call_id" => "interactive-job",
+               "title" => "Build waitlist app",
+               "task" => "Create the waitlist Base and webhook job.",
+               "created_by" => %{"type" => "human", "uid" => ctx.uid},
+               "reply_route" => %{"conversation_id" => ctx.room.conversation.id}
+             })
+
+    claim_and_start_job!(job, ctx)
+
+    msg_path =
+      "/api/v2/pod/conversations/#{ctx.room.conversation.id}/executions/background_agent_job/#{job.id}/messages"
+
+    steered =
+      api_response(
+        api_post(ctx.conn, msg_path, %{
+          requestID: Ecto.UUID.generate(),
+          text: "Deduplicate by lowercase email."
+        }),
+        200
+      )
+
+    assert steered == %{
+             "runID" => to_string(job.id),
+             "status" => "running",
+             "respawned" => false
+           }
+
+    stop_path =
+      "/api/v2/pod/conversations/#{ctx.room.conversation.id}/executions/background_agent_job/#{job.id}/stop"
+
+    stopped = api_response(api_post(ctx.conn, stop_path, %{}), 200)
+    assert stopped["runID"] == to_string(job.id)
+    assert stopped["status"] == "stopped"
+
+    respawned =
+      api_response(
+        api_post(ctx.conn, msg_path, %{
+          requestID: Ecto.UUID.generate(),
+          text: "Continue and add webhook signature verification."
+        }),
+        200
+      )
+
+    assert respawned["respawned"] == true
+    refute respawned["runID"] == to_string(job.id)
+
+    predecessor_detail =
+      api_response(
+        api_get(
+          ctx.conn,
+          "/api/v2/pod/conversations/#{ctx.room.conversation.id}/executions/background_agent_job/#{job.id}"
+        ),
+        200
+      )
+
+    assert predecessor_detail["successorJobID"] == respawned["runID"]
+    assert predecessor_detail["canMessage"] == false
+
+    successor_detail =
+      api_response(
+        api_get(
+          ctx.conn,
+          "/api/v2/pod/conversations/#{ctx.room.conversation.id}/executions/background_agent_job/#{respawned["runID"]}"
+        ),
+        200
+      )
+
+    assert successor_detail["continuedFromJobID"] == to_string(job.id)
+
+    assert {:ok, %{run: workflow}} =
+             Workflow.create_with_dispatch(%{
+               "source_signal_id" => ctx.source.id,
+               "agent_uid" => ctx.agent.uid,
+               "owner_session_id" => ctx.source.session_id,
+               "source_tool_call_id" => "interactive-workflow",
+               "reply_route" => %{"conversation_id" => ctx.room.conversation.id},
+               "title" => "Stoppable workflow",
+               "script" => "return null;",
+               "concurrency" => 1,
+               "max_agent_calls" => 4
+             })
+
+    Ankole.SessionsCase.stub_workflow_drivers(workflow)
+
+    stopped_wf =
+      api_response(
+        api_post(
+          ctx.conn,
+          "/api/v2/pod/conversations/#{ctx.room.conversation.id}/executions/workflow/#{workflow.id}/stop",
+          %{}
+        ),
+        200
+      )
+
+    assert stopped_wf["runID"] == to_string(workflow.id)
+    assert stopped_wf["status"] == "cancelled"
   end
 
   test "older message windows keep all retained execution cards beyond twenty per kind", ctx do
     jobs =
       for index <- 1..21 do
         assert {:ok, %{job: job}} =
-                 BackgroundAgentJobs.create_with_dispatch(%{
+                 Ankole.SessionsCase.create_job_with_stub_driver(%{
                    "source_signal_id" => ctx.source.id,
                    "agent_uid" => ctx.agent.uid,
                    "owner_session_id" => ctx.source.session_id,
@@ -199,6 +372,30 @@ defmodule AnkoleWeb.PodExecutionLogTest do
 
       assert Enum.all?(detail["linkedRuns"], &is_nil(&1["text"]))
     end
+  end
+
+  defp claim_and_start_job!(job, ctx) do
+    key = %{agent_uid: ctx.agent.uid, session_id: ctx.source.session_id}
+    {:ok, run} = Ankole.Sessions.Admission.admit(key, ctx.source)
+
+    {:ok, {:preparing, prepared}} = Ankole.Sessions.Model.prepare(run)
+
+    assert {:ok, _} =
+             Repo.transact_top_level(fn ->
+               BackgroundAgentJobs.Lifecycle.claim_attempt_in_tx(
+                 job.id,
+                 ctx.agent.uid,
+                 1,
+                 prepared.spec,
+                 10
+               )
+             end)
+
+    assert {:ok, _} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, ctx.agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "room-log"
+             })
   end
 
   defp collect_pages(conn, path, %{"nextCursor" => cursor} = page) when is_binary(cursor) do

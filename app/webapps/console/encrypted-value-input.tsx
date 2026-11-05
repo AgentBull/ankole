@@ -10,6 +10,7 @@ export function isEncryptedValueMask(value: string): boolean {
 }
 
 type EncryptedValueInputProps = Omit<ComponentProps<typeof Input>, 'type'> & {
+  hideLabel?: string
   revealed?: boolean
   revealing?: boolean
   revealLabel: string
@@ -25,6 +26,7 @@ type EncryptedValueInputProps = Omit<ComponentProps<typeof Input>, 'type'> & {
  */
 export function EncryptedValueInput({
   className,
+  hideLabel,
   onFocus,
   onReveal,
   revealLabel,
@@ -63,8 +65,10 @@ export function EncryptedValueInput({
   const label = revealStoredValue
     ? revealLabel
     : visible
-      ? t('console.aria.hide_secret')
-      : t('console.aria.reveal_secret')
+      ? (hideLabel ?? t('console.aria.hide_secret'))
+      : hideLabel
+        ? revealLabel
+        : t('console.aria.reveal_secret')
 
   return (
     <div className="relative">

@@ -48,7 +48,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
          %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid),
          {:ok, turn} <- Turns.upsert_from_worker_in_tx(job, attrs),
          {:ok, _job} <- record_checkpoint_source_in_tx(job, turn) do
-      {:ok, turn}
+      {:ok, Ash.Resource.put_metadata(turn, :owner_session_id, job.owner_session_id)}
     else
       nil -> {:error, :job_not_found}
       {:error, _reason} = error -> error
@@ -213,8 +213,22 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       )
     )
 
+    notify_owner_conversation(job.owner_session_id)
     Ankole.Sessions.job_turn(job)
   end
+
+  @doc false
+  def notify_owner_conversation(owner_session_id) when is_binary(owner_session_id) do
+    case Ankole.Sessions.Key.parse(owner_session_id) do
+      {:conversation, conversation_id} ->
+        Ankole.Conversations.Events.publish_status(conversation_id)
+
+      _ ->
+        :ok
+    end
+  end
+
+  def notify_owner_conversation(_owner_session_id), do: :ok
 
   def fail_admission_in_tx(nil, _code, _now), do: {:ok, nil}
 

@@ -647,10 +647,15 @@ defmodule Ankole.Pod.Pages.Browser do
 
       run(fn input, context ->
         result =
-          if input.arguments[:attachment_position] do
-            Ankole.Pod.Files.create_from_message(context.actor, input.arguments)
-          else
-            Pages.create(context.actor, input.arguments)
+          cond do
+            input.arguments[:attachment_position] ->
+              Ankole.Pod.Files.create_from_message(context.actor, input.arguments)
+
+            input.arguments[:saved_from_message_id] ->
+              {:error, :invalid_request}
+
+            true ->
+              Pages.create(context.actor, input.arguments)
           end
 
         with {:ok, page} <- result do

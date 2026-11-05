@@ -3,7 +3,6 @@ import { expect, test } from '@playwright/test'
 import { request, state } from './fixtures'
 import { conversationRoute, pageRoute } from './routes'
 import type { ConversationDetail } from '../../pod/api'
-import type { PageDetail } from '../../pod/content-api'
 
 test('room actions cancel rename, copy its link, and export the full paged transcript', async ({ browser }, info) => {
   const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1440, height: 960 } })
@@ -95,14 +94,13 @@ test('the summary opens a real attachment preview and returns keyboard focus to 
   }
 })
 
-test('saving a message keeps its quotation and structured Page reference in the actual editable document', async ({
+test('a group message renders its quotation and structured Page reference without offering message-to-page save', async ({
   browser
 }) => {
   const context = await browser.newContext({ baseURL: state.base_url })
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
   let conversationID: string | undefined
-  let savedPageID: string | undefined
   try {
     await page.goto('/')
     const sourceID = crypto.randomUUID()
@@ -134,33 +132,13 @@ test('saving a message keeps its quotation and structured Page reference in the 
     await page.goto(conversationRoute(conversationID))
     const message = page.locator(`[data-chat-message-id="${messageID}"]`)
     await expect(message.locator('.pod-chat-quoted-message')).toHaveText(quote)
-    await expect(message.getByRole('link', { name: 'Browser report', exact: true })).toBeVisible()
+    const reportLink = message.getByRole('link', { name: 'Browser report', exact: true })
+    await expect(reportLink).toBeVisible()
     await message.hover()
-    await message.getByRole('button', { name: '保存为页面', exact: true }).click()
-    const save = page.getByRole('dialog', { name: '保存对话成果', exact: true })
-    await save.getByRole('textbox', { name: '页面标题', exact: true }).fill('Saved message context')
-    const creation = page.waitForResponse(
-      response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v2/pod/pages'
-    )
-    await save.getByRole('button', { name: '保存', exact: true }).click()
-    const created = await creation
-    expect(created.ok()).toBe(true)
-    savedPageID = ((await created.json()) as { page: { id: string } }).page.id
-    await expect(save).toBeHidden()
-    const saved = await request<PageDetail>(page, `/pages/${savedPageID}`)
-    expect(saved.content?.content).toContain('<blockquote>')
-    expect(saved.content?.plain_text).toContain(quote)
-    expect(saved.content?.plain_text).toContain(text)
-    expect(saved.content?.content).toContain(`href="ankole:page/${state.report_id}"`)
-    expect(saved.source_conversation?.message_id).toBe(messageID)
-    await message.locator('.pod-chat-saved-page').click()
-    const editor = page.locator('.editor-content')
-    await expect(editor).toContainText(quote)
-    await expect(editor).toContainText(text)
-    await editor.locator(`a[href="ankole:page/${state.report_id}"]`).click()
+    await expect(message.getByRole('button', { name: '保存为页面', exact: true })).toHaveCount(0)
+    await reportLink.click()
     await expect(page).toHaveURL(state.base_url + pageRoute(state.report_id))
   } finally {
-    if (savedPageID) await request(page, `/pages/${savedPageID}`, 'DELETE')
     if (conversationID) {
       let current = await request<ConversationDetail>(page, `/conversations/${conversationID}`)
       for (const queue of current.pendingQueues) {

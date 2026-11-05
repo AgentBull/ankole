@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { zipSync, strToU8 } from 'fflate'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { request, requestResponse, state } from './fixtures'
+
+const metaSection = (page: Page) => page.getByRole('region', { name: 'Meta Ankole', exact: true })
+const metaToggle = (page: Page) => metaSection(page).getByRole('button', { name: 'Meta Ankole', exact: true })
 
 test('Brain creates an object in its ontology category and opens it from the filtered graph', async ({ browser }) => {
   const context = await browser.newContext()
@@ -27,10 +30,9 @@ test('Brain creates an object in its ontology category and opens it from the fil
     await expect
       .poll(async () => (await request<{ page: { title: string } }>(page, `/pages/${id}`)).page.title)
       .toBe(title)
-    await page
-      .getByRole('navigation', { name: 'Meta Ankole', exact: true })
-      .getByRole('link', { name: '组织知识库', exact: true })
-      .click()
+    await expect(metaToggle(page)).toHaveAttribute('aria-expanded', 'false')
+    await metaToggle(page).click()
+    await metaSection(page).getByRole('link', { name: '组织知识库', exact: true }).click()
     await page.getByRole('textbox', { name: '查找知识条目', exact: true }).fill(title)
     const graph = page.getByRole('group', { name: '知识图谱', exact: true })
     await expect(graph.getByRole('link')).toHaveCount(1)
@@ -43,11 +45,10 @@ test('Brain creates an object in its ontology category and opens it from the fil
     await graph.getByRole('link', { name: title, exact: true }).click()
     await expect(page).toHaveURL(`${state.base_url}/meta/brain/${id}`)
     await expect(page.getByRole('textbox', { name: '页面标题', exact: true })).toHaveValue(title)
-    await expect(
-      page
-        .getByRole('navigation', { name: 'Meta Ankole', exact: true })
-        .getByRole('button', { name: '组织知识库', exact: true })
-    ).toHaveAttribute('aria-expanded', 'false')
+    await expect(metaSection(page).getByRole('button', { name: '组织知识库', exact: true })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
   } finally {
     if (id) await request(page, `/pages/${id}`, 'DELETE')
     await context.close()
@@ -64,7 +65,9 @@ test('Meta branches stay collapsed while an administrator creates, edits and bin
   let created = false
   try {
     await page.goto(`${state.base_url}/meta/skills`)
-    const navigation = page.getByRole('navigation', { name: 'Meta Ankole', exact: true })
+    const navigation = metaSection(page)
+    await expect(metaToggle(page)).toHaveAttribute('aria-expanded', 'false')
+    await metaToggle(page).click()
     for (const name of ['组织知识库', '技能', '智能体']) {
       await expect(navigation.getByRole('button', { name, exact: true })).toHaveAttribute('aria-expanded', 'false')
     }
@@ -188,7 +191,9 @@ test('switching between cached Skills does not carry an editor draft into anothe
       })
     }
     await page.reload()
-    const navigation = page.getByRole('navigation', { name: 'Meta Ankole', exact: true })
+    const navigation = metaSection(page)
+    await expect(metaToggle(page)).toHaveAttribute('aria-expanded', 'false')
+    await metaToggle(page).click()
     await navigation.getByRole('button', { name: '技能', exact: true }).click()
     const open = async (slug: string) => {
       await navigation.getByRole('link', { name: slug, exact: true }).click()
@@ -251,11 +256,12 @@ test('Agent contracts save through the Pod editor and retain the selected mode',
     await page.reload()
     await expect(contract.getByRole('combobox')).toContainText('在全局基础上追加')
     await expect(contract.getByText('Use clear diagrams when they help.', { exact: true })).toBeVisible()
-    await expect(
-      page
-        .getByRole('navigation', { name: 'Meta Ankole', exact: true })
-        .getByRole('button', { name: '智能体', exact: true })
-    ).toHaveAttribute('aria-expanded', 'false')
+    await expect(metaToggle(page)).toHaveAttribute('aria-expanded', 'false')
+    await metaToggle(page).click()
+    await expect(metaSection(page).getByRole('button', { name: '智能体', exact: true })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
     await contract.getByRole('button', { name: '编辑', exact: true }).click()
     await contract.getByRole('combobox').click()
     await page.getByRole('option', { name: '完全覆盖全局', exact: true }).click()
@@ -296,11 +302,7 @@ test('a new member imports a package, edits its files without expanding the side
     await page.getByRole('button', { name: '创建', exact: true }).click()
     await expect(page).toHaveURL(`${state.base_url}/meta/skills/${slug}`)
     created = true
-    const navigation = page.getByRole('navigation', { name: 'Meta Ankole', exact: true })
-    await expect(navigation.getByRole('button', { name: '技能', exact: true })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    )
+    await expect(metaToggle(page)).toHaveAttribute('aria-expanded', 'false')
     await expect(page.getByRole('switch', { name: '为所有 Agent 开启', exact: true })).toBeDisabled()
     const assistant = page.getByRole('switch', { name: '我的助理', exact: true })
     await expect(assistant).not.toBeChecked()
@@ -315,10 +317,7 @@ test('a new member imports a package, edits its files without expanding the side
     await page.reload()
     await expect(editor).toHaveValue('Updated by a member in the main workspace.')
     await expect(assistant).toBeChecked()
-    await expect(navigation.getByRole('button', { name: '技能', exact: true })).toHaveAttribute(
-      'aria-expanded',
-      'false'
-    )
+    await expect(metaToggle(page)).toHaveAttribute('aria-expanded', 'false')
 
     const binaryRow = page
       .locator('li')
@@ -417,11 +416,12 @@ test('an administrator creates an AI colleague entirely inside Meta Ankole', asy
     await expect(page.getByRole('heading', { name: '采购助手', exact: true })).toBeVisible()
     await page.reload()
     await expect(page.getByRole('textbox', { name: '显示名称', exact: true })).toHaveValue('采购助手')
-    await expect(
-      page
-        .getByRole('navigation', { name: 'Meta Ankole', exact: true })
-        .getByRole('button', { name: '智能体', exact: true })
-    ).toHaveAttribute('aria-expanded', 'false')
+    await expect(metaToggle(page)).toHaveAttribute('aria-expanded', 'false')
+    await metaToggle(page).click()
+    await expect(metaSection(page).getByRole('button', { name: '智能体', exact: true })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
   } finally {
     await context.close()
   }
@@ -467,7 +467,9 @@ for (const uid of ['assistant', 'global']) {
       expect(await request(page, '/meta/contracts')).toEqual(baseline)
       await page.reload()
       await expect(contract).toContainText(`Only the literal ${uid} colleague`)
-      const navigation = page.getByRole('navigation', { name: 'Meta Ankole', exact: true })
+      const navigation = metaSection(page)
+      await expect(metaToggle(page)).toHaveAttribute('aria-expanded', 'false')
+      await metaToggle(page).click()
       await expect(navigation.getByRole('button', { name: '智能体', exact: true })).toHaveAttribute(
         'aria-expanded',
         'false'

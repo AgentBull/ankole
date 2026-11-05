@@ -172,14 +172,15 @@ defmodule Ankole.Conversations.NativeRoom do
       )
       |> Enum.map(&Map.get(origins, &1.conversation_id, &1.conversation_id))
 
-    sessions = Enum.map(ids, &Ankole.Sessions.Key.conversation/1)
+    sessions = Enum.map(all_ids, &Ankole.Sessions.Key.conversation/1)
 
     jobs =
       Ankole.BackgroundAgentJobs.list_jobs!(
         query: [
           filter: [
             owner_session_id: [in: sessions],
-            status: [in: [:queued, :running, :waiting_on_user]]
+            status: [in: [:queued, :running, :waiting_on_user]],
+            skill_lesson_reflection?: false
           ],
           select: [:owner_session_id]
         ]
@@ -197,7 +198,7 @@ defmodule Ankole.Conversations.NativeRoom do
       active ++
         Enum.map(jobs ++ workflows, fn work ->
           {:conversation, id} = Ankole.Sessions.Key.parse(work.owner_session_id)
-          id
+          Map.get(origins, id, id)
         end)
 
     Ash.Query.filter(
@@ -782,7 +783,8 @@ defmodule Ankole.Conversations.NativeRoom do
                  title: title,
                  created_by: human_uid,
                  page_id: page_id,
-                 last_activity_at: now
+                 last_activity_at: now,
+                 metadata: %{"title_generation_attempted" => true, "generated_title" => title}
                },
                touch_update_defaults?: false
              ),
@@ -833,16 +835,22 @@ defmodule Ankole.Conversations.NativeRoom do
   end
 
   defp default_title(conversation) do
-    first =
-      Message
-      |> Ash.Query.filter(
-        conversation_id == ^conversation.id and author_type == :human and kind == :message
-      )
-      |> Ash.Query.sort(seq: :asc)
-      |> Ash.Query.limit(1)
-      |> Ankole.Ash.read_one!()
+    case conversation.metadata["generated_title"] do
+      generated when is_binary(generated) and generated != "" ->
+        generated
 
-    Native.conversation_title(first.text, first.attachments)
+      _ ->
+        case Message
+             |> Ash.Query.filter(
+               conversation_id == ^conversation.id and author_type == :human and kind == :message
+             )
+             |> Ash.Query.sort(seq: :asc)
+             |> Ash.Query.limit(1)
+             |> Ankole.Ash.read_one!() do
+          %Message{} = first -> Native.conversation_title(first.text, first.attachments)
+          nil -> "Page discussion"
+        end
+    end
   end
 
   defp update_scope(actor, conversation, attrs) do

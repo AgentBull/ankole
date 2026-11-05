@@ -1,6 +1,7 @@
-import { Button, Sheet, SheetContent, SheetTitle } from '@ankole/uikit'
+import { Button } from '@ankole/uikit'
 import { RiArrowRightUpLine, RiCheckLine, RiStopCircleLine } from '@remixicon/react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { TFunction } from 'i18next'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { agentsQuery, conversationEventsURL, podKeys, type PodActivity } from '../api'
@@ -10,10 +11,33 @@ import { MessagePageReference } from '../message-artifacts'
 import { ChatMarkdown } from './chat-markdown'
 import { CollapsedWorkView, ActivityView } from './collapsed-work-view'
 import { formatElapsed } from './elapsed'
-import type { ExecutionSummary, TimelineMessage } from './types'
+import type { ExecutionSummary, InspectorTarget, TimelineMessage } from './types'
 
 type Peer = { exchange_id: string; agent_uid: string }
 const active = (status?: string) => ['running', 'queued', 'retrying'].includes(status ?? '')
+
+export function peerExchangeStateLabel(
+  t: TFunction,
+  options: {
+    status?: string
+    isPending?: boolean
+    hasReply?: boolean
+    elapsed?: string
+  }
+): string {
+  const { status, isPending = false, hasReply = false, elapsed } = options
+  if (status === 'waiting_choice') return t('pod.superagent.delegation_waiting')
+  if (status === 'retrying') return t('pod.chat_timeline.retrying')
+  if (status === 'queued') return t('pod.chat_timeline.queued')
+  if (active(status)) return t('pod.superagent.delegation_running')
+  if (hasReply || status === 'completed' || status === 'succeeded') {
+    return elapsed
+      ? t('pod.superagent.delegation_done', { time: elapsed })
+      : t('pod.superagent.delegation_done_untimed')
+  }
+  if (isPending) return t('pod.superagent.delegation_sent')
+  return t('pod.superagent.delegation_ended')
+}
 
 /**
  * Pairs each delegation the assistant sends with the colleague reply that answers it. One exchange can carry
@@ -53,7 +77,9 @@ export function PeerExchangeCard({
   peer,
   request,
   reply,
-  live = true
+  live = true,
+  isActive = false,
+  onOpenInspector
 }: {
   conversationID: string
   peer: Peer
@@ -61,10 +87,11 @@ export function PeerExchangeCard({
   reply?: TimelineMessage
   /** Only the latest delegation of an exchange follows the colleague's current state. */
   live?: boolean
+  isActive?: boolean
+  onOpenInspector?: (target: InspectorTarget, trigger?: HTMLElement | null) => void
 }) {
   const { t, i18n } = useTranslation()
   const client = useQueryClient()
-  const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const agents = useQuery(agentsQuery)
   const colleague = agents.data?.agents.find(agent => agent.uid === peer.agent_uid)
@@ -86,30 +113,20 @@ export function PeerExchangeCard({
   const waiting = status === 'waiting_choice'
   const stoppable = working || waiting
   const task = request?.text.replace(/\s+/g, ' ').trim()
-  const elapsed =
-    request && reply
-      ? formatElapsed(Date.parse(reply.createdAt) - Date.parse(request.createdAt), i18n.language)
-      : undefined
-  const state = waiting
-    ? t('pod.superagent.delegation_waiting')
-    : status === 'retrying'
-      ? t('pod.chat_timeline.retrying')
-      : status === 'queued'
-        ? t('pod.chat_timeline.queued')
-        : working
-          ? t('pod.superagent.delegation_running')
-          : reply
-            ? elapsed
-              ? t('pod.superagent.delegation_done', { time: elapsed })
-              : t('pod.superagent.delegation_done_untimed')
-            : live && query.isPending
-              ? t('pod.superagent.delegation_sent')
-              : t('pod.superagent.delegation_ended')
+  const elapsedMs = request && reply ? Date.parse(reply.createdAt) - Date.parse(request.createdAt) : 0
+  const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs, i18n.language) : undefined
+  const state = peerExchangeStateLabel(t, {
+    status,
+    isPending: live && query.isPending,
+    hasReply: Boolean(reply),
+    elapsed
+  })
   const pages = (reply ?? request)?.links.filter(link => link.kind === 'page') ?? []
   return (
     <div
       className="pod-peer-exchange"
       data-peer-exchange={peer.exchange_id}
+      data-active={isActive || undefined}
       data-state={waiting ? 'waiting' : working ? 'working' : reply ? 'done' : 'ended'}>
       <div className="pod-peer-exchange-head">
         {working ? (
@@ -132,7 +149,21 @@ export function PeerExchangeCard({
         <span role="status" className="pod-peer-exchange-state">
           {state}
         </span>
-        <Button ref={trigger} size="xs" variant="ghost" onClick={() => setOpen(true)}>
+        <Button
+          ref={trigger}
+          size="xs"
+          variant="ghost"
+          aria-expanded={isActive || undefined}
+          onClick={() =>
+            onOpenInspector?.(
+              {
+                type: 'peer',
+                exchangeID: peer.exchange_id,
+                agentUID: peer.agent_uid
+              },
+              trigger.current
+            )
+          }>
           {t('pod.superagent.details')}
         </Button>
         {stoppable && (
@@ -157,22 +188,6 @@ export function PeerExchangeCard({
         </ul>
       )}
       <ContentError error={query.error || stop.error} retry={() => void query.refetch()} />
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent className="pod-chat-execution-drawer" closeLabel={t('common.close')} finalFocus={trigger}>
-          <SheetTitle>{t('pod.superagent.exchange_with', { name })}</SheetTitle>
-          {open && (
-            <PeerLog
-              conversationID={conversationID}
-              peer={peer}
-              state={state}
-              stoppable={stoppable}
-              stopping={stop.isPending}
-              onStop={() => stop.mutate()}
-              waiting={waiting}
-            />
-          )}
-        </SheetContent>
-      </Sheet>
     </div>
   )
 }
@@ -311,5 +326,51 @@ function PeerLog({
       {live?.text && <ChatMarkdown text={live.text} generated streaming />}
       <ContentError error={logs.error} retry={() => void logs.refetch()} />
     </div>
+  )
+}
+
+export function PeerExchangeInspectorBody({
+  conversationID,
+  exchangeID,
+  agentUID
+}: {
+  conversationID: string
+  exchangeID: string
+  agentUID: string
+}) {
+  const { t } = useTranslation()
+  const client = useQueryClient()
+  const path = { id: conversationID, exchange_id: exchangeID }
+  const query = useQuery({
+    queryKey: [...podKeys.detail(conversationID), 'peer', exchangeID],
+    queryFn: ({ signal }) => podPeerExchange({ path, signal }),
+    refetchInterval: q => (active(q.state.data?.status) ? 2000 : false)
+  })
+  const stop = useMutation({
+    mutationFn: () => stopPodPeerExchange({ path }),
+    onSuccess: () => client.invalidateQueries({ queryKey: podKeys.detail(conversationID) })
+  })
+  const status = query.data?.status
+  const working = active(status)
+  const waiting = status === 'waiting_choice'
+  const stoppable = working || waiting
+  const hasReply = Boolean(
+    query.data?.messages?.some(message => message.authorUID === agentUID && Boolean(message.text?.trim()))
+  )
+  const state = peerExchangeStateLabel(t, {
+    status,
+    isPending: query.isPending,
+    hasReply
+  })
+  return (
+    <PeerLog
+      conversationID={conversationID}
+      peer={{ exchange_id: exchangeID, agent_uid: agentUID }}
+      state={state}
+      stoppable={stoppable}
+      stopping={stop.isPending}
+      onStop={() => stop.mutate()}
+      waiting={waiting}
+    />
   )
 }

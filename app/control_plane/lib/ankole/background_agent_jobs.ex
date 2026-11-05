@@ -146,7 +146,10 @@ defmodule Ankole.BackgroundAgentJobs do
   def create_with_dispatch(attrs) when is_map(attrs),
     do:
       Repo.transact_top_level(fn -> Dispatch.create_with_dispatch_in_tx(attrs) end,
-        after_commit: fn result -> Ankole.Signals.publish_committed(result.dispatch_event) end
+        after_commit: fn result ->
+          Ankole.Signals.publish_committed(result.dispatch_event)
+          Lifecycle.notify_owner_conversation(result.job.owner_session_id)
+        end
       )
 
   @doc "Creates one durable successor for a terminal Job and dispatches it atomically."
@@ -156,7 +159,10 @@ defmodule Ankole.BackgroundAgentJobs do
       fn ->
         Dispatch.respawn_with_dispatch_in_tx(source_job_id, attrs)
       end,
-      after_commit: fn result -> Ankole.Signals.publish_committed(result.dispatch_event) end
+      after_commit: fn result ->
+        Ankole.Signals.publish_committed(result.dispatch_event)
+        Lifecycle.notify_owner_conversation(result.job.owner_session_id)
+      end
     )
   end
 
@@ -462,13 +468,27 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc "Records one Worker Turn checkpoint and its items atomically."
   def upsert_turn_from_worker(job_id, agent_uid, attrs, turn_ref, worker_id)
       when is_integer(job_id) and is_binary(agent_uid) and is_map(attrs) and is_binary(worker_id) do
-    Repo.transact_top_level(fn ->
-      Lifecycle.upsert_turn_from_worker_in_tx(job_id, agent_uid, attrs, turn_ref, worker_id)
-    end)
+    Repo.transact_top_level(
+      fn ->
+        Lifecycle.upsert_turn_from_worker_in_tx(job_id, agent_uid, attrs, turn_ref, worker_id)
+      end,
+      after_commit: fn turn ->
+        Lifecycle.notify_owner_conversation(turn.__metadata__[:owner_session_id])
+      end
+    )
   end
 
   @doc "Lists normalized runtime turns for one job."
   defdelegate list_turns(job_id, opts \\ []), to: Turns, as: :list_for_job
+
+  @doc "Counts visible TurnItem rows across the given Turns."
+  defdelegate count_visible_turn_items(turns), to: Turns, as: :count_visible_items
+
+  @doc "Reads lightweight Turn summary snapshots for the given Jobs."
+  defdelegate turn_summary_snapshots(job_ids), to: Turns, as: :summary_snapshots_for_jobs
+
+  @doc "Finds the successor Job id continued from `job_id`, if any."
+  defdelegate successor_job_id(job_id), to: Queries
 
   @doc "Returns recent finished Jobs that carry skill-lesson evidence."
   defdelegate evidence_signals(agent_uid, since_job_id, completed_after), to: TurnEvidence

@@ -251,14 +251,12 @@ model_provider_id = "pod-browser-model-" <> tenant.id
     end
   end)
 
-for human <- [owner, member, viewer, guest] do
-  {:ok, _} =
-    AuthZ.create_permission_grant(%{
-      principal_uid: human.uid,
-      resource_pattern: "agent:#{agent.uid}",
-      action: "chat"
-    })
-end
+{:ok, _} =
+  AuthZ.create_permission_grant(%{
+    principal_uid: guest.uid,
+    resource_pattern: "agent:#{agent.uid}",
+    action: "chat"
+  })
 
 {:ok, report} =
   Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{title: "Browser report"})

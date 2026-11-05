@@ -60,7 +60,7 @@ export function podRouteTitle(
   conversationTitle?: string
 ): string | undefined {
   if (pathname.startsWith('/pages/')) return undefined
-  if (pathname.startsWith('/meta/')) return 'Meta Ankole · Ankole'
+  if (pathname === '/meta' || pathname.startsWith('/meta/')) return 'Meta Ankole · Ankole'
   let label: string | undefined
   if (pathname === '/me' || pathname.startsWith('/me/')) {
     label = t('pod.account.title')
@@ -201,6 +201,7 @@ export function PodApp({ slots = {} }: { slots?: PodAppSlots } = {}) {
           if (client.getQueryData(contentKeys.page(pageID)) === undefined) await read
           const detail = client.getQueryData<PageDetail>(contentKeys.page(pageID))
           if (detail?.page.type === 'base') void prefetchBase(client, pageID)
+          if (detail?.page.type === 'applet' && !detail.page.deleted_at) void import('./applet-page')
           return null
         },
         component: LazyPageRoute,

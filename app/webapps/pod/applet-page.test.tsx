@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToReadableStream, renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../common/i18n'
+import { readDocumentTheme } from './applet-host'
 import { AppletPage } from './applet-page'
 import { contentKeys, type PageDetail } from './content-api'
 import { PageEmbed } from './document-editor'
@@ -87,5 +88,14 @@ describe('Trashed Applet Pages remain inactive', () => {
         client.clear()
       }
     }
+  })
+})
+
+describe('Applet host theme resolution', () => {
+  test('reads dark mode strictly from the document root data-theme attribute', () => {
+    expect(readDocumentTheme(undefined)).toBe('light')
+    expect(readDocumentTheme({ documentElement: { dataset: {} } } as unknown as Document)).toBe('light')
+    expect(readDocumentTheme({ documentElement: { dataset: { theme: 'light' } } } as unknown as Document)).toBe('light')
+    expect(readDocumentTheme({ documentElement: { dataset: { theme: 'dark' } } } as unknown as Document)).toBe('dark')
   })
 })

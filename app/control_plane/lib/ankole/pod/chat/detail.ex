@@ -33,7 +33,31 @@ defmodule Ankole.Pod.Chat.Detail do
                 status: [type: :string, allow_nil?: false],
                 sourceSignalID: [type: Ankole.Ash.Types.UUIDv7],
                 sourceMessageID: [type: Ankole.Ash.Types.UUIDv7],
+                sourceToolCallID: [type: :string],
+                continuedFromJobID: [type: :string],
+                successorJobID: [type: :string],
+                stoppable: [type: :boolean],
+                canMessage: [type: :boolean],
+                summary: [type: :string, constraints: [trim?: false]],
+                stepCount: [type: :integer],
+                planCompleted: [type: :integer],
+                planTotal: [type: :integer],
+                taskCounts: [
+                  type: :map,
+                  constraints: [
+                    fields: [
+                      total: [type: :integer, allow_nil?: false],
+                      completed: [type: :integer, allow_nil?: false],
+                      running: [type: :integer, allow_nil?: false],
+                      queued: [type: :integer, allow_nil?: false],
+                      sleeping: [type: :integer, allow_nil?: false],
+                      failed: [type: :integer, allow_nil?: false]
+                    ]
+                  ]
+                ],
                 text: [type: :string],
+                startedAt: [type: :utc_datetime_usec],
+                completedAt: [type: :utc_datetime_usec],
                 createdAt: [type: :utc_datetime_usec, allow_nil?: false],
                 updatedAt: [type: :utc_datetime_usec, allow_nil?: false]
               ]

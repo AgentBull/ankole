@@ -1,5 +1,48 @@
 # Changelog
 
+## Version 2.0.0-alpha.63 (2026-11-05)
+
+- Remove the **Save as page** action on Pod chat messages and multi-message
+  excerpts so chat transcripts are not saved directly as Pages; Agents create and
+  edit Pages through Pod tools, while file attachments still offer **Save file to
+  Pod**.
+- Replace the elapsed-time stopwatch on Pod chat turn work summaries with an
+  indeterminate loading spinner while an Agent is working and untimed step/status
+  labels once settled.
+- Generate concise sidebar titles for personal-assistant and group chat rooms
+  asynchronously with the Agent's `light` model profile when the opening turn
+  starts, replacing the 40-character first-line fallback once ready unless the
+  room was manually renamed.
+- Render Pod chat reply suggestions inline inside the empty composer as ghost
+  placeholder text with a trailing `⇥ Tab` keycap (pressed via `Tab` or clicked
+  to fill the draft) instead of a floating button above the composer, and
+  suppress suggestions while any Agent turn, queued input, pending question,
+  confirmation card, Background Agent Job, Workflow, or delegated colleague task
+  is still active in the room.
+- Grant active Pod members (`all_humans`) default `chat` permission on newly
+  created AI colleagues, backfill existing ungranted AI colleagues on upgrade,
+  and refresh the Pod Chat colleague directory when administrators enable,
+  disable, or rename an Agent in Pod Settings, so configured AI colleagues appear
+  in the Chat sidebar and remain callable via DMs, `@` mentions, and Personal
+  Assistant delegation out of the box.
+- Visualize Brain Pages, Bases, Applets, Skills, and Agents in an interactive
+  knowledge graph under **Meta Ankole → Brain** with force, hierarchy, cluster,
+  and radial layouts, ontology layer and category filters, search, a node
+  relationship inspector, and accessible object links.
+- Inspect room-linked Background Agent Jobs, Workflows, and delegated AI
+  colleague exchanges in a Pod chat side panel (or mobile sheet) with paginated
+  execution logs, final outcomes, live stop actions, and follow-up messages that
+  steer running Background Agent Jobs or continue settled jobs in the same
+  workspace.
+- Gate per-field secret reveals on Site Console AI Gateway providers behind the
+  `decrypt` permission on `site_console:ai_gateway_provider:{provider_id}`, so
+  authorized administrators can reveal masked API keys, OAuth client secrets,
+  and credential-pool tokens on demand.
+- Synchronize the active Pod light or dark theme into Applet iframes and expose
+  reactive `usePod().theme` (`'light' | 'dark'`) in `@ankole/applet-sdk`, while
+  preloading Applet vendor ESM modules and serving `304 Not Modified` for
+  unchanged Applet `index.html` shells without re-reading stored object bytes.
+
 ## Version 2.0.0-alpha.62 (2026-11-05)
 
 - Accept an Agent's tool call that fills an optional setting with an empty

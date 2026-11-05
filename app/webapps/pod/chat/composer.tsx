@@ -50,6 +50,7 @@ import {
   type CompletionHandle
 } from './composer-completion'
 import type { ClarifyAnswer } from './choice-card'
+import { ReplySuggestionGhost, useReplySuggestion } from './reply-suggestion'
 
 type Model = InstanceType<typeof ChatModel>
 export function Composer({
@@ -107,6 +108,7 @@ export function Composer({
   const completion = useRef<CompletionHandle>(null)
   const completionID = useId()
   const composing = useRef(false)
+  const [isComposing, setIsComposing] = useState(false)
   const dismissedSlash = useRef<number | undefined>(undefined)
   useEffect(() => {
     if (!picker) return
@@ -281,6 +283,34 @@ export function Composer({
   const unavailable = detail?.conversation.agents.filter(agent => !agent.active) ?? []
   const quoted = model.quoted.value
   const editing = model.editing.value
+  const hasActiveAgent =
+    !!detail &&
+    Object.values(model.activities.value).some(
+      activity =>
+        activity.state === 'active' && detail.conversation.agents.some(agent => agent.uid === activity.agentUID)
+    )
+  const replySuggestion = useReplySuggestion({
+    conversationID,
+    detail,
+    idle:
+      !!conversationID &&
+      !!detail &&
+      !disabled &&
+      !answering &&
+      !answerID &&
+      !editing &&
+      !working &&
+      !hasActiveAgent &&
+      !model.pending.value &&
+      !draft &&
+      !isComposing &&
+      !model.attachments.hasFiles.value &&
+      !model.links.value.length,
+    onUse: text => {
+      pendingCaret.current = text.length
+      model.draft.value = text
+    }
+  })
   const editedAttachments =
     editing &&
     (detail?.pendingQueues
@@ -435,72 +465,103 @@ export function Composer({
                 />
               ))}
           </div>
-          <InputGroupTextarea
-            ref={textarea}
-            autoFocus
-            disabled={answering}
-            aria-label={t('pod.chat.message_label')}
-            aria-autocomplete="list"
-            aria-haspopup="listbox"
-            aria-controls={picker ? completionID : undefined}
-            className="pod-chat-composer-input"
-            placeholder={t(answerID ? 'pod.chat_timeline.answer_placeholder' : 'pod.chat_room.composer_hint')}
-            rows={variant === 'hero' ? 3 : 1}
-            value={draft}
-            onChange={event => {
-              model.draft.value = event.target.value
-              if (!model.editing.value) {
-                model.mentions.value = model.mentions.value.filter(mention =>
-                  hasDraftMention(event.target.value, mention.displayName)
-                )
+          <div className="pod-chat-composer-editor">
+            <InputGroupTextarea
+              ref={textarea}
+              autoFocus
+              disabled={answering}
+              aria-label={t('pod.chat.message_label')}
+              aria-placeholder={replySuggestion?.text}
+              aria-description={
+                replySuggestion
+                  ? `${t('pod.reply_suggestion.use', { text: replySuggestion.text })} (${t('pod.reply_suggestion.tab_hint')})`
+                  : undefined
               }
-              syncPicker(event.target)
-            }}
-            onSelect={event => syncPicker(event.currentTarget)}
-            onCompositionStart={() => {
-              composing.current = true
-              updatePicker(undefined)
-            }}
-            onCompositionEnd={event => {
-              composing.current = false
-              syncPicker(event.currentTarget)
-            }}
-            onKeyDown={event => {
-              if (composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
-              if (picker && completion.current?.onKeyDown(event)) return
-              if (event.key === 'Escape' && model.editing.value) {
-                event.preventDefault()
-                model.cancelEdit()
-                return
+              aria-autocomplete="list"
+              aria-haspopup="listbox"
+              aria-controls={picker ? completionID : undefined}
+              className="pod-chat-composer-input"
+              placeholder={
+                replySuggestion
+                  ? ''
+                  : t(answerID ? 'pod.chat_timeline.answer_placeholder' : 'pod.chat_room.composer_hint')
               }
-              if (event.key === 'Escape' && answerID) {
-                event.preventDefault()
-                model.cancelAnswer()
-                return
-              }
-              if (
-                event.key === 'ArrowUp' &&
-                !answerID &&
-                !draft &&
-                textarea.current?.selectionStart === textarea.current?.selectionEnd &&
-                detail
-              ) {
-                event.preventDefault()
-                commands.recallLast()
-              }
-              if (
-                shouldSendOnEnter({
-                  key: event.key,
-                  shiftKey: event.shiftKey,
-                  isComposing: event.nativeEvent.isComposing,
-                  keyCode: event.nativeEvent.keyCode
-                })
-              ) {
-                event.preventDefault()
-                send()
-              }
-            }}
-          />
+              rows={variant === 'hero' ? 3 : 1}
+              value={draft}
+              onChange={event => {
+                model.draft.value = event.target.value
+                if (!model.editing.value) {
+                  model.mentions.value = model.mentions.value.filter(mention =>
+                    hasDraftMention(event.target.value, mention.displayName)
+                  )
+                }
+                syncPicker(event.target)
+              }}
+              onSelect={event => syncPicker(event.currentTarget)}
+              onCompositionStart={() => {
+                composing.current = true
+                setIsComposing(true)
+                updatePicker(undefined)
+              }}
+              onCompositionEnd={event => {
+                composing.current = false
+                setIsComposing(false)
+                syncPicker(event.currentTarget)
+              }}
+              onBlur={() => {
+                if (composing.current) composing.current = false
+                setIsComposing(false)
+              }}
+              onKeyDown={event => {
+                if (composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+                if (picker && completion.current?.onKeyDown(event)) return
+                if (
+                  replySuggestion &&
+                  event.key === 'Tab' &&
+                  !event.shiftKey &&
+                  !event.altKey &&
+                  !event.ctrlKey &&
+                  !event.metaKey
+                ) {
+                  event.preventDefault()
+                  replySuggestion.accept()
+                  return
+                }
+                if (event.key === 'Escape' && model.editing.value) {
+                  event.preventDefault()
+                  model.cancelEdit()
+                  return
+                }
+                if (event.key === 'Escape' && answerID) {
+                  event.preventDefault()
+                  model.cancelAnswer()
+                  return
+                }
+                if (
+                  event.key === 'ArrowUp' &&
+                  !answerID &&
+                  !draft &&
+                  textarea.current?.selectionStart === textarea.current?.selectionEnd &&
+                  detail
+                ) {
+                  event.preventDefault()
+                  commands.recallLast()
+                }
+                if (
+                  shouldSendOnEnter({
+                    key: event.key,
+                    shiftKey: event.shiftKey,
+                    isComposing: event.nativeEvent.isComposing,
+                    keyCode: event.nativeEvent.keyCode
+                  })
+                ) {
+                  event.preventDefault()
+                  send()
+                }
+              }}
+            />
+            <ReplySuggestionGhost suggestion={replySuggestion} />
+          </div>
           <InputGroupAddon align="block-end" className="pod-chat-composer-tools">
             <div className="pod-chat-recipient-tools">
               <ChatAttachmentButton model={model.attachments} disabled={disabled || !!model.editing.value} />

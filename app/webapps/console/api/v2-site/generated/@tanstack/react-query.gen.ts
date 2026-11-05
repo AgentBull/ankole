@@ -11,6 +11,7 @@ import {
   configureControlPlanePlugin,
   createTenant,
   createWorkerProvider,
+  decryptAiGatewayCredential,
   decryptSiteAppConfiguration,
   decryptSiteWorkerEnv,
   deleteAiGatewayCredential,
@@ -71,6 +72,9 @@ import type {
   CreateWorkerProviderData,
   CreateWorkerProviderError,
   CreateWorkerProviderResponse,
+  DecryptAiGatewayCredentialData,
+  DecryptAiGatewayCredentialError,
+  DecryptAiGatewayCredentialResponse,
   DecryptSiteAppConfigurationData,
   DecryptSiteAppConfigurationError,
   DecryptSiteAppConfigurationResponse,
@@ -568,6 +572,33 @@ export const putAiGatewayCredentialMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await putAiGatewayCredential({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * decrypt_ai_gateway_credential operation on chatgpt_login resource
+ */
+export const decryptAiGatewayCredentialMutation = (
+  options?: Partial<Options<DecryptAiGatewayCredentialData>>
+): UseMutationOptions<
+  DecryptAiGatewayCredentialResponse,
+  DecryptAiGatewayCredentialError,
+  Options<DecryptAiGatewayCredentialData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DecryptAiGatewayCredentialResponse,
+    DecryptAiGatewayCredentialError,
+    Options<DecryptAiGatewayCredentialData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await decryptAiGatewayCredential({
         ...options,
         ...fnOptions,
         throwOnError: true

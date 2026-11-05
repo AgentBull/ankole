@@ -1,8 +1,14 @@
 import { t } from 'i18next'
-import type { AppletRuntime } from '@ankole/applet-sdk'
+import type { AppletRuntime, AppletTheme } from '@ankole/applet-sdk'
 import { InternalAPIError } from '../common/internal-api-client'
 import { authenticationRef, principalUID } from '../common/browser-context'
 import { createAppletRoutes } from './applet-routes'
+
+export function readDocumentTheme(
+  doc: Document | undefined = typeof document === 'undefined' ? undefined : document
+): AppletTheme {
+  return doc?.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
+}
 
 type AppletProvider = {
   render(options: { dom: Element; props: { runtime: AppletRuntime } }): void
@@ -101,7 +107,9 @@ export function mountApplet(
   host()
   const frame = document.createElement('iframe')
   frame.title = t('pod.content.applet')
-  frame.className = 'block w-full min-h-32 border-0'
+  frame.className = 'block w-full min-h-32 border-0 bg-transparent'
+  let currentTheme = readDocumentTheme()
+  frame.style.colorScheme = currentTheme
   const viewport = container.closest<HTMLElement>('.pod-page-scroll')
   const resize = () => {
     frame.style.height = `${Math.max(128, viewport?.clientHeight ?? window.innerHeight)}px`
@@ -172,9 +180,7 @@ export function mountApplet(
     get principal() {
       return runtime.principal
     },
-    get theme() {
-      return runtime.theme
-    },
+    theme: currentTheme,
     revision,
     base,
     runs: {
@@ -234,8 +240,19 @@ export function mountApplet(
       const doc = frameWindow.document
       doc.documentElement.lang = document.documentElement.lang
       const syncTheme = () => {
-        if (runtime.theme) doc.documentElement.dataset.theme = runtime.theme
-        else delete doc.documentElement.dataset.theme
+        const nextTheme = readDocumentTheme()
+        frame.style.colorScheme = nextTheme
+        doc.documentElement.dataset.theme = nextTheme
+        doc.documentElement.style.colorScheme = nextTheme
+        if (nextTheme === currentTheme) return
+        currentTheme = nextTheme
+        bound = { ...bound, theme: nextTheme }
+        if (!provider) return
+        try {
+          provider.render({ dom: doc.body, props: { runtime: bound } })
+        } catch (error) {
+          report(error)
+        }
       }
       syncTheme()
       const theme = new MutationObserver(syncTheme)
@@ -310,7 +327,7 @@ export function mountApplet(
     dispose,
     update(next: Omit<AppletRuntime, 'revision' | 'routes'>) {
       if (disposed || next.pageID !== pageID) return
-      bound = { ...bound, actions: next.actions }
+      bound = { ...bound, actions: next.actions, theme: currentTheme }
       if (!provider) return
       try {
         provider.render({ dom: frameWindow.document.body, props: { runtime: bound } })

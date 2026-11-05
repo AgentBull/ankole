@@ -77,7 +77,7 @@ const config: KnipConfig = {
       entry: ['scripts/build-node-addon.ts!', 'scripts/build-wasm.ts!']
     },
     'libs/uikit': {
-      entry: ['src/index.ts!'],
+      entry: ['src/index.ts!', 'src/components/graph.tsx!'],
       project: ['src/**/*.{ts,tsx}!'],
       ignore: ['src/stories/**']
     },

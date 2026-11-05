@@ -69,6 +69,7 @@
 img.pod-page-title-icon.pod-page-icon {
   width: 42px;
   height: 42px;
+  padding: 0;
   object-fit: contain;
 }
 
@@ -232,10 +233,11 @@ textarea.pod-page-title:focus-visible {
 }
 
 .pod-mention-page-icon {
-  display: inline-block;
+  display: inline-flex;
   width: 1em;
   height: 1em;
   margin-inline-end: 0.22em;
+  padding: 0;
   vertical-align: -0.15em;
   font-size: 1em;
   line-height: 1;
@@ -370,8 +372,8 @@ textarea.pod-page-title:focus-visible {
 
   .pod-page-title-icon img.pod-page-icon,
   img.pod-page-title-icon.pod-page-icon {
-    width: 36px;
-    height: 36px;
+    width: 34px;
+    height: 34px;
   }
 
   .pod-document .drag-handle {

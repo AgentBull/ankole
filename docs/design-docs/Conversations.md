@@ -96,7 +96,9 @@ Bootstrap reads an existing assistant without creating one. On first send the
 frontend ensures that assistant, then calls the ordinary Conversation create
 and send path. If sending fails after creation, retry uses the same assistant
 and message draft. Guests use their existing grants and AI-colleague choices.
-The Chat sidebar combines existing IM conversations with callable AI colleagues.
+The Chat sidebar combines existing IM conversations with callable AI colleagues
+(`agent:<uid>` `chat`, which AI colleague creation grants to `all_humans` by
+default and operators can narrow or revoke).
 Each colleague opens at `/dm/<uid>`; the browser creates a room only on first send.
 
 Mention candidates include the caller's existing assistant and its local
@@ -277,9 +279,17 @@ The browser generates client UUIDs for both conversations and messages:
   historical execution records and cannot be reused.
 - Message text must be valid UTF-8 with no `NUL` bytes and at least one
   non-whitespace character; Ankole stores and compares the exact untrimmed text
-  on retries. Unless `title_customized` is set by a manual rename, the room
-  title defaults to the first non-empty line (up to 80 characters), and clearing
-  a custom title restores that derived title.
+  on retries. When a room is created, Ankole seeds its initial title from the
+  first non-empty line of the opening message or attachment filename (up to 40
+  characters). Once the opening Human message's turn is admitted in a
+  personal-assistant or group room, Ankole asynchronously asks the admitted
+  Agent's `light` model profile once for a concise title in the message's
+  language (up to 40 characters), stores it in `metadata.generated_title`, and
+  updates `title` with a status broadcast unless the Human has manually renamed
+  the room (`title_customized`). Clearing a custom title restores
+  `metadata.generated_title` when present, or falls back to the 40-character
+  opening heading; colleague DMs skip title generation because Pod presents them
+  under the colleague's name.
 
 Event publication happens strictly after PostgreSQL commits so rolled-back
 transactions emit nothing. Top-level native `create`, `post`, and `queue`
@@ -393,7 +403,9 @@ expose only active Agents on which the Human holds `chat` permission.
 | `GET /conversations/:id/peer-exchanges/:exchange_id` | Paginated public exchange messages, execution summaries and live state; access follows the origin |
 | `POST /conversations/:id/peer-exchanges/:exchange_id/stop` | Stop the colleague's exchange through the ordinary Session command owner |
 | `GET /conversations/:id` | Room, participants, message window, room-wide artifacts and pending questions, Agent activities and queues, and linked background work |
-| `GET /conversations/:id/executions/:kind/:run_id` | Read one page of a linked execution log with an optional opaque `cursor`; returns `text` and `nextCursor` |
+| `GET /conversations/:id/executions/:kind/:run_id` | Read one bounded page of a linked Background Job or Workflow with structured status, plan, outcome, pending questions, thread summaries, and execution items (`cursor` and `nextCursor`) |
+| `POST /conversations/:id/executions/:kind/:run_id/stop` | Stop an active linked Background Job or Workflow when the Human may command its owning Agent |
+| `POST /conversations/:id/executions/background_agent_job/:run_id/messages` | Send a live steer message, answer pending questions, or resume a terminal Background Job in the same workspace (`clientMessageKey`) |
 | `PATCH /conversations/:id` | Title, access scope, or the current Human's pin, mute, and read position |
 | `POST /conversations/:id/participants` | Add or remove participants, or change an Agent's intervention setting |
 | `POST /conversations/:id/messages` | Human message with structured mentions, links, and optional Agent target |
@@ -410,14 +422,29 @@ expose only active Agents on which the Human holds `chat` permission.
 | `PUT /conversations/:id/model-profile` | Store that Agent's selected profile |
 | `DELETE /conversations/:id` | Authorized room deletion; `forceStop` stops active work before deletion |
 
-Room detail responses list linked background executions as compact summaries
-(ID, title, status, and timestamps). Calling
-`GET /conversations/:id/executions/:kind/:run_id` accepts `background_agent_job`
-or `workflow` plus a `ModelIntegerID`, verifies current room access and Session
-ownership on every page, paginates Background Jobs with the Console turn cursor
-and Workflows in call-sequence order, and returns public assistant text, tool
-calls, results, and errors while omitting hidden system context and raw workflow
-trigger arguments.
+On `GET /conversations/:id`, the Pod API lists linked Background Agent Jobs and
+Workflows with their current status, timestamps, step or task counts, plan
+progress, continuation links (`continuedFromJobID` and `successorJobID`), stop
+eligibility, and latest summary preview (omitting internal
+`skill_lesson_reflection` jobs and empty JSON placeholders). Whenever a linked
+job or workflow starts, checkpoints a turn, changes status, or updates a task,
+the control plane publishes a room status event on `GET /conversations/:id/events`
+so open rooms refresh both timeline cards and inspector queries immediately.
+Calling `GET /conversations/:id/executions/:kind/:run_id` accepts
+`background_agent_job` or `workflow` plus a `ModelIntegerID`, verifies current
+room access and Session ownership on every page, and paginates Background Jobs
+with the bounded `TrajectoryReader` cursor and Workflows in call-sequence order.
+For each page, the Pod API returns structured narrative messages, client steer
+messages, reasoning summaries, plan checklists, pending Clarify questions,
+subthread summaries, and typed tool steps (`skill`, `command`, `patch`,
+`search`, `collab`, and `tool`), while stripping `<skill>` system prompt bodies
+and hidden model context. When an authorized Human stops a run through
+`POST /conversations/:id/executions/:kind/:run_id/stop` or sends follow-up text
+and question answers through
+`POST /conversations/:id/executions/background_agent_job/:run_id/messages`, the
+control plane routes live jobs to `BackgroundAgentJobs.steer_from_client` and
+respawns terminal jobs without an existing successor in the same workspace under
+inherited Human work authorization.
 
 Room detail also exposes two room-wide views that apply the same access and
 browser projection rules as timeline messages: `artifacts` lists visible saved
@@ -576,9 +603,9 @@ while keyboard shortcuts toggle in-room search and the summary drawer:
 
 All surfaces, code blocks, selections, status pills, and composer focus rings
 use semantic tokens from the shared Ankole UI kit across light and dark themes.
-A reply's code blocks, inline code, and tables take the same forms as a
-document's, because a reply can be saved as a page: 13 px source under a 32 px
-toolbar on a light fill, and 14 px table cells on a hairline grid. Pickers, the
+A reply's code blocks, inline code, and tables share the document type scale:
+13 px source under a 32 px toolbar on a light fill, and 14 px table cells on a
+hairline grid. Pickers, the
 find bar, turn previews, and the jump to the latest message float over the
 conversation as ceramic, and renaming a conversation edits its title where it
 stands.
@@ -598,19 +625,22 @@ whether an Agent is working, needs them, or has stopped. In the sidebar, an
 unread room shows a blue dot, a room that waits on a decision shows an amber
 "Needs you" badge, and a room where an Agent is working or a background run is
 active shows a turning neutral ring. A question that a delegated colleague asks
-in the original conversation carries the colleague's name in its heading. While an Agent writes, a caret follows its last
-words, and the composer offers a labelled Stop button next to Send. A turn that
-fails reads "Failed after …" in the destructive colour with the failing step
-marked, a stopped turn reads "Stopped after …", and a retryable turn offers a
+in the original conversation carries the colleague's name in its heading. While
+an Agent works, its live work summary renders an indeterminate loading spinner
+alongside the active phase or tool step; while it writes, a caret follows its
+last words, and the composer offers a labelled Stop button next to Send. Once
+settled, the collapsed work summary shows "Work steps" (or "Thinking" or "Model
+usage" when no tools ran) together with the reported model and token usage,
+while a failed turn reads "Failed" in the destructive colour with the failing
+step marked, a stopped turn reads "Stopped", and a retryable turn offers a
 labelled Retry reply action. Because an Agent often recovers from a failed step
 and still completes its turn, Pod judges the turn by `execution.status` alone:
-a completed turn with failed steps reads "Worked for …" followed by the number
-of failed steps in the warning colour, such as "Worked for 1m 25s · 1 error",
-and stays collapsed, so people can still find and report the error. A pending
-decision card has an amber edge and heading, and its question and choices use
-the message type scale. Queued messages offer a labelled Steer action, and a
-background run card counts its time in minutes and hours once it runs past a
-minute.
+a completed turn with failed steps shows the number of failed steps in the
+warning colour, such as "Work steps · 1 error", and stays collapsed so people
+can still find and report the error. A pending decision card has an amber edge
+and heading, and its question and choices use the message type scale. Queued
+messages offer a labelled Steer action, and a background run card counts its
+time in minutes and hours once it runs past a minute.
 
 In the timeline, compact event notices sit alongside attributed messages:
 
@@ -646,18 +676,24 @@ In the timeline, compact event notices sit alongside attributed messages:
   expanded (including command strings, stdout/stderr, and exit codes when
   recorded).
 - Linked Background Agent Jobs and Workflows appear once inside the live turn
-  and then attach to the committed reply, opening paged read-only execution logs
-  within the room's access boundary.
-- Message actions support copying, quoting, eligible edits, Agent retries,
-  **Save to Pod** (displaying saved Pages as links beneath the source message),
-  and multi-message selection. Selecting messages opens a sticky toolbar to copy
-  or download a Markdown excerpt that preserves code-block whitespace, save the
-  excerpt as a Pod document, or render a shareable PNG card from an offscreen
-  CSS-inlined DOM clone with deterministic DPR scaling (`3x` -> `2x` -> `1x`)
-  under the same browser canvas
-  pixel budgets (surfacing an explicit `needsPagination` prompt to narrow the
-  selection or export Markdown when even `1x` exceeds canvas limits). Saving a
-  text message loads the document parser when the user submits the save dialog.
+  and then attach to the committed reply, collapsing respawn continuation chains
+  onto the latest job card and hiding duplicate launch tool steps in the turn's
+  work trace when their card is present (while keeping failed launch steps and
+  non-expandable Skill load badges visible). Selecting a linked execution or
+  colleague exchange opens a resizable right-hand inspector split pane on
+  desktop (falling back to a slide-over sheet in narrow or embedded layouts)
+  with narrative progress, collapsible tool groups, subthread filters, inline
+  Stop controls, and a composer for steering, answering pending questions, or
+  continuing a finished Background Job.
+- Message actions support copying, quoting, eligible edits, Agent retries, and
+  multi-message selection, while file attachments offer **Save file to Pod** and
+  messages display Pages created from that turn as links beneath the source
+  message. Selecting messages opens a sticky toolbar to copy or download a
+  Markdown excerpt that preserves code-block whitespace, or render a shareable
+  PNG card from an offscreen CSS-inlined DOM clone with deterministic DPR
+  scaling (`3x` -> `2x` -> `1x`) under the same browser canvas pixel budgets
+  (surfacing an explicit `needsPagination` prompt to narrow the selection or
+  export Markdown when even `1x` exceeds canvas limits).
 
 In the composer, users can combine `@` Agent and Human mentions, Page
 references, `/` commands, file attachments, and per-Agent model-profile
@@ -692,16 +728,20 @@ overrides:
   opens the queued files for preview and download without taking the message
   back into the composer.
 - **Reply suggestion:** After an Agent reply in a room whose only human
-  participant is the viewer, Pod shows one suggested next message above an
-  empty composer when no question, queued input or running work follows the
-  reply. `Conversations.ReplySuggestion` drafts the line with the replying
-  Agent's `light` model profile (or `primary` when `light` is unset) from the
-  last eight messages, in the language the Human writes in the room, and returns
-  no text for a multi-line reply, a reply over
-  120 characters, or one that repeats the Human's last message. Choosing the
-  suggestion only fills the draft. Typing or a new turn hides it, and after the
-  Human passes over three suggestions in a row the room stops showing them for
-  the rest of the visit. Ankole stores no suggestion.
+  participant is the viewer, Pod shows one suggested next message as inline
+  ghost text with a trailing `⇥ Tab` keycap inside the empty composer once the
+  room is completely idle—with no pending question, prepared confirmation card,
+  queued input, active Agent turn, linked Background Agent Job, running
+  Workflow, or active colleague exchange. `Conversations.ReplySuggestion`
+  verifies that idle room state in a repeatable-read snapshot before drafting
+  the line with the replying Agent's `light` model profile (or `primary` when
+  `light` is unset) from the last eight messages, in the language the Human
+  writes in the room, and returns no text for a multi-line reply, a reply over
+  120 characters, or one that repeats the Human's last message. Pressing `Tab`
+  in the empty composer or clicking the `⇥ Tab` keycap fills the draft. Typing
+  or new work hides it, and after the Human passes over three suggestions in a
+  row Pod stops showing suggestions in that room for the rest of the visit.
+  Ankole stores no suggestion.
 - **Editing and conflict handling:** Only one composer edit is active at a time
   until saved or canceled, and `ArrowUp` in an empty composer opens the Human's
   latest editable queued item or latest eligible timeline message. A queued

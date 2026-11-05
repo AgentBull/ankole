@@ -1,16 +1,48 @@
 import { Button } from '@ankole/uikit'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AppletRuntime } from '@ankole/applet-sdk/types'
-import { mountApplet } from './applet-host'
+import { mountApplet, readDocumentTheme } from './applet-host'
 import { createAppletRuns } from './applet-runs'
 import { contentKeys, pageQuery, podRequest, type PageDetail } from './content-api'
 import { useContent } from './content-context'
 import { ContentError } from './content-primitives'
 import { isRealtimeAccessDenied } from './realtime'
+import { automationJobID } from './state/connectors'
 import { usePageRealtime } from './use-page-realtime'
-import { AppletAutomation } from './applet-automation'
+
+const AppletAutomationDialog = lazy(() =>
+  import('./applet-automation').then(module => ({ default: module.AppletAutomationDialog }))
+)
+
+function AppletAutomationControl({ detail }: { detail: PageDetail }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(
+    () => typeof window !== 'undefined' && automationJobID(new URLSearchParams(window.location.search)) !== undefined
+  )
+  const [everOpened, setEverOpened] = useState(open)
+  return (
+    <>
+      <div className="flex justify-end py-1.5">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setEverOpened(true)
+            setOpen(true)
+          }}>
+          {t('pod.automation.title')}
+        </Button>
+      </div>
+      {everOpened && (
+        <Suspense fallback={null}>
+          <AppletAutomationDialog detail={detail} open={open} onOpenChange={setOpen} />
+        </Suspense>
+      )}
+    </>
+  )
+}
 
 export function AppletPage({ detail }: { detail: PageDetail }) {
   const { t } = useTranslation()
@@ -52,7 +84,7 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
         return realtime.principal
       },
       get theme() {
-        return document.documentElement.dataset.theme
+        return readDocumentTheme()
       },
       pod: { request: podRequest },
       channel(name) {
@@ -111,7 +143,7 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
   }, [detail.page.id, detail.page.revision, instanceID, base, realtime, retry, revoked, client])
   return (
     <section className="min-h-32 text-base leading-normal font-normal">
-      {!revoked && <AppletAutomation detail={detail} />}
+      {!revoked && <AppletAutomationControl detail={detail} />}
       <ContentError error={error} />
       {!!error && !revoked && (
         <Button size="sm" variant="outline" onClick={() => setRetry(value => value + 1)}>
@@ -121,9 +153,17 @@ function ActiveAppletPage({ detail }: { detail: PageDetail }) {
       {connection.revoked && (
         <ContentError error={new Error(t('pod.content.you_no_longer_have_access_to_this_applet'))} />
       )}
-      {loading && !revoked && <p role="status">{t('pod.content.loading_applet')}</p>}
       {!revoked && <ContentError error={connection.error} retry={connection.retry} />}
-      <div ref={container} hidden={(!ready && !!error) || revoked} />
+      <div className="relative">
+        {loading && !revoked && (
+          <p
+            role="status"
+            className="pointer-events-none absolute inset-x-0 top-0 z-10 py-2 text-sm text-muted-foreground">
+            {t('pod.content.loading_applet')}
+          </p>
+        )}
+        <div ref={container} hidden={(!ready && !!error) || revoked} />
+      </div>
     </section>
   )
 }

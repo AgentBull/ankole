@@ -138,14 +138,19 @@ defmodule Ankole.Sessions.Activity do
   defp display_payload(payload) do
     label = display_label(payload)
 
-    safe = %{
-      "operation_id" => payload["operation_id"],
-      "phase" =>
-        if(is_binary(payload["phase"]),
-          do: Presentation.activity_excerpt(payload["phase"], 160)
-        ),
-      "label_bindings" => display_bindings(payload["label_bindings"])
-    }
+    safe =
+      %{
+        "operation_id" => payload["operation_id"],
+        "phase" =>
+          if(is_binary(payload["phase"]),
+            do: Presentation.activity_excerpt(payload["phase"], 160)
+          ),
+        "label_bindings" => display_bindings(payload["label_bindings"])
+      }
+      |> Ankole.Attrs.maybe_put(
+        "tool",
+        if(is_binary(payload["tool"]), do: Presentation.activity_excerpt(payload["tool"], 64))
+      )
 
     cond do
       label ->

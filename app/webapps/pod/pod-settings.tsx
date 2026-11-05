@@ -42,6 +42,7 @@ import { authenticationRef, podID, principalUID, replacePrincipalUID } from '../
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
 import { availableLocaleIDs, loadLocale, nativeLocaleLabel } from '../common/i18n'
 import * as api from './api/generated/sdk.gen'
+import { refreshAgentQueries } from './query-cache'
 import { PrincipalRename } from '../common/principal-rename'
 import type { PodAdminAgentsResponse, PodAdminMembersResponse } from './api/generated/types.gen'
 import {
@@ -128,7 +129,7 @@ function ManagedAgents() {
   const { t } = useTranslation()
   const client = useQueryClient()
   const agents = useQuery({ queryKey: keys.agents, queryFn: () => api.podAdminAgents() })
-  const refresh = () => client.invalidateQueries({ queryKey: keys.agents })
+  const refresh = () => refreshAgentQueries(client)
   return (
     <section className="grid gap-4">
       <p className="text-sm text-muted-foreground">{t('pod.settings.agents_hint')}</p>

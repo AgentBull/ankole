@@ -548,17 +548,24 @@ body:has(.pod-shell) [data-mobile='true'][data-sidebar='sidebar'] {
   min-height: 40px;
 }
 
+/* A 17px slot holds a 15px icon mark: centering the emoji flex item keeps
+   Fluent Emoji's wider advance box centered, and 1px image padding matches the
+   15px emoji glyph bounds. */
 .pod-page-icon {
+  display: inline-flex;
   width: 17px;
   height: 17px;
   flex: none;
+  align-items: center;
+  justify-content: center;
   color: var(--nav-icon, var(--fg-tertiary));
   text-align: center;
   font-size: 15px;
-  line-height: 17px;
+  line-height: 1;
 }
 
 img.pod-page-icon {
+  padding: 1px;
   object-fit: contain;
 }
 

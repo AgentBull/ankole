@@ -14,6 +14,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.CredentialPoolView do
     priority: [type: :integer, allow_nil?: false],
     disabled_at: [type: :string],
     credential_present: [type: :boolean, allow_nil?: false],
+    present_fields: [type: {:array, :string}, allow_nil?: false],
     status: [
       type: :atom,
       allow_nil?: false,

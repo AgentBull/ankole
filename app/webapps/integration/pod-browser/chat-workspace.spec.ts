@@ -148,7 +148,7 @@ test('room navigation persists pinning, text search, one inline rename and an in
   }
 })
 
-test('a recorded turn restores its rich answer and complete work after refresh, with find, summary, quote and save', async ({
+test('a recorded turn restores its rich answer and complete work after refresh, with find, summary, and quote', async ({
   browser
 }, info) => {
   const { context, page } = await ownerPage(browser)
@@ -241,15 +241,7 @@ test('a recorded turn restores its rich answer and complete work after refresh, 
     await expect(message.getByText('Read page Workspace reference', { exact: true })).toBeVisible()
     await expect(message.getByText('Queried Tasks (18 rows)', { exact: true })).toBeVisible()
     await message.hover()
-    await message.getByRole('button', { name: '保存为页面', exact: true }).click()
-    const save = page.getByRole('dialog', { name: '保存对话成果', exact: true })
-    await save.getByRole('textbox', { name: '页面标题', exact: true }).fill('Workspace saved result')
-    await save.getByRole('button', { name: '保存', exact: true }).click()
-    await expect(save).toBeHidden()
-    await expect(page).toHaveURL(url => url.pathname === conversationRoute(material!.conversation_id))
-    await expect(message.locator('.pod-chat-saved-page')).toContainText('Workspace saved result')
-    await page.reload()
-    await expect(message.locator('.pod-chat-saved-page')).toContainText('Workspace saved result')
+    await expect(message.getByRole('button', { name: '保存为页面', exact: true })).toHaveCount(0)
     await page.screenshot({ path: info.outputPath('chat-turn-restored.png') })
   } finally {
     await context.close()
@@ -631,6 +623,7 @@ test('a linked execution opens real paged records, retries a rejected cursor and
   try {
     await page.goto(conversationRoute(id))
     const card = page.locator('.pod-chat-linked-run').filter({ hasText: 'Recorded workspace execution' })
+    const trigger = card.locator('.pod-chat-linked-run-main')
     await expect(card).toContainText('Browser content Agent')
     let requests = 0
     page.on('request', incoming => {
@@ -653,18 +646,18 @@ test('a linked execution opens real paged records, retries a rejected cursor and
     const rejected = page.waitForResponse(
       response => new URL(response.url()).pathname === path && response.status() === 422
     )
-    await card.click()
+    await trigger.click()
     await rejected
-    const drawer = page.getByRole('dialog', { name: 'Recorded workspace execution', exact: true })
-    await expect(drawer).toBeInViewport({ ratio: 1 })
-    await expect(drawer.getByRole('alert')).toBeVisible()
+    const inspector = page.getByRole('complementary', { name: 'Recorded workspace execution', exact: true })
+    await expect(inspector).toBeInViewport({ ratio: 1 })
+    await expect(inspector.getByRole('alert')).toBeVisible()
     const first = page.waitForResponse(
       response => new URL(response.url()).pathname === path && response.status() === 200
     )
-    await drawer.getByRole('button', { name: '重试', exact: true }).click()
+    await inspector.getByRole('button', { name: '重试', exact: true }).click()
     let nextCursor = (await (await first).json()).nextCursor as string | null | undefined
     expect(nextCursor).toBeTruthy()
-    const more = drawer.getByRole('button', { name: '加载更早的执行记录', exact: true })
+    const more = inspector.getByRole('button', { name: '加载更早的执行记录', exact: true })
     for (let pageNumber = 0; pageNumber < 10 && nextCursor; pageNumber++) {
       const cursor = nextCursor
       const loaded = page.waitForResponse(
@@ -674,28 +667,32 @@ test('a linked execution opens real paged records, retries a rejected cursor and
           response.status() === 200
       )
       await more.click()
-      const body = await (await loaded).json()
-      const marker = /Recorded execution step \d+\./.exec(body.text)?.[0]
+      const body = (await (await loaded).json()) as {
+        items?: Array<{ text?: string | null }>
+        nextCursor?: string | null
+      }
+      const joined = (body.items ?? []).map(item => item.text ?? '').join('\n')
+      const marker = /Recorded execution step \d+\./.exec(joined)?.[0]
       expect(marker).toBeDefined()
-      await expect(drawer.getByText(marker!, { exact: true })).toHaveCount(1)
+      await expect(inspector.getByText(marker!, { exact: true })).toHaveCount(1)
       nextCursor = body.nextCursor
     }
     expect(nextCursor).toBeFalsy()
     await expect(more).toHaveCount(0)
-    await expect(drawer).toBeInViewport({ ratio: 1 })
+    await expect(inspector).toBeInViewport({ ratio: 1 })
     for (let step = 1; step <= 45; step++) {
-      await expect(drawer.getByText(`Recorded execution step ${step}.`, { exact: true })).toHaveCount(1)
+      await expect(inspector.getByText(`Recorded execution step ${step}.`, { exact: true })).toHaveCount(1)
     }
-    await expect(drawer).not.toContainText('Recorded private model context')
-    const text = (await drawer.textContent())!
+    await expect(inspector).not.toContainText('Recorded private model context')
+    const text = (await inspector.textContent())!
     expect(text.indexOf('Recorded execution step 1.')).toBeLessThan(text.indexOf('Recorded execution step 45.'))
-    await drawer.screenshot({ path: info.outputPath('chat-execution-full-records.png') })
+    await inspector.screenshot({ path: info.outputPath('chat-execution-full-records.png') })
     await page.keyboard.press('Escape')
-    await expect(drawer).toBeHidden()
-    await expect(card).toBeFocused()
-    await card.click()
-    await expect(drawer.getByText('Recorded execution step 1.', { exact: true })).toBeVisible()
-    await expect(drawer.getByText('Recorded execution step 45.', { exact: true })).toHaveCount(1)
+    await expect(inspector).toBeHidden()
+    await expect(trigger).toBeFocused()
+    await trigger.click()
+    await expect(inspector.getByText('Recorded execution step 1.', { exact: true })).toBeVisible()
+    await expect(inspector.getByText('Recorded execution step 45.', { exact: true })).toHaveCount(1)
   } finally {
     await page.unrouteAll({ behavior: 'wait' })
     await context.close()

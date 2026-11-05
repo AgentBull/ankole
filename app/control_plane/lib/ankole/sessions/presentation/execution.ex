@@ -70,23 +70,48 @@ defmodule Ankole.Sessions.Presentation.Execution do
     decoded = decode(output_text)
     args = decode(input)
     name = call["name"] || call["operation"] || call["type"]
+    step_state = step_status(call, output, result, status)
+    skill_name = skill_name_for_step(name, args, output_text, step_state)
 
-    %{
-      "id" => id,
-      "tool" => name,
-      "title" => title(name, args, decoded),
-      "status" => step_status(call, output, result, status),
-      "duration_ms" => result["duration_ms"],
-      "input" => excerpt(input),
-      "output" => excerpt(visible_output(output_text), 5_000)
-    }
-    |> Map.merge(Map.take(result["activity"] || %{}, ["label_key", "label_bindings"]))
+    base =
+      %{
+        "id" => id,
+        "tool" => name,
+        "title" => title(name, args, decoded, skill_name),
+        "status" => step_state,
+        "duration_ms" => result["duration_ms"]
+      }
+      |> Ankole.Attrs.maybe_put("skill_name", skill_name)
+      |> Map.merge(Map.take(result["activity"] || %{}, ["label_key", "label_bindings"]))
+
+    if skill_name do
+      base
+    else
+      Map.merge(base, %{
+        "input" => excerpt(sanitize_step_input(name, input, args)),
+        "output" => excerpt(visible_output(output_text), 5_000)
+      })
+    end
   end
 
   defp visible_output(text) when is_binary(text),
     do: String.replace_suffix(text, Tools.retry_hint(), "")
 
   defp visible_output(text), do: text
+
+  defp sanitize_step_input("command", input, %{"command" => cmd} = args) when is_binary(cmd) do
+    unwrapped = unwrap_shell_command(cmd)
+
+    if unwrapped != cmd do
+      Map.put(args, "command", unwrapped)
+      |> Ankole.JSON.plain()
+      |> Ankole.JSON.encode!()
+    else
+      input
+    end
+  end
+
+  defp sanitize_step_input(_name, input, _args), do: input
 
   defp step_status(call, output, result, status) do
     cond do
@@ -114,19 +139,22 @@ defmodule Ankole.Sessions.Presentation.Execution do
   defp duration(rows),
     do: max(DateTime.diff(List.last(rows).updated_at, hd(rows).inserted_at, :millisecond), 0)
 
-  defp title("brain.search", args, result),
+  defp title(_name, _args, _result, skill_name) when is_binary(skill_name),
+    do: target("Load skill", skill_name)
+
+  defp title("brain.search", args, result, _skill),
     do: target("Search memory", args["query"]) <> count(result, "results", "results")
 
-  defp title(name, args, _result) when name in ["web_search", "web_search_call"],
+  defp title(name, args, _result, _skill) when name in ["web_search", "web_search_call"],
     do: target("Search web", args["query"])
 
-  defp title("web_fetch", _args, result) do
+  defp title("web_fetch", args, result, _skill) do
     page = List.first(result["results"] || []) || %{}
-    target("Read web page", page["title"] || page["url"])
+    target("Read web page", page["title"] || page["url"] || args["url"])
   end
 
-  defp title("command", args, result) do
-    command = args["command"] || ""
+  defp title("command", args, result, _skill) do
+    command = unwrap_shell_command(args["command"] || "")
 
     case Regex.run(~r/^\s*ankole-pod\s+([a-z.]+)(?:\s|$)/, command) do
       [_, operation] when operation in ["pages.read", "base.query", "base.schema"] ->
@@ -137,8 +165,211 @@ defmodule Ankole.Sessions.Presentation.Execution do
     end
   end
 
-  defp title("read_file", args, _result), do: target("Read file", args["path"])
-  defp title(name, _args, _result), do: name
+  defp title("read_file", args, _result, _skill), do: target("Read file", args["path"])
+  defp title("write_file", args, _result, _skill), do: target("Write file", args["path"])
+  defp title("edit_file", args, _result, _skill), do: target("Edit file", args["path"])
+  defp title("apply_patch", _args, _result, _skill), do: "Apply patch"
+
+  defp title("create_background_job", args, _result, _skill),
+    do: target("Create background job", args["title"])
+
+  defp title("respawn_background_job", args, _result, _skill),
+    do: target("Continue background job", to_string_or_nil(args["source_job_id"]))
+
+  defp title("send_message_to_background_job", args, _result, _skill),
+    do: target("Message background job", to_string_or_nil(args["job_id"]))
+
+  defp title("stop_background_job", args, _result, _skill),
+    do: target("Stop background job", to_string_or_nil(args["job_id"]))
+
+  defp title("workflow", args, _result, _skill),
+    do: target("Run workflow", args["title"])
+
+  defp title("cancel_workflow", args, _result, _skill),
+    do: target("Stop workflow", to_string_or_nil(args["run_id"]))
+
+  defp title("send_to_agent", args, _result, _skill),
+    do: target("Ask agent", args["recipient_uid"] || args["agent_uid"])
+
+  defp title(name, _args, _result, _skill), do: name
+
+  @doc false
+  def unwrap_shell_command(command) when is_binary(command) do
+    trimmed = String.trim(command)
+
+    case Regex.run(~r/^\/?(?:usr\/)?bin\/(?:ba|z)?sh\s+-lc\s+(.+)$/s, trimmed) do
+      [_, inner] ->
+        unquote_shell_body(String.trim(inner))
+
+      _ ->
+        case Regex.run(~r/^(?:ba|z)?sh\s+-lc\s+(.+)$/s, trimmed) do
+          [_, inner] -> unquote_shell_body(String.trim(inner))
+          _ -> trimmed
+        end
+    end
+  end
+
+  def unwrap_shell_command(_), do: ""
+
+  defp unquote_shell_body(<<"'", rest::binary>>) do
+    if String.ends_with?(rest, "'") do
+      rest
+      |> binary_part(0, byte_size(rest) - 1)
+      |> String.replace("'\\''", "'")
+      |> String.trim()
+    else
+      "'" <> rest
+    end
+  end
+
+  defp unquote_shell_body(<<"\"", rest::binary>>) do
+    if String.ends_with?(rest, "\"") do
+      rest
+      |> binary_part(0, byte_size(rest) - 1)
+      |> String.replace("\\\"", "\"")
+      |> String.trim()
+    else
+      "\"" <> rest
+    end
+  end
+
+  defp unquote_shell_body(value), do: value
+
+  @doc false
+  def skill_name_for_step(name, args, output_text, status \\ "completed")
+
+  def skill_name_for_step(_name, _args, output_text, status)
+      when status in ["failed", "error"] or is_nil(status) do
+    _ = output_text
+    nil
+  end
+
+  def skill_name_for_step(name, args, output_text, _status) do
+    if non_zero_exit_transcript?(output_text) do
+      nil
+    else
+      do_skill_name_for_step(name, args, output_text)
+    end
+  end
+
+  defp do_skill_name_for_step("skill_view", args, output_text) when is_map(args) do
+    non_empty_string(args["name"]) || extract_skill_tag_name(output_text) || "skill"
+  end
+
+  defp do_skill_name_for_step("read_file", args, output_text) when is_map(args) do
+    skill_name_from_path(args["path"]) || extract_leading_skill_tag_name(output_text)
+  end
+
+  defp do_skill_name_for_step("command", args, _output_text) when is_map(args) do
+    args["command"]
+    |> unwrap_shell_command()
+    |> skill_name_from_read_command()
+  end
+
+  defp do_skill_name_for_step(_name, _args, _output_text), do: nil
+
+  defp non_zero_exit_transcript?("exit_code=" <> rest) do
+    case Integer.parse(rest) do
+      {code, _} -> code != 0
+      :error -> false
+    end
+  end
+
+  defp non_zero_exit_transcript?(_), do: false
+
+  defp skill_name_from_path(path) when is_binary(path) do
+    case Regex.run(~r/(?:^|\/)([^\/\s'"]+)\/SKILL\.md$/i, String.trim(path)) do
+      [_, skill] when skill != "" -> skill
+      _ -> nil
+    end
+  end
+
+  defp skill_name_from_path(_), do: nil
+
+  defp skill_name_from_read_command(command) when is_binary(command) do
+    trimmed = String.trim(command)
+
+    if compound_or_redirected_command?(trimmed) do
+      nil
+    else
+      trimmed
+      |> parse_single_read_target()
+      |> skill_name_from_path()
+    end
+  end
+
+  defp compound_or_redirected_command?(command) do
+    String.contains?(command, ["\n", "\r", "&&", "||", ";", "|", ">", "<", "$(", "`"])
+  end
+
+  defp parse_single_read_target(command) do
+    cond do
+      match =
+          Regex.run(~r/^cat(?:\s+-[A-Za-z]+)*\s+(?:'([^']+)'|"([^"]+)"|([^\s'"]+))$/, command) ->
+        first_captured_path(match)
+
+      match =
+          Regex.run(
+            ~r/^(?:head|tail)(?:\s+(?:-[0-9]+|-[nc]\s*[0-9]+))*\s+(?:'([^']+)'|"([^"]+)"|([^\s'"]+))$/,
+            command
+          ) ->
+        first_captured_path(match)
+
+      match =
+          Regex.run(
+            ~r/^sed\s+-n\s+(?:'[^']+'|"[^"]+"|[^\s'"]+)\s+(?:'([^']+)'|"([^"]+)"|([^\s'"]+))$/,
+            command
+          ) ->
+        first_captured_path(match)
+
+      true ->
+        nil
+    end
+  end
+
+  defp first_captured_path([_whole | groups]),
+    do: Enum.find(groups, &(is_binary(&1) and &1 != ""))
+
+  defp extract_leading_skill_tag_name(text) when is_binary(text) do
+    if String.starts_with?(String.trim_leading(text), "<skill ") do
+      extract_skill_tag_name(text)
+    end
+  end
+
+  defp extract_leading_skill_tag_name(items) when is_list(items) do
+    Enum.find_value(items, fn
+      %{"text" => text} when is_binary(text) -> extract_leading_skill_tag_name(text)
+      _ -> nil
+    end)
+  end
+
+  defp extract_leading_skill_tag_name(_), do: nil
+
+  defp extract_skill_tag_name(text) when is_binary(text) do
+    case Regex.run(~r/<skill\s+[^>]*name="([^"]+)"/, text) do
+      [_, skill] when skill != "" -> skill
+      _ -> nil
+    end
+  end
+
+  defp extract_skill_tag_name(items) when is_list(items) do
+    Enum.find_value(items, fn
+      %{"text" => text} when is_binary(text) -> extract_skill_tag_name(text)
+      _ -> nil
+    end)
+  end
+
+  defp extract_skill_tag_name(_), do: nil
+
+  defp non_empty_string(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp non_empty_string(_), do: nil
+
+  defp to_string_or_nil(nil), do: nil
+  defp to_string_or_nil(value), do: to_string(value)
 
   defp pod_title("pages.read", result),
     do: target("Read page", get_in(result, ["page", "title"]))

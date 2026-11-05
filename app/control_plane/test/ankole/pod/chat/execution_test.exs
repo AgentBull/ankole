@@ -3,6 +3,11 @@ defmodule Ankole.Pod.Chat.ExecutionTest do
   alias Ankole.AIGateway.ProgrammaticToolCalling, as: PTC
   alias Ankole.Sessions.Presentation.Execution
 
+  setup_all do
+    {:ok, _} = Application.ensure_all_started(:tzdata)
+    :ok
+  end
+
   test "work history follows the durable tool journal and excludes repeated request items" do
     at = ~U[2026-10-25 01:00:00Z]
 
@@ -358,6 +363,150 @@ defmodule Ankole.Pod.Chat.ExecutionTest do
 
     assert [%{"input" => ^input, "output" => "Applied", "status" => "completed"}] =
              Execution.from_chain([row("custom", items, at)])["steps"]
+  end
+
+  test "skill_view and SKILL.md reads expose skill_name while stripping system prompt bodies" do
+    at = ~U[2026-10-25 01:00:00Z]
+
+    items = [
+      %{
+        "type" => "function_call",
+        "call_id" => "skill-1",
+        "name" => "skill_view",
+        "arguments" => ~s({"name":"pod-content"}),
+        "status" => "completed"
+      },
+      %{
+        "type" => "function_call_output",
+        "call_id" => "skill-1",
+        "output" => [
+          %{
+            "type" => "input_text",
+            "text" =>
+              "<skill name=\"pod-content\" location=\"/drive/Skills/pod-content/SKILL.md\">\nSecret system instructions\n</skill>"
+          }
+        ]
+      },
+      %{
+        "type" => "function_call",
+        "call_id" => "skill-2",
+        "name" => "read_file",
+        "arguments" => ~s({"path":"/drive/Skills/deep-research/SKILL.md"}),
+        "status" => "completed"
+      },
+      %{
+        "type" => "function_call_output",
+        "call_id" => "skill-2",
+        "output" => "# Deep Research SKILL.md internal instructions"
+      },
+      %{
+        "type" => "function_call",
+        "call_id" => "cmd-1",
+        "name" => "command",
+        "arguments" => ~s({"command":"/bin/zsh -lc 'git status --short'"}),
+        "status" => "completed"
+      },
+      %{
+        "type" => "function_call_output",
+        "call_id" => "cmd-1",
+        "output" => "exit_code=0\nduration=10ms\n"
+      }
+    ]
+
+    steps = Execution.from_chain([row("skills", items, at)])["steps"]
+
+    assert [skill_step, read_skill_step, cmd_step] = steps
+    assert skill_step["skill_name"] == "pod-content"
+    assert skill_step["title"] == "Load skill: pod-content"
+    refute Map.has_key?(skill_step, "input")
+    refute Map.has_key?(skill_step, "output")
+
+    assert read_skill_step["skill_name"] == "deep-research"
+    assert read_skill_step["title"] == "Load skill: deep-research"
+    refute Map.has_key?(read_skill_step, "input")
+    refute Map.has_key?(read_skill_step, "output")
+
+    assert cmd_step["title"] == "Run command: git status --short"
+    assert Ankole.JSON.decode!(cmd_step["input"])["command"] == "git status --short"
+  end
+
+  test "writes, compound commands, and failed skill reads preserve tool details instead of masquerading as loaded skills" do
+    at = ~U[2026-10-25 01:00:00Z]
+
+    items = [
+      %{
+        "type" => "function_call",
+        "call_id" => "write-skill",
+        "name" => "write_file",
+        "arguments" => ~s({"path":"/drive/Skills/custom/SKILL.md","content":"# Draft"}),
+        "status" => "completed"
+      },
+      %{
+        "type" => "function_call_output",
+        "call_id" => "write-skill",
+        "output" => "Error: Read-only filesystem",
+        "status" => "failed"
+      },
+      %{
+        "type" => "function_call",
+        "call_id" => "compound-cmd",
+        "name" => "command",
+        "arguments" =>
+          ~s({"command":"/bin/zsh -lc 'cat /drive/Skills/custom/SKILL.md && bun test'"}),
+        "status" => "completed"
+      },
+      %{
+        "type" => "function_call_output",
+        "call_id" => "compound-cmd",
+        "output" => "exit_code=1\nduration=40ms\nAssertionError: expected 1 to equal 2"
+      },
+      %{
+        "type" => "function_call",
+        "call_id" => "failed-skill-view",
+        "name" => "skill_view",
+        "arguments" => ~s({"name":"missing-skill"}),
+        "status" => "completed"
+      },
+      %{
+        "type" => "function_call_output",
+        "call_id" => "failed-skill-view",
+        "output" => "Error: Skill missing-skill not found",
+        "status" => "failed"
+      },
+      %{
+        "type" => "function_call",
+        "call_id" => "pure-cat-skill",
+        "name" => "command",
+        "arguments" => ~s({"command":"/bin/zsh -lc 'cat /drive/Skills/custom/SKILL.md'"}),
+        "status" => "completed"
+      },
+      %{
+        "type" => "function_call_output",
+        "call_id" => "pure-cat-skill",
+        "output" => "exit_code=0\nduration=5ms\nSecret skill instructions"
+      }
+    ]
+
+    steps = Execution.from_chain([row("skill-edge-cases", items, at)])["steps"]
+    assert [write_step, compound_step, failed_skill_step, cat_skill_step] = steps
+
+    refute Map.has_key?(write_step, "skill_name")
+    assert write_step["title"] == "Write file: /drive/Skills/custom/SKILL.md"
+    assert write_step["status"] == "failed"
+    assert write_step["output"] == "Error: Read-only filesystem"
+
+    refute Map.has_key?(compound_step, "skill_name")
+    assert compound_step["title"] == "Run command: cat /drive/Skills/custom/SKILL.md && bun test"
+    assert compound_step["output"] =~ "AssertionError"
+
+    refute Map.has_key?(failed_skill_step, "skill_name")
+    assert failed_skill_step["status"] == "failed"
+    assert failed_skill_step["output"] == "Error: Skill missing-skill not found"
+
+    assert cat_skill_step["skill_name"] == "custom"
+    assert cat_skill_step["title"] == "Load skill: custom"
+    refute Map.has_key?(cat_skill_step, "input")
+    refute Map.has_key?(cat_skill_step, "output")
   end
 
   defp row(id, content, at),

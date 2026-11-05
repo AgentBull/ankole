@@ -35,6 +35,11 @@ defmodule Ankole.Pod.APIError do
     forbidden_room_operation: {403, "Only the room owner or space administrator can do this"},
     conversation_not_found: {404, "Conversation not found"},
     execution_not_found: {404, "Execution not found in this conversation"},
+    execution_already_continued:
+      {409, "This background job already continued in a follow-up run"},
+    execution_not_continuable:
+      {409,
+       "This background job ended before starting a workspace session and cannot be continued"},
     invalid_execution_cursor: {422, "The execution log cursor is invalid. Reload the log"},
     agent_unavailable: {409, "Agent is unavailable"},
     page_unavailable: {403, "The page is unavailable or you no longer have access to it"},

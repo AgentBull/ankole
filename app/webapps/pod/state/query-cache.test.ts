@@ -2,7 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import { MutationObserver, QueryClient, QueryObserver } from '@tanstack/react-query'
 import type { ConversationDetail } from '../api'
 import { podKeys } from '../api'
-import { acceptConversationResult, refreshConversationQueries, refreshConversationDetail } from '../query-cache'
+import { metaKeys } from '../meta-api'
+import {
+  acceptConversationResult,
+  refreshAgentQueries,
+  refreshConversationQueries,
+  refreshConversationDetail
+} from '../query-cache'
 import {
   reloadConversation,
   subscribeConversationEvents,
@@ -539,6 +545,31 @@ describe('Pod remote cache ordering', () => {
     } finally {
       unsubscribe()
       expect(stream.closed).toBe(true)
+      queryClient.clear()
+    }
+  })
+
+  test('refreshAgentQueries invalidates Pod Chat, Meta Ankole, and Pod Settings agent caches together', async () => {
+    const queryClient = client()
+    try {
+      const tracked = [
+        podKeys.agents,
+        podKeys.conversations,
+        metaKeys.agents(),
+        metaKeys.agent('ops_colleague'),
+        ['pod-admin-agents'] as const
+      ]
+      for (const key of tracked) queryClient.setQueryData(key, { cached: true })
+      const untouched = ['pod-admin-settings'] as const
+      queryClient.setQueryData(untouched, { cached: true })
+
+      await refreshAgentQueries(queryClient)
+
+      for (const key of tracked) {
+        expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true)
+      }
+      expect(queryClient.getQueryState(untouched)?.isInvalidated).toBe(false)
+    } finally {
       queryClient.clear()
     }
   })

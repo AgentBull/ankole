@@ -833,11 +833,7 @@ defmodule Ankole.Conversations.Native do
 
   @doc "Derives a room title from its first Human message."
   def conversation_title(text, attachments) do
-    (text || hd(attachments)["name"])
-    |> String.trim()
-    |> String.split("\n", parts: 2)
-    |> hd()
-    |> String.slice(0, 80)
+    Ankole.Conversations.TitleGenerator.truncate_generated_title(text || hd(attachments)["name"])
   end
 
   def append_human_message_in_tx(conversation, human_uid, id, text, attachments, input_attrs) do
@@ -1093,6 +1089,7 @@ defmodule Ankole.Conversations.Native do
           do: {agent.uid, Ankole.Sessions.Key.conversation(detail.conversation.id)}
 
     peers = Ankole.Conversations.Peers.exchanges(ids)
+    peer_sessions = Enum.map(peers, &Ankole.Sessions.Key.conversation(&1.id))
     peer_keys = Enum.map(peers, &{&1.peer_target_uid, Ankole.Sessions.Key.conversation(&1.id)})
     statuses = Ankole.Sessions.statuses(keys ++ peer_keys)
     questions = Ankole.Conversations.latest_native_questions(ids)
@@ -1119,7 +1116,7 @@ defmodule Ankole.Conversations.Native do
 
     workflow_filter = if opts[:history], do: [], else: [status: :running]
 
-    fields = [
+    base_fields = [
       :id,
       :agent_uid,
       :owner_session_id,
@@ -1130,23 +1127,54 @@ defmodule Ankole.Conversations.Native do
       :updated_at
     ]
 
+    job_fields =
+      if opts[:history] do
+        base_fields ++
+          [
+            :source_tool_call_id,
+            :continued_from_job_id,
+            :workspace_owner_job_id,
+            :runtime_thread_id,
+            :started_at,
+            :completed_at,
+            :result,
+            :error,
+            :metadata
+          ]
+      else
+        base_fields ++ [:metadata]
+      end
+
+    workflow_fields =
+      if opts[:history] do
+        base_fields ++ [:source_tool_call_id, :completed_at, :result_text, :error]
+      else
+        base_fields
+      end
+
     jobs =
       Ankole.BackgroundAgentJobs.list_jobs!(
         query: [
           filter: [owner_session_id: [in: sessions]] ++ job_filter,
-          select: fields,
+          select: job_fields,
           sort: [inserted_at: :desc]
         ]
       )
+      |> Enum.reject(&(get_in(&1.metadata || %{}, ["skill_lesson_reflection"]) == true))
 
     workflows =
       Ankole.Workflow.list_runs!(
         query: [
           filter: [owner_session_id: [in: sessions]] ++ workflow_filter,
-          select: fields,
+          select: workflow_fields,
           sort: [inserted_at: :desc]
         ]
       )
+
+    execution_metrics =
+      if opts[:history],
+        do: Ankole.Conversations.Executions.room_metrics(jobs, workflows),
+        else: %{jobs: %{}, workflows: %{}}
 
     source_ids =
       (jobs ++ workflows)
@@ -1175,6 +1203,7 @@ defmodule Ankole.Conversations.Native do
     grouped_questions = Enum.group_by(questions, & &1.conversation_id)
     grouped_jobs = Enum.group_by(jobs, & &1.owner_session_id)
     grouped_workflows = Enum.group_by(workflows, & &1.owner_session_id)
+    active_peer_sessions = active_peer_sessions(peer_sessions)
 
     for detail <- details do
       session = Ankole.Sessions.Key.conversation(detail.conversation.id)
@@ -1184,12 +1213,14 @@ defmodule Ankole.Conversations.Native do
           String.slice(latest_messages[detail.conversation.id] || "", 0, 180),
         peer_running?:
           Enum.any?(peers, fn peer ->
+            peer_session = Ankole.Sessions.Key.conversation(peer.id)
+
             peer.origin_conversation_id == detail.conversation.id and
-              statuses[{peer.peer_target_uid, Ankole.Sessions.Key.conversation(peer.id)}].state in [
-                :queued,
-                :running,
-                :retrying
-              ]
+              (statuses[{peer.peer_target_uid, peer_session}].state in [
+                 :queued,
+                 :running,
+                 :retrying
+               ] or MapSet.member?(active_peer_sessions, peer_session))
           end),
         statuses: Map.new(detail.agents, &{&1.uid, statuses[{&1.uid, session}]}),
         pending_questions: Map.get(grouped_questions, detail.conversation.id, []),
@@ -1199,9 +1230,36 @@ defmodule Ankole.Conversations.Native do
           MapSet.member?(prepared_action_card_conversations, detail.conversation.id),
         linked_jobs: Map.get(grouped_jobs, session, []),
         linked_workflows: Map.get(grouped_workflows, session, []),
+        execution_metrics: execution_metrics,
         source_signals: sources
       })
     end
+  end
+
+  defp active_peer_sessions([]), do: MapSet.new()
+
+  defp active_peer_sessions(peer_sessions) do
+    jobs =
+      Ankole.BackgroundAgentJobs.list_jobs!(
+        query: [
+          filter: [
+            owner_session_id: [in: peer_sessions],
+            status: [in: [:queued, :running, :waiting_on_user]],
+            skill_lesson_reflection?: false
+          ],
+          select: [:owner_session_id]
+        ]
+      )
+
+    workflows =
+      Ankole.Workflow.list_runs!(
+        query: [
+          filter: [owner_session_id: [in: peer_sessions], status: :running],
+          select: [:owner_session_id]
+        ]
+      )
+
+    MapSet.new(jobs ++ workflows, & &1.owner_session_id)
   end
 
   defp detail(conversation, opts) do

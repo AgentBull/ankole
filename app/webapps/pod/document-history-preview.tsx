@@ -41,9 +41,9 @@ function DocumentComparison({ pageID, version, current }: Props) {
       {version.icon !== current.icon && (
         <div className="flex items-center gap-3 text-sm">
           <span>{t('pod.document.icon_changed')}</span>
-          <PageIcon page={{ type: 'doc', icon: version.icon }} className="size-6" />
+          <PageIcon page={{ type: 'doc', icon: version.icon }} className="size-6 text-[22px]" />
           <span aria-hidden>→</span>
-          <PageIcon page={{ type: 'doc', icon: current.icon }} className="size-6" />
+          <PageIcon page={{ type: 'doc', icon: current.icon }} className="size-6 text-[22px]" />
         </div>
       )}
       {changes.every(change => change.kind === 'unchanged') && version.icon === current.icon ? (

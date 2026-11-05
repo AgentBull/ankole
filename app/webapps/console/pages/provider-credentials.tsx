@@ -14,12 +14,13 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Spinner,
   toast
 } from '@ankole/uikit'
-import { RiAddLine, RiRefreshLine } from '@remixicon/react'
+import { RiAddLine, RiEyeLine, RiEyeOffLine, RiRefreshLine } from '@remixicon/react'
 import { useMutation } from '@tanstack/react-query'
 import type { TFunction } from 'i18next'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
@@ -28,7 +29,7 @@ import {
   putAiGatewayCredentialMutation as putCredentialMutation,
   putAiGatewayCredentialStrategyMutation as putCredentialStrategyMutation
 } from '../api/v2-site/generated/@tanstack/react-query.gen'
-import type { AIGatewayProviderKindItem } from '../state/provider-settings'
+import type { AIGatewayProviderKindItem, ProviderSetting } from '../state/provider-settings'
 import {
   ConfirmDeleteButton,
   DiscardConfirmDialog,
@@ -38,14 +39,18 @@ import {
   useDialogDiscardGuard
 } from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
+import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
 import {
   aiGatewayProvider,
   buildSettingOptions,
   credentialSettings,
+  entryHasSecretField,
   humanizeKey,
+  secretCredentialSettings,
   settingValidationMessage
 } from '../state/provider-settings'
 import { ProviderSettingField, providerSettingLabel } from './provider-setting-field'
+import { useCredentialDecryption } from './use-credential-decryption'
 
 import { ChatGPTLoginDialog } from './provider-chatgpt-login'
 import { EnterpriseCredentialDialog } from './provider-enterprise-credential'
@@ -70,7 +75,54 @@ export function CredentialPoolEditor({
   const [credentialEditor, setCredentialEditor] = useState<AIGatewayCredentialPoolEntry | null | undefined>()
   const [chatGPTLoginEntry, setChatGPTLoginEntry] = useState<AIGatewayCredentialPoolEntry | null | undefined>()
   const [enterpriseEntry, setEnterpriseEntry] = useState<AIGatewayCredentialPoolEntry | null | undefined>()
+  const [revealed, setRevealed] = useState<Record<string, string>>({})
+  const revealTimers = useRef<Record<string, number>>({})
+  const decryptCardField = useCredentialDecryption()
   const isChatGPT = provider.provider_kind === 'chatgpt_subscription'
+  const secretSettings = useMemo(() => secretCredentialSettings(providerKind), [providerKind])
+
+  const hideRevealedSlot = (slotKey: string) => {
+    decryptCardField.cancelTarget(slotKey)
+    window.clearTimeout(revealTimers.current[slotKey])
+    delete revealTimers.current[slotKey]
+    setRevealed(current => {
+      if (!(slotKey in current)) return current
+      const next = { ...current }
+      delete next[slotKey]
+      return next
+    })
+  }
+
+  const clearEntryReveals = (credentialID: string) => {
+    const prefix = `${credentialID}:`
+    decryptCardField.cancelPrefix(prefix)
+    for (const slotKey of Object.keys(revealTimers.current)) {
+      if (slotKey.startsWith(prefix)) {
+        window.clearTimeout(revealTimers.current[slotKey])
+        delete revealTimers.current[slotKey]
+      }
+    }
+    setRevealed(current => {
+      const next = Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(prefix)))
+      return Object.keys(next).length === Object.keys(current).length ? current : next
+    })
+  }
+
+  useEffect(() => {
+    const remaskAll = () => {
+      decryptCardField.reset()
+      for (const timeout of Object.values(revealTimers.current)) window.clearTimeout(timeout)
+      revealTimers.current = {}
+      setRevealed({})
+    }
+    remaskAll()
+    window.addEventListener('blur', remaskAll)
+    return () => {
+      window.removeEventListener('blur', remaskAll)
+      for (const timeout of Object.values(revealTimers.current)) window.clearTimeout(timeout)
+      revealTimers.current = {}
+    }
+  }, [decryptCardField.reset, provider.provider_id])
 
   const setStrategy = useMutation({
     ...putCredentialStrategyMutation(),
@@ -85,18 +137,37 @@ export function CredentialPoolEditor({
   })
   const updateCredential = useMutation({
     ...putCredentialMutation(),
-    onSuccess: () => {
+    onSuccess: (_response, variables) => {
+      clearEntryReveals(variables.path.credential_id)
       toast.success(t('console.providers.credential_saved'))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const removeCredential = useMutation({
     ...deleteCredentialMutation(),
-    onSuccess: () => {
+    onSuccess: (_response, variables) => {
+      clearEntryReveals(variables.path.credential_id)
       toast.success(t('console.providers.credential_deleted'))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
+
+  const revealEntryField = (credentialID: string, fieldKey: string) => {
+    const slotKey = `${credentialID}:${fieldKey}`
+    void decryptCardField.reveal({
+      providerID: provider.provider_id,
+      credentialID,
+      fieldKey,
+      targetKey: slotKey,
+      onDecrypted: value => {
+        if (value === undefined) return
+        setRevealed(current => ({ ...current, [slotKey]: value }))
+        window.clearTimeout(revealTimers.current[slotKey])
+        revealTimers.current[slotKey] = window.setTimeout(() => hideRevealedSlot(slotKey), 30_000)
+      },
+      onError: error => toast.error(requestErrorMessage(error))
+    })
+  }
 
   const changeAvailability = (entry: AIGatewayCredentialPoolEntry) => {
     updateCredential.mutate({
@@ -208,7 +279,15 @@ export function CredentialPoolEditor({
                       {t('console.providers.reauthenticate')}
                     </Button>
                   ) : null}
-                  <Button size="xs" type="button" variant="outline" onClick={() => setCredentialEditor(entry)}>
+                  <Button
+                    size="xs"
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      isChatGPT && entry.auth_type === 'enterprise_access_token'
+                        ? setEnterpriseEntry(entry)
+                        : setCredentialEditor(entry)
+                    }>
                     {t('common.edit')}
                   </Button>
                   <Button
@@ -236,6 +315,31 @@ export function CredentialPoolEditor({
               </div>
 
               <dl className="grid gap-3 text-sm md:grid-cols-2">
+                {secretSettings
+                  .filter(setting => entryHasSecretField(entry, setting.key))
+                  .map(setting => {
+                    const fieldLabel = providerSettingLabel(t, setting.key)
+                    const slotKey = `${entry.id}:${setting.key}`
+                    const revealedValue = revealed[slotKey]
+                    const actionLabel =
+                      revealedValue === undefined
+                        ? t('console.providers.reveal_field', { field: fieldLabel })
+                        : t('console.providers.hide_field', { field: fieldLabel })
+                    return (
+                      <CredentialSecretFact
+                        key={setting.key}
+                        actionLabel={actionLabel}
+                        label={fieldLabel}
+                        revealedValue={revealedValue}
+                        revealing={decryptCardField.isRevealing(slotKey)}
+                        onToggle={() =>
+                          revealedValue === undefined
+                            ? revealEntryField(entry.id, setting.key)
+                            : hideRevealedSlot(slotKey)
+                        }
+                      />
+                    )
+                  })}
                 <CredentialFact label={t('console.providers.account_id')} value={entry.account_id} />
                 <CredentialFact label={t('console.providers.email')} value={entry.email} />
                 <CredentialFact label={t('console.providers.plan_type')} value={entry.plan_type} />
@@ -289,49 +393,114 @@ export function CredentialPoolEditor({
         provider={provider}
         providerKind={providerKind}
         open={credentialEditor !== undefined}
+        onCredentialSaved={clearEntryReveals}
         onOpenChange={open => !open && setCredentialEditor(undefined)}
       />
       <ChatGPTLoginDialog
         entry={chatGPTLoginEntry}
         provider={provider}
         open={chatGPTLoginEntry !== undefined}
-        onOpenChange={open => !open && setChatGPTLoginEntry(undefined)}
+        onOpenChange={open => {
+          if (!open && chatGPTLoginEntry) clearEntryReveals(chatGPTLoginEntry.id)
+          if (!open) setChatGPTLoginEntry(undefined)
+        }}
       />
       <EnterpriseCredentialDialog
         entry={enterpriseEntry}
         provider={provider}
         open={enterpriseEntry !== undefined}
+        onCredentialSaved={clearEntryReveals}
         onOpenChange={open => !open && setEnterpriseEntry(undefined)}
       />
     </section>
   )
 }
 
+function initialSecretDrafts(
+  entry: AIGatewayCredentialPoolEntry | null | undefined,
+  settings: ProviderSetting[]
+): Record<string, string> {
+  if (!entry) return {}
+  const drafts: Record<string, string> = {}
+  for (const setting of settings) {
+    if (setting.encrypted && entryHasSecretField(entry, setting.key)) {
+      drafts[setting.key] = ENCRYPTED_VALUE_MASK
+    }
+  }
+  return drafts
+}
+
+function buildCredentialEditDrafts(
+  entry: AIGatewayCredentialPoolEntry | null | undefined,
+  settings: ProviderSetting[],
+  values: Record<string, string>,
+  baselineValues: Record<string, string>
+): { drafts: Record<string, string>; clearedOptional: Record<string, null> } {
+  if (!entry) return { drafts: values, clearedOptional: {} }
+  const drafts: Record<string, string> = {}
+  const clearedOptional: Record<string, null> = {}
+  for (const setting of settings) {
+    const current = values[setting.key] ?? ''
+    const baseline = baselineValues[setting.key] ?? ''
+    if (setting.encrypted && current === baseline) continue
+    if (setting.encrypted && current.trim() === '' && baseline !== '' && !setting.required) {
+      clearedOptional[setting.key] = null
+      continue
+    }
+    drafts[setting.key] = current
+  }
+  return { drafts, clearedOptional }
+}
+
+function missingRequiredSecretSetting(
+  entry: AIGatewayCredentialPoolEntry | null | undefined,
+  settings: ProviderSetting[],
+  values: Record<string, string>,
+  baselineValues: Record<string, string>
+): ProviderSetting | undefined {
+  return settings.find(setting => {
+    if (!setting.required) return false
+    if (entry && setting.encrypted && (baselineValues[setting.key] ?? '') === '') return false
+    return !(values[setting.key] ?? '').trim()
+  })
+}
+
 function CredentialEditorDialog({
   entry,
+  onCredentialSaved,
   onOpenChange,
   open,
   provider,
   providerKind
 }: {
   entry: AIGatewayCredentialPoolEntry | null | undefined
+  onCredentialSaved?: (credentialID: string) => void
   onOpenChange: (open: boolean) => void
   open: boolean
   provider: AIGatewayProviderItem
   providerKind: AIGatewayProviderKindItem
 }) {
   const { t } = useTranslation()
-  // ChatGPT pool entries hold OAuth tokens owned by the login flow, so the
-  // editor exposes only label and priority; the control plane keeps the
-  // stored values of every omitted field.
+  // ChatGPT OAuth entries hold tokens owned by the login flow, so only label
+  // and priority are editable while stored tokens can be revealed read-only.
   const metadataOnly = provider.provider_kind === 'chatgpt_subscription'
   const settings = useMemo(() => (metadataOnly ? [] : credentialSettings(providerKind)), [metadataOnly, providerKind])
+  const readOnlySecrets = useMemo(
+    () =>
+      metadataOnly && entry
+        ? secretCredentialSettings(providerKind).filter(setting => entryHasSecretField(entry, setting.key))
+        : [],
+    [entry, metadataOnly, providerKind]
+  )
   const [label, setLabel] = useState('')
   const [priority, setPriority] = useState('0')
   const [values, setValues] = useState<Record<string, string>>({})
+  const [baselineValues, setBaselineValues] = useState<Record<string, string>>({})
+  const [revealedKeys, setRevealedKeys] = useState<Record<string, boolean>>({})
   const [validationError, setValidationError] = useState<string>()
 
   const finish = () => {
+    if (entry) onCredentialSaved?.(entry.id)
     toast.success(t('console.providers.credential_saved'))
     onOpenChange(false)
   }
@@ -343,19 +512,44 @@ function CredentialEditorDialog({
     ...putCredentialMutation(),
     onSuccess: finish
   })
+  const decrypt = useCredentialDecryption()
 
   useEffect(() => {
-    if (!open) return
+    setRevealedKeys({})
+    decrypt.reset()
+    if (!open) {
+      setValues({})
+      setBaselineValues({})
+      return
+    }
+    const seeded = initialSecretDrafts(entry, [...settings, ...readOnlySecrets])
     setLabel(entry?.label ?? '')
     setPriority(String(entry?.priority ?? 0))
-    // Reset only when a new editing session opens. Rendering falls back to ''
-    // per key, so the cleared map needs no entries — and no `settings`
-    // dependency, whose query-driven identity must not wipe in-progress input.
-    setValues({})
+    setValues(seeded)
+    setBaselineValues(seeded)
     setValidationError(undefined)
     create.reset()
     update.reset()
-  }, [entry, open])
+  }, [decrypt.reset, entry?.id, open])
+
+  const revealField = (fieldKey: string) => {
+    if (!entry) return
+    void decrypt.reveal({
+      providerID: provider.provider_id,
+      credentialID: entry.id,
+      fieldKey,
+      onDecrypted: value => {
+        const decrypted = value ?? ''
+        setValues(current =>
+          isEncryptedValueMask(current[fieldKey] ?? '') ? { ...current, [fieldKey]: decrypted } : current
+        )
+        setBaselineValues(current =>
+          isEncryptedValueMask(current[fieldKey] ?? '') ? { ...current, [fieldKey]: decrypted } : current
+        )
+        setRevealedKeys(current => ({ ...current, [fieldKey]: true }))
+      }
+    })
+  }
 
   const submit = () => {
     setValidationError(undefined)
@@ -363,18 +557,14 @@ function CredentialEditorDialog({
       setValidationError(t('console.providers.credential_label_required'))
       return
     }
-    if (!entry) {
-      const missing = settings.find(setting => {
-        const value = values[setting.key]?.trim()
-        return setting.required && !value
-      })
-      if (missing) {
-        setValidationError(settingValidationMessage(providerSettingLabel(t, missing.key), 'required'))
-        return
-      }
+    const missing = missingRequiredSecretSetting(entry, settings, values, baselineValues)
+    if (missing) {
+      setValidationError(settingValidationMessage(providerSettingLabel(t, missing.key), 'required'))
+      return
     }
 
-    const built = buildSettingOptions(settings, values, settingValidationMessage, key => providerSettingLabel(t, key))
+    const { drafts, clearedOptional } = buildCredentialEditDrafts(entry, settings, values, baselineValues)
+    const built = buildSettingOptions(settings, drafts, settingValidationMessage, key => providerSettingLabel(t, key))
     if (!built.ok) {
       setValidationError(built.error)
       return
@@ -382,6 +572,7 @@ function CredentialEditorDialog({
     const body = {
       label: label.trim(),
       priority: Number.parseInt(priority, 10) || 0,
+      ...clearedOptional,
       ...built.value
     }
 
@@ -398,18 +589,12 @@ function CredentialEditorDialog({
     }
   }
   const pending = create.isPending || update.isPending
-  const error = validationError ?? create.error ?? update.error
-  const incomplete =
-    !label.trim() ||
-    (!entry &&
-      settings.some(setting => {
-        const value = values[setting.key]?.trim()
-        return setting.required && !value
-      }))
+  const error = validationError ?? create.error ?? update.error ?? decrypt.error
+  const incomplete = !label.trim() || Boolean(missingRequiredSecretSetting(entry, settings, values, baselineValues))
   const dirty =
     label !== (entry?.label ?? '') ||
     priority !== String(entry?.priority ?? 0) ||
-    Object.values(values).some(value => value.trim() !== '')
+    settings.some(setting => (values[setting.key] ?? '') !== (baselineValues[setting.key] ?? ''))
   const guard = useDialogDiscardGuard({ dirty: open && dirty, pending, onOpenChange })
 
   return (
@@ -444,14 +629,45 @@ function CredentialEditorDialog({
             <LabeledField label={t('console.providers.priority')}>
               <Input type="number" step={1} value={priority} onChange={event => setPriority(event.target.value)} />
             </LabeledField>
-            {settings.map(setting => (
+            {settings.map(setting => {
+              const present = entryHasSecretField(entry, setting.key)
+              return (
+                <ProviderSettingField
+                  key={setting.key}
+                  setting={setting}
+                  keepStored={Boolean(entry)}
+                  secretPresent={present}
+                  decrypt={
+                    present
+                      ? {
+                          onReveal: () => revealField(setting.key),
+                          revealed: Boolean(revealedKeys[setting.key]),
+                          revealing: decrypt.isRevealing(setting.key)
+                        }
+                      : undefined
+                  }
+                  value={values[setting.key] ?? ''}
+                  onChange={value => {
+                    decrypt.cancelTarget(setting.key)
+                    setValues(current => ({ ...current, [setting.key]: value }))
+                    setValidationError(undefined)
+                  }}
+                />
+              )
+            })}
+            {readOnlySecrets.map(setting => (
               <ProviderSettingField
                 key={setting.key}
                 setting={setting}
-                keepStored={Boolean(entry)}
-                secretPresent={Boolean(entry?.credential_present)}
+                readOnly
+                secretPresent
+                decrypt={{
+                  onReveal: () => revealField(setting.key),
+                  revealed: Boolean(revealedKeys[setting.key]),
+                  revealing: decrypt.isRevealing(setting.key)
+                }}
                 value={values[setting.key] ?? ''}
-                onChange={value => setValues(current => ({ ...current, [setting.key]: value }))}
+                onChange={() => {}}
               />
             ))}
           </div>
@@ -477,6 +693,46 @@ function CredentialFact({ label, value }: { label: string; value: string | null 
     <div className="grid gap-1 sm:grid-cols-[minmax(8rem,0.4fr)_1fr] sm:gap-3">
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="break-all font-mono tabular-nums">{value}</dd>
+    </div>
+  )
+}
+
+function CredentialSecretFact({
+  actionLabel,
+  label,
+  onToggle,
+  revealedValue,
+  revealing
+}: {
+  actionLabel: string
+  label: string
+  onToggle: () => void
+  revealedValue: string | undefined
+  revealing: boolean
+}) {
+  return (
+    <div className="grid gap-1 sm:grid-cols-[minmax(8rem,0.4fr)_1fr] sm:gap-3">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="flex min-w-0 items-center gap-1.5 font-mono tabular-nums">
+        <span className={revealedValue === undefined ? 'text-muted-foreground' : 'break-all'}>
+          {revealedValue ?? '••••••'}
+        </span>
+        <button
+          aria-label={actionLabel}
+          className="grid size-8 shrink-0 place-items-center text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+          disabled={revealing}
+          title={actionLabel}
+          type="button"
+          onClick={onToggle}>
+          {revealing ? (
+            <Spinner className="size-4" />
+          ) : revealedValue === undefined ? (
+            <RiEyeLine className="size-4" />
+          ) : (
+            <RiEyeOffLine className="size-4" />
+          )}
+        </button>
+      </dd>
     </div>
   )
 }

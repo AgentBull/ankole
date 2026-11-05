@@ -14,6 +14,7 @@ import {
   usePod
 } from '@ankole/applet-sdk'
 import type { AppletRuntime, RouteCall, BaseRecord, RecordWrite, TableEvent } from '@ankole/applet-sdk/types'
+import { useTheme } from '@ankole/uikit'
 import { loadLocale } from '../../../common/i18n'
 import { InternalAPIError } from '../../../common/internal-api-client'
 
@@ -96,7 +97,7 @@ function readState(result: {
     failureReason: errorStatus(result.failureReason)
   })
 }
-const runtime: AppletRuntime = {
+let runtime: AppletRuntime = {
   pageID: 'sdk-fixture',
   instanceID: 'sdk-fixture',
   actions: ['node_view', 'node_contribute'],
@@ -187,6 +188,7 @@ const runtime: AppletRuntime = {
       throw new Error('No Pod API requests in this boundary fixture')
     }
   },
+  theme: 'light',
   channel: () => {
     opens++
     return {
@@ -243,6 +245,8 @@ function RouteChecks() {
   )
 }
 function App() {
+  const pod = usePod()
+  const uikitTheme = useTheme()
   const [crashed, setCrashed] = useState(false)
   const rows = useRecords('table')
   const aggregate = useAggregate('table', { metrics: [{ operation: 'count', alias: 'count' }] })
@@ -256,6 +260,8 @@ function App() {
   if (crashed) throw new Error('Fixture render failure')
   return (
     <section>
+      <output data-pod-theme>{pod.theme}</output>
+      <output data-uikit-theme>{uikitTheme.resolvedTheme ?? ''}</output>
       <button onClick={() => setCrashed(true)}>Crash render</button>
       <RouteChecks />
       <output data-read-result>{readState(rows)}</output>
@@ -333,6 +339,16 @@ for (const status of [200, 401, 403, 404, 503]) {
   })
   controls.append(button)
 }
+const toggleTheme = document.createElement('button')
+toggleTheme.textContent = 'Toggle dark theme'
+toggleTheme.addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'
+  document.documentElement.dataset.theme = next
+  document.documentElement.style.colorScheme = next
+  runtime = { ...runtime, theme: next }
+  provider.render({ dom: host, props: { runtime } })
+})
+controls.append(toggleTheme)
 const hold = document.createElement('button')
 hold.textContent = 'Hold route request'
 hold.addEventListener('click', () => {

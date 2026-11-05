@@ -23,56 +23,103 @@ defmodule AnkoleWeb.PodGuestAdmissionTest do
     assert api_error(denied, 403)["code"] == "forbidden"
   end
 
-  for membership <- [:member, :guest] do
-    test "#{membership} Agent and model directories require each Agent's chat grant", %{
-      conn: conn
-    } do
-      human = human_fixture(%{membership: unquote(membership)}).principal
-      conn = login(conn, human)
-      allowed = Ankole.SessionsCase.agent_fixture(%{display_name: "Allowed"}).principal
-      hidden = Ankole.SessionsCase.agent_fixture(%{display_name: "Hidden"}).principal
+  test "member Agent and model directories include AI colleagues by default and respect revoked chat grants",
+       %{conn: conn} do
+    human = human_fixture(%{membership: :member}).principal
+    conn = login(conn, human)
+    allowed = Ankole.SessionsCase.agent_fixture(%{display_name: "Allowed"}).principal
+    hidden = Ankole.SessionsCase.agent_fixture(%{display_name: "Hidden"}).principal
 
-      assert api_response(api_get(conn, "/api/v2/pod/agents"), 200) == %{
-               "agents" => [],
-               "personalAssistant" => nil,
-               "personalAssistantAvailable" => unquote(membership) == :member
-             }
+    default_uids =
+      conn
+      |> api_get("/api/v2/pod/agents")
+      |> api_response(200)
+      |> Map.fetch!("agents")
+      |> Enum.map(& &1["uid"])
 
-      denied = api_get(conn, "/api/v2/pod/agents/#{hidden.uid}/model-profiles")
-      assert api_error(denied, 403)["code"] == "forbidden"
+    assert default_uids == [allowed.uid, hidden.uid]
 
-      Ankole.ConversationsFixtures.grant_chat(human.uid, allowed.uid)
+    assert %{"profiles" => []} =
+             api_response(api_get(conn, "/api/v2/pod/agents/#{allowed.uid}/model-profiles"), 200)
 
-      assert api_response(api_get(conn, "/api/v2/pod/agents"), 200) == %{
-               "personalAssistant" => nil,
-               "personalAssistantAvailable" => unquote(membership) == :member,
-               "agents" => [
-                 %{
-                   "uid" => allowed.uid,
-                   "displayName" => "Allowed",
-                   "active" => true,
-                   "avatarURL" => allowed.avatar_url,
-                   "type" => "agent",
-                   "agentType" => "ai_colleague",
-                   "role" => "Research Analyst",
-                   "aliases" => [],
-                   "mayIntervene" => false,
-                   "modelProfile" => nil,
-                   "directConversationID" => nil
-                 }
-               ]
-             }
+    assert %{"profiles" => []} =
+             api_response(api_get(conn, "/api/v2/pod/agents/#{hidden.uid}/model-profiles"), 200)
 
-      assert %{"profiles" => []} =
-               api_response(
-                 api_get(conn, "/api/v2/pod/agents/#{allowed.uid}/model-profiles"),
-                 200
-               )
+    :ok = Ankole.ConversationsFixtures.revoke_default_chat(hidden.uid)
 
-      assert api_error(api_get(conn, "/api/v2/pod/agents/#{hidden.uid}/model-profiles"), 403)[
-               "code"
-             ] == "forbidden"
-    end
+    assert api_response(api_get(conn, "/api/v2/pod/agents"), 200) == %{
+             "personalAssistant" => nil,
+             "personalAssistantAvailable" => true,
+             "agents" => [
+               %{
+                 "uid" => allowed.uid,
+                 "displayName" => "Allowed",
+                 "active" => true,
+                 "avatarURL" => allowed.avatar_url,
+                 "type" => "agent",
+                 "agentType" => "ai_colleague",
+                 "role" => "Research Analyst",
+                 "aliases" => [],
+                 "mayIntervene" => false,
+                 "modelProfile" => nil,
+                 "directConversationID" => nil
+               }
+             ]
+           }
+
+    assert api_error(api_get(conn, "/api/v2/pod/agents/#{hidden.uid}/model-profiles"), 403)[
+             "code"
+           ] == "forbidden"
+  end
+
+  test "guest Agent and model directories require each Agent's explicit chat grant", %{
+    conn: conn
+  } do
+    human = human_fixture(%{membership: :guest}).principal
+    conn = login(conn, human)
+    allowed = Ankole.SessionsCase.agent_fixture(%{display_name: "Allowed"}).principal
+    hidden = Ankole.SessionsCase.agent_fixture(%{display_name: "Hidden"}).principal
+
+    assert api_response(api_get(conn, "/api/v2/pod/agents"), 200) == %{
+             "agents" => [],
+             "personalAssistant" => nil,
+             "personalAssistantAvailable" => false
+           }
+
+    denied = api_get(conn, "/api/v2/pod/agents/#{hidden.uid}/model-profiles")
+    assert api_error(denied, 403)["code"] == "forbidden"
+
+    Ankole.ConversationsFixtures.grant_chat(human.uid, allowed.uid)
+
+    assert api_response(api_get(conn, "/api/v2/pod/agents"), 200) == %{
+             "personalAssistant" => nil,
+             "personalAssistantAvailable" => false,
+             "agents" => [
+               %{
+                 "uid" => allowed.uid,
+                 "displayName" => "Allowed",
+                 "active" => true,
+                 "avatarURL" => allowed.avatar_url,
+                 "type" => "agent",
+                 "agentType" => "ai_colleague",
+                 "role" => "Research Analyst",
+                 "aliases" => [],
+                 "mayIntervene" => false,
+                 "modelProfile" => nil,
+                 "directConversationID" => nil
+               }
+             ]
+           }
+
+    assert %{"profiles" => []} =
+             api_response(
+               api_get(conn, "/api/v2/pod/agents/#{allowed.uid}/model-profiles"),
+               200
+             )
+
+    assert api_error(api_get(conn, "/api/v2/pod/agents/#{hidden.uid}/model-profiles"), 403)[
+             "code"
+           ] == "forbidden"
   end
 
   test "disabling external guests rejects every conversation HTTP entry", %{conn: conn} do

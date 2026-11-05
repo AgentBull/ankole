@@ -36,6 +36,19 @@ defmodule Ankole.ConversationsFixtures do
     grant
   end
 
+  def revoke_default_chat(agent_uid) do
+    {:ok, grants} = Ankole.AuthZ.list_group_grants("all_humans")
+    target = "agent:#{agent_uid}"
+
+    grants
+    |> Enum.filter(&(&1.resource_pattern == target and &1.action == "chat"))
+    |> Enum.each(fn grant ->
+      {:ok, _} = Ankole.AuthZ.delete_permission_grant(grant.id)
+    end)
+
+    :ok
+  end
+
   def create(human, attrs) do
     Ankole.Repo.transact(fn ->
       with {:ok, %{id: id}} <-

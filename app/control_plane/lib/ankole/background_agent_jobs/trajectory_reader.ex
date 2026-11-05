@@ -30,6 +30,8 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
   @model_string_bytes 4_000
   @truncation_suffix "...[truncated]"
 
+  @type item_projector :: (TurnItem.t(), Turn.t() -> map() | nil)
+
   @typedoc """
   The read contract. Callers pass the Turn rows they already hold, in
   chronological order.
@@ -39,6 +41,7 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
           | {:one_turn, Turn.t()}
           | {:attempt_summary, [Turn.t()]}
           | {:console_detail, [Turn.t()]}
+          | {:projected_items, [Turn.t()], item_projector()}
 
   @typedoc "Semantic groups count `groups` and `bytes`; a summary counts `bytes`."
   @type budget ::
@@ -52,6 +55,11 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
           redacted: boolean(),
           content_truncated: boolean()
         }
+  @type projected_item :: %{
+          turn_id: Ecto.UUID.t(),
+          position: non_neg_integer(),
+          item: map()
+        }
   @type summary :: %{turn_id: Ecto.UUID.t(), position: non_neg_integer(), text: String.t()}
   @typedoc """
   `units` are chronological. `turn_ids` are the Turns the page spans, so a
@@ -59,7 +67,7 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
   `next_cursor` continues the walk beyond the last delivered unit.
   """
   @type page :: %{
-          units: [group() | summary()],
+          units: [group() | summary() | projected_item()],
           turn_ids: [Ecto.UUID.t()],
           next_cursor: String.t() | nil
         }
@@ -87,6 +95,13 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
 
   defp walk(%Job{}, {:console_detail, turns}) when is_list(turns),
     do: newest_first(turns, :group, reveal: true, fence: nil)
+
+  defp walk(%Job{}, {:projected_items, turns, projector})
+       when is_list(turns) and is_function(projector, 2) do
+    turns
+    |> newest_first(:projected_item, reveal: true, fence: nil)
+    |> Map.put(:projector, projector)
+  end
 
   defp newest_first(turns, unit, reveal: reveal, fence: fence) do
     %{turns: turns, unit: unit, reveal: reveal, fence: fence}
@@ -156,6 +171,25 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
     end
   end
 
+  defp cursor_unit_exists?(
+         %{unit: :projected_item, projector: projector} = walk,
+         id,
+         item_position
+       ) do
+    turn = Enum.find(walk.turns, &(&1.id == id))
+
+    TurnItem
+    |> Ash.Query.filter(turn_id == ^id and position == ^item_position)
+    |> Ankole.Ash.read_one!()
+    |> case do
+      nil ->
+        false
+
+      %TurnItem{} = row ->
+        not is_nil(turn) and projector.(row, turn) != nil
+    end
+  end
+
   defp cursor_unit_exists?(_walk, id, item_position) do
     TurnItem
     |> Ash.Query.filter(turn_id == ^id and position == ^item_position)
@@ -211,17 +245,24 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
     build_page(state, units, false, nil)
   end
 
-  defp collect(%{walk: %{unit: :group}} = state, %{groups: limit, bytes: bytes}) do
+  defp collect(%{walk: %{unit: unit}} = state, %{groups: limit, bytes: bytes})
+       when unit in [:group, :projected_item] do
     {units, state} =
       state
       |> Map.merge(%{batch: (limit + 1) * @item_window_factor, bytes: bytes})
       |> take_units(limit + 1)
 
     units = Enum.reverse(units)
-    selected = select_page_groups(units, limit, bytes)
+    selected = select_page_units(unit, units, limit, bytes)
     more? = length(units) > length(selected) and selected != []
     build_page(state, selected, more?, List.first(selected))
   end
+
+  defp select_page_units(:group, units, limit, bytes),
+    do: select_page_groups(units, limit, bytes)
+
+  defp select_page_units(:projected_item, units, limit, bytes),
+    do: select_projected_items(units, limit, bytes)
 
   defp build_page(state, units, more?, edge_unit) do
     %{
@@ -346,6 +387,30 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
             messages: bounded,
             redacted: meta.redacted,
             content_truncated: meta.content_truncated or projection_truncated or bound_truncated
+          }
+        ]
+    end
+  end
+
+  defp project_unit(
+         %TurnItem{} = row,
+         %{walk: %{unit: :projected_item, projector: projector}} = state
+       ) do
+    turn = Map.fetch!(state.turns_by_id, row.turn_id)
+
+    case projector.(row, turn) do
+      nil ->
+        []
+
+      item when is_map(item) ->
+        revealed = if state.walk.reveal, do: OpaqueContent.reveal(item), else: item
+        bounded = bound_projected_item(revealed, state.bytes)
+
+        [
+          %{
+            turn_id: row.turn_id,
+            position: row.position,
+            item: bounded
           }
         ]
     end
@@ -488,4 +553,37 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
   end
 
   defp bound_value(value, _limit), do: value
+
+  defp select_projected_items(units, limit, bytes) do
+    budget = bytes - @page_reserve_bytes
+
+    units
+    |> Enum.reverse()
+    |> Enum.reduce_while({[], 0, 2}, fn unit, {selected, count, used_bytes} ->
+      next_bytes = used_bytes + encoded_bytes(unit.item) + 1
+
+      cond do
+        count >= limit ->
+          {:halt, {selected, count, used_bytes}}
+
+        next_bytes > budget and selected != [] ->
+          {:halt, {selected, count, used_bytes}}
+
+        true ->
+          {:cont, {[unit | selected], count + 1, next_bytes}}
+      end
+    end)
+    |> elem(0)
+  end
+
+  defp bound_projected_item(item, bytes) do
+    target = max(bytes - @page_reserve_bytes, 256)
+
+    [@model_string_bytes, 2_000, 1_000, 500, 200, 96]
+    |> Enum.find_value(fn limit ->
+      candidate = bound_value(item, limit)
+      if encoded_bytes(candidate) <= target, do: candidate
+    end)
+    |> Kernel.||(bound_value(item, 64))
+  end
 end

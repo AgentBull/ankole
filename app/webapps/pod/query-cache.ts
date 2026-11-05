@@ -1,6 +1,7 @@
 import { mergeMessageWindow } from './state/message-history'
 import { isCancelledError, type QueryClient, type QueryKey } from '@tanstack/react-query'
 import { podKeys } from './api'
+import { metaKeys } from './meta-api'
 import type { ConversationDetail } from './api'
 
 /** A POST acknowledgement cannot replace history already read after its commit. */
@@ -19,6 +20,7 @@ export async function refreshConversationQueries(client: QueryClient, conversati
   await Promise.all([
     refreshQuery(client, podKeys.detail(conversationID)),
     refreshQuery(client, [...podKeys.detail(conversationID), 'peer'], false),
+    refreshQuery(client, [...podKeys.detail(conversationID), 'execution'], false),
     refreshQuery(client, podKeys.conversations, false)
   ])
 }
@@ -39,6 +41,16 @@ export async function refreshConversationDetail(client: QueryClient, conversatio
   }
   if (query?.state.status === 'error') throw query.state.error
   return query?.state.data
+}
+
+/** Agent directory mutations refresh Pod Chat, Meta Ankole, and Pod Settings together. */
+export async function refreshAgentQueries(client: QueryClient): Promise<void> {
+  await Promise.all([
+    refreshQuery(client, podKeys.agents),
+    refreshQuery(client, podKeys.conversations, false),
+    refreshQuery(client, metaKeys.agents(), false),
+    refreshQuery(client, ['pod-admin-agents'])
+  ])
 }
 
 async function refreshQuery(client: QueryClient, queryKey: QueryKey, exact = true): Promise<void> {

@@ -46,17 +46,25 @@ export function providerSettingPresentation(t: TFunction, key: string): { label:
 
 /** Renders one ProviderDSL setting using its projected type and storage metadata. */
 export function ProviderSettingField({
+  decrypt,
   disabled,
   keepStored,
   onChange,
+  readOnly,
   secretPresent,
   setting,
   value
 }: {
+  decrypt?: {
+    onReveal?: () => void
+    revealed?: boolean
+    revealing?: boolean
+  }
   /** Blank drafts keep the stored value (credential edit), so blank controls show that instead of the DSL default. */
   keepStored?: boolean
   disabled?: boolean
   onChange: (value: string) => void
+  readOnly?: boolean
   secretPresent?: boolean
   setting: ProviderSetting
   value: unknown
@@ -68,17 +76,27 @@ export function ProviderSettingField({
   const blankOptionLabel = keepStored ? t('console.providers.keep_stored_value') : t('common.unset')
 
   if (setting.encrypted) {
-    const description = secretPresent
-      ? t('console.providers.secret_keep', { masked: '••••' })
-      : t('console.providers.secret_hint')
+    const secretDescription = readOnly
+      ? t('console.providers.secret_readonly_hint')
+      : secretPresent
+        ? t('console.providers.secret_value_hint')
+        : t('console.providers.secret_hint')
     return (
-      <LabeledField label={label} description={description} required={setting.required && !secretPresent}>
+      <LabeledField
+        label={label}
+        description={secretDescription}
+        required={setting.required && !readOnly && (!keepStored || Boolean(secretPresent))}>
         <EncryptedValueInput
           disabled={disabled}
-          placeholder={secretPresent ? '••••••••' : 'sk-...'}
-          revealLabel={t('console.aria.reveal_secret')}
+          hideLabel={t('console.providers.hide_field', { field: label })}
+          placeholder="sk-..."
+          readOnly={readOnly}
+          revealLabel={t('console.providers.reveal_field', { field: label })}
+          revealed={decrypt?.revealed}
+          revealing={decrypt?.revealing}
           value={draft}
           onChange={event => onChange(event.target.value)}
+          onReveal={decrypt?.onReveal}
         />
       </LabeledField>
     )

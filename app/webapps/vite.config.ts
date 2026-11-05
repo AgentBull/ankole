@@ -87,7 +87,11 @@ function nodeModulePackageName(moduleID: string): string | undefined {
 
 function manualChunks(moduleID: string): string | undefined {
   const packageName = nodeModulePackageName(moduleID)
-  if (!packageName) return undefined
+  if (!packageName) {
+    const normalized = moduleID.replaceAll('\\', '/')
+    if (normalized.includes('/libs/uikit/src/components/graph')) return undefined
+    return normalized.includes('/libs/uikit/src/') ? 'uikit' : undefined
+  }
   if (packageName === 'react' || packageName === 'react-dom' || packageName === 'scheduler') {
     return 'vendor-react'
   }
@@ -99,11 +103,21 @@ function manualChunks(moduleID: string): string | undefined {
     return 'vendor-router'
   }
 
-  // Keep dynamic-import-only editor and Markdown dependencies in lazy chunks.
+  // Keep dynamic-import-only editor, graph, chart, and Markdown dependencies in lazy chunks.
   if (moduleID.includes('/any-ascii/')) return 'vendor-transliteration'
   if (moduleID.includes('/json-edit-react/')) return 'vendor-json-editor'
   if (moduleID.includes('/xlsx/')) return 'vendor-spreadsheet'
   if (moduleID.includes('/@office-kit/') || moduleID.includes('/fflate/')) return 'vendor-presentation'
+  if (packageName === 'lightweight-charts' || packageName === 'fancy-canvas') return 'vendor-charts'
+  if (
+    packageName.startsWith('@antv/') ||
+    packageName === 'bubblesets-js' ||
+    packageName === 'is-any-array' ||
+    packageName.startsWith('d3-') ||
+    packageName.startsWith('ml-')
+  ) {
+    return 'vendor-graph'
+  }
   if (
     markdownPipelinePackages.has(packageName) ||
     markdownPipelinePrefixes.some(prefix => packageName.startsWith(prefix))
@@ -241,6 +255,10 @@ export default defineConfig(({ command }): UserConfig => ({
     },
     phoenixShellPlugin()
   ],
+  optimizeDeps: {
+    entries: Object.values(entries),
+    include: ['@ankole/uikit > @antv/g6']
+  },
   publicDir: false,
   resolve: { alias: { '@ankole/locales': localeDirectory } },
   root: dirname,
@@ -290,8 +308,16 @@ export default defineConfig(({ command }): UserConfig => ({
         chunkFileNames: 'js/[name]-[hash].js',
         entryFileNames: 'js/[name]-[hash].js',
         codeSplitting: {
+          minSize: 16_000,
           // Shared dependencies must not pull applet-only code into every entry.
-          groups: [{ name: manualChunks, debugName: 'vendor-packages', entriesAware: true }]
+          groups: [
+            {
+              name: manualChunks,
+              debugName: 'vendor-packages',
+              entriesAware: true,
+              entriesAwareMergeThreshold: 20_000
+            }
+          ]
         }
       }
     }

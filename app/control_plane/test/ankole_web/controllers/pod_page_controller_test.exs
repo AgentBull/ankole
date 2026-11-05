@@ -313,13 +313,24 @@ defmodule AnkoleWeb.PodPageControllerTest do
 
     assert api_response(created, 200)
 
-    saved =
+    rejected =
       created
       |> recycle_api()
       |> api_post("/api/v2/pod/pages", %{saved_from_message_id: message})
 
-    assert %{"page" => %{"id" => page_id}} = api_response(saved, 200)
-    busy = saved |> recycle_api() |> api_delete("/api/v2/pod/conversations/#{id}")
+    assert %{"errors" => [%{"code" => "invalid_request"}]} = api_response(rejected, 422)
+
+    page_id =
+      Repo.with_tenant(tenant.id, fn ->
+        actor = Ankole.PrincipalsFixtures.actor_fixture(uid)
+
+        {:ok, page} =
+          Pages.create(actor, %{title: "Research deliverable", saved_from_message_id: message})
+
+        page.id
+      end)
+
+    busy = rejected |> recycle_api() |> api_delete("/api/v2/pod/conversations/#{id}")
     assert %{"errors" => [%{"code" => "conversation_busy"}]} = api_response(busy, 409)
 
     Repo.with_tenant(tenant.id, fn ->

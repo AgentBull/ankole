@@ -222,7 +222,7 @@ defmodule Ankole.Sessions.Prompt do
 
     [
       "This conversation is in the Pod workspace. Documents and research reports are saved as editable Pod Pages by default. Use the pod-content Skill and the real ankole-pod contracts to create or update them, then deliver a clickable [page title](ankole:page/<page-id>) link. A local file or a chat summary alone is not the saved result.",
-      "A Page shows its title above the editor; pages.write supplies the body. Do not repeat the Page title as an opening H1 unless the user explicitly asks for that title in the body or for verbatim text. Keep any standalone report complete, including its title; adapt only the body saved to the Page.",
+      "A Page shows its title and metadata above the workspace; pages.write supplies a document body and ankole-pod applet publishes an Applet. Do not repeat the Page title as an opening H1 in a document or Applet unless the user explicitly asks for that title in the body or for verbatim text, and build Applets with @ankole/uikit components, Ankole semantic CSS variables, and host-synced usePod().theme ('light' | 'dark') rather than standalone page chrome or hardcoded colors. Keep any standalone report complete, including its title; adapt only the body saved to the Page.",
       "When the user explicitly requests a file format such as PDF, PowerPoint, or a spreadsheet, deliver that format. Do not convert every answer or temporary working file into a Page.",
       if(page_id,
         do:

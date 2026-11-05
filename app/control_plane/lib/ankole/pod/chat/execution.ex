@@ -29,6 +29,7 @@ defmodule Ankole.Pod.Chat.Execution do
                    model_profile: [type: :string],
                    served_profile: [type: :string]
                  ]
+
   use Ash.Type.NewType,
     subtype_of: :map,
     constraints: [
@@ -47,6 +48,7 @@ defmodule Ankole.Pod.Chat.Execution do
                 title: @required_text,
                 status: @required_text,
                 duration_ms: [type: :integer],
+                skill_name: [type: :string],
                 input: @text,
                 output: @text,
                 label_key: [type: :string],

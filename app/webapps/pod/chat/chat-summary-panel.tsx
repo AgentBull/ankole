@@ -8,15 +8,21 @@ import { ChatAvatar } from './chat-avatar'
 import { ModelControls } from '../model-controls'
 import { useRoomActions } from './room-api'
 import { LinkedExecutionCard } from './linked-execution-card'
+import { collapseExecutionChains, isExecutionActive } from './turn-timeline'
+import type { InspectorTarget } from './types'
 import { PodPanelSurface, type PanelInputEvent } from '../panel-motion'
 
 export function ChatSummaryPanel({
   detail,
   callableAgentUIDs,
+  activeInspector,
+  onOpenInspector,
   onClose
 }: {
   detail: ConversationDetail
   callableAgentUIDs: string[]
+  activeInspector?: InspectorTarget | null
+  onOpenInspector?: (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) => void
   onClose(event?: PanelInputEvent): void
 }) {
   const { t } = useTranslation()
@@ -108,18 +114,27 @@ export function ChatSummaryPanel({
       </section>
       <section>
         <h3>{t('pod.chat_room.background')}</h3>
-        {detail.linkedRuns.map(run => (
+        {collapseExecutionChains(
+          detail.linkedRuns.map(run => ({
+            ...run,
+            agentName:
+              room.agents.find(agent => agent.uid === run.agentUID)?.displayName ??
+              detail.messages.findLast(message => message.authorType === 'agent' && message.authorUID === run.agentUID)
+                ?.authorDisplayName
+          }))
+        ).map(run => (
           <LinkedExecutionCard
             key={`${run.kind}:${run.id}`}
             conversationID={room.id}
-            run={{
-              ...run,
-              agentName:
-                room.agents.find(agent => agent.uid === run.agentUID)?.displayName ??
-                detail.messages.findLast(
-                  message => message.authorType === 'agent' && message.authorUID === run.agentUID
-                )?.authorDisplayName
-            }}
+            run={run}
+            showAgentName
+            compact
+            isActive={isExecutionActive(activeInspector, run)}
+            onOpenInspector={
+              onOpenInspector
+                ? (target, trigger, event) => onOpenInspector({ ...target, fromSummary: true }, trigger, event)
+                : undefined
+            }
           />
         ))}
         {!detail.linkedRuns.length && <p className="pod-chat-subtle">{t('pod.chat_room.no_background')}</p>}

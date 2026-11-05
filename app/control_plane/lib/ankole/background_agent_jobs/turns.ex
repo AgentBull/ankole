@@ -8,6 +8,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   budget.
   """
 
+  require Ash.Expr
   require Ash.Query
   require Ankole.ModelIntegerID
 
@@ -106,6 +107,87 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     |> Ash.Query.limit(limit)
     |> Ankole.Ash.read!()
     |> Enum.reverse()
+  end
+
+  @hidden_item_types ["userMessage", "hookPrompt", "contextCompaction"]
+
+  @doc "Counts stored TurnItem rows across `turns` excluding internal prompt and compaction items."
+  @spec count_visible_items([Turn.t()]) :: non_neg_integer()
+  def count_visible_items([]), do: 0
+
+  def count_visible_items(turns) when is_list(turns) do
+    turn_ids = Enum.map(turns, & &1.id)
+
+    TurnItem
+    |> Ash.Query.filter(
+      turn_id in ^turn_ids and fragment("? ->> 'type'", item) not in ^@hidden_item_types
+    )
+    |> Ankole.Ash.count!()
+  end
+
+  @doc "Reads lightweight Turn headers, visible item counts, and latest live items for `job_ids`."
+  @spec summary_snapshots_for_jobs([pos_integer()]) :: %{
+          turns_by_job: %{optional(pos_integer()) => [Turn.t()]},
+          item_counts: %{optional(Ecto.UUID.t()) => non_neg_integer()},
+          latest_live_items: %{optional(Ecto.UUID.t()) => map()}
+        }
+  def summary_snapshots_for_jobs([]),
+    do: %{turns_by_job: %{}, item_counts: %{}, latest_live_items: %{}}
+
+  def summary_snapshots_for_jobs(job_ids) when is_list(job_ids) do
+    visible_filter = Ash.Expr.expr(fragment("? ->> 'type'", item) not in ^@hidden_item_types)
+
+    turns =
+      Turn
+      |> Ash.Query.filter(job_id in ^job_ids)
+      |> Ash.Query.select([
+        :id,
+        :job_id,
+        :attempt,
+        :runtime_thread_id,
+        :status,
+        :progress,
+        :started_at,
+        :updated_at
+      ])
+      |> Ash.Query.aggregate(:visible_item_count, :count, :items,
+        query: [filter: visible_filter],
+        default: 0,
+        authorize?: false
+      )
+      |> Ash.Query.sort(started_at: :asc, id: :asc)
+      |> Ankole.Ash.read!()
+
+    item_counts =
+      Map.new(turns, fn turn ->
+        {turn.id, Map.get(turn.aggregates, :visible_item_count, 0)}
+      end)
+
+    live_turn_ids =
+      turns
+      |> Enum.filter(&(&1.status == :in_progress))
+      |> Enum.map(& &1.id)
+
+    latest_live_items =
+      if live_turn_ids == [] do
+        %{}
+      else
+        TurnItem
+        |> Ash.Query.filter(
+          turn_id in ^live_turn_ids and fragment("? ->> 'type'", item) not in ^@hidden_item_types
+        )
+        |> Ash.Query.distinct(:turn_id)
+        |> Ash.Query.distinct_sort(turn_id: :asc, position: :desc)
+        |> Ash.Query.select([:turn_id, :position, :item])
+        |> Ankole.Ash.read!()
+        |> Map.new(&{&1.turn_id, &1.item})
+      end
+
+    %{
+      turns_by_job: Enum.group_by(turns, & &1.job_id),
+      item_counts: item_counts,
+      latest_live_items: latest_live_items
+    }
   end
 
   @spec execution_projection(Job.t(), keyword()) :: {:ok, map()} | {:error, atom()}

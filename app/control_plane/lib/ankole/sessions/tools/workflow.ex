@@ -333,7 +333,11 @@ defmodule Ankole.Sessions.Tools.Workflow do
     actions =
       if name == "cancel_workflow",
         do: [fn -> Workflow.cleanup_terminal_transition({:ok, value}) end],
-        else: []
+        else: [
+          fn ->
+            Ankole.Workflow.Lifecycle.notify_owner_conversation(value.run.owner_session_id)
+          end
+        ]
 
     {:ok, Tools.result(%{"run_id" => value.run.id, "status" => Atom.to_string(value.run.status)}),
      actions}

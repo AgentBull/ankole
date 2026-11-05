@@ -1,154 +1,153 @@
-import { Button, Sheet, SheetContent, SheetTitle } from '@ankole/uikit'
-import {
-  RiArrowRightSLine,
-  RiCheckLine,
-  RiCloseLine,
-  RiLoader4Line,
-  RiNodeTree,
-  RiQuestionLine
-} from '@remixicon/react'
-import { useEffect, useRef, useState } from 'react'
+import { Button } from '@ankole/uikit'
+import { RiArrowRightSLine, RiStopCircleLine } from '@remixicon/react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useInfiniteQuery } from '@tanstack/react-query'
-import { ChatMarkdown } from './chat-markdown'
-import { ContentError } from '../content-primitives'
-import { podKeys } from '../api'
-import { conversationExecution } from '../api/generated/sdk.gen'
-import type { LinkedExecution } from './types'
-import { formatElapsed } from './elapsed'
+import { stopConversationExecution } from '../api/generated/sdk.gen'
+import type { PanelInputEvent } from '../panel-motion'
+import { refreshConversationQueries } from '../query-cache'
+import { ExecutionStatusMark, RunningElapsed, executionStatusLabelKey, executionStatusTone } from './execution-status'
+import type { InspectorTarget, LinkedExecution } from './types'
 
-const statusLabels: Record<string, string> = {
-  queued: 'queued',
-  running: 'running',
-  waiting_on_user: 'decision_needed',
-  awaiting_input: 'decision_needed',
-  succeeded: 'completed',
-  completed: 'completed',
-  failed: 'failed',
-  stopped: 'stopped',
-  cancelled: 'stopped'
+export function cleanExecutionPreview(raw?: string | null): string | undefined {
+  if (!raw) return undefined
+  const trimmed = raw.trim()
+  if (!trimmed || trimmed === '{}' || trimmed === '[]' || trimmed === 'null' || trimmed === '""') return undefined
+  const plain = trimmed
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/[*_`~>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return plain || undefined
 }
 
-export function LinkedExecutionCard({ run, conversationID }: { run: LinkedExecution; conversationID: string }) {
-  const { t, i18n } = useTranslation()
-  const [open, setOpen] = useState(false)
+export function LinkedExecutionCard({
+  run,
+  conversationID,
+  showAgentName = false,
+  isActive = false,
+  compact = false,
+  onOpenInspector
+}: {
+  run: LinkedExecution
+  conversationID: string
+  showAgentName?: boolean
+  isActive?: boolean
+  compact?: boolean
+  onOpenInspector?: (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) => void
+}) {
+  const { t } = useTranslation()
+  const client = useQueryClient()
   const trigger = useRef<HTMLButtonElement>(null)
-  const running = run.status === 'running' || run.status === 'queued'
-  const failed = run.status === 'failed'
-  const waiting = run.status === 'waiting_on_user' || run.status === 'awaiting_input'
-  const stopped = ['stopped', 'cancelled'].includes(run.status)
-  const complete = run.status === 'succeeded' || run.status === 'completed'
-  const [now, setNow] = useState(Date.now)
-  useEffect(() => {
-    if (!running) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [running, run.createdAt])
-  const duration = Math.max(0, (running ? now : Date.parse(run.updatedAt)) - Date.parse(run.createdAt))
-  const status = statusLabels[run.status] ? t(`pod.chat_timeline.${statusLabels[run.status]}`) : undefined
+
+  const stopMutation = useMutation({
+    mutationFn: () =>
+      stopConversationExecution({
+        path: { id: conversationID, kind: run.kind, run_id: Number(run.id) }
+      }),
+    onSuccess: () => {
+      refreshConversationQueries(client, conversationID)
+    }
+  })
+
+  const tone = executionStatusTone(run.status)
+  const statusKey = executionStatusLabelKey(run.status)
+  const statusLabel = statusKey ? t(statusKey) : undefined
+
+  const metaParts: string[] = []
+  if (showAgentName && run.agentName) {
+    metaParts.push(run.agentName)
+  } else if (run.kind === 'workflow') {
+    metaParts.push(t('pod.chat_timeline.workflow'))
+  }
+  if (statusLabel) metaParts.push(statusLabel)
+
+  if (run.kind === 'workflow' && run.taskCounts && run.taskCounts.total > 0) {
+    metaParts.push(
+      t('pod.chat_timeline.execution_workflow_counts', {
+        completed: run.taskCounts.completed,
+        total: run.taskCounts.total
+      })
+    )
+  } else if (run.planTotal && run.planTotal > 0) {
+    metaParts.push(
+      t('pod.chat_timeline.execution_plan_progress', {
+        completed: run.planCompleted ?? 0,
+        total: run.planTotal
+      })
+    )
+  } else if (run.stepCount && run.stepCount > 0) {
+    metaParts.push(t('pod.chat_timeline.execution_steps_count', { count: run.stepCount }))
+  }
+
+  const preview = !compact ? cleanExecutionPreview(run.summary) : undefined
+  const workflowPct =
+    run.kind === 'workflow' && run.taskCounts && run.taskCounts.total > 0
+      ? Math.round((run.taskCounts.completed / run.taskCounts.total) * 100)
+      : undefined
+
+  const target: InspectorTarget = {
+    type: 'execution',
+    kind: run.kind,
+    runID: run.id,
+    title: run.title,
+    agentName: run.agentName,
+    initialRun: run
+  }
+
   return (
-    <>
+    <div
+      className="pod-chat-linked-run"
+      data-status={tone}
+      data-active={isActive || undefined}
+      data-compact={compact || undefined}>
       <button
         ref={trigger}
         type="button"
-        className="pod-chat-linked-run"
-        data-status={waiting ? 'waiting' : failed ? 'failed' : run.status}
-        onClick={() => setOpen(true)}>
-        <RiNodeTree aria-hidden />
-        <span>
-          <strong title={run.title}>{run.title}</strong>
-          <small>
-            {run.agentName ||
-              t(run.kind === 'workflow' ? 'pod.chat_timeline.workflow' : 'pod.chat_timeline.background_work')}
-            {status ? ` · ${status}` : ''}
-          </small>
+        className="pod-chat-linked-run-main"
+        aria-expanded={isActive}
+        onClick={event => onOpenInspector?.(target, trigger.current, event.nativeEvent)}>
+        <span className="pod-chat-linked-run-head">
+          <ExecutionStatusMark status={run.status} />
+          <strong className="pod-chat-linked-run-title" title={run.title}>
+            {run.title}
+          </strong>
+          <RunningElapsed
+            createdAt={run.createdAt}
+            startedAt={run.startedAt}
+            completedAt={run.completedAt}
+            updatedAt={run.updatedAt}
+            status={run.status}
+          />
+          <RiArrowRightSLine className="pod-chat-linked-run-chevron" aria-hidden />
         </span>
-        <time>{formatElapsed(duration, i18n.language)}</time>
-        {running ? (
-          <RiLoader4Line className="animate-spin" aria-hidden />
-        ) : waiting ? (
-          <RiQuestionLine aria-hidden />
-        ) : failed || stopped ? (
-          <RiCloseLine aria-hidden />
-        ) : complete ? (
-          <RiCheckLine aria-hidden />
-        ) : null}
-        <RiArrowRightSLine aria-hidden />
+        {metaParts.length > 0 && <small className="pod-chat-linked-run-meta">{metaParts.join(' · ')}</small>}
+        {preview && <span className="pod-chat-linked-run-preview">{preview}</span>}
+        {workflowPct !== undefined && (
+          <span className="pod-chat-workflow-bar" aria-hidden>
+            <span style={{ width: `${workflowPct}%` }} data-failed={(run.taskCounts?.failed ?? 0) > 0 || undefined} />
+          </span>
+        )}
       </button>
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent className="pod-chat-execution-drawer" closeLabel={t('common.close')} finalFocus={trigger}>
-          <SheetTitle>{run.title}</SheetTitle>
-          <div className="pod-chat-execution-detail">
-            <dl>
-              <dt>{t('pod.chat_timeline.status')}</dt>
-              <dd>{status || t('pod.chat_timeline.background_work')}</dd>
-              {run.agentName && (
-                <>
-                  <dt>{t('pod.chat_timeline.agent')}</dt>
-                  <dd>{run.agentName}</dd>
-                </>
-              )}
-            </dl>
-            {open && <ExecutionLog conversationID={conversationID} run={run} />}
-          </div>
-        </SheetContent>
-      </Sheet>
-    </>
-  )
-}
-
-function ExecutionLog({ conversationID, run }: { conversationID: string; run: LinkedExecution }) {
-  const { t } = useTranslation()
-  const logs = useInfiniteQuery({
-    queryKey: [...podKeys.detail(conversationID), 'execution', run.kind, run.id],
-    initialPageParam: null,
-    queryFn: ({ pageParam, signal }: { pageParam: string | null; signal: AbortSignal }) =>
-      conversationExecution({
-        path: { id: conversationID, kind: run.kind, run_id: Number(run.id) },
-        query: { cursor: pageParam ?? undefined },
-        signal
-      }),
-    getNextPageParam: page => page.nextCursor ?? undefined,
-    retry: false,
-    refetchInterval: query =>
-      !query.state.error && ['queued', 'running', 'waiting_on_user', 'awaiting_input'].includes(run.status)
-        ? 2000
-        : false
-  })
-  const pages = run.kind === 'background_agent_job' ? logs.data?.pages.toReversed() : logs.data?.pages
-  const text = pages
-    ?.map(page => page.text)
-    .filter(Boolean)
-    .join('\n\n')
-  const earlier = run.kind === 'background_agent_job'
-  const more = logs.hasNextPage && (
-    <Button
-      variant="outline"
-      size="sm"
-      disabled={logs.isFetchingNextPage}
-      focusableWhenDisabled
-      aria-busy={logs.isFetchingNextPage}
-      onClick={() => void logs.fetchNextPage()}>
-      {t(
-        logs.isFetchingNextPage
-          ? 'pod.chat_timeline.loading_execution'
-          : earlier
-            ? 'pod.chat_timeline.load_earlier_execution'
-            : 'pod.chat_timeline.load_more_execution'
+      {Boolean(run.stoppable) && !compact && (
+        <Button
+          size="xs"
+          variant="ghost"
+          className="pod-chat-linked-run-stop"
+          disabled={stopMutation.isPending}
+          aria-label={`${t('pod.chat_timeline.execution_stop_action')} ${run.title}`}
+          onClick={() => stopMutation.mutate()}>
+          <RiStopCircleLine aria-hidden />
+          <span>
+            {t(
+              stopMutation.isPending
+                ? 'pod.chat_timeline.execution_stopping'
+                : 'pod.chat_timeline.execution_stop_action'
+            )}
+          </span>
+        </Button>
       )}
-    </Button>
-  )
-  const isLiveRun = ['queued', 'running', 'waiting_on_user', 'awaiting_input'].includes(run.status)
-  return (
-    <>
-      {logs.isPending && <p role="status">{t('pod.chat_timeline.loading_execution')}</p>}
-      {earlier && more}
-      {text && <ChatMarkdown text={text} generated streaming={isLiveRun} />}
-      {!logs.isPending && !logs.error && !text && (
-        <p className="text-fg-tertiary">{t('pod.chat_timeline.no_execution_steps')}</p>
-      )}
-      <ContentError error={logs.error} retry={() => void logs.refetch()} />
-      {!earlier && more}
-    </>
+    </div>
   )
 }

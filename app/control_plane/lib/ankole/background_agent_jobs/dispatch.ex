@@ -35,6 +35,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   @supported_respawn_fields ~w(
     agent_uid
+    created_by
     message
     metadata
     owner_session_id

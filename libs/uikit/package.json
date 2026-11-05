@@ -35,6 +35,7 @@
   },
   "dependencies": {
     "@agentbull/active-support": "1.6.0",
+    "@antv/g6": "5.1.1",
     "@atlaskit/pragmatic-drag-and-drop": "4.0.0",
     "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "3.2.1",
     "@atlaskit/pragmatic-drag-and-drop-hitbox": "3.0.0",

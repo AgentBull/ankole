@@ -1,7 +1,7 @@
 import { useCopyFeedback } from '@ankole/uikit/hooks/use-copy-feedback'
 import { downloadBlob } from '../../common/browser-files'
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, toast } from '@ankole/uikit'
-import { RiAlertLine, RiCheckLine, RiDownloadLine, RiFileCopyLine, RiImageLine, RiSaveLine } from '@remixicon/react'
+import { RiAlertLine, RiCheckLine, RiDownloadLine, RiFileCopyLine, RiImageLine } from '@remixicon/react'
 
 import { useTranslation } from 'react-i18next'
 import type { ConversationMessage } from '../api'
@@ -15,8 +15,7 @@ export function SelectShareLightbox({
   error,
   result,
   messages,
-  title,
-  onSaveAsPage
+  title
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -25,7 +24,6 @@ export function SelectShareLightbox({
   result: CaptureSelectedMessagesResult | null
   messages: ConversationMessage[]
   title?: string
-  onSaveAsPage?: () => void
 }) {
   const { t } = useTranslation()
   const [copiedKind, markCopied] = useCopyFeedback<'image' | 'markdown' | null>(null)
@@ -73,7 +71,7 @@ export function SelectShareLightbox({
             <p className="text-xs text-fg-secondary">
               {t('pod.chat_timeline.share_card_too_tall_hint', {
                 defaultValue:
-                  'At {$width}×{$height} px, rasterizing a single PNG would exceed browser canvas limits. Select fewer messages for an image card, or export the full excerpt as Markdown or a Pod document below.',
+                  'At {$width}×{$height} px, rasterizing a single PNG would exceed browser canvas limits. Select fewer messages for an image card, or export the full excerpt as Markdown below.',
                 width: result.cssWidth,
                 height: result.cssHeight
               })}
@@ -111,18 +109,6 @@ export function SelectShareLightbox({
             <RiDownloadLine aria-hidden />
             {t('pod.chat_timeline.download_markdown', { defaultValue: 'Download .md' })}
           </Button>
-          {onSaveAsPage && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                onOpenChange(false)
-                onSaveAsPage()
-              }}>
-              <RiSaveLine aria-hidden />
-              {t('pod.content.save_as_page')}
-            </Button>
-          )}
           {result?.kind === 'ok' && (
             <>
               <Button

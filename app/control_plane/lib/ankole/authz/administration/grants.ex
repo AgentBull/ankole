@@ -124,6 +124,16 @@ defmodule Ankole.AuthZ.Grants do
     end
   end
 
+  @principal_resource_prefixes [
+    "agent:",
+    "drive:private:",
+    "site_console:agent:",
+    "tenant_console:agent:",
+    "tenant_console:agent_skill_binding:",
+    "site_console:principal:",
+    "tenant_console:principal:"
+  ]
+
   @doc "Deletes a group's grants and refreshes their Page anchors in the caller's transaction."
   def delete_group_grants_in_tx(group_id) do
     :ok = Repo.require_transaction()
@@ -139,6 +149,29 @@ defmodule Ankole.AuthZ.Grants do
 
     with {:ok, _} <- Ankole.Ash.destroy_where(query, :delete_in_tx),
          do: refresh_targets(targets)
+  end
+
+  @doc "Deletes grants targeting a Principal's resource patterns in the caller's transaction."
+  def delete_principal_resource_grants_in_tx(uid) when is_binary(uid) do
+    :ok = Repo.require_transaction()
+    Ankole.Pod.lock_tree_in_tx()
+    exact = Enum.map(@principal_resource_prefixes, &(&1 <> uid))
+    [p1, p2, p3, p4, p5, p6, p7] = Enum.map(exact, &(&1 <> ":"))
+
+    query =
+      Ash.Query.filter(
+        Grant,
+        resource_pattern in ^exact or
+          string_starts_with(resource_pattern, ^p1) or
+          string_starts_with(resource_pattern, ^p2) or
+          string_starts_with(resource_pattern, ^p3) or
+          string_starts_with(resource_pattern, ^p4) or
+          string_starts_with(resource_pattern, ^p5) or
+          string_starts_with(resource_pattern, ^p6) or
+          string_starts_with(resource_pattern, ^p7)
+      )
+
+    with {:ok, _} <- Ankole.Ash.destroy_where(query, :delete_in_tx), do: :ok
   end
 
   def grant_affects_pod?(%{action: action, resource_pattern: pattern})

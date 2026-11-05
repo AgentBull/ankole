@@ -17,7 +17,7 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ContentError } from './content-primitives'
-import { podKeys } from './api'
+import { refreshAgentQueries } from './query-cache'
 import { MarkdownBody } from '../common/markdown-body'
 import { MetaDocument } from './meta-document'
 import {
@@ -103,8 +103,7 @@ function AgentIdentity({ agent }: { agent?: MetaAgent }) {
           })
         : metaCreateAgent({ body: { data: form.value } }),
     onSuccess: async result => {
-      await client.invalidateQueries({ queryKey: metaKeys.agents() })
-      await client.invalidateQueries({ queryKey: podKeys.agents })
+      await refreshAgentQueries(client)
       if (!agent) void navigate({ to: `/meta/agents/colleagues/${result.uid}` })
     }
   })

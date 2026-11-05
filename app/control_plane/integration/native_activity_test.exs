@@ -69,8 +69,12 @@ defmodule AnkoleWeb.NativeActivityTest do
 
     url =
       start_upstream_server(fn request ->
-        send(owner, {:activity_model_request, request})
-        {:sse, 200, tool_events(request)}
+        if request.body["model"] == "openai/gpt-5.4-nano" do
+          {:json, 200, title_completion(request.body["model"], "Generated room title")}
+        else
+          send(owner, {:activity_model_request, request})
+          {:sse, 200, tool_events(request)}
+        end
       end)
 
     {:ok, _} =
@@ -635,27 +639,32 @@ defmodule AnkoleWeb.NativeActivityTest do
 
     url =
       start_upstream_server(fn request ->
-        number = :atomics.add_get(counter, 1, 1)
-        send(owner, {:empty_reply_request, number, request.body})
-        text = if number == 2, do: "Ready to help.", else: ""
+        if request.body["model"] == "openai/gpt-5.4-nano" do
+          send(owner, {:title_request, request.body})
+          {:json, 200, title_completion(request.body["model"], "Group status check")}
+        else
+          number = :atomics.add_get(counter, 1, 1)
+          send(owner, {:empty_reply_request, number, request.body})
+          text = if number == 2, do: "Ready to help.", else: ""
 
-        {:sse, 200,
-         [
-           %{
-             "id" => "empty-reply-#{number}",
-             "object" => "chat.completion.chunk",
-             "created" => 1_764_967_971,
-             "model" => request.body["model"],
-             "choices" => [
-               %{
-                 "index" => 0,
-                 "delta" => %{"role" => "assistant", "content" => text},
-                 "finish_reason" => "stop"
-               }
-             ],
-             "usage" => %{"prompt_tokens" => 5, "completion_tokens" => 1, "total_tokens" => 6}
-           }
-         ]}
+          {:sse, 200,
+           [
+             %{
+               "id" => "empty-reply-#{number}",
+               "object" => "chat.completion.chunk",
+               "created" => 1_764_967_971,
+               "model" => request.body["model"],
+               "choices" => [
+                 %{
+                   "index" => 0,
+                   "delta" => %{"role" => "assistant", "content" => text},
+                   "finish_reason" => "stop"
+                 }
+               ],
+               "usage" => %{"prompt_tokens" => 5, "completion_tokens" => 1, "total_tokens" => 6}
+             }
+           ]}
+        end
       end)
 
     {:ok, profile} = Ankole.AIGateway.ModelProfiles.get_model_profile(ctx.agent.uid, "primary")
@@ -681,13 +690,18 @@ defmodule AnkoleWeb.NativeActivityTest do
                text: "Tell me the status."
              })
 
+    :ok = Conversations.Events.subscribe(id)
     assert %{failure: 0} = Oban.drain_queue(queue: :conversations, with_scheduled: true)
-    assert_receive {:empty_reply_request, 1, _}, 5_000
+    assert_receive {:title_request, title_body}, 5_000
+    assert title_body["model"] == "openai/gpt-5.4-nano"
+    assert_receive {:conversation_event, ^id, :status}, 5_000
+    assert_receive {:empty_reply_request, 1, _}, 20_000
     assert_receive {:empty_reply_request, 2, repair}, 5_000
     assert Ankole.JSON.encode!(repair) =~ "This turn was started by an event that requires one"
     key = %{agent_uid: ctx.agent.uid, session_id: Sessions.Key.conversation(id)}
     await_activity(key, &(&1.state == "settled"))
     assert {:ok, detail} = Conversations.get(actor, id)
+    assert detail.conversation.title == "Group status check"
 
     assert Enum.count(
              detail.messages,
@@ -713,6 +727,7 @@ defmodule AnkoleWeb.NativeActivityTest do
     assert Ankole.JSON.encode!(listening) =~ "You can finish with no visible reply."
     await_activity(key, &(&1.state == "settled"))
     refute_receive {:empty_reply_request, 4, _}, 200
+    refute_receive {:title_request, _}, 50
     assert Repo.reload!(optional).status == :completed
     assert {:ok, detail} = Conversations.get(actor, id)
     assert Enum.count(detail.messages, &(&1.author_type == :agent)) == 1
@@ -1330,5 +1345,25 @@ defmodule AnkoleWeb.NativeActivityTest do
         "usage" => %{"prompt_tokens" => 5, "completion_tokens" => 7, "total_tokens" => 12}
       }
     ]
+  end
+
+  defp title_completion(model, title) do
+    %{
+      "id" => "chatcmpl_native_title",
+      "object" => "chat.completion",
+      "created" => 1_764_967_971,
+      "model" => model,
+      "choices" => [
+        %{
+          "index" => 0,
+          "message" => %{
+            "role" => "assistant",
+            "content" => Ankole.JSON.encode!(%{"title" => title})
+          },
+          "finish_reason" => "stop"
+        }
+      ],
+      "usage" => %{"prompt_tokens" => 5, "completion_tokens" => 4, "total_tokens" => 9}
+    }
   end
 end

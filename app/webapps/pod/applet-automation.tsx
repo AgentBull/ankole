@@ -105,26 +105,26 @@ function Form({
   )
 }
 
-export function AppletAutomation({ detail }: { detail: PageDetail }) {
+export function AppletAutomationDialog({
+  detail,
+  open,
+  onOpenChange
+}: {
+  detail: PageDetail
+  open: boolean
+  onOpenChange(open: boolean): void
+}) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(() => automationJobID(new URLSearchParams(window.location.search)) !== undefined)
   return (
-    <>
-      <div className="flex justify-end px-4 py-2">
-        <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
-          {t('pod.automation.title')}
-        </Button>
-      </div>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="pod-dialog-wide" closeLabel={t('common.close')}>
-          <DialogHeader>
-            <DialogTitle>{t('pod.automation.title')}</DialogTitle>
-            <DialogDescription>{t('pod.automation.description')}</DialogDescription>
-          </DialogHeader>
-          {open && <Manager detail={detail} />}
-        </DialogContent>
-      </Dialog>
-    </>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="pod-dialog-wide" closeLabel={t('common.close')}>
+        <DialogHeader>
+          <DialogTitle>{t('pod.automation.title')}</DialogTitle>
+          <DialogDescription>{t('pod.automation.description')}</DialogDescription>
+        </DialogHeader>
+        {open && <Manager detail={detail} />}
+      </DialogContent>
+    </Dialog>
   )
 }
 

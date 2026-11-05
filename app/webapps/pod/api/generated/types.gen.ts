@@ -1412,6 +1412,39 @@ export type UpdateConversationParticipantsResponses = {
 export type UpdateConversationParticipantsResponse =
   UpdateConversationParticipantsResponses[keyof UpdateConversationParticipantsResponses]
 
+export type StopConversationExecutionData = {
+  body?: never
+  path: {
+    run_id: number
+    kind: 'background_agent_job' | 'workflow'
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/executions/{kind}/{run_id}/stop'
+}
+
+export type StopConversationExecutionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type StopConversationExecutionError = StopConversationExecutionErrors[keyof StopConversationExecutionErrors]
+
+export type StopConversationExecutionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    runID: string
+    status: string
+  }
+}
+
+export type StopConversationExecutionResponse =
+  StopConversationExecutionResponses[keyof StopConversationExecutionResponses]
+
 export type UpdateConversationQueueData = {
   /**
    * Request body for the updateConversationQueue operation on pod_chat_operation resource
@@ -1482,6 +1515,7 @@ export type UpdateConversationQueueResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       } | null
       responseID?: string | null
       revision: number
@@ -1497,6 +1531,7 @@ export type UpdateConversationQueueResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       }>
     }>
     artifacts: {
@@ -1585,12 +1620,31 @@ export type UpdateConversationQueueResponses = {
     } | null
     linkedRuns: Array<{
       agentUID: string
+      canMessage?: boolean | null
+      completedAt?: string | null
+      continuedFromJobID?: string | null
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      planCompleted?: number | null
+      planTotal?: number | null
       sourceMessageID?: string | null
       sourceSignalID?: string | null
+      sourceToolCallID?: string | null
+      startedAt?: string | null
       status: string
+      stepCount?: number | null
+      stoppable?: boolean | null
+      successorJobID?: string | null
+      summary?: string | null
+      taskCounts?: {
+        completed: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        total: number
+      } | null
       text?: string | null
       title: string
       updatedAt: string
@@ -2738,6 +2792,48 @@ export type PodAppletOwnerResponses = {
 
 export type PodAppletOwnerResponse = PodAppletOwnerResponses[keyof PodAppletOwnerResponses]
 
+export type MessageConversationExecutionData = {
+  /**
+   * Request body for the messageConversationExecution operation on pod_chat_operation resource
+   */
+  body: {
+    data: {
+      requestID: string
+      text: string
+    }
+  }
+  path: {
+    run_id: number
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/conversations/{id}/executions/background_agent_job/{run_id}/messages'
+}
+
+export type MessageConversationExecutionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MessageConversationExecutionError =
+  MessageConversationExecutionErrors[keyof MessageConversationExecutionErrors]
+
+export type MessageConversationExecutionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    respawned: boolean
+    runID: string
+    status: string
+  }
+}
+
+export type MessageConversationExecutionResponse =
+  MessageConversationExecutionResponses[keyof MessageConversationExecutionResponses]
+
 export type PodJobWebhooksCancelData = {
   body?: never
   path: {
@@ -3256,6 +3352,7 @@ export type ConversationDetailResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       } | null
       responseID?: string | null
       revision: number
@@ -3271,6 +3368,7 @@ export type ConversationDetailResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       }>
     }>
     artifacts: {
@@ -3359,12 +3457,31 @@ export type ConversationDetailResponses = {
     } | null
     linkedRuns: Array<{
       agentUID: string
+      canMessage?: boolean | null
+      completedAt?: string | null
+      continuedFromJobID?: string | null
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      planCompleted?: number | null
+      planTotal?: number | null
       sourceMessageID?: string | null
       sourceSignalID?: string | null
+      sourceToolCallID?: string | null
+      startedAt?: string | null
       status: string
+      stepCount?: number | null
+      stoppable?: boolean | null
+      successorJobID?: string | null
+      summary?: string | null
+      taskCounts?: {
+        completed: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        total: number
+      } | null
       text?: string | null
       title: string
       updatedAt: string
@@ -3526,6 +3643,7 @@ export type UpdateConversationResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       } | null
       responseID?: string | null
       revision: number
@@ -3541,6 +3659,7 @@ export type UpdateConversationResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       }>
     }>
     artifacts: {
@@ -3629,12 +3748,31 @@ export type UpdateConversationResponses = {
     } | null
     linkedRuns: Array<{
       agentUID: string
+      canMessage?: boolean | null
+      completedAt?: string | null
+      continuedFromJobID?: string | null
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      planCompleted?: number | null
+      planTotal?: number | null
       sourceMessageID?: string | null
       sourceSignalID?: string | null
+      sourceToolCallID?: string | null
+      startedAt?: string | null
       status: string
+      stepCount?: number | null
+      stoppable?: boolean | null
+      successorJobID?: string | null
+      summary?: string | null
+      taskCounts?: {
+        completed: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        total: number
+      } | null
       text?: string | null
       title: string
       updatedAt: string
@@ -3889,6 +4027,7 @@ export type AnswerConversationInteractionResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       } | null
       responseID?: string | null
       revision: number
@@ -3904,6 +4043,7 @@ export type AnswerConversationInteractionResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       }>
     }>
     artifacts: {
@@ -3992,12 +4132,31 @@ export type AnswerConversationInteractionResponses = {
     } | null
     linkedRuns: Array<{
       agentUID: string
+      canMessage?: boolean | null
+      completedAt?: string | null
+      continuedFromJobID?: string | null
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      planCompleted?: number | null
+      planTotal?: number | null
       sourceMessageID?: string | null
       sourceSignalID?: string | null
+      sourceToolCallID?: string | null
+      startedAt?: string | null
       status: string
+      stepCount?: number | null
+      stoppable?: boolean | null
+      successorJobID?: string | null
+      summary?: string | null
+      taskCounts?: {
+        completed: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        total: number
+      } | null
       text?: string | null
       title: string
       updatedAt: string
@@ -4515,6 +4674,7 @@ export type ResolveConversationActionCardResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       } | null
       responseID?: string | null
       revision: number
@@ -4530,6 +4690,7 @@ export type ResolveConversationActionCardResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       }>
     }>
     artifacts: {
@@ -4618,12 +4779,31 @@ export type ResolveConversationActionCardResponses = {
     } | null
     linkedRuns: Array<{
       agentUID: string
+      canMessage?: boolean | null
+      completedAt?: string | null
+      continuedFromJobID?: string | null
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      planCompleted?: number | null
+      planTotal?: number | null
       sourceMessageID?: string | null
       sourceSignalID?: string | null
+      sourceToolCallID?: string | null
+      startedAt?: string | null
       status: string
+      stepCount?: number | null
+      stoppable?: boolean | null
+      successorJobID?: string | null
+      summary?: string | null
+      taskCounts?: {
+        completed: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        total: number
+      } | null
       text?: string | null
       title: string
       updatedAt: string
@@ -5416,8 +5596,95 @@ export type ConversationExecutionResponses = {
    * Success
    */
   200: {
+    agentUID: string
+    canMessage: boolean
+    completedAt?: string | null
+    continuedFromJobID?: string | null
+    createdAt: string
+    errorText?: string | null
+    id: string
+    items: Array<{
+      attempts?: number | null
+      attention?: boolean | null
+      callSeq?: number | null
+      collab?: {
+        action: string
+        agentSummary?: string | null
+        prompt?: string | null
+        receiverThreadIDs?: Array<string> | null
+      } | null
+      command?: {
+        command?: string | null
+        cwd?: string | null
+        exitCode?: number | null
+        output?: string | null
+      } | null
+      durationMs?: number | null
+      error?: string | null
+      files?: Array<{
+        diff?: string | null
+        kind: string
+        path: string
+      }> | null
+      id: string
+      input?: string | null
+      isLead?: boolean | null
+      kind: string
+      output?: string | null
+      phase?: string | null
+      skillName?: string | null
+      sleepNote?: string | null
+      status?: string | null
+      text?: string | null
+      threadID?: string | null
+      title?: string | null
+      tool?: string | null
+      toolKind?: string | null
+      turnStatus?: string | null
+    }>
+    kind: 'background_agent_job' | 'workflow'
     nextCursor?: string | null
-    text: string
+    outcomeText?: string | null
+    pendingQuestions: Array<{
+      header?: string | null
+      id: string
+      isOther?: boolean | null
+      isSecret?: boolean | null
+      options?: Array<{
+        description?: string | null
+        label: string
+      }> | null
+      question: string
+    }>
+    plan?: {
+      explanation?: string | null
+      steps: Array<{
+        status: string
+        step: string
+      }>
+    } | null
+    startedAt?: string | null
+    status: string
+    stepCount: number
+    stoppable: boolean
+    successorJobID?: string | null
+    task?: string | null
+    threads: Array<{
+      id: string
+      isLead: boolean
+      status: string
+      turnCount: number
+    }>
+    title: string
+    updatedAt: string
+    workflowCounts?: {
+      completed: number
+      failed: number
+      queued: number
+      running: number
+      sleeping: number
+      total: number
+    } | null
   }
 }
 
@@ -6435,6 +6702,7 @@ export type PostConversationMessageResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       } | null
       responseID?: string | null
       revision: number
@@ -6450,6 +6718,7 @@ export type PostConversationMessageResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       }>
     }>
     artifacts: {
@@ -6538,12 +6807,31 @@ export type PostConversationMessageResponses = {
     } | null
     linkedRuns: Array<{
       agentUID: string
+      canMessage?: boolean | null
+      completedAt?: string | null
+      continuedFromJobID?: string | null
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      planCompleted?: number | null
+      planTotal?: number | null
       sourceMessageID?: string | null
       sourceSignalID?: string | null
+      sourceToolCallID?: string | null
+      startedAt?: string | null
       status: string
+      stepCount?: number | null
+      stoppable?: boolean | null
+      successorJobID?: string | null
+      summary?: string | null
+      taskCounts?: {
+        completed: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        total: number
+      } | null
       text?: string | null
       title: string
       updatedAt: string
@@ -6781,6 +7069,7 @@ export type PodPeerExchangeResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       } | null
       responseID?: string | null
       revision: number
@@ -6796,6 +7085,7 @@ export type PodPeerExchangeResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       }>
     } | null
     agentUID: string
@@ -6815,6 +7105,7 @@ export type PodPeerExchangeResponses = {
           } | null
           label_key?: string | null
           output?: string | null
+          skill_name?: string | null
           status: string
           title: string
           tool: string
@@ -7650,17 +7941,22 @@ export type MetaBrainResponses = {
   200: {
     categories: Array<{
       can_edit: boolean
+      entity_type: string
       id: string
       name: string
+      primitive: string
     }>
     links: Array<{
       from_page_id: string
       link_type: string
+      relation_kind: string
       to_page_id: string
     }>
     nodes: Array<{
       id: string
+      parent_id?: string | null
       slug: string
+      subtype?: string | null
       title: string
       type: string
     }>
@@ -9385,6 +9681,7 @@ export type CreateConversationResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       } | null
       responseID?: string | null
       revision: number
@@ -9400,6 +9697,7 @@ export type CreateConversationResponses = {
         label_key?: string | null
         operation_id: string
         phase?: string | null
+        tool?: string | null
       }>
     }>
     artifacts: {
@@ -9488,12 +9786,31 @@ export type CreateConversationResponses = {
     } | null
     linkedRuns: Array<{
       agentUID: string
+      canMessage?: boolean | null
+      completedAt?: string | null
+      continuedFromJobID?: string | null
       createdAt: string
       id: string
       kind: 'background_agent_job' | 'workflow'
+      planCompleted?: number | null
+      planTotal?: number | null
       sourceMessageID?: string | null
       sourceSignalID?: string | null
+      sourceToolCallID?: string | null
+      startedAt?: string | null
       status: string
+      stepCount?: number | null
+      stoppable?: boolean | null
+      successorJobID?: string | null
+      summary?: string | null
+      taskCounts?: {
+        completed: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        total: number
+      } | null
       text?: string | null
       title: string
       updatedAt: string

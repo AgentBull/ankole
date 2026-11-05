@@ -8,7 +8,6 @@ import {
   RiFileCopyLine,
   RiRestartLine
 } from '@remixicon/react'
-import { type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 export function MessageActions({
@@ -18,8 +17,7 @@ export function MessageActions({
   onEdit,
   editDisabledReason,
   onRetry,
-  alwaysVisible = false,
-  children
+  alwaysVisible = false
 }: {
   text: string
   onQuote?: (text: string) => void
@@ -28,7 +26,6 @@ export function MessageActions({
   editDisabledReason?: string
   onRetry?: () => void
   alwaysVisible?: boolean
-  children?: ReactNode
 }) {
   const { t } = useTranslation()
   const [copied, markCopied] = useCopyFeedback(false)
@@ -103,7 +100,6 @@ export function MessageActions({
           {t('pod.chat.retry_reply')}
         </Button>
       )}
-      {children}
     </div>
   )
 }

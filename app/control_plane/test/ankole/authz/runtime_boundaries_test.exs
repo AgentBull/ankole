@@ -29,6 +29,7 @@ defmodule Ankole.AuthZ.RuntimeBoundariesTest do
     human = human_fixture().principal
     agent = agent_fixture(%{owner_principal_uid: human.uid}).principal
     assert {:ok, _} = first_site_admin_fixture(human.uid)
+    :ok = Ankole.ConversationsFixtures.revoke_default_chat(agent.uid)
 
     attrs = %{
       conversation_id: Ecto.UUID.generate(),

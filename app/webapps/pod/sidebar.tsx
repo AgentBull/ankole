@@ -20,15 +20,7 @@ import {
   TabsList,
   TabsTrigger
 } from '@ankole/uikit'
-import {
-  RiAddLine,
-  RiBrainLine,
-  RiChat3Line,
-  RiDeleteBinLine,
-  RiHome5Line,
-  RiSearchLine,
-  RiSettings3Line
-} from '@remixicon/react'
+import { RiAddLine, RiChat3Line, RiDeleteBinLine, RiHome5Line, RiSearchLine, RiSettings3Line } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import {
   Activity,
@@ -46,7 +38,6 @@ import { ErrorBoundary } from '../common/error-boundary'
 import { ChatSidebar } from './chat/chat-sidebar'
 import { AccountMenu } from './account-menu'
 import { ContentNavigation } from './page-navigation'
-import { MetaNavigation } from './meta-navigation'
 import { CreatePageButton } from './page-create-menu'
 import { usePodCommandMenu } from './command-menu'
 import type { PodSidebarNavigationState } from './state/navigation'
@@ -58,10 +49,16 @@ import { browserSession } from '../common/api/generated/sdk.gen'
 export function routeSidebarTab(
   pathname: string,
   state?: PodSidebarNavigationState | null
-): 'home' | 'chat' | 'meta' | undefined {
-  if (pathname.startsWith('/meta')) return 'meta'
+): 'home' | 'chat' | undefined {
   if (state?.keepSidebarTab) return state.keepSidebarTab
-  if (pathname.startsWith('/pages/') || pathname.startsWith('/content/')) return 'home'
+  if (
+    pathname === '/meta' ||
+    pathname.startsWith('/meta/') ||
+    pathname.startsWith('/pages/') ||
+    pathname.startsWith('/content/')
+  ) {
+    return 'home'
+  }
   if (pathname === '/' || pathname.startsWith('/dm/') || pathname.startsWith('/conversations/')) return 'chat'
   return undefined
 }
@@ -108,7 +105,7 @@ export function PodSidebar({
   })
   const { isMobile, state, setOpenMobile } = useSidebar()
   const openCommand = usePodCommandMenu()
-  const [tab, setTab] = useState<'home' | 'chat' | 'meta'>(() => routeTab ?? 'chat')
+  const [tab, setTab] = useState<'home' | 'chat'>(() => routeTab ?? 'chat')
   const [previewOpen, setPreviewOpen] = useState(false)
   const settingsActive = pathname === '/settings' || pathname.startsWith('/settings/')
   const trashPath = podLocation('/content/trash').pathname
@@ -146,13 +143,7 @@ export function PodSidebar({
           if (state === 'collapsed') setPreviewOpen(true)
         }}
         onPointerLeave={leavePreview}>
-        <Tabs
-          value={tab}
-          onValueChange={value => {
-            setTab(value)
-            if (value === 'meta' && !pathname.startsWith('/meta')) void navigate({ to: '/meta/brain' })
-          }}
-          className="min-h-0 flex-1 gap-0">
+        <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0">
           <SidebarHeader className="pod-sidebar-header">
             <div className="pod-sidebar-top">
               <TabsList
@@ -163,8 +154,7 @@ export function PodSidebar({
                 {(
                   [
                     ['home', RiHome5Line, t('pod.sidebar.tabs.home')],
-                    ['chat', RiChat3Line, t('pod.sidebar.tabs.chat')],
-                    ...(agents.data?.personalAssistantAvailable ? [['meta', RiBrainLine, 'Meta Ankole'] as const] : [])
+                    ['chat', RiChat3Line, t('pod.sidebar.tabs.chat')]
                   ] as const
                 ).map(([value, Icon, label]) => (
                   // Only the open tab shows its label, so a closed tab names itself in a tooltip.
@@ -186,7 +176,7 @@ export function PodSidebar({
                       <Icon aria-hidden />
                       <span className={tab === value ? undefined : 'sr-only'}>{label}</span>
                       {/* Both tabs announce work that waits for the viewer with the same badge. */}
-                      {(value === 'chat' ? chatAttention : value === 'home' ? homeAttention : 0) > 0 && (
+                      {(value === 'chat' ? chatAttention : homeAttention) > 0 && (
                         <Badge variant="info" size="sm" aria-hidden>
                           {value === 'chat' ? chatAttention : homeAttention}
                         </Badge>
@@ -244,11 +234,6 @@ export function PodSidebar({
                   <ContentNavigation onNavigate={closeMobile} />
                 </ErrorBoundary>
               </Activity>
-            </TabsContent>
-            <TabsContent value="meta" keepMounted className="px-2 pb-3 text-[13px] leading-5">
-              <ErrorBoundary variant="inline" resetKeys={[pathname]}>
-                <MetaNavigation onNavigate={closeMobile} />
-              </ErrorBoundary>
             </TabsContent>
             <TabsContent value="chat" className="pod-conversations px-2 pb-3 text-[13px] leading-5">
               <ErrorBoundary variant="inline" resetKeys={[pathname]}>

@@ -81,7 +81,7 @@ defmodule Ankole.Principals.Agents do
     end
   end
 
-  defp grant_assistant_owner_in_tx(%Agent{type: :personal_assistant} = agent) do
+  defp seed_agent_grants_in_tx(%Agent{type: :personal_assistant} = agent) do
     with {:ok, _} <-
            Ankole.AuthZ.Grants.create_permission_grant(%{
              principal_uid: agent.owner_principal_uid,
@@ -97,7 +97,20 @@ defmodule Ankole.Principals.Agents do
     end
   end
 
-  defp grant_assistant_owner_in_tx(_agent), do: :ok
+  defp seed_agent_grants_in_tx(%Agent{type: :ai_colleague} = agent) do
+    with {:ok, all_humans} <- Ankole.AuthZ.Root.ensure_all_humans_group(),
+         {:ok, _} <-
+           Ankole.AuthZ.Grants.upsert_permission_grant(%{
+             group_id: all_humans.id,
+             resource_pattern: "agent:#{agent.uid}",
+             action: "chat",
+             condition: "true",
+             description: "Default Pod member chat access for AI colleague",
+             metadata: %{"built_in" => "ai_colleague_default_chat"}
+           }) do
+      :ok
+    end
+  end
 
   def authority_uid(uid) do
     case Principals.get_agent_record!(uid) do
@@ -189,7 +202,7 @@ defmodule Ankole.Principals.Agents do
          :ok <- reject_token_quota_at_creation(agent_attrs),
          {:ok, principal} <- Humans.insert_principal(agent_principal_attrs(attrs)),
          {:ok, agent} <- insert_agent(principal.uid, agent_attrs),
-         :ok <- grant_assistant_owner_in_tx(agent),
+         :ok <- seed_agent_grants_in_tx(agent),
          :ok <- Ankole.Files.lock_drive(principal.uid),
          :ok <- lock_assistant_owner_in_tx(agent),
          :ok <- Library.seed_agent_library_in_tx(principal.uid, agent.type),
@@ -332,6 +345,7 @@ defmodule Ankole.Principals.Agents do
         Access.grants(principal_uid: principal.uid, action: [in: Access.page_actions()])
         |> Access.remove_grants()
 
+        :ok = Ankole.AuthZ.Grants.delete_principal_resource_grants_in_tx(principal.uid)
         :ok = Ankole.Pod.delete_private_root_in_tx(principal.uid)
         :ok = Ankole.Conversations.delete_for_agent_in_tx(principal.uid)
         :ok = AgentWorkers.mark_deleting_in_tx(principal.uid)

@@ -38,6 +38,7 @@ defmodule Ankole.Workflow do
 
   defdelegate list(agent_uid, opts \\ []), to: Queries
   defdelegate get(run_id, agent_uid, opts \\ []), to: Queries
+  defdelegate run_counts(run_ids), to: Queries
   defdelegate task_session_id(call_id), to: Queries
   defdelegate parse_task_session_id(session_id), to: Queries
   defdelegate get_task_for_agent(call_id, agent_uid), to: Queries

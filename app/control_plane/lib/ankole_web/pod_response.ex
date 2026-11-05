@@ -39,6 +39,20 @@ defmodule AnkoleWeb.PodResponse do
     |> send_object(object)
   end
 
+  def applet_frame_unchanged?(conn, digest) do
+    unchanged?(conn, "\"" <> digest <> "\"")
+  end
+
+  def send_applet_frame_not_modified(conn, type, digest) do
+    etag = "\"" <> digest <> "\""
+
+    conn
+    |> applet_headers(type)
+    |> put_resp_header("accept-ranges", "bytes")
+    |> put_resp_header("etag", etag)
+    |> send_resp(304, "")
+  end
+
   def send_applet_frame_asset(conn, bytes, type, sha256) do
     conn
     |> applet_headers(type)

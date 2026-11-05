@@ -43,7 +43,7 @@ function render(usage: ExecutionUsage) {
 
 test('a reply without tools still shows its model and tokens, and the fallback it used', () => {
   const html = render(reported)
-  expect(html).toContain('Worked for')
+  expect(html).toContain('Model usage')
   expect(html).toContain('gpt-5.5 · 12.4K tokens')
   expect(html).toContain('light → primary')
   expect(html).toContain('Reasoning —')

@@ -25,15 +25,17 @@ import { useConversationEvents } from './use-conversation-events'
 import { refreshConversationDetail } from './query-cache'
 import { deleteConversation } from './api/generated/sdk.gen'
 import { Composer } from './chat/composer'
-import { TurnTimeline } from './chat/turn-timeline'
+import { TurnTimeline, isExecutionActive, isPeerActive } from './chat/turn-timeline'
 import { ChatHomeView, ChatHomeToolbar } from './chat/chat-home-view'
 import { RoomHeader } from './chat/room-header'
 import { SharePopover } from './chat/share-popover'
 import { NewGroupDialog } from './chat/new-group-dialog'
 import { ChatSummaryPanel } from './chat/chat-summary-panel'
+import { ExecutionInspectorPanel } from './chat/execution-inspector-panel'
+import { isLiveExecutionStatus } from './chat/execution-status'
+import type { InspectorTarget } from './chat/types'
 import { SessionFindBar } from './chat/session-find-bar'
 import { QueuedStrip } from './chat/queued-strip'
-import { ReplySuggestion } from './chat/reply-suggestion'
 import { useRoomActions } from './chat/room-api'
 import { PodPanelPresence, usePanelMotion, type PanelInputEvent } from './panel-motion'
 import './chat.css'
@@ -100,13 +102,18 @@ export function ChatPage({
   const conversationID = requestedConversationID ?? model.conversationID.value
   const [sharing, setSharing] = useState(false),
     [summary, setSummary] = useState(false),
+    [inspector, setInspector] = useState<InspectorTarget | null>(null),
     [finding, setFinding] = useState(false),
     [renaming, setRenaming] = useState(false),
     [deleting, setDeleting] = useState(false)
   const [findInitial, setFindInitial] = useState<{ key: string; query: string; messageID?: string }>()
   const root = useRef<HTMLElement>(null)
   const composerInput = useRef<HTMLTextAreaElement>(null)
+  const inspectorTrigger = useRef<HTMLElement | null>(null)
   const pageQuote = drafts.pageQuote.value
+  useEffect(() => {
+    setInspector(null)
+  }, [conversationID])
   useEffect(() => {
     if (!pageID || pageQuote?.pageID !== pageID) return
     drafts.pageQuote.value = null
@@ -114,12 +121,48 @@ export function ChatPage({
     composerInput.current?.focus()
   }, [drafts, pageID, pageQuote, model])
   const summaryTrigger = useRef<HTMLButtonElement>(null)
-  const summaryMotion = usePanelMotion(summary)
   const isMobile = useIsMobile()
+  const useSplitInspector = !isMobile && !pageID
+  const rightPanelOpen = summary || (useSplitInspector && !!inspector)
+  const rightPanelMotion = usePanelMotion(rightPanelOpen)
   const changeSummary = (next: boolean, event?: PanelInputEvent) => {
-    summaryMotion.prepare(next, event)
+    rightPanelMotion.prepare(next, event)
+    if (next && useSplitInspector) setInspector(null)
     setSummary(next)
     if (!next) summaryTrigger.current?.focus()
+  }
+  const closeInspector = (event?: PanelInputEvent) => {
+    if (useSplitInspector) rightPanelMotion.prepare(false, event)
+    setInspector(null)
+    if (inspectorTrigger.current?.isConnected) {
+      inspectorTrigger.current.focus({ preventScroll: true })
+    }
+  }
+  const openInspector = (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) => {
+    const sameTarget =
+      !target.fromSummary &&
+      ((target.type === 'execution' &&
+        isExecutionActive(
+          inspector,
+          target.initialRun ?? ({ id: target.runID, kind: target.kind } as NonNullable<typeof target.initialRun>)
+        )) ||
+        (target.type === 'peer' && isPeerActive(inspector, target.exchangeID)))
+    if (sameTarget) {
+      closeInspector(event)
+      return
+    }
+    inspectorTrigger.current =
+      trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+    const fromSummary = target.fromSummary ?? (useSplitInspector && summary)
+    if (useSplitInspector) {
+      rightPanelMotion.prepare(true, event)
+      if (summary) setSummary(false)
+    }
+    setInspector({ ...target, fromSummary })
+  }
+  const backToSummary = () => {
+    setInspector(null)
+    setSummary(true)
   }
   const toggleSummaryFromKeyboard = useEffectEvent(() => changeSummary(!summary))
   const findInput = useRef<HTMLInputElement>(null)
@@ -156,8 +199,9 @@ export function ChatPage({
     },
     enabled: !!conversationID && !model.gone.value,
     refetchInterval: query =>
-      query.state.data?.linkedRuns.some(run => ['queued', 'running', 'waiting_on_user'].includes(run.status))
-        ? 2000
+      query.state.data?.conversation.rowStatus === 'running_background' ||
+      query.state.data?.linkedRuns.some(run => isLiveExecutionStatus(run.status))
+        ? 4000
         : false
   })
   const data = detail.data,
@@ -497,6 +541,9 @@ export function ChatPage({
                     message => message.authorType === 'agent' && message.authorUID === run.agentUID
                   )?.authorDisplayName
               }))}
+              showAgentOnRuns={data.conversation.roomMode === 'group' && data.conversation.agents.length > 1}
+              activeInspector={inspector}
+              onOpenInspector={openInspector}
               canAnswer={uid => availableAgents.some(agent => agent.uid === uid && agent.active)}
               readOnlyReason={t('pod.chat_room.answer_unavailable')}
               onAnswer={(interactionID, answer) => actions.answer.mutateAsync({ interactionID, answer })}
@@ -567,20 +614,11 @@ export function ChatPage({
               </p>
             )}
             {!!failure && <RequestFailure error={failure} action={retry} sendFailure />}
-            <ReplySuggestion
-              conversationID={conversationID}
-              detail={data}
-              idle={!commands.working && !model.hasContent.value && !model.links.value.length && !model.editing.value}
-              onUse={text => {
-                model.draft.value = text
-                composerInput.current?.focus()
-              }}
-            />
             {composer}
           </div>
         </div>
-        <PodPanelPresence animate={!isMobile && summaryMotion.animate}>
-          {summary && (
+        <PodPanelPresence animate={!isMobile && rightPanelMotion.animate}>
+          {summary ? (
             <ErrorBoundary
               key="summary"
               variant="panel"
@@ -589,12 +627,52 @@ export function ChatPage({
               <ChatSummaryPanel
                 detail={data}
                 callableAgentUIDs={availableAgents.map(agent => agent.uid)}
+                activeInspector={inspector}
+                onOpenInspector={openInspector}
                 onClose={event => changeSummary(false, event)}
               />
             </ErrorBoundary>
-          )}
+          ) : useSplitInspector && inspector ? (
+            <ErrorBoundary
+              key="inspector"
+              variant="panel"
+              className="m-3 w-96 shrink-0 self-start"
+              resetKeys={[conversationID, inspector.type === 'peer' ? inspector.exchangeID : inspector.runID]}>
+              <ExecutionInspectorPanel
+                conversationID={conversationID}
+                target={inspector}
+                variant="panel"
+                finalFocus={inspectorTrigger}
+                resolveAgentName={uid =>
+                  data.conversation.agents.find(agent => agent.uid === uid)?.displayName ??
+                  availableAgents.find(agent => agent.uid === uid)?.displayName ??
+                  data.messages.findLast(message => message.authorType === 'agent' && message.authorUID === uid)
+                    ?.authorDisplayName
+                }
+                onClose={closeInspector}
+                onBackToSummary={backToSummary}
+                onSwitchTarget={setInspector}
+              />
+            </ErrorBoundary>
+          ) : null}
         </PodPanelPresence>
       </div>
+      {!useSplitInspector && inspector && (
+        <ExecutionInspectorPanel
+          conversationID={conversationID}
+          target={inspector}
+          variant="sheet"
+          finalFocus={inspectorTrigger}
+          resolveAgentName={uid =>
+            data.conversation.agents.find(agent => agent.uid === uid)?.displayName ??
+            availableAgents.find(agent => agent.uid === uid)?.displayName ??
+            data.messages.findLast(message => message.authorType === 'agent' && message.authorUID === uid)
+              ?.authorDisplayName
+          }
+          onClose={closeInspector}
+          onSwitchTarget={setInspector}
+        />
+      )}
       {data.conversation.conversationKind === 'group' ? (
         <SharePopover detail={data} open={sharing} onOpenChange={setSharing} />
       ) : (

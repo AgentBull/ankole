@@ -5,19 +5,26 @@ defmodule AnkoleWeb.AssetsTest do
 
   setup do
     original_config = Application.get_env(:ankole, Assets)
+    original_assets_path = Application.get_env(:ankole, :webapp_assets_path)
 
     directory =
       Path.join(System.tmp_dir!(), "ankole-assets-#{System.unique_integer([:positive])}")
 
-    File.mkdir_p!(directory)
+    File.mkdir_p!(Path.join(directory, "js"))
     manifest_path = Path.join(directory, "manifest.json")
     File.write!(manifest_path, Ankole.JSON.encode!(manifest()))
+    File.write!(Path.join(directory, "js/vendor-react.js"), "export default {}\n")
     Application.put_env(:ankole, Assets, manifest_path: manifest_path)
+    Application.put_env(:ankole, :webapp_assets_path, directory)
 
     on_exit(fn ->
       if original_config,
         do: Application.put_env(:ankole, Assets, original_config),
         else: Application.delete_env(:ankole, Assets)
+
+      if original_assets_path,
+        do: Application.put_env(:ankole, :webapp_assets_path, original_assets_path),
+        else: Application.delete_env(:ankole, :webapp_assets_path)
 
       File.rm_rf!(directory)
     end)
@@ -72,6 +79,40 @@ defmodule AnkoleWeb.AssetsTest do
 
     assert html =~ "http://vite.test/entrypoints/pod.tsx"
     refute html =~ "modulepreload"
+  end
+
+  test "production Applet frames emit import maps before vendor styles and module preloads" do
+    html = Assets.applet_frame_tags() |> IO.iodata_to_binary()
+
+    assert {importmap, _} = :binary.match(html, ~s(<script type="importmap">))
+    assert {preload, _} = :binary.match(html, ~s(<link rel="modulepreload"))
+    assert importmap < preload
+
+    assert html =~ ~s("@ankole/uikit":"/assets/js/applet-uikit.js")
+    assert html =~ ~s("react/jsx-dev-runtime":"/assets/js/applet-react-jsx-dev-runtime.js")
+    assert length(Regex.scan(~r|href="/assets/css/uikit.css"|, html)) == 1
+
+    assert preloads(html) == [
+             "/assets/js/applet-react.js",
+             "/assets/js/vendor-react.js",
+             "/assets/js/applet-react-jsx-runtime.js",
+             "/assets/js/applet-react-dom.js",
+             "/assets/js/applet-react-dom-client.js",
+             "/assets/js/applet-sdk.js",
+             "/assets/js/applet-uikit.js",
+             "/assets/js/shared.js"
+           ]
+
+    conn =
+      :get
+      |> Plug.Test.conn("/assets/js/vendor-react.js")
+      |> AnkoleWeb.Endpoint.call(AnkoleWeb.Endpoint.init([]))
+
+    assert conn.status == 200
+
+    assert Plug.Conn.get_resp_header(conn, "cache-control") == [
+             "public, max-age=31536000, immutable"
+           ]
   end
 
   test "development Applet frames initialize their own React refresh runtime" do
@@ -142,7 +183,37 @@ defmodule AnkoleWeb.AssetsTest do
         "imports" => ["shared"],
         "css" => ["css/chat.css"]
       },
-      "pod/applet-page.tsx" => %{"file" => "js/applet.js"}
+      "pod/applet-page.tsx" => %{"file" => "js/applet.js"},
+      "vendor-react" => %{"file" => "js/vendor-react.js"},
+      "entrypoints/applet-vendor/react.ts" => %{
+        "file" => "js/applet-react.js",
+        "imports" => ["vendor-react"]
+      },
+      "entrypoints/applet-vendor/react-jsx-runtime.ts" => %{
+        "file" => "js/applet-react-jsx-runtime.js",
+        "imports" => ["vendor-react"]
+      },
+      "entrypoints/applet-vendor/react-jsx-dev-runtime.ts" => %{
+        "file" => "js/applet-react-jsx-dev-runtime.js",
+        "imports" => ["vendor-react"]
+      },
+      "entrypoints/applet-vendor/react-dom.ts" => %{
+        "file" => "js/applet-react-dom.js",
+        "imports" => ["vendor-react"]
+      },
+      "entrypoints/applet-vendor/react-dom-client.ts" => %{
+        "file" => "js/applet-react-dom-client.js",
+        "imports" => ["vendor-react"]
+      },
+      "entrypoints/applet-vendor/applet-sdk.ts" => %{
+        "file" => "js/applet-sdk.js",
+        "imports" => ["vendor-react"]
+      },
+      "entrypoints/applet-vendor/uikit.ts" => %{
+        "file" => "js/applet-uikit.js",
+        "imports" => ["vendor-react", "shared"],
+        "css" => ["css/uikit.css"]
+      }
     }
 
     catalogs =

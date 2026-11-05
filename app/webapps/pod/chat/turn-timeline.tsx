@@ -10,8 +10,7 @@ import {
   RiFileCopyLine,
   RiFileTextLine,
   RiImageLine,
-  RiReplyLine,
-  RiSaveLine
+  RiReplyLine
 } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
@@ -22,9 +21,8 @@ import { useStickToBottom } from 'use-stick-to-bottom'
 import { RevealInTimeline } from './timeline-scroll'
 import { ErrorBoundary } from '../../common/error-boundary'
 import { agentsQuery, type ConversationDetail, type ConversationMessage, type PodActivity } from '../api'
-import { MessageArtifacts, SaveMessageButton, SaveSelectionAsPageDialog } from '../message-artifacts'
+import { MessageArtifacts } from '../message-artifacts'
 import { OlderMessages, messageID, useChatReading, type useChatHistory } from '../chat-history'
-import type { PageDetail } from '../content-api'
 import { ChatModel, type ChatPresentation, type ChatReadingPosition, type DisplayMessage } from '../state/chat'
 import { ChatMarkdown } from './chat-markdown'
 import { ActionCardView } from './action-card-view'
@@ -39,7 +37,8 @@ import { captureSelectedMessages, type CaptureSelectedMessagesResult } from './s
 import { SelectShareLightbox } from './select-share-lightbox'
 import { TurnRail } from './turn-rail'
 import { avatarInitials, ChatAvatar } from './chat-avatar'
-import type { LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
+import type { PanelInputEvent } from '../panel-motion'
+import type { ExecutionStep, InspectorTarget, LinkedExecution, TimelineLiveStream, TimelineMessage } from './types'
 
 // Leaves room above the first unread message for the divider that introduces it.
 const UNREAD_DIVIDER_OFFSET = 48
@@ -78,7 +77,10 @@ export function TurnTimeline({
   onResolveActionCard,
   onComposeAnswer,
   onRefresh,
-  unreadMessageID
+  unreadMessageID,
+  showAgentOnRuns = false,
+  activeInspector,
+  onOpenInspector
 }: {
   model: InstanceType<typeof ChatModel>
   presentation: ChatPresentation
@@ -107,6 +109,9 @@ export function TurnTimeline({
   onRefresh?: () => void
   /** The first message the viewer had not read on entering; the timeline opens there under a divider. */
   unreadMessageID?: string
+  showAgentOnRuns?: boolean
+  activeInspector?: InspectorTarget | null
+  onOpenInspector?: (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) => void
 }) {
   useSignals()
   const { t } = useTranslation()
@@ -120,7 +125,6 @@ export function TurnTimeline({
   const [shareLoading, setShareLoading] = useState(false)
   const [shareError, setShareError] = useState<string | null>(null)
   const [shareResult, setShareResult] = useState<CaptureSelectedMessagesResult | null>(null)
-  const [saveSelectionOpen, setSaveSelectionOpen] = useState(false)
   const stick = useStickToBottom({
     initial: savedReading.current?.atBottom === false ? false : 'instant',
     resize: reducedMotion ? 'instant' : 'smooth'
@@ -273,6 +277,9 @@ export function TurnTimeline({
                               selectable ? () => model.startSelectingMessages(item.message.id) : undefined
                             }
                             linkedRuns={executions.messages.get(item.message.id) ?? []}
+                            showAgentOnRuns={showAgentOnRuns}
+                            activeInspector={activeInspector}
+                            onOpenInspector={onOpenInspector}
                             replySource={replySources.get(item.message.id)}
                             onJumpToSource={sourceID => jumpToMessage(sourceID)?.focus({ preventScroll: true })}
                             onAnswer={canAnswerAgent(item.message.authorUID ?? null) ? onAnswer : undefined}
@@ -318,6 +325,9 @@ export function TurnTimeline({
                   stream={stream}
                   conversationID={conversationID}
                   linkedRuns={executions.streams.get(stream.agentUID) ?? []}
+                  showAgentOnRuns={showAgentOnRuns}
+                  activeInspector={activeInspector}
+                  onOpenInspector={onOpenInspector}
                   avatarURL={members.find(member => member.uid === stream.agentUID)?.avatarURL}
                 />
               </ErrorBoundary>
@@ -347,12 +357,14 @@ export function TurnTimeline({
             {!activeStreams.length && activity && <ActivityView activity={activity} />}
             {!activeStreams.length && !activity && working && (
               <p className="pod-chat-message-state" role="status">
-                <span className="pod-chat-working-dot" aria-hidden />
-                {waiting
-                  ? t('pod.chat_timeline.queued')
-                  : retryTime
-                    ? t('pod.chat.retrying', { time: retryTime })
-                    : t('pod.chat.replying')}
+                <span className="pod-chat-working-spinner" aria-hidden />
+                <span className="pod-chat-working-label">
+                  {waiting
+                    ? t('pod.chat_timeline.queued')
+                    : retryTime
+                      ? t('pod.chat.retrying', { time: retryTime })
+                      : t('pod.chat.replying')}
+                </span>
               </p>
             )}
           </div>
@@ -422,14 +434,6 @@ export function TurnTimeline({
             </Button>
             <Button
               variant="ghost"
-              size="xs"
-              disabled={selectedMessages.length === 0}
-              onClick={() => setSaveSelectionOpen(true)}>
-              <RiSaveLine aria-hidden />
-              {t('pod.content.save_as_page')}
-            </Button>
-            <Button
-              variant="ghost"
               size="icon-xs"
               title={t('common.close')}
               aria-label={t('common.close')}
@@ -446,7 +450,7 @@ export function TurnTimeline({
             onClick={event => void scrollToBottom(reducedMotion || event.detail === 0 ? 'instant' : undefined)}>
             <RiArrowDownLine aria-hidden />
             {t('pod.chat.scroll_latest')}
-            {working && <span className="pod-chat-working-dot" aria-hidden />}
+            {working && <span className="pod-chat-working-spinner" aria-hidden />}
           </Button>
         )}
         {shareOpen && (
@@ -458,17 +462,6 @@ export function TurnTimeline({
             result={shareResult}
             messages={selectedMessages}
             title={conversationTitle}
-            onSaveAsPage={() => setSaveSelectionOpen(true)}
-          />
-        )}
-        {saveSelectionOpen && (
-          <SaveSelectionAsPageDialog
-            open={saveSelectionOpen}
-            onOpenChange={setSaveSelectionOpen}
-            messages={selectedMessages}
-            conversationID={conversationID}
-            defaultTitle={conversationTitle}
-            onSaved={() => model.clearMessageSelection()}
           />
         )}
       </div>
@@ -548,6 +541,9 @@ function CommittedMessage({
   onQuote,
   onSelectMessage,
   linkedRuns,
+  showAgentOnRuns = false,
+  activeInspector,
+  onOpenInspector,
   replySource,
   onJumpToSource,
   onAnswer,
@@ -571,6 +567,9 @@ function CommittedMessage({
   onQuote?: (text: string) => void
   onSelectMessage?: () => void
   linkedRuns: LinkedExecution[]
+  showAgentOnRuns?: boolean
+  activeInspector?: InspectorTarget | null
+  onOpenInspector?: (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) => void
   replySource?: Pick<ConversationMessage, 'id' | 'authorDisplayName' | 'text'>
   onJumpToSource(id: string): void
   onAnswer?: (interactionID: string, answer: ClarifyAnswer) => Promise<unknown>
@@ -587,10 +586,7 @@ function CommittedMessage({
 }) {
   const { t, i18n } = useTranslation()
   const pageHref = usePageHref()
-  const [saved, setSaved] = useState<PageDetail['page']>()
-  const savedPages = usePagesMetadata([
-    ...new Map([...message.savedPages, ...(saved ? [saved] : [])].map(page => [page.id, page])).values()
-  ])
+  const savedPages = usePagesMetadata(message.savedPages)
   const rich = message.richContent
   const human = message.authorType === 'human'
   const name = message.authorDisplayName
@@ -617,16 +613,31 @@ function CommittedMessage({
         request={message}
         reply={peerReply}
         live={peerLive}
+        isActive={isPeerActive(activeInspector, rich.agent_peer_outbound.exchange_id)}
+        onOpenInspector={onOpenInspector ? (target, trigger) => onOpenInspector(target, trigger) : undefined}
       />
     )
   }
   if (rich?.agent_peer_inbound) {
     return (
-      <PeerExchangeCard conversationID={conversationID} peer={rich.agent_peer_inbound} reply={message} live={false} />
+      <PeerExchangeCard
+        conversationID={conversationID}
+        peer={rich.agent_peer_inbound}
+        reply={message}
+        live={false}
+        isActive={isPeerActive(activeInspector, rich.agent_peer_inbound.exchange_id)}
+        onOpenInspector={onOpenInspector ? (target, trigger) => onOpenInspector(target, trigger) : undefined}
+      />
     )
   }
   const prompt = rich?.clarify
   const actionCard = rich?.action_card
+  const visibleExecution = rich?.execution
+    ? {
+        ...rich.execution,
+        steps: filterPromotedExecutionSteps(rich.execution.steps, linkedRuns)
+      }
+    : undefined
   return (
     <article
       className={cn(
@@ -662,9 +673,9 @@ function CommittedMessage({
             {link.quote}
           </blockquote>
         ))}
-      {rich?.execution && (
+      {visibleExecution && (
         <CollapsedWorkView
-          execution={rich.execution}
+          execution={visibleExecution}
           attention={prompt?.state === 'pending' || (!!actionCard && (actionCard.status ?? 'prepared') === 'prepared')}
         />
       )}
@@ -689,7 +700,14 @@ function CommittedMessage({
       )}
       <MessageArtifacts conversationID={conversationID} message={message} />
       {linkedRuns.map(run => (
-        <LinkedExecutionCard key={`${run.kind}:${run.id}`} conversationID={conversationID} run={run} />
+        <LinkedExecutionCard
+          key={`${run.kind}:${run.id}`}
+          conversationID={conversationID}
+          run={run}
+          showAgentName={showAgentOnRuns}
+          isActive={isExecutionActive(activeInspector, run)}
+          onOpenInspector={onOpenInspector}
+        />
       ))}
       <MessageActions
         text={message.text}
@@ -698,11 +716,8 @@ function CommittedMessage({
         onEdit={onEdit}
         editDisabledReason={editDisabledReason}
         onRetry={onRetry}
-        alwaysVisible={showActions || !!onRetry}>
-        {message.text.trim() && (
-          <SaveMessageButton message={message} conversationID={conversationID} onSaved={setSaved} />
-        )}
-      </MessageActions>
+        alwaysVisible={showActions || !!onRetry}
+      />
       {savedPages.map(page => (
         <Link key={page.id} className="pod-chat-page-pill pod-chat-saved-page" to={pageHref(page.id, page.title)}>
           <RiFileTextLine aria-hidden />
@@ -759,6 +774,76 @@ export function interleavedReplySources(
   return sources
 }
 
+export function collapseExecutionChains(runs: LinkedExecution[]): LinkedExecution[] {
+  const byJobID = new Map<string, LinkedExecution>()
+  for (const run of runs) {
+    if (run.kind === 'background_agent_job') byJobID.set(run.id, run)
+  }
+
+  const collapsed: LinkedExecution[] = []
+  for (const run of runs) {
+    if (run.kind === 'background_agent_job' && run.successorJobID && byJobID.has(run.successorJobID)) {
+      continue
+    }
+    if (run.kind !== 'background_agent_job' || !run.continuedFromJobID) {
+      collapsed.push(run)
+      continue
+    }
+    const chainIDs = [run.id]
+    let sourceSignalID = run.sourceSignalID
+    let sourceMessageID = run.sourceMessageID
+    let sourceToolCallID = run.sourceToolCallID
+    let cursor: string | null | undefined = run.continuedFromJobID
+    const visited = new Set<string>([run.id])
+    while (cursor && !visited.has(cursor)) {
+      visited.add(cursor)
+      chainIDs.push(cursor)
+      const prev = byJobID.get(cursor)
+      if (!prev) break
+      if (!sourceSignalID && prev.sourceSignalID) sourceSignalID = prev.sourceSignalID
+      if (!sourceMessageID && prev.sourceMessageID) sourceMessageID = prev.sourceMessageID
+      if (!sourceToolCallID && prev.sourceToolCallID) sourceToolCallID = prev.sourceToolCallID
+      cursor = prev.continuedFromJobID
+    }
+    collapsed.push({
+      ...run,
+      sourceSignalID,
+      sourceMessageID,
+      sourceToolCallID,
+      chainIDs
+    })
+  }
+  return collapsed
+}
+
+export function filterPromotedExecutionSteps(
+  steps: ExecutionStep[] | undefined,
+  linkedRuns: LinkedExecution[]
+): ExecutionStep[] {
+  if (!steps?.length || !linkedRuns.length) return steps ?? []
+  const linkedToolCallIDs = new Set(linkedRuns.map(run => run.sourceToolCallID).filter(Boolean))
+  const hasJobCard = linkedRuns.some(run => run.kind === 'background_agent_job')
+  const hasWorkflowCard = linkedRuns.some(run => run.kind === 'workflow')
+  return steps.filter(step => {
+    if (['failed', 'error'].includes(step.status)) return true
+    if (linkedToolCallIDs.has(step.id)) return false
+    if (hasJobCard && (step.tool === 'create_background_job' || step.tool === 'respawn_background_job')) {
+      return false
+    }
+    if (hasWorkflowCard && step.tool === 'workflow') return false
+    return true
+  })
+}
+
+export function isExecutionActive(inspector: InspectorTarget | null | undefined, run: LinkedExecution): boolean {
+  if (!inspector || inspector.type !== 'execution' || inspector.kind !== run.kind) return false
+  return inspector.runID === run.id || Boolean(run.chainIDs?.includes(inspector.runID))
+}
+
+export function isPeerActive(inspector: InspectorTarget | null | undefined, exchangeID: string): boolean {
+  return inspector?.type === 'peer' && inspector.exchangeID === exchangeID
+}
+
 export function placeLinkedExecutions(
   messages: Pick<ConversationMessage, 'id' | 'kind' | 'authorType' | 'signalID' | 'richContent'>[],
   streams: TimelineLiveStream[],
@@ -776,7 +861,7 @@ export function placeLinkedExecutions(
     messages: new Map<string, LinkedExecution[]>(),
     streams: new Map<string, LinkedExecution[]>()
   }
-  for (const run of runs) {
+  for (const run of collapseExecutionChains(runs)) {
     const stream = run.sourceSignalID ? streamBySignal.get(run.sourceSignalID) : undefined
     const reply = run.sourceSignalID ? messageBySignal.get(run.sourceSignalID) : undefined
     const source =
@@ -840,31 +925,45 @@ function LiveMessage({
   stream,
   avatarURL,
   conversationID,
-  linkedRuns
+  linkedRuns,
+  showAgentOnRuns = false,
+  activeInspector,
+  onOpenInspector
 }: {
   stream: TimelineLiveStream
   avatarURL?: string | null
   conversationID: string
   linkedRuns: LinkedExecution[]
+  showAgentOnRuns?: boolean
+  activeInspector?: InspectorTarget | null
+  onOpenInspector?: (target: InspectorTarget, trigger?: HTMLElement | null, event?: PanelInputEvent) => void
 }) {
   const { t } = useTranslation()
   const label = useActivityLabel()
   const activeActivity = stream.activity?.state === 'active' ? stream.activity : undefined
+  const rawSteps = activeActivity ? activitySteps(activeActivity, item => label(item, true)) : []
+  const steps = filterPromotedExecutionSteps(rawSteps, linkedRuns)
   return (
     <article className="pod-chat-timeline-message pod-chat-agent-message" data-live-agent={stream.agentUID}>
       <MessageIdentity name={stream.agentName || t('pod.chat_timeline.agent')} avatarURL={avatarURL} />
       <CollapsedWorkView
         active
-        startedAt={stream.startedAt}
         phaseLabel={!stream.thinkingSummary && activeActivity?.phase ? label(activeActivity.phase) : undefined}
         execution={{
           thinking_summary: stream.thinkingSummary,
-          steps: activeActivity ? activitySteps(activeActivity, item => label(item, true)) : []
+          steps
         }}
       />
       {stream.text && <ChatMarkdown text={stream.text} generated streaming className="pod-chat-live-text" />}
       {linkedRuns.map(run => (
-        <LinkedExecutionCard key={`${run.kind}:${run.id}`} conversationID={conversationID} run={run} />
+        <LinkedExecutionCard
+          key={`${run.kind}:${run.id}`}
+          conversationID={conversationID}
+          run={run}
+          showAgentName={showAgentOnRuns}
+          isActive={isExecutionActive(activeInspector, run)}
+          onOpenInspector={onOpenInspector}
+        />
       ))}
     </article>
   )

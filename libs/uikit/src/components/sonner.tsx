@@ -1,4 +1,4 @@
-import { useTheme } from 'next-themes'
+import { useTheme } from './theme-provider'
 import { Toaster as Sonner, toast, type ToasterProps } from 'sonner'
 import {
   RiCheckboxCircleLine,

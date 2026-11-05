@@ -322,3 +322,22 @@ test('denial survives a failed retry, manual cache data, and SDK remount until a
     await expect(page.locator(selector)).toHaveText('1')
   }
 })
+
+test('host theme updates propagate reactively through usePod and UIKit useTheme without localStorage side effects', async ({
+  page
+}) => {
+  await page.goto('/integration/applet-frame/sdk/index.html')
+  await expect(page.locator('[data-pod-theme]')).toHaveText('light')
+  await expect(page.locator('[data-uikit-theme]')).toHaveText('light')
+  await page.getByRole('button', { name: 'Emit fixture event', exact: true }).click()
+  await expect(page.locator('[data-received]')).toHaveText('1')
+  await page.getByRole('button', { name: 'Toggle dark theme', exact: true }).click()
+  await expect(page.locator('[data-pod-theme]')).toHaveText('dark')
+  await expect(page.locator('[data-uikit-theme]')).toHaveText('dark')
+  await expect(page.locator('[data-received]')).toHaveText('1')
+  expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([])
+  await page.getByRole('button', { name: 'Toggle dark theme', exact: true }).click()
+  await expect(page.locator('[data-pod-theme]')).toHaveText('light')
+  await expect(page.locator('[data-uikit-theme]')).toHaveText('light')
+  await expect(page.locator('[data-received]')).toHaveText('1')
+})

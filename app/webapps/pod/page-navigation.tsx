@@ -1,5 +1,5 @@
 import { useMenuFinalFocus } from '@ankole/uikit/hooks/use-menu-final-focus'
-import { conversationAttentionQuery } from './api'
+import { agentsQuery, conversationAttentionQuery, podKeys } from './api'
 import { commentAttentionQuery } from './content-api'
 import { canCreateChild, canRenamePage } from './state/page-location'
 import { usePageHref, usePageMetadata, usePagesMetadata } from './use-page-metadata'
@@ -46,9 +46,9 @@ import { BdiLabel } from '../common/bidi-file-name'
 import { sanitizeRenameValue, stripBidi } from '../common/bidi'
 import { requestErrorMessage, requestErrorCode, requestErrorDetails } from '../common/request-errors'
 import { InternalAPIError } from '../common/internal-api-client'
-import { podKeys } from './api'
 import { podConversations } from './api/generated/sdk.gen'
 import { ChatRowStatus, ConversationGlyph, ConversationTitle, conversationPath } from './chat/conversation-row'
+import { MetaNavigation } from './meta-navigation'
 import {
   isSidebarSectionActive,
   mergeRecentEntries,
@@ -178,9 +178,10 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
     select: location => (location.state as PodSidebarNavigationState | null)?.sidebarSection
   })
   const routePageID = useParams({ strict: false, select: params => params.pageID })
-  const [initialPageID] = useState(() => podPageRouteID(routePageID))
+  const [initialPageID] = useState(() => (pathname.startsWith('/meta/') ? undefined : podPageRouteID(routePageID)))
   const client = useQueryClient()
   const bootstrap = useQuery(navigationQuery(client, initialPageID))
+  const agents = useQuery(agentsQuery)
   const restored = useRef(false)
   const model = useModel(() => new NavigationModel(podID(), authenticationRef()))
   const rootOpen = model.rootOpen.value
@@ -251,6 +252,14 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
             onToggleRoot={() => model.toggleRoot(scope)}
           />
         ))}
+        {agents.data?.personalAssistantAvailable && (
+          <MetaNavigationSection
+            open={rootOpen.meta}
+            onToggle={() => model.toggleRoot('meta')}
+            activeSection={activeSection}
+            onNavigate={onNavigate}
+          />
+        )}
         <div className="pod-nav-places">
           <Link
             className="nav-row pod-nav-link"
@@ -263,6 +272,47 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </nav>
     </PageTreeContext>
+  )
+}
+
+function MetaNavigationSection({
+  open,
+  onToggle,
+  activeSection,
+  onNavigate
+}: {
+  open: boolean
+  onToggle(): void
+  activeSection?: CollapsibleSection
+  onNavigate?: () => void
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const toggleBranch = useCallback((key: string) => {
+    setExpanded(current => {
+      const next = new Set(current)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+  const metaPath = podLocation('/meta').pathname
+  return (
+    <section aria-label="Meta Ankole" className="pod-nav-section">
+      <div className="pod-nav-section-heading">
+        <RootSectionToggle open={open} label="Meta Ankole" onToggle={onToggle} />
+        <Link className="min-w-0 flex-1 truncate" to={metaPath} activeOptions={{ exact: true }} onClick={onNavigate}>
+          Meta Ankole
+        </Link>
+      </div>
+      {open && (
+        <MetaNavigation
+          activeSection={activeSection}
+          expanded={expanded}
+          onToggleBranch={toggleBranch}
+          onNavigate={onNavigate}
+        />
+      )}
+    </section>
   )
 }
 

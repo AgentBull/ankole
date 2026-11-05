@@ -21,12 +21,86 @@ const nativeLocaleLabels: Record<string, string> = {
 
 const supportedLngs = Object.keys(catalogLoaders)
 const loadedLocales = new Map<string, Promise<void>>()
+const loadedCatalogs = new Map<string, Record<string, unknown>>()
+
+type CatalogHostWindow = Window & {
+  __ANKOLE_I18N_CATALOGS__?: ReadonlyMap<string, Record<string, unknown>>
+}
+
+if (typeof window !== 'undefined') {
+  ;(window as CatalogHostWindow).__ANKOLE_I18N_CATALOGS__ = loadedCatalogs
+}
 
 i18n.on('languageChanged', locale => {
   if (typeof document !== 'undefined' && document.documentElement && locale) {
     document.documentElement.lang = locale
   }
 })
+
+function applyCatalog(supported: string, catalog: Record<string, unknown>): void {
+  loadedCatalogs.set(supported, catalog)
+  if (i18n.isInitialized) {
+    i18n.addResourceBundle(supported, 'translation', catalog)
+    return
+  }
+  i18n
+    .use(MF2)
+    .use(initReactI18next)
+    .init({
+      fallbackLng: 'en-US',
+      i18nFormat: {
+        parseErrorHandler: (_err: Error, _key: string, source: string) => source
+      },
+      initAsync: false,
+      interpolation: { escapeValue: false },
+      load: 'currentOnly',
+      lng: activeLocale(),
+      ns: ['translation'],
+      react: { useSuspense: false },
+      resources: { [supported]: { translation: catalog } },
+      supportedLngs
+    })
+}
+
+function parentCatalogMap(): ReadonlyMap<string, Record<string, unknown>> | undefined {
+  if (typeof window === 'undefined') return undefined
+  try {
+    if (window.parent && window.parent !== window) {
+      return (window.parent as CatalogHostWindow).__ANKOLE_I18N_CATALOGS__
+    }
+  } catch {
+    // Cross-origin test harnesses fall back to loading catalogs directly.
+  }
+  return undefined
+}
+
+/**
+ * Hydrates an Applet frame's i18next instance synchronously from the same-origin
+ * Pod host window when its normalized catalogs are already resident in memory,
+ * falling back to async catalog imports only in standalone frames.
+ */
+export function ensureAppletLocales(): Promise<void> | undefined {
+  const required = [...new Set([activeLocale(), 'en-US'])].map(locale =>
+    supportedLngs.includes(locale) ? locale : 'en-US'
+  )
+  const hostCatalogs = parentCatalogMap()
+  if (hostCatalogs) {
+    for (const supported of required) {
+      if (loadedCatalogs.has(supported)) continue
+      const catalog = hostCatalogs.get(supported)
+      if (!catalog) continue
+      applyCatalog(supported, catalog)
+      loadedLocales.set(supported, Promise.resolve())
+    }
+  }
+  const missing = required.filter(supported => !loadedCatalogs.has(supported))
+  if (missing.length === 0) {
+    const current = supportedLngs.includes(activeLocale()) ? activeLocale() : 'en-US'
+    if (i18n.isInitialized && i18n.language !== current) void i18n.changeLanguage(current)
+    return undefined
+  }
+  return Promise.all(missing.map(loadLocale)).then(() => undefined)
+}
 
 /**
  * Loads one catalog and makes it available to `t`. The first call also
@@ -39,28 +113,7 @@ export function loadLocale(locale: string): Promise<void> {
   let loading = loadedLocales.get(supported)
   if (!loading) {
     loading = catalogLoaders[supported]!().then(module => {
-      const catalog = clientCatalog(module.default)
-      if (i18n.isInitialized) {
-        i18n.addResourceBundle(supported, 'translation', catalog)
-        return
-      }
-      i18n
-        .use(MF2)
-        .use(initReactI18next)
-        .init({
-          fallbackLng: 'en-US',
-          i18nFormat: {
-            parseErrorHandler: (_err: Error, _key: string, source: string) => source
-          },
-          initAsync: false,
-          interpolation: { escapeValue: false },
-          load: 'currentOnly',
-          lng: activeLocale(),
-          ns: ['translation'],
-          react: { useSuspense: false },
-          resources: { [supported]: { translation: catalog } },
-          supportedLngs
-        })
+      applyCatalog(supported, clientCatalog(module.default))
     })
     loadedLocales.set(supported, loading)
   }

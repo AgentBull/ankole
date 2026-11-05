@@ -1,5 +1,5 @@
 defmodule Ankole.AIGateway.ProviderConfigs.Console.Actions do
-  @moduledoc "Runs the Console sign-in actions through the provider credential domain."
+  @moduledoc "Runs the Console catalog, credential decryption, and sign-in actions through the provider credential domain."
   use Ash.Resource.Actions.Implementation
 
   alias Ankole.AIGateway.ChatGPTAuth
@@ -31,6 +31,13 @@ defmodule Ankole.AIGateway.ProviderConfigs.Console.Actions do
     with {:ok, provider} <-
            ChatGPTAuth.add_enterprise_credential(args.provider_id, args.credential) do
       {:ok, %{ai_gateway_provider: ProviderConfigs.projection(provider)}}
+    end
+  end
+
+  defp action(:decrypt_credential, args) do
+    with {:ok, decrypted} <-
+           ProviderConfigs.console_decrypt_credential(args.provider_id, args.credential_id) do
+      {:ok, %{decrypted_credential: decrypted}}
     end
   end
 

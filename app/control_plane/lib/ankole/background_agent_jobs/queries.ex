@@ -236,6 +236,19 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     |> Ankole.Ash.read_one!()
   end
 
+  @doc "Finds the successor Job id continued from `job_id`, if any."
+  @spec successor_job_id(pos_integer()) :: pos_integer() | nil
+  def successor_job_id(job_id) when Ankole.ModelIntegerID.valid?(job_id) do
+    Job
+    |> Ash.Query.filter(continued_from_job_id == ^job_id)
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read_one!()
+    |> case do
+      %Job{id: id} -> id
+      nil -> nil
+    end
+  end
+
   @doc "Lists live Job ids owned by any of the given Sessions."
   @spec live_job_ids_for_owner_sessions([String.t()], String.t()) :: [pos_integer()]
   def live_job_ids_for_owner_sessions([], _agent_uid), do: []

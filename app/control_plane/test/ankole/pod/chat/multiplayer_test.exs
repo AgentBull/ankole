@@ -470,6 +470,7 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
   end
 
   test "page viewers can join a shared DM without permission to call its Agent", ctx do
+    :ok = Ankole.ConversationsFixtures.revoke_default_chat(ctx.a.uid)
     viewer = human_fixture(%{display_name: "Page reader"}).principal
     viewer_actor = actor_fixture(viewer)
     {:ok, page} = Ankole.Pod.Pages.create(ctx.actor, %{private_owner_uid: ctx.alice.uid})
@@ -526,6 +527,7 @@ defmodule Ankole.Pod.Chat.MultiplayerTest do
   end
 
   test "page managers own shared room controls without gaining Agent call permission", ctx do
+    :ok = Ankole.ConversationsFixtures.revoke_default_chat(ctx.a.uid)
     manager = human_fixture(%{display_name: "Page manager"}).principal
     actor = actor_fixture(manager)
     {:ok, page} = Ankole.Pod.Pages.create(ctx.actor, %{private_owner_uid: ctx.alice.uid})

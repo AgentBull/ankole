@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { computed, effect } from '@preact/signals-react'
+import { isMetaTargetActive } from '../meta-navigation'
 import { routeSidebarTab } from '../sidebar'
 import { isSidebarSectionActive, mergeRecentEntries, NavigationModel } from './navigation'
 
@@ -27,9 +28,23 @@ test('root preferences survive reload while branch choices stay within the docum
     recent: false,
     favorites: true,
     space: false,
-    private: true
+    private: true,
+    meta: false
   })
   expect([...reopened.preferences.value.expanded]).toEqual([])
+})
+
+test('Meta Ankole starts collapsed by default and persists explicit root toggles across reloads', () => {
+  const saved = storage()
+  const initial = new NavigationModel('pod', 'owner', saved)
+  expect(initial.rootOpen.value.meta).toBe(false)
+
+  initial.toggleRoot('meta')
+  expect(initial.rootOpen.value.meta).toBe(true)
+  expect(new NavigationModel('pod', 'owner', saved).rootOpen.value.meta).toBe(true)
+
+  initial.toggleRoot('meta')
+  expect(new NavigationModel('pod', 'owner', saved).rootOpen.value.meta).toBe(false)
 })
 
 test('navigation preferences belong to both the Pod and the pinned document identity', () => {
@@ -93,7 +108,8 @@ test('an external preference update does not write it back or restore page data'
     recent: true,
     favorites: false,
     space: false,
-    private: true
+    private: true,
+    meta: false
   })
   expect([...model.preferences.value.expanded]).toEqual([])
   expect(Object.keys(model.preferences.value).sort()).toEqual(['expanded', 'rootOpen'])
@@ -188,23 +204,41 @@ test('mergeRecentEntries interleaves visited pages and active conversations by i
 test('only the Sidebar section that opened a page marks it', () => {
   expect(isSidebarSectionActive('recent', 'recent')).toBe(true)
   expect(isSidebarSectionActive('recent', 'private')).toBe(false)
+  expect(isSidebarSectionActive('recent', 'meta')).toBe(false)
   expect(isSidebarSectionActive('private', 'private')).toBe(true)
   expect(isSidebarSectionActive('private', 'space')).toBe(false)
   expect(isSidebarSectionActive('favorites', 'favorites')).toBe(true)
   expect(isSidebarSectionActive('favorites', 'recent')).toBe(false)
+  expect(isSidebarSectionActive('meta', 'meta')).toBe(true)
+  expect(isSidebarSectionActive('meta', 'space')).toBe(false)
 })
 
 test('a page opened without a Sidebar section marks the tree that holds it', () => {
   expect(isSidebarSectionActive(undefined, 'space')).toBe(true)
   expect(isSidebarSectionActive(undefined, 'private')).toBe(true)
+  expect(isSidebarSectionActive(undefined, 'meta')).toBe(true)
   expect(isSidebarSectionActive(undefined, 'recent')).toBe(false)
   expect(isSidebarSectionActive(undefined, 'favorites')).toBe(false)
 })
 
-test('routeSidebarTab preserves explicit keepSidebarTab when opening a recent conversation from Home', () => {
+test('routeSidebarTab maps Meta Ankole routes to Home and preserves explicit keepSidebarTab', () => {
   expect(routeSidebarTab('/conversations/abc')).toBe('chat')
   expect(routeSidebarTab('/conversations/abc', { keepSidebarTab: 'home' })).toBe('home')
   expect(routeSidebarTab('/pages/abc')).toBe('home')
+  expect(routeSidebarTab('/meta')).toBe('home')
+  expect(routeSidebarTab('/meta/brain')).toBe('home')
+  expect(routeSidebarTab('/meta/skills/ops-guide')).toBe('home')
+  expect(routeSidebarTab('/meta/brain/123', { keepSidebarTab: 'chat' })).toBe('chat')
+})
+
+test('isMetaTargetActive matches only the exact pathname and query parameters within Meta Ankole', () => {
+  expect(isMetaTargetActive('/meta/skills/ops', '/meta/skills/ops', '')).toBe(true)
+  expect(isMetaTargetActive('/meta/skills/ops', '/meta/skills/ops', '?file=scripts%2Frun.sh')).toBe(false)
+  expect(
+    isMetaTargetActive('/meta/skills/ops?file=scripts%2Frun.sh', '/meta/skills/ops', '?file=scripts%2Frun.sh')
+  ).toBe(true)
+  expect(isMetaTargetActive('/meta/brain?category=notes', '/meta/brain', '?category=notes', 'meta')).toBe(true)
+  expect(isMetaTargetActive('/meta/brain?category=notes', '/meta/brain', '?category=notes', 'recent')).toBe(false)
 })
 
 test('Recents retains at most three waiting or active items and reflects reopening an old conversation', () => {

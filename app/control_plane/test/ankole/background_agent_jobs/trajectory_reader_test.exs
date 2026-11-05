@@ -401,6 +401,54 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
     end
   end
 
+  describe "projected_items" do
+    test "walks caller-projected items newest first, reveals opaque values, and validates cursors against the projector" do
+      job = running_job!("projected", attempts: 1)
+
+      turn =
+        record_turn!(job, %{
+          turn_id: "turn-projected",
+          items: [
+            assistant("p1", "First visible"),
+            silent_reasoning("r-skip"),
+            opaque_tool("revealed-secret"),
+            assistant("p2", "Latest visible")
+          ]
+        })
+
+      projector = fn row, row_turn ->
+        case row.item do
+          %{"type" => "agentMessage", "id" => id, "text" => text} ->
+            %{id: id, kind: "message", text: text, thread: row_turn.runtime_thread_id}
+
+          %{"type" => "dynamicToolCall", "id" => id, "contentItems" => out} ->
+            %{id: id, kind: "tool", output: out, thread: row_turn.runtime_thread_id}
+
+          _ ->
+            nil
+        end
+      end
+
+      scope = {:projected_items, [turn], projector}
+      budget = %{groups: 2, bytes: @page_bytes}
+
+      assert {:ok, first} = TrajectoryReader.page(job, scope, nil, budget)
+      assert Enum.map(first.units, & &1.item.id) == ["opaque", "p2"]
+      assert hd(first.units).item.output == "revealed-secret"
+      assert is_binary(first.next_cursor)
+
+      skipped_cursor =
+        encode(%{"v" => 2, "attempt" => 1, "turn_id" => turn.id, "position" => 1})
+
+      assert {:error, :invalid_background_agent_job_trajectory_cursor} =
+               TrajectoryReader.page(job, scope, skipped_cursor, budget)
+
+      assert {:ok, second} = TrajectoryReader.page(job, scope, first.next_cursor, budget)
+      assert Enum.map(second.units, & &1.item.id) == ["p1"]
+      assert second.next_cursor == nil
+    end
+  end
+
   defp read(%{job: job, turns: turns}, groups, cursor \\ nil) do
     TrajectoryReader.page(job, {:current_attempt_lead, turns}, cursor, %{
       groups: groups,

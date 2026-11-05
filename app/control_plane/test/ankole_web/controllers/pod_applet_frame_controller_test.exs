@@ -56,7 +56,20 @@ defmodule AnkoleWeb.PodAppletFrameControllerTest do
       |> recycle_api()
       |> get("/pod/applet-frame/#{reference}/#{page.id}/1/index.html")
 
-    assert html_response(index, 200) =~ "parent.__ANKOLE_APPLET_HOST__.prepare(window)"
+    index_html = html_response(index, 200)
+    assert index_html =~ ~s(<meta name="color-scheme" content="light dark">)
+    assert index_html =~ "parent.__ANKOLE_APPLET_HOST__.prepare(window)"
+    [index_etag] = get_resp_header(index, "etag")
+
+    cached_index =
+      conn
+      |> recycle_api()
+      |> put_req_header("if-none-match", index_etag)
+      |> get("/pod/applet-frame/#{reference}/#{page.id}/1/index.html")
+
+    assert response(cached_index, 304) == ""
+    assert get_resp_header(cached_index, "cache-control") == ["private, no-cache"]
+    assert get_resp_header(cached_index, "etag") == [index_etag]
 
     anonymous = build_conn() |> pod_conn(tenant) |> get(url)
     assert response(anonymous, 401)

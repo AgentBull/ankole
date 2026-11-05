@@ -149,13 +149,27 @@ it changes; record deletion carries the whole versions map. A conflict means
 read again and reconsider the change. Do not retry an old write blindly.
 Use files.download with the page ID and manifest-relative path to read a page file.
 
-Applets export provider = defineApplet(App) from src/main.tsx, use the Pod
+Applets export provider = defineApplet(App) from src/main.tsx, use @ankole/uikit
 components and @ankole/applet-sdk hooks, and save business data in Base.
 Applet init accepts a new directory or an existing empty directory.
 The Worker includes the actual SDK at /repo/libs/applet-sdk/src/index.tsx
 and its query, aggregate, and record types at /repo/libs/applet-sdk/src/types.ts.
-Frontend build emits browser ESM chunks and dist/index.html. Import components from the
-root "@ankole/uikit" export, and runtime APIs from "@ankole/applet-sdk".
+Frontend build emits browser ESM chunks and dist/index.html (Bun.build without Tailwind compilation:
+write custom layout CSS in src/style.css using Ankole semantic CSS variables such as
+var(--background), var(--layer-01), var(--foreground), var(--fg-secondary), var(--border),
+and var(--radius-control) rather than arbitrary Tailwind utility classes or hardcoded hex colors).
+Import components (Button, Badge, Card, Table, Tabs, Input, Textarea, Select, Combobox,
+Checkbox, Switch, Field, Label, Dialog, Sheet, Drawer, Popover, DropdownMenu, Tooltip,
+Alert, Empty, Skeleton, Spinner, Toaster, toast, useTheme) from the root "@ankole/uikit"
+export (@base-ui/react: pass render={<Button variant="outline" />} on triggers instead of asChild;
+Badge variants are secondary|info|success|warning|destructive|outline|ghost; use at most one
+default primary Button per view and outline/ghost for other actions).
+The Pod Page host already renders the paper surface, 48px gutter, Page title, metadata, and
+Automation toolbar above the iframe: keep the Applet flush without repeating an opening H1 Page
+title or wrapping the app in an outer card/shadow/gradient wash. The host syncs
+html[data-theme="light|dark"] and color-scheme on the iframe and updates usePod().theme
+('light' | 'dark') reactively on theme switches; never use @media (prefers-color-scheme: dark).
+Import runtime APIs from "@ankole/applet-sdk".
 Do not import their runtime subpaths or UIKit styles; the Pod host supplies styles.
 SDK type subpaths remain available through "import type".
 Worker entries use src/**/*.worker.ts or .worker.js and build to matching
@@ -207,10 +221,14 @@ export async function initializeApplet(directory: string) {
   await mkdir(join(directory, 'src'))
   await writeFile(
     join(directory, 'src/main.tsx'),
-    `import { defineApplet } from '@ankole/applet-sdk'\n\nfunction App() {\n  return <main><h1>新小应用</h1><p>使用 Base 保存业务数据。</p></main>\n}\n\nexport const provider = defineApplet(App)\n`,
+    `import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@ankole/uikit'\nimport { defineApplet, usePod } from '@ankole/applet-sdk'\n\nfunction App() {\n  const { theme } = usePod()\n  return (\n    <main className="applet-shell" data-applet-theme={theme}>\n      <Card size="sm">\n        <CardHeader>\n          <CardTitle>工作区就绪</CardTitle>\n          <CardDescription>使用 @ankole/uikit 组件、语义主题变量与 Base 数据表构建小应用，无需重复渲染页面主标题。</CardDescription>\n        </CardHeader>\n        <CardContent>\n          <Badge variant="secondary">{theme === 'dark' ? '深色模式' : '浅色模式'}</Badge>\n        </CardContent>\n      </Card>\n    </main>\n  )\n}\n\nexport const provider = defineApplet(App)\n`,
     { flag: 'wx' }
   )
-  await writeFile(join(directory, 'src/style.css'), '.ankole-applet { padding: 1rem; }\n', { flag: 'wx' })
+  await writeFile(
+    join(directory, 'src/style.css'),
+    `.ankole-applet {\n  color: var(--foreground);\n  font-family: var(--font-family-sans);\n}\n\n.applet-shell {\n  display: flex;\n  flex-direction: column;\n  gap: 16px;\n  padding-block: 4px 24px;\n}\n`,
+    { flag: 'wx' }
+  )
   await writeFile(
     join(directory, 'src/applet.d.ts'),
     `declare module '*.worker.ts?url' { const url: string; export default url }\ndeclare module '*.worker.js?url' { const url: string; export default url }\n`,

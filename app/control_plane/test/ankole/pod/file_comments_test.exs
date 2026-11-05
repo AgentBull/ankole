@@ -287,6 +287,8 @@ defmodule Ankole.Pod.FileCommentsTest do
         display_name: "RestrictedBot"
       }).principal
 
+    :ok = Ankole.ConversationsFixtures.revoke_default_chat(restricted_agent.uid)
+
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.principal.uid, ctx.file_page.id, %{
         grants: [

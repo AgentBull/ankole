@@ -3,6 +3,7 @@ defmodule Ankole.Pod.Chat.Activity do
   @item [
     duration_ms: [type: :integer],
     operation_id: [type: :string, allow_nil?: false],
+    tool: [type: :string],
     phase: [type: :string],
     label_key: [type: :string],
     label: [type: :string],

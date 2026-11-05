@@ -1,12 +1,17 @@
 import { expect, test } from 'bun:test'
-import { parseMarkdown, printXml } from '@ankole/block-editor/document'
 import type { ConversationMessage } from '../api'
-import { messageMarkdown, selectionToMarkdown } from '../chat/export-markdown'
+import { selectionToMarkdown } from '../chat/export-markdown'
 import { ChatModel } from './chat'
 
-test('saving a Composer message preserves its structured quotation and resolvable Page reference', () => {
+test('exporting a message excerpt preserves structured quotations and avoids duplicating inline Page references', () => {
   const id = '019a0000-0000-7000-8000-000000000001'
-  const body = messageMarkdown({
+  const quoted = {
+    id: 'msg-quoted',
+    seq: 1,
+    kind: 'message',
+    authorType: 'human',
+    authorDisplayName: 'Alice',
+    createdAt: '2026-10-31T10:00:00Z',
     text: 'Review @Project report before sharing the conclusion.',
     links: [
       {
@@ -15,22 +20,22 @@ test('saving a Composer message preserves its structured quotation and resolvabl
         quote: 'Keep the source intact.\nCheck both figures.'
       },
       { kind: 'page', id }
-    ]
-  })
-  const xml = printXml(parseMarkdown(body))
+    ],
+    attachments: []
+  } as unknown as ConversationMessage
+
+  const body = selectionToMarkdown([quoted])
   expect(body).toContain('Review @Project report before sharing the conclusion.')
   expect(body).toContain('> Keep the source intact.\n> Check both figures.')
-  expect(xml).toContain('<blockquote>')
-  expect(xml).toContain('Keep the source intact.')
-  expect(xml).toContain('Check both figures.')
-  expect(xml).toContain(`href="ankole:page/${id}"`)
-})
+  expect(body).toContain(`- [Page](ankole:page/${id})`)
 
-test('an authored inline Page reference is not repeated and plain content stays unchanged', () => {
-  const id = '019a0000-0000-7000-8000-000000000001'
-  const text = `The [Project report](ankole:page/${id}) contains the result.`
-  expect(messageMarkdown({ text, links: [{ kind: 'page', id }] }).match(/ankole:page\//g)).toHaveLength(1)
-  expect(messageMarkdown({ text: 'An ordinary answer.', links: [] }).trimEnd()).toBe('An ordinary answer.')
+  const inline = {
+    ...quoted,
+    id: 'msg-inline',
+    text: `The [Project report](ankole:page/${id}) contains the result.`,
+    links: [{ kind: 'page', id }]
+  } as unknown as ConversationMessage
+  expect(selectionToMarkdown([inline]).match(/ankole:page\//g)).toHaveLength(1)
 })
 
 test('selectionToMarkdown orders selected messages by seq and preserves speaker, quotes, and attachments', () => {

@@ -13,13 +13,14 @@ for (const revision of ['v1', 'v2']) {
   await rm(directory, { recursive: true, force: true })
   await mkdir(directory, { recursive: true })
   await initializeApplet(directory)
-  const source = `import {defineApplet,useRecords,useChannel} from '@ankole/applet-sdk';
+  const source = `import {defineApplet,usePod,useRecords,useChannel} from '@ankole/applet-sdk';
 import {Button,Input,Dialog,DialogContent,DialogTitle,DialogTrigger} from '@ankole/uikit';
 import {lazy,Suspense,useState} from 'react';
 import logoURL from './logo.svg';
 import wasmURL from './add.wasm';
 const LazyDetails=lazy(()=>import('./lazy-details'));
 function App(){
+  const {theme}=usePod();
   const rows=useRecords(${JSON.stringify(tableID)});
   const room=useChannel('browser-room');
   const [count,setCount]=useState(0);
@@ -38,7 +39,7 @@ function App(){
     </Dialog>
     <Button onClick={()=>setViewport(false)}>Back to records</Button>
   </section>;
-  return <section className="applet-shell"><h2 className="applet-heading">Tracker ${revision}</h2>
+  return <section className="applet-shell" data-applet-theme={theme}><h2 className="applet-heading">Tracker ${revision}</h2>
   <p className="applet-record-count">{rows.data?.records.length??0} records</p>
   <img src={logoURL} alt="Applet logo" width="16" height="16"/>
   <p className="applet-presence">{room.presence.length} online</p>

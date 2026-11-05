@@ -167,9 +167,7 @@ The generated entry exports `provider = defineApplet(App)` from
 `dist/index.html`, `dist/main.js`, shared chunks, and CSS. React, React DOM, `@ankole/uikit`,
 and `@ankole/applet-sdk` are host dependencies. Keep all four out of
 `package.json`; the host supplies them. Do not bundle another React
-or add a global CSS reset. Use the host components and theme. For standard action
-buttons, use `import { Button } from '@ankole/uikit'`. Native `button` elements
-do not include the host's control styles. Keep custom CSS inside the Applet frame.
+or add a global CSS reset. Keep custom CSS inside the Applet frame.
 Import UIKit components from its root export. The build rejects UIKit component
 subpaths and stylesheet imports; the host already loads those styles.
 Import local images, fonts, and media from source, or reference them with CSS
@@ -181,6 +179,93 @@ The build compiles the Worker and resolves its URL from nested modules and
 dynamic chunks. Applet init supplies the Worker URL import types.
 Source pull requires edit access,
 checks each file digest, and runs `bun install --ignore-scripts`.
+
+### Pod UI and theme integration
+
+An Applet renders inside a Pod Page sheet (`var(--background)`) that already
+provides the `48px` horizontal page gutter, breadcrumbs, editable Page title,
+provenance metadata, and Automation toolbar directly above the iframe:
+
+- **Flush workspace layout (no duplicate Page chrome)**: Keep `html`, `body`,
+  and `.ankole-applet` flush with the host surface (`padding-inline: 0`,
+  transparent or `var(--background)` canvas). Do not repeat the Page title as an
+  opening `<h1>`, wrap the entire Applet in an outer card/border/shadow, or paint
+  a standalone SaaS hero banner or full-bleed background wash. Open directly with
+  compact workspace controls—a toolbar, search/filter bar, `Tabs`, KPI strip, or
+  primary data view—aligned to the host's left and right edges.
+- **Host-synced light and dark mode**: The Pod host sets
+  `html[data-theme="light"]` or `html[data-theme="dark"]` and matching
+  `color-scheme` on the iframe root before first paint, updating both live when
+  the user toggles the external Pod theme. `usePod().theme` (from
+  `@ankole/applet-sdk`) and `useTheme().resolvedTheme` (from `@ankole/uikit`)
+  both return `'light' | 'dark'` reactively and re-render on theme switches.
+  Never hardcode light or dark hex/RGB colors (`#fff`, `#f8fafc`, `#0f172a`,
+  `#1e293b`), gradients, or `@media (prefers-color-scheme: dark)`—the user's Pod
+  theme toggle controls `[data-theme="dark"]` independently of the OS media
+  query. Rely on semantic CSS variables first, use `[data-theme="dark"]`
+  selectors only when overriding custom CSS rules, and read
+  `const { theme } = usePod()` (`theme === 'dark'`) when passing colors to
+  `<canvas>`, SVG charts, or JavaScript visualizations.
+- **Standard CSS + semantic tokens (no arbitrary Tailwind compilation)**:
+  `ankole-pod applet build` bundles CSS with `Bun.build` and does **not** run a
+  Tailwind compiler over Applet source. Arbitrary Tailwind classes written in
+  JSX (`grid-cols-4`, `bg-slate-900`, `dark:bg-zinc-800`, `p-8`) will not
+  generate styles unless they already exist in the host bundle. Write Applet
+  layout (`display: grid`, `flex`, `gap`, responsive media queries) in
+  `src/style.css` with Ankole's semantic tokens:
+  - Surfaces: `var(--background)` (page paper), `var(--layer-01)` (raised
+    band, table header, or code block), `var(--layer-02)`, `var(--layer-03)` /
+    `var(--muted)`, `var(--layer-hover)` / `var(--accent)`,
+    `var(--layer-current)` (selected nav/tab wash), `var(--field)` (input slot),
+    `var(--control)` (outline button), `var(--selection)`.
+  - Ink & typography: `var(--foreground)`, `var(--fg-secondary)` /
+    `var(--muted-foreground)`, `var(--fg-tertiary)`, `var(--fg-placeholder)`,
+    `var(--fg-disabled)`, `var(--font-family-sans)`, `var(--font-family-mono)`.
+    Set `font-variant-numeric: tabular-nums` on counts, metrics, amounts, dates,
+    and IDs. Keep section headings light and restrained (`14px` `600` inline
+    headings or `16px` `400` section headings).
+  - Borders & radius: `1px solid var(--border)` (`var(--border-strong)` for
+    stronger dividers) and `var(--radius-control)` (`4px`). Keep controls at
+    `4px` and cards/panels on paper square or `4px` without heavy drop shadows;
+    `8px` ceramic glass belongs exclusively to UIKit overlays.
+  - Brand & status roles: `var(--primary)` (`#e10059`) +
+    `var(--primary-foreground)`—limit solid `<Button>` (`variant="default"`) to
+    **at most one** primary call-to-action per view; use `variant="outline"` for
+    standard actions, `variant="ghost"` for quiet toolbar/row actions, and
+    `variant="destructive"` for irreversible deletes. Status tokens provide mark,
+    text, and subtle container fills: `--info` / `--info-foreground` /
+    `--info-subtle`, `--success` / `--success-foreground` / `--success-subtle`,
+    `--warning` / `--warning-foreground` / `--warning-subtle`, and
+    `--destructive` / `--destructive-foreground` / `--destructive-subtle` (plus
+    perceptual ramps `--color-{gray,blue,cyan,teal,green,yellow,orange,red,magenta,purple}-{10..100}`
+    for categorical charts: steps `60`–`70` in light mode, `30`–`50` in dark
+    mode).
+- **Use `@ankole/uikit` components and `@base-ui/react` composition**: Native
+  HTML `<button>`, `<input>`, `<select>`, and `<table>` elements do not carry
+  Pod control styling. Import components from root `@ankole/uikit`:
+  - Actions & navigation: `Button` (`variant`: `'default' | 'outline' | 'ghost' | 'destructive' | 'link'`,
+    `size`: `'default' | 'sm' | 'xs' | 'icon' | 'icon-sm' | 'icon-xs'`),
+    `ButtonGroup`, `Tabs` / `TabsList` (`variant`: `'default' | 'object'`) /
+    `TabsTrigger` / `TabsContent`, `Toggle`, `ToggleGroup`, `Pagination`.
+  - Data & feedback: `Table` / `TableHeader` / `TableBody` / `TableRow` /
+    `TableHead` / `TableCell`, `Card` (`size`: `'default' | 'sm'`) /
+    `CardHeader` / `CardTitle` / `CardDescription` / `CardAction` /
+    `CardContent` / `CardFooter`, `Badge` (`variant`:
+    `'secondary' | 'info' | 'success' | 'warning' | 'destructive' | 'outline' | 'ghost'`,
+    `size`: `'default' | 'sm'`—there is no `'default'` variant), `Alert` /
+    `AlertTitle` / `AlertDescription`, `Empty` / `EmptyHeader` / `EmptyTitle` /
+    `EmptyDescription` / `EmptyContent`, `Progress`, `Skeleton`, `Spinner`,
+    `Separator`, `Avatar`, `Kbd`, `Toaster` + `toast`.
+  - Forms & filters: `Input`, `InputGroup`, `Textarea`, `Select` /
+    `SelectTrigger` (`variant`: `'field' | 'ghost'`, `size`: `'default' | 'sm'`) /
+    `SelectValue` / `SelectContent` / `SelectItem`, `Combobox`,
+    `CreatableCombobox`, `Checkbox`, `Switch`, `RadioGroup` / `RadioGroupItem`,
+    `Field` / `FieldLabel` / `FieldDescription` / `FieldError`, `Label`.
+  - Overlays: `Dialog` / `DialogTrigger` / `DialogContent` / `DialogHeader` /
+    `DialogTitle` / `DialogDescription` / `DialogFooter`, `Sheet`, `Drawer`,
+    `Popover`, `DropdownMenu`, `Tooltip`. `@ankole/uikit` is built on
+    `@base-ui/react` (not Radix): compose trigger buttons with
+    `render={<Button variant="outline" />}` instead of `asChild`.
 
 Use `useRecords(tableID, query)` for records and its `create`, `update`, and
 `remove` methods for writes. Its TanStack Query result holds rows at

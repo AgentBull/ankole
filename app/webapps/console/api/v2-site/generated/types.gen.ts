@@ -40,6 +40,7 @@ export type AiGatewayProvider = {
         last_refresh?: string | null
         last_selected_at?: string | null
         plan_type?: string | null
+        present_fields: Array<string>
         priority: number
         provider_status?: number | null
         rate_limits: {
@@ -1060,6 +1061,43 @@ export type PutAiGatewayCredentialResponses = {
 }
 
 export type PutAiGatewayCredentialResponse = PutAiGatewayCredentialResponses[keyof PutAiGatewayCredentialResponses]
+
+export type DecryptAiGatewayCredentialData = {
+  body?: never
+  path: {
+    credential_id: string
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}/decryptions'
+}
+
+export type DecryptAiGatewayCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DecryptAiGatewayCredentialError = DecryptAiGatewayCredentialErrors[keyof DecryptAiGatewayCredentialErrors]
+
+export type DecryptAiGatewayCredentialResponses = {
+  /**
+   * Success
+   */
+  201: {
+    decrypted_credential: {
+      credential_id: string
+      provider_id: string
+      values: {
+        [key: string]: unknown
+      }
+    }
+  }
+}
+
+export type DecryptAiGatewayCredentialResponse =
+  DecryptAiGatewayCredentialResponses[keyof DecryptAiGatewayCredentialResponses]
 
 export type EnableAiGatewayProviderData = {
   /**

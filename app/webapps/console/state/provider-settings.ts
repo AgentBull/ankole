@@ -5,6 +5,7 @@ import type {
 } from '../api/v2-site/generated/types.gen'
 import { type Flat, fromDocument } from '../api/json-api'
 import type { AiGatewayProvider } from '../api/v2-site/generated/types.gen'
+import { isEncryptedValueMask } from '../encrypted-value-input'
 import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
 import i18n from '../../common/i18n'
 
@@ -72,6 +73,34 @@ export function credentialSettings(kind: AIGatewayProviderKindItem | undefined):
   return settingsForScope(kind, 'credential')
 }
 
+// Account metadata stored inside ChatGPT subscription credentials is already
+// projected in plaintext on each pool entry (`account_id`, `plan_type`,
+// `email`, `last_refresh`, `auth_type`) or kept internal (`fedramp`), so
+// secret reveal controls target only actual credential secrets.
+const NON_SECRET_CREDENTIAL_KEYS = new Set(['account_id', 'auth_type', 'email', 'fedramp', 'last_refresh', 'plan_type'])
+
+/** Returns the encrypted secret fields of a provider kind (such as API keys and tokens). */
+export function secretCredentialSettings(kind: AIGatewayProviderKindItem | undefined): ProviderSetting[] {
+  return credentialSettings(kind).filter(setting => setting.encrypted && !NON_SECRET_CREDENTIAL_KEYS.has(setting.key))
+}
+
+/** Returns whether a pool entry holds a stored secret value for `key`. */
+export function entryHasSecretField(entry: AIGatewayCredentialPoolEntry | null | undefined, key: string): boolean {
+  if (!entry) return false
+  if (Array.isArray(entry.present_fields)) return entry.present_fields.includes(key)
+  return Boolean(entry.credential_present && !entry.reauth_required)
+}
+
+/** Formats one decrypted credential field value for display or input seeding. */
+export function decryptedCredentialFieldText(
+  values: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  const raw = values?.[key]
+  if (raw == null || raw === '') return undefined
+  return settingDraftValue(raw)
+}
+
 /** Returns the request-scoped settings accepted by model profiles for a provider kind. */
 export function requestSettings(kind: AIGatewayProviderKindItem | undefined): ProviderSetting[] {
   return settingsForScope(kind, 'request')
@@ -128,6 +157,7 @@ export function buildSettingOptions(
     const trimmed = typeof raw === 'string' ? raw.trim() : raw
 
     if (setting.encrypted) {
+      if (typeof raw === 'string' && isEncryptedValueMask(raw)) continue
       if (trimmed !== '') options[setting.key] = raw
       continue
     }

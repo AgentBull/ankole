@@ -160,6 +160,7 @@ export type RunsAPI = {
   key(runID: number): readonly unknown[]
   subscribe(runID: number, callback: (event: { access_revoked?: boolean }) => void): () => void
 }
+export type AppletTheme = 'light' | 'dark'
 export type AppletRuntime = {
   pageID: string
   instanceID: string
@@ -173,5 +174,5 @@ export type AppletRuntime = {
   pod: PodAPI
   channel(name: string): EphemeralChannel
   principal?: { uid: string; name?: string }
-  theme?: string
+  theme: AppletTheme
 }

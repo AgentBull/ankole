@@ -1054,18 +1054,23 @@ Page is missing or in trash.
 
 ### Meta Ankole
 
-The Pod sidebar offers Home, Chat and Meta Ankole. Home contains the Space and
-Private collaboration trees. Meta Ankole has parallel Brain, Skills and Agents
-modules with a matching navigation tree. All Meta branches start collapsed;
-opening a detail route does not expand its ancestors. The disclosure button
-controls expansion separately from the link that opens the module or item.
-Switching sidebar tabs preserves expanded branches. A file-directory label
-expands its branch, and only the current destination receives page highlighting.
-Agent availability updates preserve the user's tab selection and keyboard focus.
+In `Home`, active Pod members see a collapsible `Meta Ankole` tree section
+alongside `Recently visited` and the `Space` and `Private` collaboration trees.
+`NavigationModel` defaults `Meta Ankole` to collapsed (`rootOpen.meta: false`)
+and persists the member's root expansion choice across reloads and tabs, while
+inner Meta branches start collapsed in each document; opening a detail route
+does not expand `Meta Ankole` or its ancestor branches. Within `Meta Ankole`,
+parallel `Brain`, `Skills`, and `Agents` branches expose a matching navigation
+tree. Each disclosure button controls expansion separately from the link that
+opens the module or item, switching between `Home` and `Chat` preserves expanded
+branches, clicking a file-directory label expands its branch, and only the
+current destination receives page highlighting. Agent availability updates
+preserve the user's tab selection and keyboard focus.
 The workspace scrolls beneath the module navigation so long packages and Agent
 contracts remain reachable on desktop and narrow screens.
-Pod hosts serve `/meta` and its descendant paths directly, so opening a link or
-reloading a Meta page enters the same workspace.
+Pod hosts serve `/meta` and its descendant paths directly, selecting the `Home`
+sidebar tab so opening a link or reloading a Meta page enters the same
+workspace.
 
 Brain opens a graph of visible knowledge objects and directed semantic links.
 People can filter by ontology category or keyword, zoom, pan, open a node and
@@ -2019,19 +2024,20 @@ Native Conversation messages carry Page links and verified attachments:
   in-flight fetches on close, keeping download and open-in-new-tab controls, and
   streaming a bounded prefix for text files with a truncation indicator—without
   creating a Page.
-- **Saving to a Page and message provenance**: Saving a Chat attachment to a
-  file Page references the visible Message's blob directly without granting
-  access to the Agent's drive or duplicating blob bytes, so later overwrites to
-  the source drive path never mutate the saved attachment. Created Pages record
-  `saved_from_message_id` (rendering a deleted badge if the source Message is
-  deleted, exposing zero Conversation metadata if the Conversation is
-  inaccessible, and keeping Pages and Pod file references intact if the
-  Conversation itself is deleted). When an Agent creates a Page, the RPC broker
-  defaults `saved_from_message_id` to the current input's Message—or traces a
-  Job completion wakeup back through its persisted Job to the originating Human
-  Message across continuations until a new Human message starts a continuation,
-  staying strictly within the same Agent and tenant and halting on cycles or
-  missing messages.
+- **Saving Chat attachments and message provenance**: Saving a Chat attachment
+  to a file Page via `POST /api/v2/pod/pages` (`saved_from_message_id` paired
+  with `attachment_position`) references the visible Message's blob directly
+  without granting access to the Agent's drive or duplicating blob bytes, so
+  later overwrites to the source drive path never mutate the saved attachment.
+  Created Pages record `saved_from_message_id` (rendering a deleted badge if the
+  source Message is deleted, exposing zero Conversation metadata if the
+  Conversation is inaccessible, and keeping Pages and Pod file references intact
+  if the Conversation itself is deleted). When an Agent creates a Page, the RPC
+  broker defaults `saved_from_message_id` to the current input's Message—or
+  traces a Job completion wakeup back through its persisted Job to the
+  originating Human Message across continuations until a new Human message starts
+  a continuation, staying strictly within the same Agent and tenant and halting
+  on cycles or missing messages.
 
 ### Spreadsheet Pages
 
@@ -2404,25 +2410,32 @@ Each Applet mounts inside a same-origin iframe at
 document and all subresources—unaffected if the user switches the browser's
 default account elsewhere. The iframe isolates its own DOM, CSS, viewport
 (sized to the workspace scroll panel, scrolling tall content internally), and
-import map while sharing the host origin and trust boundary. Frame responses
-serve hashed vendor bundles and styles from the Vite manifest with exact MIME
-types, `nosniff`, `SAMEORIGIN`, private revalidation, and content ETags: a
-shared Page lock authorizes access and captures the revision and immutable blob
-digest (returning HTTP 409 on a stale revision), while blob streaming runs
-outside the transaction.
+import map while sharing the host origin and trust boundary. Ankole serves
+hashed `/assets` vendor bundles and stylesheets with immutable HTTP caching,
+while `/pod/applet-frame` responses inject `<meta name="color-scheme" content="light dark">`,
+the import map, vendor stylesheet links, and `modulepreload` hints alongside
+exact MIME types, `nosniff`, `SAMEORIGIN`, private revalidation, and content
+ETags: a shared Page lock authorizes access and captures the revision and
+immutable blob digest (returning HTTP 409 on a stale revision and answering
+conditional `index.html` hits directly from the object and shell digest), while
+blob streaming runs outside the transaction.
 
-Before the Applet entry executes, the host injects the runtime and scopes Web
-Storage keys by `(principal_uid, page_id)` using the Principal UID from the
+Before the Applet entry executes, the host synchronizes `lang`, `data-theme`
+(`light` or `dark`), and `color-scheme` onto the frame, hydrates `i18next`
+catalogs synchronously from the same-origin Pod window when resident, and scopes
+Web Storage keys by `(principal_uid, page_id)` using the Principal UID from the
 verified authentication proof while preserving the native `Storage` prototype,
 methods, named properties, and key enumeration. Each mounted revision forms one
 generation owning the frame's subscriptions, channels, and observers:
 
 - Publishing a new revision or unmounting closes the generation (a publication
   conflict refreshes the Page snapshot without replaying a write).
-- Permission changes push updated `actions` props into the live iframe and React
-  root without losing form inputs or component state; individual denied business
-  writes likewise leave the frame intact, whereas losing `node_view` (via Page
-  reads or realtime checks) closes the generation.
+- Permission and theme changes push updated `actions` and `theme` (`'light' | 'dark'`)
+  props—alongside live `data-theme` and `color-scheme` attributes read by
+  `@ankole/uikit`—into the live iframe and React root without losing form inputs
+  or component state; individual denied business writes likewise leave the frame
+  intact, whereas losing `node_view` (via Page reads or realtime checks) closes
+  the generation.
 - Render crashes caught by the SDK error boundary—and frame load failures—render
   above the iframe alongside a Reload button that clears the error state and
   starts a fresh generation.

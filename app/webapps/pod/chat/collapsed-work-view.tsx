@@ -2,34 +2,24 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { PodActivity, PodActivityItem } from '../api'
 import type { ExecutionStep, ExecutionSummary } from './types'
-import { ToolRunView, stepTitle, humanizeToolName } from './tool-run-view'
-import { formatElapsed } from './elapsed'
+import { ToolRunView, localizedStepTitle, humanizeToolName } from './tool-run-view'
 import { UsageDetails, UsageSummary } from './execution-usage'
 
 export function CollapsedWorkView({
   execution,
   active = false,
-  startedAt,
   phaseLabel,
   attention = false
 }: {
   execution: ExecutionSummary
   active?: boolean
-  startedAt?: string
   phaseLabel?: string
   attention?: boolean
 }) {
-  const { t, i18n } = useTranslation()
-  const [now, setNow] = useState(Date.now)
-  useEffect(() => {
-    if (!active || !startedAt) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [active, startedAt])
+  const { t } = useTranslation()
   const steps = execution.steps ?? []
   const thinking = execution.thinking_summary
   const usage = active ? undefined : execution.usage
-  const duration = active && startedAt ? Math.max(0, now - Date.parse(startedAt)) : execution.duration_ms
   const runningSteps = steps.filter(
     step =>
       !['completed', 'complete', 'success', 'succeeded', 'settled', 'stopped', 'cancelled', 'failed', 'error'].includes(
@@ -58,12 +48,18 @@ export function CollapsedWorkView({
     if (!active) return null
     return (
       <div className="pod-chat-work pod-chat-work-status" role="status">
-        <span className="pod-chat-working-dot" aria-hidden />
-        <span>{phaseLabel || t('pod.chat_timeline.thinking')}</span>
-        {duration != null && <time>{formatElapsed(duration, i18n.language)}</time>}
+        <span className="pod-chat-working-spinner" aria-hidden />
+        <span className="pod-chat-working-label">{phaseLabel || t('pod.chat_timeline.thinking')}</span>
       </div>
     )
   }
+  const settledSummary = outcome
+    ? t(`pod.chat_timeline.${outcome}`)
+    : steps.length > 0
+      ? t('pod.chat_timeline.steps')
+      : thinking
+        ? t('pod.chat_timeline.thinking')
+        : t('pod.chat_timeline.usage_title')
   return (
     <details
       className={`pod-chat-work${thinkingDisclosure ? ' pod-chat-thinking' : ''}`}
@@ -76,17 +72,14 @@ export function CollapsedWorkView({
         }
       }}>
       <summary title={execution.model ?? undefined}>
-        {active && <span className="pod-chat-working-dot" aria-hidden />}
-        <span>
+        {active && <span className="pod-chat-working-spinner" aria-hidden />}
+        <span className={active ? 'pod-chat-working-label' : undefined}>
           {active
             ? runningSteps.length > 1
               ? phaseLabel || t('conversations.delivery.reply.activity.processing')
-              : (current && stepTitle(current, t)) || phaseLabel || t('pod.chat_timeline.thinking')
-            : t(outcome ? `pod.chat_timeline.${outcome}_after` : 'pod.chat_timeline.worked_for_plain', {
-                duration: formatElapsed(duration ?? 0, i18n.language)
-              })}
+              : (current && localizedStepTitle(current, t)) || phaseLabel || t('pod.chat_timeline.thinking')
+            : settledSummary}
         </span>
-        {active && duration != null && <time>{formatElapsed(duration, i18n.language)}</time>}
         {!active && !outcome && errors > 0 && (
           <span className="pod-chat-work-errors">· {t('pod.chat_timeline.error_count', { count: errors })}</span>
         )}
@@ -115,8 +108,12 @@ export function CollapsedWorkView({
 export function activitySteps(activity: PodActivity, label: (item: PodActivityItem) => string): ExecutionStep[] {
   return activity.tools.map(item => ({
     id: item.operation_id,
-    tool: item.operation_id,
+    tool: item.tool || item.operation_id,
     title: label(item),
+    skill_name:
+      item.tool === 'skill_view' && typeof item.label_bindings?.name === 'string'
+        ? item.label_bindings.name
+        : undefined,
     status: item.phase ?? 'running',
     duration_ms: item.duration_ms ?? undefined
   }))

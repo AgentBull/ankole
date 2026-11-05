@@ -121,7 +121,7 @@ defmodule Ankole.Sessions.Presentation do
     {key, bindings} =
       if tool.executor != :worker and function_exported?(tool.executor, :activity, 4),
         do: tool.executor.activity(tool, args, phase, result),
-        else: {tool.activity, Map.take(args, ["name"])}
+        else: {tool.activity, Map.take(args, ["name", "title", "path", "query"])}
 
     if key do
       [
@@ -129,6 +129,7 @@ defmodule Ankole.Sessions.Presentation do
           "kind" => "tool.activity",
           "payload" => %{
             "operation_id" => Ankole.Sessions.Run.call_id(call),
+            "tool" => tool.name,
             "phase" => phase,
             "label_key" => "conversations.delivery.reply.activity.#{key}",
             "label_bindings" => bindings,

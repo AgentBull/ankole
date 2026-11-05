@@ -438,6 +438,17 @@ defmodule Ankole.Pod do
           query_params: [:cursor]
         )
 
+        route(:post, "/conversations/:id/executions/:kind/:run_id/stop", :stop_execution,
+          name: "stopConversationExecution"
+        )
+
+        route(
+          :post,
+          "/conversations/:id/executions/background_agent_job/:run_id/messages",
+          :message_execution,
+          name: "messageConversationExecution"
+        )
+
         route(:post, "/conversations/:id/participants", :manage_participants,
           name: "updateConversationParticipants"
         )

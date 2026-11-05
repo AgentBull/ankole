@@ -24,6 +24,9 @@ import type {
   CreateWorkerProviderData,
   CreateWorkerProviderErrors,
   CreateWorkerProviderResponses,
+  DecryptAiGatewayCredentialData,
+  DecryptAiGatewayCredentialErrors,
+  DecryptAiGatewayCredentialResponses,
   DecryptSiteAppConfigurationData,
   DecryptSiteAppConfigurationErrors,
   DecryptSiteAppConfigurationResponses,
@@ -362,6 +365,18 @@ export const putAiGatewayCredential = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * decrypt_ai_gateway_credential operation on chatgpt_login resource
+ */
+export const decryptAiGatewayCredential = <ThrowOnError extends boolean = false>(
+  options: Options<DecryptAiGatewayCredentialData, ThrowOnError>
+): RequestResult<DecryptAiGatewayCredentialResponses, DecryptAiGatewayCredentialErrors, ThrowOnError> =>
+  (options.client ?? client).post<DecryptAiGatewayCredentialResponses, DecryptAiGatewayCredentialErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}/decryptions',
+    ...options
   })
 
 /**

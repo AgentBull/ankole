@@ -72,6 +72,7 @@ test('distinct SDK generations use one host cache subscription that the host can
       subscribe: () => () => {}
     },
     pod: { request: unused },
+    theme: 'light',
     channel() {
       throw new Error('This fixture exercises route reads')
     }

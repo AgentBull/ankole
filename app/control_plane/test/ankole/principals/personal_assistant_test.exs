@@ -131,14 +131,6 @@ defmodule Ankole.Principals.PersonalAssistantTest do
     worker_provider_fixture(%{is_default: true})
     %{principal: colleague} = agent_fixture(%{uid: "research-colleague"})
 
-    assert {:ok, _} =
-             Ankole.AuthZ.create_permission_grant(%{
-               principal_uid: owner.uid,
-               resource_pattern: "agent:#{colleague.uid}",
-               action: "chat",
-               condition: "true"
-             })
-
     actor = actor_fixture(owner)
 
     assert {:ok, before} =
@@ -258,5 +250,60 @@ defmodule Ankole.Principals.PersonalAssistantTest do
     assert {:ok, %{status: :active}} = Principals.get_principal(pa.uid)
     assert {:ok, %{principal: %{uid: uid}}} = Principals.ensure_personal_assistant(owner.uid)
     assert uid == pa.uid
+  end
+
+  test "AI colleagues grant default chat to active Pod members across directory, DM, A2A, rename, and deletion" do
+    %{principal: creator} = human_fixture(%{display_name: "Creator"})
+    %{principal: teammate} = human_fixture(%{display_name: "Teammate"})
+    %{principal: guest} = human_fixture(%{display_name: "Guest", membership: :guest})
+    worker_provider_fixture(%{is_default: true})
+
+    %{principal: colleague} =
+      agent_fixture(%{
+        uid: "ops_colleague",
+        display_name: "Ops Colleague",
+        owner_principal_uid: creator.uid
+      })
+
+    assert {:ok, %{principal: teammate_pa}} = Principals.ensure_personal_assistant(teammate.uid)
+
+    teammate_actor = actor_fixture(teammate)
+    guest_actor = actor_fixture(guest)
+
+    assert Enum.map(Ankole.Conversations.agents(teammate_actor), & &1.uid) == ["ops_colleague"]
+    assert Ankole.Conversations.agents(guest_actor) == []
+
+    assert {:error, {:forbidden, "chat"}} =
+             Ankole.AuthZ.authorize(creator.uid, "agent:#{teammate_pa.uid}", "chat")
+
+    assert Ankole.Agents.MessagingPolicy.allow_peer_send?(
+             teammate_pa.uid,
+             colleague.uid,
+             WorkAccess.from_sender(teammate.uid)
+           )
+
+    assert {:ok, %{status: :disabled}} = Principals.disable_agent("ops_colleague")
+
+    assert {:ok, %{principal: %{uid: "ops_lead"}}} =
+             Ankole.Principals.Rename.rename("ops_colleague", "ops_lead")
+
+    assert {:ok, %{status: :active}} = Principals.enable_agent("ops_lead")
+    assert Enum.map(Ankole.Conversations.agents(teammate_actor), & &1.uid) == ["ops_lead"]
+
+    assert {:ok, %{status: :disabled}} = Principals.delete_agent("ops_lead")
+    assert {:ok, %{status: :disabled}} = Principals.delete_agent("ops_lead")
+
+    {:ok, group_grants} = Ankole.AuthZ.list_group_grants("all_humans")
+
+    refute Enum.any?(
+             group_grants,
+             &(&1.resource_pattern in ["agent:ops_colleague", "agent:ops_lead"])
+           )
+
+    assert {:ok, %{status: :disabled}} = Principals.delete_agent(teammate_pa.uid)
+    assert {:ok, %{status: :disabled}} = Principals.delete_agent(teammate_pa.uid)
+
+    assert {:error, {:forbidden, "chat"}} =
+             Ankole.AuthZ.authorize(teammate.uid, "agent:#{teammate_pa.uid}", "chat")
   end
 end

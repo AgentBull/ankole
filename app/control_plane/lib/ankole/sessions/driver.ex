@@ -25,7 +25,7 @@ defmodule Ankole.Sessions.Driver do
     ]
   end
 
-  alias Ankole.{AIGateway, AgentWorkers, Observability, Repo}
+  alias Ankole.{AIGateway, AgentWorkers, Conversations, Observability, Repo}
   alias Ankole.Sessions.{Activity, Admission, Commands, Model, Presentation, Run, Turn, Worker}
   alias Ankole.Sessions.{Queue, Revisions, ToolResult, Tools}
   alias Ankole.Sessions.Driver.Tasks
@@ -269,6 +269,7 @@ defmodule Ankole.Sessions.Driver do
 
   defp execute(:prepare, data) do
     run = Observability.attach_turn(data.turn.run)
+    :ok = Conversations.maybe_generate_title_async(run.agent_uid, run.event)
 
     data = %{
       data

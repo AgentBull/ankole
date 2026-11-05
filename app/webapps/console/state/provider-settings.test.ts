@@ -1,6 +1,19 @@
 import { describe, expect, test } from 'bun:test'
-import type { AIGatewayProviderKindItem, ProviderSetting as AIGatewayProviderSetting } from './provider-settings'
-import { buildSettingOptions, connectionSettings, credentialSettings, requestSettings } from './provider-settings'
+import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
+import type {
+  AIGatewayCredentialPoolEntry,
+  AIGatewayProviderKindItem,
+  ProviderSetting as AIGatewayProviderSetting
+} from './provider-settings'
+import {
+  buildSettingOptions,
+  connectionSettings,
+  credentialSettings,
+  decryptedCredentialFieldText,
+  entryHasSecretField,
+  requestSettings,
+  secretCredentialSettings
+} from './provider-settings'
 
 function providerKind(providerKind: string): AIGatewayProviderKindItem {
   return {
@@ -133,5 +146,72 @@ describe('provider settings', () => {
     )
 
     expect(result).toEqual({ ok: false, key: 'reasoningEffort', error: 'Reasoning effort:selection' })
+  })
+
+  test('omits unmodified encrypted masks while serializing replacement secrets', () => {
+    const settings = credentialSettings(providerKind('openai'))
+    const message = (field: string, error: string) => `${field}:${error}`
+
+    expect(buildSettingOptions(settings, { api_key: ENCRYPTED_VALUE_MASK }, message)).toEqual({ ok: true, value: {} })
+    expect(buildSettingOptions(settings, { api_key: 'sk-replacement' }, message)).toEqual({
+      ok: true,
+      value: { api_key: 'sk-replacement' }
+    })
+  })
+
+  test('filters non-secret account metadata out of secretCredentialSettings and checks present_fields', () => {
+    const chatgptKind: AIGatewayProviderKindItem = {
+      capabilities: ['llm'],
+      default_base_url: 'https://chatgpt.com/backend-api/codex',
+      label: { default: 'ChatGPT' },
+      provider_kind: 'chatgpt_subscription',
+      settings: [
+        providerSetting('access_token', { encrypted: true, required: true, scope: 'credential' }),
+        providerSetting('refresh_token', { encrypted: true, scope: 'credential' }),
+        providerSetting('id_token', { encrypted: true, scope: 'credential' }),
+        providerSetting('account_id', { encrypted: true, scope: 'credential' }),
+        providerSetting('plan_type', { encrypted: true, scope: 'credential' }),
+        providerSetting('email', { encrypted: true, scope: 'credential' }),
+        providerSetting('last_refresh', { encrypted: true, scope: 'credential' }),
+        providerSetting('fedramp', { encrypted: true, type: 'boolean', scope: 'credential' }),
+        providerSetting('auth_type', {
+          encrypted: true,
+          type: 'select',
+          options: ['oauth', 'enterprise_access_token'],
+          scope: 'credential'
+        })
+      ]
+    }
+
+    expect(secretCredentialSettings(chatgptKind).map(setting => setting.key)).toEqual([
+      'access_token',
+      'refresh_token',
+      'id_token'
+    ])
+
+    const defaultEntry: AIGatewayCredentialPoolEntry = {
+      id: 'default',
+      label: 'Default',
+      source: 'provider_default',
+      priority: 0,
+      credential_present: true,
+      present_fields: [],
+      status: 'ok',
+      request_count: 0,
+      rate_limits: {},
+      usage: {}
+    }
+    expect(entryHasSecretField(defaultEntry, 'api_key')).toBe(false)
+
+    const populatedEntry: AIGatewayCredentialPoolEntry = {
+      ...defaultEntry,
+      source: 'manual',
+      present_fields: ['api_key']
+    }
+    expect(entryHasSecretField(populatedEntry, 'api_key')).toBe(true)
+    expect(entryHasSecretField(populatedEntry, 'access_token')).toBe(false)
+
+    expect(decryptedCredentialFieldText({ api_key: 'sk-live', empty: '' }, 'api_key')).toBe('sk-live')
+    expect(decryptedCredentialFieldText({ api_key: 'sk-live', empty: '' }, 'empty')).toBeUndefined()
   })
 })

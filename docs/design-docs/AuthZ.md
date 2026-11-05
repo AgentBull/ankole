@@ -285,7 +285,9 @@ Resource namespaces separate administrative and runtime scopes:
   `tenant_console:agent:<uid>`, `tenant_console:agent_contracts`,
   `tenant_console:skills`, `tenant_console:custom_skills`,
   `tenant_console:skill_bindings`, and `tenant_console:agent_skill_binding:<uid>`)
-- **Runtime Agents**: `agent:<uid>`
+- **Runtime Agents**: `agent:<uid>` (AI colleague creation grants `all_humans`
+  `chat` on `agent:<uid>`, while personal-assistant creation grants only its
+  owner `chat` on `agent:<uid>`)
 - **Drive content**: `drive:space:**`, `drive:private:<uid>:**`,
   `drive:**:<node-id>:**`, or `drive:**:<node-id>:node`
 

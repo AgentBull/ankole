@@ -1,7 +1,7 @@
 import { downloadBlob } from '../../common/browser-files'
 import type { ConversationDetail, ConversationMessage } from '../api'
 
-export function messageMarkdown(message: Pick<ConversationMessage, 'text' | 'links'>): string {
+function messageMarkdown(message: Pick<ConversationMessage, 'text' | 'links'>): string {
   const lines: string[] = []
   for (const link of message.links) {
     if (link.kind === 'message' && link.quote) {

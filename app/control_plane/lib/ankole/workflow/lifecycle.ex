@@ -94,9 +94,11 @@ defmodule Ankole.Workflow.Lifecycle do
 
     case cleanup_terminal_run(run) do
       {:ok, cleaned_run} ->
+        notify_owner_conversation(cleaned_run.owner_session_id)
         {:ok, result |> Map.put(:run, cleaned_run) |> Map.put(:cleanup_errors, [])}
 
       {:error, {:workflow_terminal_cleanup_failed, cleanup_errors}} ->
+        notify_owner_conversation(run.owner_session_id)
         {:ok, Map.put(result, :cleanup_errors, cleanup_errors)}
     end
   end
@@ -107,10 +109,29 @@ defmodule Ankole.Workflow.Lifecycle do
       when is_list(running_session_ids) do
     Repo.assert_outside_transaction!()
     cleanup_errors = stop_running_task_turns(run, running_session_ids)
+    notify_owner_conversation(run.owner_session_id)
     {:ok, Map.put(result, :cleanup_errors, cleanup_errors)}
   end
 
+  def cleanup_committed({:ok, %{run: %Run{} = run}} = result) do
+    notify_owner_conversation(run.owner_session_id)
+    result
+  end
+
   def cleanup_committed(result), do: result
+
+  @doc false
+  def notify_owner_conversation(owner_session_id) when is_binary(owner_session_id) do
+    case Ankole.Sessions.Key.parse(owner_session_id) do
+      {:conversation, conversation_id} ->
+        Ankole.Conversations.Events.publish_status(conversation_id)
+
+      _ ->
+        :ok
+    end
+  end
+
+  def notify_owner_conversation(_owner_session_id), do: :ok
 
   def cleanup_terminal_run(%Run{cleanup_completed_at: %DateTime{}} = run) do
     {:ok, run}

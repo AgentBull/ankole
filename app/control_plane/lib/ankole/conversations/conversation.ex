@@ -178,7 +178,8 @@ defmodule Ankole.Conversations.Conversation do
         :dm_colleague_uid,
         :origin_conversation_id,
         :peer_sender_uid,
-        :peer_target_uid
+        :peer_target_uid,
+        :metadata
       ])
 
       change(set_attribute(:room_mode, :dm, new?: true))
@@ -228,6 +229,11 @@ defmodule Ankole.Conversations.Conversation do
 
     update :rename_title do
       accept([:title, :title_customized])
+      validate(attribute_equals(:kind, :native))
+    end
+
+    update :apply_generated_title do
+      accept([:title, :metadata])
       validate(attribute_equals(:kind, :native))
     end
 

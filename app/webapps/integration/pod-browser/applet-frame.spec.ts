@@ -62,10 +62,17 @@ test('ESM chunks and Web Workers retain the original tab identity when another a
       document.documentElement.dataset.theme = 'dark'
     })
     await expect(frame.locator('html')).toHaveAttribute('data-theme', 'dark')
+    await expect(frame.locator('html')).toHaveCSS('color-scheme', 'dark')
+    await expect(original.locator('iframe')).toHaveCSS('color-scheme', 'dark')
+    await expect(frame.locator('.applet-shell')).toHaveAttribute('data-applet-theme', 'dark')
     await original.evaluate(theme => {
       if (theme) document.documentElement.dataset.theme = theme
       else delete document.documentElement.dataset.theme
     }, previousTheme)
+    await expect(frame.locator('.applet-shell')).toHaveAttribute(
+      'data-applet-theme',
+      previousTheme === 'dark' ? 'dark' : 'light'
+    )
     const auth = await original.locator('meta[name="ankole-authentication"]').getAttribute('content')
     const source = await original.locator('iframe').getAttribute('src')
     expect(source).toContain(`/pod/applet-frame/${auth}/${id}/`)

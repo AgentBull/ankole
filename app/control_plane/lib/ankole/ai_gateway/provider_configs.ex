@@ -4,8 +4,9 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   A provider row holds shared endpoint settings and an inline encrypted
   credential pool. Plaintext credential fields only leave through provider
-  request construction and model metadata. Every Console/API shape goes
-  through `projection/1`.
+  request construction, model metadata, and the separately-authorized
+  credential decryption action. Every other Console/API shape goes through
+  `projection/1`.
 
   The writes that read the current row lock it first and run as the generic
   actions of `Ankole.AIGateway.ProviderConfigs.Provider`.
@@ -101,6 +102,10 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
         route(:post, "/chatgpt-enterprise-credentials", :enterprise,
           name: "add_chatgpt_enterprise_credential"
+        )
+
+        route(:post, "/credentials/:credential_id/decryptions", :decrypt_credential,
+          name: "decrypt_ai_gateway_credential"
         )
       end
     end
@@ -429,6 +434,24 @@ defmodule Ankole.AIGateway.ProviderConfigs do
       do: change(provider_id, :select_strategy, %{strategy: strategy})
 
   @doc """
+  Decrypts one stored provider credential for an authorized Console reveal.
+  """
+  @spec console_decrypt_credential(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def console_decrypt_credential(provider_id, credential_id)
+      when is_binary(provider_id) and is_binary(credential_id) do
+    with {:ok, provider} <- fetch_provider(provider_id),
+         {:ok, entry} <- Credentials.fetch_credential_entry(provider, credential_id),
+         {:ok, credential} <- Credentials.decrypt_credential(provider, entry) do
+      {:ok,
+       %{
+         provider_id: provider.provider_id,
+         credential_id: Map.get(entry, "id", credential_id),
+         values: credential
+       }}
+    end
+  end
+
+  @doc """
   Runs an atomic read-modify-write for one credential.
 
   The callback runs after the provider row is locked. It receives the provider,
@@ -622,13 +645,15 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     end
   end
 
-  # API projections expose pool metadata, selected health, and a small set of
-  # account facts. Token and API-key fields never leave this module.
+  # API projections expose pool metadata, selected health, present secret field
+  # names, and a small set of account facts. Token and API-key values leave
+  # only through `console_decrypt_credential/2` or runtime request resolution.
   @doc false
   def credential_pool_projection(%Provider{} = provider) do
     pool = Credentials.credential_pool(provider)
     entries = Map.get(pool, "entries", [])
     statuses = CredentialPool.statuses(provider.id, entries)
+    encrypted_keys = encrypted_credential_keys(provider.provider_kind)
 
     %{
       "strategy" => Map.get(pool, "strategy", "fill_first"),
@@ -637,19 +662,22 @@ defmodule Ankole.AIGateway.ProviderConfigs do
           credential_id = Map.get(entry, "id")
           status = Map.get(statuses, credential_id, %{"status" => "dead"})
 
-          account_projection =
+          {account_projection, present_fields} =
             case Credentials.decrypt_credential(provider, entry) do
               {:ok, credential} ->
-                Map.take(credential, [
-                  "account_id",
-                  "plan_type",
-                  "email",
-                  "last_refresh",
-                  "auth_type"
-                ])
+                {
+                  Map.take(credential, [
+                    "account_id",
+                    "plan_type",
+                    "email",
+                    "last_refresh",
+                    "auth_type"
+                  ]),
+                  present_encrypted_fields(credential, encrypted_keys)
+                }
 
               {:error, _reason} ->
-                %{"reauth_required" => true}
+                {%{"reauth_required" => true}, []}
             end
 
           entry
@@ -662,10 +690,40 @@ defmodule Ankole.AIGateway.ProviderConfigs do
             "reauth_required"
           ])
           |> Map.put("credential_present", is_binary(Map.get(entry, "encrypted_credential")))
+          |> Map.put("present_fields", present_fields)
           |> Map.merge(account_projection)
           |> Map.merge(status)
         end)
     }
+  end
+
+  defp encrypted_credential_keys(provider_kind) do
+    case Providers.fetch(provider_kind) do
+      {:ok, definition} ->
+        definition.settings
+        |> Enum.filter(&(&1.scope == :credential and &1.encrypted?))
+        |> Enum.map(&Atom.to_string(&1.key))
+        |> MapSet.new()
+
+      {:error, _reason} ->
+        nil
+    end
+  end
+
+  defp present_encrypted_fields(credential, encrypted_keys) when is_map(credential) do
+    credential
+    |> Enum.reduce([], fn
+      {key, value}, acc when is_binary(key) and value not in [nil, ""] ->
+        if is_nil(encrypted_keys) or MapSet.member?(encrypted_keys, key) do
+          [key | acc]
+        else
+          acc
+        end
+
+      _entry, acc ->
+        acc
+    end)
+    |> Enum.sort()
   end
 
   @config_reason_labels %{

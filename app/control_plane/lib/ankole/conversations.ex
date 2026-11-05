@@ -93,6 +93,14 @@ defmodule Ankole.Conversations do
 
   defdelegate stop_peer_exchange(actor, origin, id), to: Ankole.Conversations.Peers, as: :stop
 
+  defdelegate stop_execution(actor, conversation_id, kind, run_id),
+    to: Ankole.Conversations.Executions,
+    as: :stop
+
+  defdelegate message_execution(actor, conversation_id, run_id, request_id, text),
+    to: Ankole.Conversations.Executions,
+    as: :message
+
   defdelegate direct_conversations(human_uid), to: NativeRoom
   defdelegate teammates(actor, query \\ nil), to: NativeRoom
   defdelegate update_conversation(actor, id, attrs), to: NativeRoom, as: :update
@@ -116,6 +124,10 @@ defmodule Ankole.Conversations do
   defdelegate reply_suggestion(actor, conversation_id, opts \\ []),
     to: Ankole.Conversations.ReplySuggestion,
     as: :suggest
+
+  defdelegate maybe_generate_title_async(agent_uid, signal),
+    to: Ankole.Conversations.TitleGenerator,
+    as: :maybe_generate_async
 
   defdelegate agents(human_uid), to: Native
   defdelegate authorize_agent(actor, uid), to: Native

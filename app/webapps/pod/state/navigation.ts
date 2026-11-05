@@ -2,14 +2,14 @@ import { recordValue, safeJsonParse } from '@agentbull/active-support'
 import { computed, createModel, signal } from '@preact/signals-react'
 
 export type NavigationScope = 'space' | 'private'
-export type CollapsibleSection = NavigationScope | 'recent' | 'favorites'
+export type CollapsibleSection = NavigationScope | 'recent' | 'favorites' | 'meta'
 
 /**
  * History state a Sidebar link records with the page it opens, so the row the
  * person followed stays the only marked one even when another section lists the page.
  */
 export type PodSidebarNavigationState = {
-  keepSidebarTab?: 'home' | 'chat' | 'meta'
+  keepSidebarTab?: 'home' | 'chat'
   sidebarSection?: CollapsibleSection
 }
 
@@ -22,7 +22,7 @@ export function isSidebarSectionActive(
   section: CollapsibleSection
 ): boolean {
   if (activeSection) return activeSection === section
-  return section === 'space' || section === 'private'
+  return section === 'space' || section === 'private' || section === 'meta'
 }
 
 export type RecentEntry<
@@ -99,7 +99,8 @@ function decode(raw: string | null): Preferences {
       recent: rootOpen?.recent !== false,
       favorites: rootOpen?.favorites !== false,
       space: rootOpen?.space !== false,
-      private: rootOpen?.private !== false
+      private: rootOpen?.private !== false,
+      meta: rootOpen?.meta === true
     },
     expanded: new Set<string>()
   }

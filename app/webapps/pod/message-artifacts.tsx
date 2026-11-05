@@ -3,7 +3,6 @@ import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, Input } from 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
 import { Link } from '@tanstack/react-router'
 import type { ConversationMessage } from './api'
 import { podKeys, type ConversationAttachment } from './api'
@@ -13,21 +12,9 @@ import { ContentError } from './content-primitives'
 import { PagePicker } from './page-picker'
 import { MessageAttachments } from './chat-attachments'
 import { PageIcon } from './page-icon'
-import { messageMarkdown, selectionToMarkdown } from './chat/export-markdown'
 import { RiSaveLine } from '@remixicon/react'
 
 type Message = ConversationMessage
-
-function defaultSaveTitle(message: Message, attachment: ConversationAttachment | undefined, t: TFunction) {
-  return String(
-    attachment?.name ||
-      (message.text ?? '')
-        .split('\n')[0]
-        ?.replace(/^#+\s*/, '')
-        .slice(0, 80) ||
-      t('pod.content.conversation_artifacts')
-  )
-}
 
 export function MessageArtifacts({ message, conversationID }: { message: Message; conversationID: string }) {
   const pages = message.links.filter(link => link.kind === 'page' && !message.text.includes(`ankole:page/${link.id}`))
@@ -40,7 +27,7 @@ export function MessageArtifacts({ message, conversationID }: { message: Message
         attachments={message.attachments}
         renderAction={attachment =>
           typeof attachment.path === 'string' ? (
-            <SaveMessageButton message={message} attachment={attachment} conversationID={conversationID} />
+            <SaveAttachmentButton messageID={message.id} attachment={attachment} conversationID={conversationID} />
           ) : null
         }
       />
@@ -78,21 +65,20 @@ export function MessagePageReference({ id }: { id: string }) {
   )
 }
 
-export function SaveMessageButton({
-  message,
+function SaveAttachmentButton({
+  messageID,
   attachment,
-  conversationID,
-  onSaved
+  conversationID
 }: {
-  message: Message
-  attachment?: ConversationAttachment
+  messageID: string
+  attachment: ConversationAttachment
   conversationID: string
-  onSaved?: (page: PageDetail['page']) => void
 }) {
   const { t } = useTranslation()
   const pageHref = usePageHref()
+  const attachmentLabel = String(attachment.name || t('pod.content.attachment'))
   const [open, setOpen] = useState(false)
-  const [title, setTitle] = useState(() => defaultSaveTitle(message, attachment, t))
+  const [title, setTitle] = useState(() => attachmentLabel)
   const [selectedParent, setParent] = useState<string>()
   const [selectedPage, setSelectedPage] = useState<Page>()
   const [savedSnapshot, setSaved] = useState<PageDetail['page']>()
@@ -118,16 +104,11 @@ export function SaveMessageButton({
       if (parent === 'private' && !pages.data?.principal_uid) {
         throw new Error(t('pod.content.your_private_identity_is_not_available_yet_wait_for_loading'))
       }
-      let xml: string | undefined
-      if (!attachment) {
-        const { parseMarkdown, printXml } = await import('@ankole/block-editor/document')
-        xml = printXml(parseMarkdown(messageMarkdown(message)))
-      }
       const { page } = await pageAPI.create({
-        type: attachment ? 'file' : 'doc',
+        type: 'file',
         title,
-        saved_from_message_id: message.id,
-        ...(attachment ? { attachment_position: attachment.position } : { xml }),
+        saved_from_message_id: messageID,
+        attachment_position: attachment.position,
         ...(parent === 'private'
           ? { private_owner_uid: pages.data!.principal_uid }
           : parent === 'space'
@@ -143,37 +124,29 @@ export function SaveMessageButton({
       ])
       setOpen(false)
       setSaved(page)
-      onSaved?.(page)
     }
   })
   const cannotSave =
     save.isPending || !pages.data || !validParent || (parent === 'private' && !pages.data.principal_uid)
   if (saved) {
-    return onSaved ? null : (
+    return (
       <Link className="link pod-chat-saved-page" to={pageHref(saved.id, saved.title)}>
         <PageIcon page={saved} />
         {saved.title || t('pod.content.untitled')}
       </Link>
     )
   }
+  const saveLabel = t('pod.content.save_file', { value1: attachmentLabel })
   return (
     <Dialog open={open} onOpenChange={next => !save.isPending && setOpen(next)}>
       <Button
         size="icon-xs"
         variant="ghost"
-        aria-label={
-          attachment
-            ? t('pod.content.save_file', { value1: String(attachment.name || t('pod.content.attachment')) })
-            : t('pod.content.save_as_page')
-        }
-        title={
-          attachment
-            ? t('pod.content.save_file', { value1: String(attachment.name || t('pod.content.attachment')) })
-            : t('pod.content.save_as_page')
-        }
+        aria-label={saveLabel}
+        title={saveLabel}
         onClick={() => {
           save.reset()
-          setTitle(defaultSaveTitle(message, attachment, t))
+          setTitle(attachmentLabel)
           setOpen(true)
         }}>
         <RiSaveLine aria-hidden />
@@ -190,9 +163,7 @@ export function SaveMessageButton({
             }}
           />
         }>
-        <DialogTitle>
-          {attachment ? t('pod.content.save_file_to_pod') : t('pod.content.save_conversation_artifact')}
-        </DialogTitle>
+        <DialogTitle>{t('pod.content.save_file_to_pod')}</DialogTitle>
         <label className="grid gap-1.5 text-sm">
           <span>{t('pod.content.page_title')}</span>
           <Input
@@ -233,143 +204,6 @@ export function SaveMessageButton({
         <ContentError error={pages.error || save.error} retry={pages.error ? () => void pages.refetch() : undefined} />
         <DialogFooter>
           <Button variant="ghost" type="button" disabled={save.isPending} onClick={() => setOpen(false)}>
-            {t('pod.content.cancel')}
-          </Button>
-          <Button variant="outline" type="submit" disabled={cannotSave}>
-            {save.isPending ? t('pod.content.saving') : t('pod.content.save')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-export function SaveSelectionAsPageDialog({
-  open,
-  onOpenChange,
-  messages,
-  conversationID,
-  defaultTitle,
-  onSaved
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  messages: Message[]
-  conversationID: string
-  defaultTitle?: string
-  onSaved?: (page: PageDetail['page']) => void
-}) {
-  const { t } = useTranslation()
-  const [title, setTitle] = useState(
-    () =>
-      defaultTitle?.trim() ||
-      defaultSaveTitle(messages[0] ?? ({ text: '', links: [] } as unknown as Message), undefined, t)
-  )
-  const [selectedParent, setParent] = useState<string>()
-  const [selectedPage, setSelectedPage] = useState<Page>()
-  const pages = useQuery({ ...pageSearchQuery('', { required_action: 'node_edit' }), enabled: open })
-  const parent =
-    selectedParent ?? (pages.data?.can_create_private ? 'private' : pages.data?.can_create_space ? 'space' : '')
-  const destinations = usePagesMetadata([
-    ...new Map(
-      [...(pages.data?.pages ?? []), ...(selectedPage ? [selectedPage] : [])].map(page => [page.id, page])
-    ).values()
-  ])
-  const validParent =
-    (parent === 'private' && pages.data?.can_create_private === true) ||
-    (parent === 'space' && pages.data?.can_create_space === true) ||
-    destinations.some(page => page.id === parent)
-  const client = useQueryClient()
-  const save = useMutation({
-    mutationFn: async () => {
-      if (!validParent) {
-        throw new Error(t('pod.content.this_save_location_is_no_longer_available_choose_another_location'))
-      }
-      if (parent === 'private' && !pages.data?.principal_uid) {
-        throw new Error(t('pod.content.your_private_identity_is_not_available_yet_wait_for_loading'))
-      }
-      const { parseMarkdown, printXml } = await import('@ankole/block-editor/document')
-      const xml = printXml(parseMarkdown(selectionToMarkdown(messages)))
-      const firstMessageID = messages[0]?.id
-      const { page } = await pageAPI.create({
-        type: 'doc',
-        title,
-        ...(firstMessageID ? { saved_from_message_id: firstMessageID } : {}),
-        xml,
-        ...(parent === 'private'
-          ? { private_owner_uid: pages.data!.principal_uid }
-          : parent === 'space'
-            ? {}
-            : { parent_id: parent })
-      })
-      return page
-    },
-    onSuccess: async page => {
-      await Promise.all([
-        pageCreated(client, page),
-        client.invalidateQueries({ queryKey: podKeys.detail(conversationID) })
-      ])
-      onOpenChange(false)
-      onSaved?.(page)
-    }
-  })
-  const cannotSave =
-    save.isPending ||
-    !messages.length ||
-    !pages.data ||
-    !validParent ||
-    (parent === 'private' && !pages.data.principal_uid)
-
-  return (
-    <Dialog open={open} onOpenChange={next => !save.isPending && onOpenChange(next)}>
-      <DialogContent
-        className="pod-dialog"
-        closeLabel={t('common.close')}
-        showCloseButton={!save.isPending}
-        render={
-          <form
-            onSubmit={event => {
-              event.preventDefault()
-              if (!cannotSave) save.mutate()
-            }}
-          />
-        }>
-        <DialogTitle>{t('pod.content.save_conversation_artifact')}</DialogTitle>
-        <label className="grid gap-1.5 text-sm">
-          <span>{t('pod.content.page_title')}</span>
-          <Input autoFocus value={title} onChange={event => setTitle(event.target.value)} disabled={save.isPending} />
-        </label>
-        <PagePicker
-          autoFocus={false}
-          label={t('pod.content.save_to')}
-          requiredAction="node_edit"
-          selected={parent}
-          disabled={save.isPending}
-          roots={[
-            ...(pages.data?.can_create_private
-              ? [{ id: 'private', title: t('pod.content.private'), private: true }]
-              : []),
-            ...(pages.data?.can_create_space ? [{ id: 'space', title: t('pod.content.space') }] : [])
-          ]}
-          onSelect={(id, page) => {
-            setParent(id)
-            setSelectedPage(page)
-          }}
-        />
-        {!pages.isPending && validParent && (
-          <p className="pod-selected-destination text-sm">
-            {t('pod.content.save_to')}:{' '}
-            {parent === 'private'
-              ? t('pod.content.private')
-              : parent === 'space'
-                ? t('pod.content.space')
-                : destinations.find(page => page.id === parent)?.title || t('pod.content.untitled')}
-          </p>
-        )}
-        {pages.isPending && <p role="status">{t('pod.content.loading_save_locations')}</p>}
-        <ContentError error={pages.error || save.error} retry={pages.error ? () => void pages.refetch() : undefined} />
-        <DialogFooter>
-          <Button variant="ghost" type="button" disabled={save.isPending} onClick={() => onOpenChange(false)}>
             {t('pod.content.cancel')}
           </Button>
           <Button variant="outline" type="submit" disabled={cannotSave}>

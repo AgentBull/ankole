@@ -421,4 +421,178 @@ defmodule AnkoleWeb.JSONAPI.MetaAnkoleTest do
 
     assert {:error, :immutable_root} = Ankole.Pod.Pages.delete(actor_fixture(uid), category.id)
   end
+
+  test "Brain graph exposes ontology hierarchy, ownership, and authorized evidence edges", %{
+    conn: conn,
+    uid: uid
+  } do
+    worker_provider_fixture(%{is_default: true})
+    {:ok, _} = Ankole.Brain.SchemaPacks.install_packs([])
+    {:ok, %{principal: assistant}} = Ankole.Principals.ensure_personal_assistant(uid)
+    actor = actor_fixture(uid)
+
+    {:ok, companies} = Ankole.Brain.ObjectWrites.category("companies")
+    {:ok, analysis} = Ankole.Brain.ObjectWrites.category("analysis")
+
+    {:ok, :ok} =
+      Ankole.Repo.transact(fn ->
+        for category <- [companies, analysis] do
+          :ok =
+            Ankole.Pod.Access.put_role(
+              %{principal_uid: uid},
+              "drive:**:#{category.id}:**",
+              "manage"
+            )
+        end
+
+        {:ok, :ok}
+      end)
+
+    {:ok, parent_company} =
+      Ankole.Pod.Pages.create(actor, %{
+        type: :knowledge,
+        parent_id: companies.id,
+        title: "Parent Corp"
+      })
+
+    {:ok, child_division} =
+      Ankole.Pod.Pages.create(actor, %{
+        type: :knowledge,
+        parent_id: parent_company.id,
+        title: "Cloud Division"
+      })
+
+    {:ok, report_page} =
+      Ankole.Pod.Pages.create(actor, %{
+        type: :knowledge,
+        parent_id: analysis.id,
+        title: "Q3 Diligence Report",
+        xml: ~s(<page><p>Covers <mention page="#{parent_company.id}" />.</p></page>),
+        metadata: %{"subtype" => "diligence"}
+      })
+
+    {:ok, _} =
+      Ankole.Brain.Claims.write_fact(
+        %{
+          subject_page_id: child_division.id,
+          source_node_id: report_page.id,
+          claim: "Cloud Division ARR grew 42% YoY.",
+          kind: "fact",
+          holder: "world",
+          notability: "high",
+          valid_from: DateTime.utc_now(:microsecond),
+          confidence: 0.9,
+          provenance: "test"
+        },
+        :system,
+        embed: false
+      )
+
+    other_owner = human_fixture().principal
+
+    {:ok, secret_source} =
+      Ankole.Pod.Pages.create(actor_fixture(other_owner.uid), %{
+        type: :doc,
+        title: "Private Memo"
+      })
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(other_owner.uid, secret_source.id, %{
+        inherit_permissions: false,
+        grants: [%{principal_uid: other_owner.uid, role: "manage"}]
+      })
+
+    {:ok, member_page} = Ankole.Brain.Objects.resolve_reference("people/" <> uid)
+    {:ok, assistant_page} = Ankole.Brain.Objects.resolve_reference("agents/" <> assistant.uid)
+
+    {:ok, _} =
+      Ankole.Brain.Claims.write_take(
+        %{
+          subject_page_id: parent_company.id,
+          source_node_id: secret_source.id,
+          claim: "Secret take that must stay hidden from uid",
+          kind: "thesis",
+          holder: member_page.id,
+          weight: 0.8,
+          provenance: "secret"
+        },
+        :system,
+        embed: false
+      )
+
+    {:ok, _} =
+      Ankole.Brain.Claims.write_take(
+        %{
+          subject_page_id: child_division.id,
+          source_node_id: report_page.id,
+          claim: "Cloud Division will lead margin expansion.",
+          kind: "thesis",
+          holder: member_page.id,
+          weight: 0.8,
+          provenance: "visible"
+        },
+        :system,
+        embed: false
+      )
+
+    graph = conn |> meta_conn() |> get("/api/v2/pod/meta/brain") |> json_response(200)
+
+    company_category = Enum.find(graph["categories"], &(&1["name"] == "companies"))
+    assert company_category["entity_type"] == "company"
+    assert company_category["primitive"] == "entity"
+
+    nodes_by_id = Map.new(graph["nodes"], &{&1["id"], &1})
+    assert nodes_by_id[parent_company.id]["parent_id"] == companies.id
+    assert nodes_by_id[child_division.id]["parent_id"] == parent_company.id
+    assert nodes_by_id[report_page.id]["subtype"] == "diligence"
+
+    links = graph["links"]
+
+    assert Enum.any?(
+             links,
+             &(&1["from_page_id"] == parent_company.id and
+                 &1["to_page_id"] == child_division.id and
+                 &1["link_type"] == "contains" and
+                 &1["relation_kind"] == "hierarchy")
+           )
+
+    assert Enum.any?(
+             links,
+             &(&1["from_page_id"] == report_page.id and
+                 &1["to_page_id"] == parent_company.id and
+                 &1["link_type"] == "references" and
+                 &1["relation_kind"] == "reference")
+           )
+
+    assert Enum.any?(
+             links,
+             &(&1["from_page_id"] == report_page.id and
+                 &1["to_page_id"] == child_division.id and
+                 &1["link_type"] == "evidences" and
+                 &1["relation_kind"] == "evidence")
+           )
+
+    assert Enum.any?(
+             links,
+             &(&1["from_page_id"] == member_page.id and
+                 &1["to_page_id"] == child_division.id and
+                 &1["link_type"] == "holds_take" and
+                 &1["relation_kind"] == "evidence")
+           )
+
+    refute Enum.any?(
+             links,
+             &(&1["from_page_id"] == member_page.id and
+                 &1["to_page_id"] == parent_company.id and
+                 &1["link_type"] == "holds_take")
+           )
+
+    assert Enum.any?(
+             links,
+             &(&1["from_page_id"] == assistant_page.id and
+                 &1["to_page_id"] == member_page.id and
+                 &1["link_type"] == "assists" and
+                 &1["relation_kind"] == "ownership")
+           )
+  end
 end

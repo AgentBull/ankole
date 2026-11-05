@@ -665,7 +665,7 @@ test('one block-menu request deletes a batch atomically and a forbidden child le
   }
 })
 
-test('chat findings and attachments become durable pages after the native source conversation is deleted', async ({
+test('saved chat attachments remain durable pages after the native source conversation is deleted', async ({
   browser
 }) => {
   const context = await browser.newContext()
@@ -681,16 +681,10 @@ test('chat findings and attachments become durable pages after the native source
     const message = owner.locator(`[data-chat-message-id="${state.message_id}"]`)
     await expect(message.getByRole('link', { name: 'Open the report', exact: true })).toHaveAttribute(
       'href',
-      route(state.report_id)
+      route(state.report_id, undefined, '')
     )
     await message.hover()
-    await message.getByRole('button', { name: '保存为页面', exact: true }).click()
-    await owner.getByRole('textbox', { name: '页面标题', exact: true }).fill('Saved chat findings')
-    await owner.getByRole('button', { name: '保存', exact: true }).click()
-    await message.getByRole('link', { name: 'Saved chat findings', exact: true }).click()
-    await expect(content(owner)).toContainText('Browser chat findings.')
-    const notesID = pageIDFromURL(owner.url())
-    await owner.getByRole('link', { name: /^来源对话：/ }).click()
+    await expect(message.getByRole('button', { name: '保存为页面', exact: true })).toHaveCount(0)
     await owner.getByRole('button', { name: visibleName(`保存文件：${state.chat_attachment_name}`) }).click()
     await owner.getByRole('textbox', { name: '页面标题', exact: true }).fill('Saved source evidence')
     await owner.getByRole('button', { name: '保存', exact: true }).click()
@@ -715,7 +709,7 @@ test('chat findings and attachments become durable pages after the native source
     await expect
       .poll(
         async () =>
-          (await request<{ source_conversation: { deleted: boolean } | null }>(owner, `/pages/${notesID}`))
+          (await request<{ source_conversation: { deleted: boolean } | null }>(owner, `/pages/${fileID}`))
             .source_conversation?.deleted
       )
       .toBe(true)
@@ -726,12 +720,9 @@ test('chat findings and attachments become durable pages after the native source
     await owner.getByRole('link', { name: '下载原文件', exact: true }).click()
     const retainedDownload = await retainedDownloadEvent
     expect(readFileSync((await retainedDownload.path())!, 'utf8')).toBe('Original browser research evidence.')
-    await owner.goto(state.base_url + route(notesID))
-    await expect(content(owner)).toContainText('Browser chat findings.')
-    await expect(owner.getByText('来源对话已删除', { exact: true })).toBeVisible()
     await owner.getByRole('tab', { name: '主页', exact: true }).click()
     await expect(
-      owner.getByRole('region', { name: '私人页面', exact: true }).getByRole('link', { name: 'Saved chat findings' })
+      owner.getByRole('region', { name: '私人页面', exact: true }).getByRole('link', { name: 'Saved source evidence' })
     ).toBeVisible()
   } finally {
     await context.close()

@@ -17,6 +17,7 @@ defmodule AnkoleWeb.PodRuntimeContextTest do
   setup %{conn: conn} do
     {conn, human} = console_conn_with_principal(conn)
     agent = Ankole.SessionsCase.agent_fixture(%{owner_principal_uid: human}).principal
+    :ok = Ankole.ConversationsFixtures.revoke_default_chat(agent.uid)
     %{conn: conn, human: human, agent: agent}
   end
 

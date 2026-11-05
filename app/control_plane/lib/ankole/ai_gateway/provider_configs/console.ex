@@ -1,5 +1,5 @@
 defmodule Ankole.AIGateway.ProviderConfigs.Console do
-  @moduledoc "The HTTP actions for provider catalogs and ChatGPT sign-in."
+  @moduledoc "The HTTP actions for provider catalogs, credential decryption, and ChatGPT sign-in."
   use Ankole.Ash.OperationResource,
     authorizers: [Ankole.AuthZ.Authorizer],
     domain: Ankole.AIGateway.ProviderConfigs,
@@ -18,6 +18,11 @@ defmodule Ankole.AIGateway.ProviderConfigs.Console do
     allow(:enterprise,
       resource: "site_console:ai_gateway_provider:{provider_id}",
       action: "update"
+    )
+
+    allow(:decrypt_credential,
+      resource: "site_console:ai_gateway_provider:{provider_id}",
+      action: "decrypt"
     )
   end
 
@@ -150,6 +155,30 @@ defmodule Ankole.AIGateway.ProviderConfigs.Console do
       constraints(fields: [ai_gateway_provider: [type: :map, allow_nil?: false]])
       argument(:provider_id, :string, allow_nil?: false)
       argument(:credential, :map, allow_nil?: false, sensitive?: true)
+      run(__MODULE__.Actions)
+    end
+
+    action :decrypt_credential, :map do
+      transaction?(false)
+
+      constraints(
+        fields: [
+          decrypted_credential: [
+            type: :map,
+            allow_nil?: false,
+            constraints: [
+              fields: [
+                provider_id: [type: :string, allow_nil?: false],
+                credential_id: [type: :string, allow_nil?: false],
+                values: [type: Ankole.Ash.Types.JSONMap, allow_nil?: false]
+              ]
+            ]
+          ]
+        ]
+      )
+
+      argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:credential_id, :string, allow_nil?: false, constraints: [trim?: false])
       run(__MODULE__.Actions)
     end
   end

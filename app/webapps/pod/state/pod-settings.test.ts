@@ -123,6 +123,8 @@ test('AccountSettingsModel stores challengeID across OTP resend attempts', () =>
 test('routeSidebarTab and podRouteTitle preserve sidebar context and format route titles', () => {
   expect(routeSidebarTab('/pages/abc')).toBe('home')
   expect(routeSidebarTab('/content/space')).toBe('home')
+  expect(routeSidebarTab('/meta')).toBe('home')
+  expect(routeSidebarTab('/meta/brain')).toBe('home')
   expect(routeSidebarTab('/')).toBe('chat')
   expect(routeSidebarTab('/conversations/abc')).toBe('chat')
   expect(routeSidebarTab('/me')).toBeUndefined()
@@ -130,6 +132,8 @@ test('routeSidebarTab and podRouteTitle preserve sidebar context and format rout
 
   const t = (key: string) => key
   expect(podRouteTitle('/pages/abc', t)).toBeUndefined()
+  expect(podRouteTitle('/meta', t)).toBe('Meta Ankole · Ankole')
+  expect(podRouteTitle('/meta/skills', t)).toBe('Meta Ankole · Ankole')
   expect(podRouteTitle('/me', t)).toBe('pod.account.title · Ankole')
   expect(podRouteTitle('/settings', t)).toBe('pod.settings.title · Ankole')
   expect(podRouteTitle('/', t)).toBe('pod.sidebar.tabs.chat · Ankole')

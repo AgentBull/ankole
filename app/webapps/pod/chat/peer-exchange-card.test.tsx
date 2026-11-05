@@ -5,8 +5,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
 import i18n, { loadLocale } from '../../common/i18n'
 import { podKeys } from '../api'
+import { PodPanelPresence } from '../panel-motion'
+import { ExecutionInspectorPanel } from './execution-inspector-panel'
 import { PeerExchangeCard, pairPeerExchanges } from './peer-exchange-card'
-import type { TimelineMessage } from './types'
+import type { InspectorTarget, TimelineMessage } from './types'
 
 const locales = ['en-US', 'zh-Hans-CN', 'ja-JP', 'ko-KR'] as const
 const conversationID = '019a0000-0000-7000-8000-000000000001'
@@ -139,4 +141,75 @@ test('a reply joins the nearest earlier delegation of its exchange, and only the
   expect(pairs.replies.has(second.id)).toBe(false)
   expect([...pairs.paired]).toEqual([reply.id])
   expect([...pairs.latest]).toEqual([second.id])
+})
+
+test('PeerExchangeInspectorBody derives live completion status from query data instead of freezing the status when opened', () => {
+  const client = new QueryClient()
+  const target: InspectorTarget = {
+    type: 'peer',
+    exchangeID,
+    agentUID: 'legal'
+  }
+  client.setQueryData(podKeys.agents, {
+    agents: [{ uid: 'legal', displayName: 'Legal review', type: 'agent', active: true, mayIntervene: false }],
+    personalAssistantAvailable: true
+  })
+
+  const renderInspector = () =>
+    renderToStaticMarkup(
+      <I18nextProvider i18n={i18n.cloneInstance({ lng: 'en-US' })}>
+        <QueryClientProvider client={client}>
+          <PodPanelPresence animate={false}>
+            <ExecutionInspectorPanel
+              conversationID={conversationID}
+              target={target}
+              resolveAgentName={uid => (uid === 'legal' ? 'Legal review' : undefined)}
+              onClose={() => {}}
+              onSwitchTarget={() => {}}
+            />
+          </PodPanelPresence>
+        </QueryClientProvider>
+      </I18nextProvider>
+    )
+
+  try {
+    const t = i18n.getFixedT('en-US')
+    client.setQueryData([...podKeys.detail(conversationID), 'peer', exchangeID], {
+      id: exchangeID,
+      agentUID: 'legal',
+      status: 'running',
+      text: '',
+      messages: [{ id: 'm1', seq: 1, authorUID: 'assistant', text: 'Review the supplier contracts' }]
+    })
+    const runningHtml = renderInspector()
+    expect(runningHtml).toContain(t('pod.superagent.exchange_with', { name: 'Legal review' }))
+    expect(runningHtml).toContain(`role="status">${t('pod.superagent.delegation_running')}</span>`)
+
+    // Once the colleague settles and replies, the inspector reflects completion rather than the opening 'Working' label.
+    client.setQueryData([...podKeys.detail(conversationID), 'peer', exchangeID], {
+      id: exchangeID,
+      agentUID: 'legal',
+      status: 'idle',
+      text: '',
+      messages: [
+        { id: 'm1', seq: 1, authorUID: 'assistant', text: 'Review the supplier contracts' },
+        { id: 'm2', seq: 2, authorUID: 'legal', text: 'Clause 4 caps liability too low.' }
+      ]
+    })
+    const settledHtml = renderInspector()
+    expect(settledHtml).toContain(`role="status">${t('pod.superagent.delegation_done_untimed')}</span>`)
+    expect(settledHtml).not.toContain(`role="status">${t('pod.superagent.delegation_running')}</span>`)
+
+    // Also supports explicit 'completed' status without falling back to any stale label.
+    client.setQueryData([...podKeys.detail(conversationID), 'peer', exchangeID], {
+      id: exchangeID,
+      agentUID: 'legal',
+      status: 'completed',
+      text: '',
+      messages: []
+    })
+    expect(renderInspector()).toContain(`role="status">${t('pod.superagent.delegation_done_untimed')}</span>`)
+  } finally {
+    client.clear()
+  }
 })

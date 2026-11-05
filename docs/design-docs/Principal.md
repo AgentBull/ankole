@@ -380,7 +380,10 @@ support offboarding and cleanup workflows.
 3. Inserts the `principals` row and creates the Agent's private Drive root,
    before Library initialization. The transaction takes the Page tree lock
    before Principal, turn, or content locks.
-4. Inserts the `agents` row.
+4. Inserts the `agents` row and seeds its initial AuthZ grants: an AI colleague
+   grants the tenant's `all_humans` group `chat` permission on `agent:<uid>`,
+   whereas a personal assistant grants its owner `chat` permission on
+   `agent:<uid>` and `manage` on `drive:private:<uid>:**`.
 5. Creates the identity page under the independent `Brain/agents/<uid>` root and initializes its Agent contract slots.
 6. Inserts the `agent_workers` row in state `absent` bound permanently to the
    selected Worker provider (an Agent's Worker provider cannot change later).
@@ -395,8 +398,9 @@ transaction. Deleting an `active` Agent first transitions it to `disabled`;
 sending a second delete for a `disabled` Agent physically removes its durable
 rows. The transaction acquires the Page tree lock and private-root lock first,
 cleans the private subtree's Pod content and physical Base tables, removes its
-Drive nodes, strips Drive grants, and recomputes affected ACL anchors before
-deleting the `principals` row. Disabling an Agent preserves its private root and
+Drive nodes, strips Drive grants and grants targeting the Agent's resource
+patterns, and recomputes affected ACL anchors before deleting the `principals`
+row. Disabling an Agent preserves its private root and
 content. Immutable file objects become eligible for normal reference-aware GC
 when their final live or historical reference disappears. After commit, `Principals.publish_agent_changes/1` broadcasts
 status updates within the Agent's tenant (including Conversations removed in

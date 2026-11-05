@@ -1,11 +1,50 @@
 import type { ConversationDetail, ConversationMessage, PodActivity, PodExecution } from '../api'
+import type { ConversationExecutionResponses } from '../api/generated/types.gen'
 
-export type ExecutionSummary = PodExecution
-export type ExecutionStep = NonNullable<ExecutionSummary['steps']>[number]
+export type ExecutionStep = Omit<
+  NonNullable<PodExecution['steps']>[number],
+  'input' | 'output' | 'duration_ms' | 'skill_name' | 'label_key' | 'label_bindings'
+> & {
+  toolKind?: string
+  skill_name?: string | null
+  duration_ms?: number | null
+  input?: unknown
+  output?: unknown
+  label_key?: string | null
+  label_bindings?: Record<string, unknown> | null
+  files?: Array<{ path: string; kind: string; diff?: string | null }>
+}
+
+export type ExecutionSummary = Omit<PodExecution, 'steps'> & {
+  steps?: ExecutionStep[]
+}
 
 type LinkedRun = ConversationDetail['linkedRuns'][number]
 
-export type LinkedExecution = LinkedRun & { agentName?: string }
+export type LinkedExecution = LinkedRun & {
+  agentName?: string
+  /** Job IDs in the same continuation chain represented by this card. */
+  chainIDs?: string[]
+}
+export type ConversationExecutionDetail = ConversationExecutionResponses[200]
+export type ConversationExecutionItem = ConversationExecutionDetail['items'][number]
+
+export type InspectorTarget =
+  | {
+      type: 'execution'
+      kind: LinkedExecution['kind']
+      runID: string
+      title?: string
+      agentName?: string
+      initialRun?: LinkedExecution
+      fromSummary?: boolean
+    }
+  | {
+      type: 'peer'
+      exchangeID: string
+      agentUID: string
+      fromSummary?: boolean
+    }
 
 /** A token count is null when no round of the group reported it. */
 export type ExecutionUsage = NonNullable<ExecutionSummary['usage']>

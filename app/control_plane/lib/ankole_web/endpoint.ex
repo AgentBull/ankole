@@ -62,7 +62,9 @@ defmodule AnkoleWeb.Endpoint do
   plug Plug.Static,
     at: "/assets",
     from: {AnkoleWeb.Assets, :directory, []},
-    gzip: not code_reloading?
+    gzip: not code_reloading?,
+    cache_control_for_etags:
+      if(code_reloading?, do: "public, no-cache", else: "public, max-age=31536000, immutable")
 
   plug Plug.Static,
     at: "/",

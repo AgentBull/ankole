@@ -30,7 +30,8 @@ import {
   PopoverTrigger,
   PopoverContent,
   PopoverTitle,
-  toast
+  toast,
+  useTheme
 } from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useModel } from '@preact/signals-react'
@@ -97,6 +98,8 @@ export function BasePage({
   configureInline?: (config: ViewConfig, table?: string) => void
 }) {
   const { base, realtime, readDenial } = useContent()
+  const { resolvedTheme } = useTheme()
+  const theme = resolvedTheme === 'dark' ? 'dark' : 'light'
   const client = useQueryClient()
   const runtime = useMemo<AppletRuntime>(
     () => ({
@@ -113,9 +116,10 @@ export function BasePage({
       runs: createAppletRuns(client, realtime, detail.page.id),
       pod: { request: podRequest },
       channel: name => realtime.channel(detail.page.id, name),
-      principal: realtime.principal
+      principal: realtime.principal,
+      theme
     }),
-    [detail.page.id, detail.page.revision, detail.actions, client, readDenial, base, realtime]
+    [detail.page.id, detail.page.revision, detail.actions, client, readDenial, base, realtime, theme]
   )
   return (
     <AppletRuntimeProvider runtime={runtime}>

@@ -2,8 +2,10 @@ defmodule Ankole.Conversations.ReplySuggestion do
   @moduledoc """
   Suggests the next message that a Human may send after an Agent's reply.
 
-  Pod asks for a suggestion once a reply has completed in a conversation where
-  the Human is the only human participant. The Agent that wrote the latest
+  Pod asks for a suggestion once a reply has completed in an idle conversation
+  where the Human is the only human participant and no question, confirmation
+  card, queued input, Agent turn, linked Background Agent Job, Workflow, or
+  delegated colleague exchange remains active. The Agent that wrote the latest
   message drafts one line with its `light` model profile from the recent
   transcript. Ankole stores nothing: the suggestion only fills the Human's
   draft when the Human adopts it.
@@ -12,9 +14,10 @@ defmodule Ankole.Conversations.ReplySuggestion do
   require Ash.Query
   require Logger
 
-  alias Ankole.AIGateway
+  alias Ankole.{AIGateway, BackgroundAgentJobs, Conversations, Repo, Sessions, Signals, Workflow}
   alias Ankole.AuthZ.Actor
-  alias Ankole.Conversations.{Message, NativeRoom}
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.Conversations.{ActionCards, Delivery, Message, Native, NativeRoom, Peers}
 
   @transcript_messages 8
   @message_chars 1_500
@@ -23,35 +26,59 @@ defmodule Ankole.Conversations.ReplySuggestion do
   @doc """
   Returns `%{message_id: id, text: text}` for the latest message of a room that
   the Human can read. `text` is nil when the room has another human
-  participant, when the latest message is not an Agent reply, or when the model
-  gives no usable line.
+  participant, when the latest message is not an Agent reply, when any turn,
+  queued input, pending question, confirmation card, or background/delegated
+  task is still active, or when the model gives no usable line.
   """
   @spec suggest(Actor.t(), String.t(), keyword()) ::
           {:ok, %{message_id: String.t() | nil, text: String.t() | nil}} | {:error, :not_found}
   def suggest(%Actor{} = actor, conversation_id, opts \\ []) do
-    case NativeRoom.visible(actor, conversation_id) do
-      nil ->
+    snapshot =
+      Repo.transact_repeatable_read_only(fn ->
+        case NativeRoom.visible(actor, conversation_id) do
+          nil ->
+            {:error, :not_found}
+
+          conversation ->
+            participants = NativeRoom.participants(conversation.id)
+            messages = recent_messages(conversation)
+
+            case List.last(messages) do
+              %Message{author_type: :agent, kind: :message, author_uid: agent_uid} = latest
+              when is_binary(agent_uid) ->
+                eligible? =
+                  only_human?(participants, Actor.uid(actor)) and
+                    idle_room?(conversation.id, participants)
+
+                {:ok,
+                 %{
+                   latest: latest,
+                   agent_uid: agent_uid,
+                   messages: messages,
+                   eligible?: eligible?
+                 }}
+
+              latest ->
+                {:ok, %{latest: latest, eligible?: false}}
+            end
+        end
+      end)
+
+    case snapshot do
+      {:error, :not_found} ->
         {:error, :not_found}
 
-      conversation ->
-        messages = recent_messages(conversation)
+      {:ok, %{latest: latest, agent_uid: agent_uid, messages: messages, eligible?: true}} ->
+        text =
+          draft(agent_uid, messages, Keyword.get(opts, :locale), %{
+            "human_uid" => Actor.uid(actor),
+            "session_id" => Sessions.Key.conversation(conversation_id)
+          })
 
-        case List.last(messages) do
-          %Message{author_type: :agent, kind: :message, author_uid: agent_uid} = latest
-          when is_binary(agent_uid) ->
-            text =
-              if only_human?(conversation.id, Actor.uid(actor)),
-                do:
-                  draft(agent_uid, messages, Keyword.get(opts, :locale), %{
-                    "human_uid" => Actor.uid(actor),
-                    "session_id" => Ankole.Sessions.Key.conversation(conversation.id)
-                  })
+        {:ok, %{message_id: latest.id, text: text}}
 
-            {:ok, %{message_id: latest.id, text: text}}
-
-          latest ->
-            {:ok, %{message_id: latest && latest.id, text: nil}}
-        end
+      {:ok, %{latest: latest}} ->
+        {:ok, %{message_id: latest && latest.id, text: nil}}
     end
   end
 
@@ -68,12 +95,74 @@ defmodule Ankole.Conversations.ReplySuggestion do
     |> Enum.reverse()
   end
 
-  defp only_human?(conversation_id, uid) do
-    conversation_id
-    |> NativeRoom.participants()
+  defp only_human?(participants, uid) do
+    participants
     |> Enum.reject(&(&1.role == :agent))
     |> Enum.map(& &1.principal_uid)
     |> Kernel.==([uid])
+  end
+
+  defp idle_room?(conversation_id, participants) do
+    session = Sessions.Key.conversation(conversation_id)
+    agent_uids = for %{role: :agent, principal_uid: uid} <- participants, do: uid
+    peers = Peers.exchanges([conversation_id])
+    peer_ids = Enum.map(peers, & &1.id)
+    peer_sessions = Enum.map(peer_ids, &Sessions.Key.conversation/1)
+    all_sessions = [session | peer_sessions]
+
+    session_keys =
+      Enum.map(agent_uids, &{&1, session}) ++
+        Enum.map(peers, &{&1.peer_target_uid, Sessions.Key.conversation(&1.id)})
+
+    session_keys
+    |> Sessions.statuses()
+    |> Enum.all?(fn {_key, %{state: state}} -> state == :idle end) and
+      not queued_inputs?(conversation_id) and
+      not active_jobs?(all_sessions) and
+      not active_workflows?(all_sessions) and
+      not pending_questions?([conversation_id | peer_ids]) and
+      not prepared_action_cards?(conversation_id)
+  end
+
+  defp queued_inputs?(conversation_id) do
+    Signals.list_signals!(
+      query: [filter: Native.pending_filter(conversation_id), limit: 1, select: [:id]]
+    ) != []
+  end
+
+  defp active_jobs?(sessions) do
+    BackgroundAgentJobs.list_jobs!(
+      query: [
+        filter: [
+          owner_session_id: [in: sessions],
+          status: [in: Job.live_statuses()],
+          skill_lesson_reflection?: false
+        ],
+        limit: 1,
+        select: [:id]
+      ]
+    ) != []
+  end
+
+  defp active_workflows?(sessions) do
+    Workflow.list_runs!(
+      query: [
+        filter: [owner_session_id: [in: sessions], status: :running],
+        limit: 1,
+        select: [:id]
+      ]
+    ) != []
+  end
+
+  defp pending_questions?(conversation_ids) do
+    conversation_ids
+    |> Conversations.latest_native_questions()
+    |> Delivery.Interactions.native_interactions()
+    |> Enum.any?(fn {_message_id, state} -> state["state"] == "pending" end)
+  end
+
+  defp prepared_action_cards?(conversation_id) do
+    MapSet.member?(ActionCards.prepared_conversation_ids([conversation_id]), conversation_id)
   end
 
   defp draft(agent_uid, messages, locale, request_context) do

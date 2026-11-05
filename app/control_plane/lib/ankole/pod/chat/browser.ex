@@ -28,6 +28,8 @@ defmodule Ankole.Pod.Chat.Browser do
     allow(:list, check: :guardrail)
     allow(:show, check: :guardrail)
     allow(:execution, check: :guardrail)
+    allow(:stop_execution, check: :guardrail)
+    allow(:message_execution, check: :guardrail)
     allow(:create, check: :guardrail)
     allow(:post_message, check: :guardrail)
     allow(:update_queue, check: :guardrail)
@@ -38,7 +40,7 @@ defmodule Ankole.Pod.Chat.Browser do
   end
 
   alias Ankole.Conversations
-  alias Ankole.Pod.Chat.{Detail, Conversation, Presentation}
+  alias Ankole.Pod.Chat.{Detail, Conversation, ExecutionDetail, Presentation}
   alias Ankole.Pod.APIError
   alias Ankole.Ash.Types.{UUIDv7, PrincipalKey}
 
@@ -502,18 +504,7 @@ defmodule Ankole.Pod.Chat.Browser do
       end)
     end
 
-    action :execution, :map do
-      constraints(
-        fields: [
-          text: [
-            type: :string,
-            allow_nil?: false,
-            constraints: [trim?: false, allow_empty?: true]
-          ],
-          nextCursor: [type: :string]
-        ]
-      )
-
+    action :execution, ExecutionDetail do
       argument(:id, UUIDv7, allow_nil?: false)
 
       argument(:kind, :atom,
@@ -532,6 +523,67 @@ defmodule Ankole.Pod.Chat.Browser do
         attrs = input.arguments
 
         Presentation.execution(context.actor, attrs.id, attrs.kind, attrs.run_id, attrs[:cursor])
+        |> APIError.result()
+      end)
+    end
+
+    action :stop_execution, :map do
+      constraints(
+        fields: [
+          runID: [type: :string, allow_nil?: false],
+          status: [type: :string, allow_nil?: false]
+        ]
+      )
+
+      argument(:id, UUIDv7, allow_nil?: false)
+
+      argument(:kind, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:background_agent_job, :workflow]]
+      )
+
+      argument(:run_id, :integer,
+        allow_nil?: false,
+        constraints: [min: Ankole.ModelIntegerID.minimum(), max: Ankole.ModelIntegerID.maximum()]
+      )
+
+      run(fn input, context ->
+        attrs = input.arguments
+
+        Conversations.stop_execution(context.actor, attrs.id, attrs.kind, attrs.run_id)
+        |> APIError.result()
+      end)
+    end
+
+    action :message_execution, :map do
+      constraints(
+        fields: [
+          runID: [type: :string, allow_nil?: false],
+          status: [type: :string, allow_nil?: false],
+          respawned: [type: :boolean, allow_nil?: false]
+        ]
+      )
+
+      argument(:id, UUIDv7, allow_nil?: false)
+
+      argument(:run_id, :integer,
+        allow_nil?: false,
+        constraints: [min: Ankole.ModelIntegerID.minimum(), max: Ankole.ModelIntegerID.maximum()]
+      )
+
+      argument(:requestID, UUIDv7, allow_nil?: false)
+      argument(:text, :string, allow_nil?: false, constraints: [trim?: false])
+
+      run(fn input, context ->
+        attrs = input.arguments
+
+        Conversations.message_execution(
+          context.actor,
+          attrs.id,
+          attrs.run_id,
+          attrs.requestID,
+          attrs.text
+        )
         |> APIError.result()
       end)
     end

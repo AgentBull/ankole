@@ -344,16 +344,23 @@ creates or updates (`PATCH` via `put`), disables or deletes (`DELETE` via
 active model profile still references that provider), and re-enables
 (`POST …/enable`) providers. Its calculated `credential_pool`
 (`CredentialPoolView`) and `provider_metadata` fields match
-`ProviderConfigs.projection/1` without ever exposing secret values, and errors
-format operator messages through `ProviderConfigs.rejection/1`. The same site
-API serves the model catalog, provider-kind definitions, credential writes
-(returning the safe `Provider` projection), pool-strategy updates, and ChatGPT
-sign-in flows (`ChatGPTAuth` runs outside transport transactions, committing
-only when storing a completed credential and returning just the current step,
-opaque client context, and safe account metadata). In the Console, operators can
-view each pool entry's label, source, health, recovery timestamp, request count,
-last selection time, and sanitized recent error details, as well as add, edit,
-disable, enable, delete, or reauthenticate entries.
+`ProviderConfigs.projection/1`—reporting `present_fields` (the names of non-empty
+encrypted credential fields on each entry) without exposing secret values in list
+or detail responses—and errors format operator messages through
+`ProviderConfigs.rejection/1`. Plaintext credential values leave the control
+plane for Console inspection only through
+`POST /api/v2/site/ai-gateway/providers/:provider_id/credentials/:credential_id/decryptions`,
+which `ProviderConfigs.Console` guards with a dedicated `decrypt` permission on
+`site_console:ai_gateway_provider:{provider_id}`. The same site API serves the
+model catalog, provider-kind definitions, credential writes (returning the safe
+`Provider` projection), pool-strategy updates, and ChatGPT sign-in flows
+(`ChatGPTAuth` runs outside transport transactions, committing only when storing
+a completed credential and returning just the current step, opaque client
+context, and safe account metadata). In the Console, operators can view each pool
+entry's label, source, health, recovery timestamp, request count, last selection
+time, and sanitized recent error details, reveal stored credential fields on
+demand through the decryption action, and add, edit, disable, enable, delete, or
+reauthenticate entries.
 
 Each row in `ai_gateway_providers` stores:
 

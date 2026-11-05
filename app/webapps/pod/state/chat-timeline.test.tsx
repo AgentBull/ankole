@@ -65,8 +65,9 @@ test('a persisted execution restores all tool details inside a collapsed complet
   const html = render(<CollapsedWorkView execution={JSON.parse(JSON.stringify(execution))} />)
   expect(html).toContain('<details class="pod-chat-work">')
   expect(html).not.toContain('<details class="pod-chat-work" open')
-  expect(html).toContain('Worked for 4.2s</span>')
-  expect(html).not.toContain('2 tools')
+  expect(html).toContain('Work steps</span>')
+  expect(html).not.toContain('<time>')
+  expect(html).not.toContain('pod-chat-working-spinner')
   expect(html).not.toContain('pod-chat-work-content')
   const expanded = render(<CollapsedWorkView execution={JSON.parse(JSON.stringify(execution))} attention />)
   expect(expanded).toContain('Check the page structure')
@@ -78,9 +79,9 @@ test('a persisted execution restores all tool details inside a collapsed complet
 test('active, failed, stopped and pending-decision work stays expanded', () => {
   for (const [props, summary] of [
     [{ active: true, execution: { ...execution, steps: [{ ...execution.steps![0]!, status: 'running' }] } }, undefined],
-    [{ attention: true }, 'Worked for 4.2s'],
-    [{ execution: { ...execution, status: 'stopped' } }, 'Stopped after 4.2s'],
-    [{ execution: { ...execution, status: 'failed' } }, 'Failed after 4.2s']
+    [{ attention: true }, 'Work steps'],
+    [{ execution: { ...execution, status: 'stopped' } }, 'Stopped'],
+    [{ execution: { ...execution, status: 'failed' } }, 'Failed']
   ] satisfies [Partial<Parameters<typeof CollapsedWorkView>[0]>, string | undefined][]) {
     const html = render(<CollapsedWorkView execution={execution} {...props} />)
     expect(html).toMatch(/<details class="pod-chat-work"[^>]* open="">/)
@@ -103,7 +104,7 @@ test('a turn that recovers from a failed step finishes collapsed and marks the e
   const html = render(<CollapsedWorkView execution={recovered} />)
   expect(html).toContain('<details class="pod-chat-work">')
   expect(html).not.toContain('data-outcome')
-  expect(html).toContain('Worked for 4.2s</span>')
+  expect(html).toContain('Work steps</span>')
   expect(html).toContain('<span class="pod-chat-work-errors">· 1 error</span>')
   expect(render(<CollapsedWorkView execution={execution} />)).not.toContain('pod-chat-work-errors')
   // A failed turn already says so, so its header does not count errors again.
@@ -131,10 +132,12 @@ test('a step reads as the activity label people saw while it ran, in their langu
   )
 })
 
-test('live thinking uses one collapsed disclosure with its timer and keeps the complete text available when opened', () => {
+test('live thinking uses one collapsed disclosure with a loading indicator and keeps the complete text available when opened', () => {
   const thinking = { thinking_summary: 'Complete recorded reasoning text', steps: [] }
   const collapsed = render(<CollapsedWorkView execution={thinking} active />)
   expect(collapsed).toContain('<details class="pod-chat-work pod-chat-thinking">')
+  expect(collapsed).toContain('pod-chat-working-spinner')
+  expect(collapsed).not.toContain('<time>')
   expect(collapsed.match(/>Thinking</g)).toHaveLength(1)
   expect(collapsed).not.toContain('Complete recorded reasoning text')
   const opened = render(<CollapsedWorkView execution={thinking} active attention />)
@@ -190,10 +193,13 @@ test('live work uses the room activity phases before the final reply is committe
     <CollapsedWorkView active phaseLabel="Waiting for computer capacity" execution={{ steps: [] }} />
   )
   expect(waiting).toContain('Waiting for computer capacity')
+  expect(waiting).toContain('pod-chat-working-spinner')
+  expect(waiting).not.toContain('<time>')
   expect(waiting).not.toContain('<details')
 
   const completed = render(<CollapsedWorkView phaseLabel="Waiting for computer capacity" execution={execution} />)
-  expect(completed).toContain('Worked for 4.2s')
+  expect(completed).toContain('Work steps')
+  expect(completed).not.toContain('<time>')
   expect(completed).not.toContain('Waiting for computer capacity')
 
   const parallel = render(
