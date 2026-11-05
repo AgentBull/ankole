@@ -11,7 +11,20 @@
             "../../libs/feishu_protocol/lib/"
           ] ++
             if(System.get_env("ANKOLE_EDITION") == "saas",
-              do: ["../../internals/control_plane/lib/", "../../internals/plugins/*/lib/"],
+              do:
+                (
+                  internals_root =
+                    case System.get_env("ANKOLE_INTERNALS_PATH") do
+                      nil -> "../../internals"
+                      "" -> "../../internals"
+                      path -> path
+                    end
+
+                  [
+                    "#{internals_root}/control_plane/lib/",
+                    "#{internals_root}/plugins/*/lib/"
+                  ]
+                ),
               else: []
             ),
         excluded: []

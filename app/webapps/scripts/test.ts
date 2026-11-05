@@ -1,8 +1,8 @@
 import path from 'node:path'
-import { edition, repositoryRoot } from './edition'
+import { edition, internalsRoot, repositoryRoot } from './edition'
 
 const paths = ['./common', './console', './setup/state', './auth/state', './pod']
-if (edition === 'saas') paths.push(path.join(repositoryRoot, 'internals/webapps'))
+if (edition === 'saas') paths.push(path.join(internalsRoot, 'webapps'))
 process.exit(
   await Bun.spawn(['bun', 'test', '--preload', './scripts/test-preload.ts', ...paths, ...process.argv.slice(2)], {
     cwd: path.join(repositoryRoot, 'app/webapps'),

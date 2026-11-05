@@ -40,7 +40,14 @@ defmodule Mix.Tasks.Ankole.Plugins.Test do
   end
 
   defp plugin_test_paths(project) do
-    roots = Enum.map(["../../plugins", "../../internals/plugins"], &Path.expand/1)
+    internals_root =
+      case System.get_env("ANKOLE_INTERNALS_PATH") do
+        nil -> "../../internals"
+        "" -> "../../internals"
+        path -> path
+      end
+
+    roots = Enum.map(["../../plugins", "#{internals_root}/plugins"], &Path.expand/1)
 
     Enum.filter(project[:test_paths], fn path ->
       source = Path.expand(path)
