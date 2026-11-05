@@ -10,6 +10,8 @@
 - Serve the Site Admin Console from a dedicated `site-admin-console` origin when
   the active host policy defines one, and route Worker Drive DAV requests before
   browser host classification on SaaS control-plane pods.
+- Allow fresh-install database migrations to run under a non-superuser role when
+  `pg_search` and `vector` are pre-installed by the database administrator.
 - Reuse an index for cached Page lookups and preserve unchanged Base record
   arrays, reducing repeated work in navigation and long tables.
 - Match Base grid row estimates to ordinary cell heights, reducing offset
