@@ -3,8 +3,10 @@ defmodule Ankole.Pod.Chat.Execution do
   The work summary of one Agent Turn: its steps, the model that served it, and
   the usage that the AIGateway ledger counted for its Signal.
 
-  A step's `input` and `output` are excerpts of JSON or text. A token count is
-  `nil` when no round of the Turn reported it.
+  A step's `input` and `output` are excerpts of JSON or text. A step's
+  `label_key` and `label_bindings` name the localized activity label that
+  people saw while it ran; older steps have only their `title`. A token count
+  is `nil` when no round of the Turn reported it.
   """
   @text [type: :string, constraints: [allow_empty?: true, trim?: false]]
   @required_text [
@@ -46,7 +48,9 @@ defmodule Ankole.Pod.Chat.Execution do
                 status: @required_text,
                 duration_ms: [type: :integer],
                 input: @text,
-                output: @text
+                output: @text,
+                label_key: [type: :string],
+                label_bindings: [type: :map]
               ]
             ]
           ]

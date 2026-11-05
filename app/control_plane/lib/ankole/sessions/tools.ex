@@ -135,11 +135,16 @@ defmodule Ankole.Sessions.Tools do
     )
   end
 
+  # The model reads this hint after every tool error. The work history shown to
+  # people leaves it out.
+  @retry_hint "\nAnalyze the error above and try a different approach."
+  def retry_hint, do: @retry_hint
+
   def error(reason, kind \\ "execution_failed") do
     message = error_message(reason)
 
     %ToolResult{
-      output: "Error: #{message}\nAnalyze the error above and try a different approach.",
+      output: "Error: #{message}#{@retry_hint}",
       is_error: true,
       failure_kind: kind
     }

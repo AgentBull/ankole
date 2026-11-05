@@ -367,7 +367,14 @@ defmodule Ankole.Sessions.ReceiptsTest do
     assert empty_pending == %{}
     completed_result = completed.results["attachment-1"]
     assert is_integer(completed_result.duration_ms) and completed_result.duration_ms >= 0
-    assert %{completed_result | duration_ms: result.duration_ms} == result
+    # The Turn adds only the duration and the label that people saw while the call ran.
+    assert %{completed_result | duration_ms: result.duration_ms, activity: nil} == result
+
+    assert completed_result.activity == %{
+             "label_key" => "conversations.delivery.reply.activity.attachment_prepare",
+             "label_bindings" => %{}
+           }
+
     assert completed.visible_delivery?
     assert activity["payload"]["phase"] == "completed"
 
@@ -384,7 +391,8 @@ defmodule Ankole.Sessions.ReceiptsTest do
     assert {:ok, _, %{"path" => "/workspace/answer.txt"}} =
              Tools.prepare(run, Map.put(call, "arguments", ~s({"path":"/workspace/answer.txt"})))
 
-    assert {:error, %Ankole.Sessions.ToolResult{failure_kind: "invalid_arguments"}} =
+    # An empty optional MIME type counts as omitted instead of failing the call.
+    assert {:ok, _, args} =
              Tools.prepare(
                run,
                Map.put(
@@ -393,6 +401,8 @@ defmodule Ankole.Sessions.ReceiptsTest do
                  Ankole.JSON.encode!(%{"node_id" => original.id, "mimeType" => ""})
                )
              )
+
+    assert args == %{"node_id" => original.id}
   end
 
   test "Pod create and save tools persist pages once and preserve subsequent edits on replay", %{

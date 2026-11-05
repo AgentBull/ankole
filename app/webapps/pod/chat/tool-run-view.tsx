@@ -9,6 +9,7 @@ import {
   RiTerminalBoxLine,
   RiToolsLine
 } from '@remixicon/react'
+import type { TFunction } from 'i18next'
 import type { SyntheticEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { isRecord, safeJsonParse } from '@agentbull/active-support'
@@ -49,8 +50,13 @@ export function humanizeToolName(tool: string): string {
   return humanizeTechnicalLabel(cleaned) || tool
 }
 
-export function stepTitle(step: Pick<ExecutionStep, 'title' | 'tool'>): string {
-  return step.title && step.title !== step.tool ? step.title : humanizeToolName(step.tool)
+/** A step reads as the localized activity label that people saw while it ran, when it has one. */
+export function stepTitle(
+  step: Pick<ExecutionStep, 'title' | 'tool' | 'label_key' | 'label_bindings'>,
+  t: TFunction
+): string {
+  const fallback = step.title && step.title !== step.tool ? step.title : humanizeToolName(step.tool)
+  return step.label_key ? t(step.label_key, { ...step.label_bindings, defaultValue: fallback }) : fallback
 }
 
 export function commandDetails(step: ExecutionStep) {
@@ -221,7 +227,7 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
           open={steps.some(step => ['failed', 'error', 'stopped'].includes(step.status)) || undefined}>
           <summary>
             <ToolIcon tool={latest.tool} />
-            <span className="pod-chat-tool-title">{t('pod.chat_timeline.tool_count', { count: steps.length })}</span>
+            <span className="pod-chat-tool-title">{t('pod.chat_timeline.steps')}</span>
           </summary>
           <ToolRunView steps={steps} />
         </details>
@@ -229,7 +235,7 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
     }
   }
   return (
-    <ol className="pod-chat-tool-run" aria-label={t('pod.chat_timeline.tools')}>
+    <ol className="pod-chat-tool-run" aria-label={t('pod.chat_timeline.steps')}>
       {steps.map(step => {
         const failed = ['failed', 'error'].includes(step.status)
         const stopped = ['stopped', 'cancelled'].includes(step.status)
@@ -240,6 +246,7 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
         const output = formatToolDetail(step.output)
         const Row = terminal || input || output ? 'details' : 'div'
         const Label = Row === 'details' ? 'summary' : 'div'
+        const title = stepTitle(step, t)
         return (
           <li key={step.id}>
             <Row
@@ -248,8 +255,8 @@ export function ToolRunView({ steps, compact = false }: { steps: ExecutionStep[]
               onToggle={terminal ? showOutputEnd : undefined}>
               <Label className="pod-chat-tool-line">
                 <ToolIcon tool={step.tool} />
-                <span className="pod-chat-tool-title" title={stepTitle(step)}>
-                  {stepTitle(step)}
+                <span className="pod-chat-tool-title" title={title}>
+                  {title}
                 </span>
                 {patch && <PatchCounts added={patch.added} removed={patch.removed} />}
                 {step.duration_ms != null && <time>{formatElapsed(step.duration_ms, i18n.language)}</time>}

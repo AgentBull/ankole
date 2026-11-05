@@ -38,11 +38,10 @@ export function CollapsedWorkView({
   )
   const current = runningSteps.at(-1)
   const stopped = ['stopped', 'cancelled'].includes(execution.status ?? '')
-  const failed =
-    stopped ||
-    steps.some(step => ['error', 'failed'].includes(step.status)) ||
-    ['error', 'failed'].includes(execution.status ?? '')
+  // A step can fail while its turn recovers and finishes, so only the turn's own status fails it.
+  const failed = stopped || ['error', 'failed'].includes(execution.status ?? '')
   const outcome = active ? undefined : stopped ? 'stopped' : failed ? 'failed' : undefined
+  const errors = steps.filter(step => ['error', 'failed'].includes(step.status)).length
   const thinkingDisclosure = active && !current
   const urgent = attention || failed
   const [expanded, setExpanded] = useState((active && !thinkingDisclosure) || urgent)
@@ -65,7 +64,6 @@ export function CollapsedWorkView({
       </div>
     )
   }
-  const pagesRead = steps.filter(step => /page.*read|read.*page/.test(step.tool)).length
   return (
     <details
       className={`pod-chat-work${thinkingDisclosure ? ' pod-chat-thinking' : ''}`}
@@ -82,25 +80,15 @@ export function CollapsedWorkView({
         <span>
           {active
             ? runningSteps.length > 1
-              ? phaseLabel || t('pod.chat_timeline.tool_count', { count: steps.length })
-              : (current && stepTitle(current)) || phaseLabel || t('pod.chat_timeline.thinking')
-            : outcome
-              ? t(`pod.chat_timeline.${outcome}_after`, { duration: formatElapsed(duration ?? 0, i18n.language) })
-              : steps.length
-                ? t('pod.chat_timeline.worked_for', {
-                    duration: formatElapsed(duration ?? 0, i18n.language),
-                    count: steps.length
-                  })
-                : t('pod.chat_timeline.worked_for_plain', {
-                    duration: formatElapsed(duration ?? 0, i18n.language)
-                  })}
+              ? phaseLabel || t('conversations.delivery.reply.activity.processing')
+              : (current && stepTitle(current, t)) || phaseLabel || t('pod.chat_timeline.thinking')
+            : t(outcome ? `pod.chat_timeline.${outcome}_after` : 'pod.chat_timeline.worked_for_plain', {
+                duration: formatElapsed(duration ?? 0, i18n.language)
+              })}
         </span>
         {active && duration != null && <time>{formatElapsed(duration, i18n.language)}</time>}
-        {thinkingDisclosure && steps.length > 0 && (
-          <span> · {t('pod.chat_timeline.tool_count', { count: steps.length })}</span>
-        )}
-        {!active && pagesRead > 0 && (
-          <span className="pod-chat-work-pages">· {t('pod.chat_timeline.pages_read', { count: pagesRead })}</span>
+        {!active && !outcome && errors > 0 && (
+          <span className="pod-chat-work-errors">· {t('pod.chat_timeline.error_count', { count: errors })}</span>
         )}
         {usage && <UsageSummary usage={usage} />}
       </summary>

@@ -51,6 +51,41 @@ defmodule Ankole.Sessions.ToolsTest do
     assert {:error, _} = ToolArguments.parse(~s({"path":) <> String.duplicate("x", 256 * 1024))
   end
 
+  test "an optional parameter that a model fills with a rejected empty value counts as omitted" do
+    schema = %{
+      "type" => "object",
+      "properties" => %{
+        "title" => %{"type" => "string", "minLength" => 1},
+        "template" => %{"type" => "string", "enum" => ["deep-research"]},
+        "page" => %{"type" => "string", "pattern" => "^page_[1-9]\\d*$"},
+        "note" => %{"type" => "string"}
+      },
+      "required" => ["title"],
+      "additionalProperties" => false
+    }
+
+    assert ToolArguments.validate(schema, %{
+             "title" => "Report",
+             "template" => "",
+             "page" => nil,
+             "model_profile" => ""
+           }) == {:ok, %{"title" => "Report"}}
+
+    # An empty value that the schema accepts keeps its meaning.
+    assert ToolArguments.validate(schema, %{"title" => "Report", "note" => ""}) ==
+             {:ok, %{"title" => "Report", "note" => ""}}
+
+    # A required parameter and a wrong choice still fail with their reason.
+    assert {:error, "#/title: " <> _} = ToolArguments.validate(schema, %{"title" => ""})
+
+    assert {:error, "#/template: Value is not allowed in enum."} =
+             ToolArguments.validate(schema, %{"title" => "Report", "template" => "other"})
+
+    # A value that must match as it is, such as a tool's declared output, keeps every rejection.
+    assert {:error, "#/template: Value is not allowed in enum."} =
+             ToolArguments.validate_exact(schema, %{"title" => "Report", "template" => ""})
+  end
+
   test "clarify validates a form definition and returns precise invalid arguments to the model" do
     tool =
       Tools.Session.declarations()
@@ -407,6 +442,22 @@ defmodule Ankole.Sessions.ToolsTest do
 
       assert Repo.get_by!(Ankole.AgentWorkers.AgentWorker, agent_uid: run.agent_uid) ==
                worker
+    end
+
+    test "a Job request with an empty workspace template creates the Job without a template",
+         %{run: run} do
+      created =
+        invoke(
+          run,
+          "create_background_job",
+          %{"title" => "Report", "task" => "Finish the report.", "workspace_template_id" => ""},
+          "blank-template"
+        )
+
+      refute created.is_error, inspect(created)
+
+      assert Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, created.details["job_id"]).workspace_template_id ==
+               nil
     end
 
     test "stop_background_job sends a stop to the admitted Worker turn", %{run: run} do

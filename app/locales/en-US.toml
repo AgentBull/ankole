@@ -4239,7 +4239,7 @@ enlarge_image = "Enlarge {$name}"
 image = "Image"
 zoom_in = "Zoom in"
 zoom_out = "Zoom out"
-tools = "Tool steps"
+steps = "Work steps"
 failed = "Failed"
 completed = "Completed"
 running = "Running"
@@ -4247,19 +4247,14 @@ retrying = "Retrying"
 command = "Command"
 input = "Input"
 output = "Output"
-worked_for = """
-.input {$count :number}
-.match $count
-one {{Worked for {$duration} · {$count} tool}}
-*   {{Worked for {$duration} · {$count} tools}}"""
-pages_read = """
-.input {$count :number}
-.match $count
-one {{{$count} page read}}
-*   {{{$count} pages read}}"""
 failed_after = "Failed after {$duration}"
 stopped_after = "Stopped after {$duration}"
 worked_for_plain = "Worked for {$duration}"
+error_count = """
+.input {$count :number}
+.match $count
+one {{{$count} error}}
+*   {{{$count} errors}}"""
 usage_tokens = "{$tokens} tokens"
 usage_partial = """
 .input {$count :number}
@@ -4300,11 +4295,6 @@ turns = "Conversation turns"
 jump_to_turn = "Turn {$number}: {$text}"
 you = "You"
 archived = "Archived"
-tool_count = """
-.input {$count :number}
-.match $count
-one {{{$count} tool call}}
-*   {{{$count} tool calls}}"""
 exit_code = "Exit {$code}"
 patch_added_file = "Added"
 patch_deleted_file = "Deleted"

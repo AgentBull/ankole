@@ -1,6 +1,6 @@
 defmodule Ankole.Sessions.Presentation.Execution do
   @moduledoc "Projects a native turn's durable model journal into its visible work history."
-  alias Ankole.Sessions.Presentation
+  alias Ankole.Sessions.{Presentation, Tools}
   alias Ankole.AIGateway.ResponseItems
 
   def from_chain(chain, round_states \\ %{}, status \\ "completed") do
@@ -78,9 +78,15 @@ defmodule Ankole.Sessions.Presentation.Execution do
       "status" => step_status(call, output, result, status),
       "duration_ms" => result["duration_ms"],
       "input" => excerpt(input),
-      "output" => excerpt(output_text, 5_000)
+      "output" => excerpt(visible_output(output_text), 5_000)
     }
+    |> Map.merge(Map.take(result["activity"] || %{}, ["label_key", "label_bindings"]))
   end
+
+  defp visible_output(text) when is_binary(text),
+    do: String.replace_suffix(text, Tools.retry_hint(), "")
+
+  defp visible_output(text), do: text
 
   defp step_status(call, output, result, status) do
     cond do

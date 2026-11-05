@@ -58,7 +58,11 @@ defmodule Ankole.Connectors.ToolSpec do
     do: Ankole.Sessions.ToolArguments.validate(tool.input_validator || tool.input_schema, value)
 
   def validate_output(%__MODULE__{} = tool, value),
-    do: Ankole.Sessions.ToolArguments.validate(tool.output_validator || tool.output_schema, value)
+    do:
+      Ankole.Sessions.ToolArguments.validate_exact(
+        tool.output_validator || tool.output_schema,
+        value
+      )
 
   def retry_safe?(%__MODULE__{annotations: annotations}),
     do: annotations["readOnlyHint"] == true or annotations["idempotentHint"] == true

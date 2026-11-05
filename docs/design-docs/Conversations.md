@@ -602,10 +602,15 @@ in the original conversation carries the colleague's name in its heading. While 
 words, and the composer offers a labelled Stop button next to Send. A turn that
 fails reads "Failed after …" in the destructive colour with the failing step
 marked, a stopped turn reads "Stopped after …", and a retryable turn offers a
-labelled Retry reply action. A pending decision card has an amber edge and
-heading, and its question and choices use the message type scale. Queued
-messages offer a labelled Steer action, and a background run card counts its
-time in minutes and hours once it runs past a minute.
+labelled Retry reply action. Because an Agent often recovers from a failed step
+and still completes its turn, Pod judges the turn by `execution.status` alone:
+a completed turn with failed steps reads "Worked for …" followed by the number
+of failed steps in the warning colour, such as "Worked for 1m 25s · 1 error",
+and stays collapsed, so people can still find and report the error. A pending
+decision card has an amber edge and heading, and its question and choices use
+the message type scale. Queued messages offer a labelled Steer action, and a
+background run card counts its time in minutes and hours once it runs past a
+minute.
 
 In the timeline, compact event notices sit alongside attributed messages:
 
@@ -1016,6 +1021,15 @@ and failed work; on a stopped or failed native turn, `Presentation` stores the
 execution record on the turn's notice message and marks any missing or
 interrupted tool results with that terminal turn outcome (merely emitting a tool
 call never counts as tool completion without a recorded result).
+
+A step also keeps the activity label that people saw while its call ran:
+`label_key` names a `conversations.delivery.reply.activity.*` message and
+`label_bindings` fills it in, so Pod names the step in the reader's language.
+The Session turn keeps that label with the tool result in the round journal. A
+control-plane tool's label comes from its activity callback, and a Worker
+tool's label is the last one that the Worker reported for the call. A step
+recorded without a label keeps its `title`. A step's output leaves out the retry
+hint that Ankole appends to every tool error for the model.
 
 The execution record also carries `execution.usage`, which `AIGateway.turn_usage/1`
 sums from the usage ledger rows of the turn's Signal on completed, stopped, and

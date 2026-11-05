@@ -11,6 +11,7 @@ defmodule Ankole.Sessions.PendingCall do
     :worker_args,
     :continue,
     :mode,
+    :activity,
     status: :queued,
     probe?: false,
     sequential?: false
@@ -68,6 +69,11 @@ defmodule Ankole.Sessions.PendingCall do
     do: Map.update!(pending, id, &%{&1 | status: :waiting, wait: wait})
 
   def wait_worker(pending, id), do: Map.update!(pending, id, &%{&1 | status: :worker_wait})
+
+  def put_activity(pending, id, activity) when is_map_key(pending, id),
+    do: Map.update!(pending, id, &%{&1 | activity: activity})
+
+  def put_activity(pending, _id, _activity), do: pending
 
   def to_worker(pending, id) do
     entry = pending[id]
