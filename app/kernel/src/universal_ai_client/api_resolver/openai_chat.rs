@@ -178,6 +178,7 @@ pub(super) struct ChatState {
     tool_calls: BTreeMap<usize, ToolCall>,
     usage: Value,
     terminal: bool,
+    done_sentinel_seen: bool,
     pending_status: Option<String>,
     pending_incomplete_reason: Option<String>,
     next_output_index: usize,
@@ -202,6 +203,7 @@ impl ChatState {
             tool_calls: BTreeMap::new(),
             usage: Value::Null,
             terminal: false,
+            done_sentinel_seen: false,
             pending_status: None,
             pending_incomplete_reason: None,
             next_output_index: 0,
@@ -475,14 +477,57 @@ impl ChatState {
         context: &ResponseContext,
         status: &str,
         incomplete_reason: Option<&str>,
-    ) -> Vec<Value> {
+    ) -> Result<Vec<Value>, StreamError> {
         if self.terminal {
-            return Vec::new();
+            return Ok(Vec::new());
+        }
+
+        let strict = context.policy() == ConversionPolicy::Strict;
+        let completed = status == "completed";
+
+        if strict
+            && completed
+            && self.reasoning.is_empty()
+            && !self.content_started
+            && self.tool_calls.is_empty()
+        {
+            return Err(StreamError::new(
+                "empty_upstream_stream",
+                "api_resolver",
+                "OpenAI Chat stream completed without emitting any output",
+            ));
+        }
+
+        if strict && completed {
+            for call in self.tool_calls.values_mut() {
+                if !provider_custom_tool(context, &call.name) {
+                    if call.arguments.is_empty() {
+                        call.arguments = "{}".to_string();
+                    } else {
+                        let parsed =
+                            sonic_rs::from_str::<Value>(&call.arguments).map_err(|reason| {
+                                StreamError::new(
+                                    "invalid_tool_arguments",
+                                    "api_resolver",
+                                    format!(
+                                        "OpenAI Chat tool_call arguments are not valid JSON: {reason}"
+                                    ),
+                                )
+                            })?;
+                        if !parsed.is_object() {
+                            return Err(StreamError::new(
+                                "invalid_tool_arguments",
+                                "api_resolver",
+                                "OpenAI Chat tool_call arguments must be a JSON object",
+                            ));
+                        }
+                    }
+                }
+            }
         }
 
         self.terminal = true;
         let mut events = Vec::new();
-        let completed = status == "completed";
 
         if completed && !self.reasoning.is_empty() {
             let output_index = self.reasoning_output_index.unwrap_or(0);
@@ -566,7 +611,7 @@ impl ChatState {
                 "response": self.response_body(context, status, incomplete_reason, None)
             }),
         ));
-        events
+        Ok(events)
     }
 
     pub(super) fn fail(&mut self, context: &ResponseContext, error: &StreamError) -> Vec<Value> {
@@ -697,13 +742,37 @@ impl APIProtocol for ChatState {
         self.ingest_openai_chat(context, event)
     }
 
+    fn on_done_sentinel(&mut self) {
+        self.done_sentinel_seen = true;
+    }
+
     fn on_upstream_close(&mut self, context: &ResponseContext) -> Result<Vec<Value>, StreamError> {
-        if let Some(status) = self.pending_status.clone() {
-            let reason = self.pending_incomplete_reason.clone();
-            return Ok(self.finish(context, &status, reason.as_deref()));
+        if self.terminal {
+            return Ok(Vec::new());
+        }
+        let strict = context.policy() == ConversionPolicy::Strict;
+        if strict && !self.done_sentinel_seen {
+            return Err(StreamError::new(
+                "upstream_stream_truncated",
+                "api_resolver",
+                "OpenAI Chat stream closed before [DONE] sentinel",
+            ));
         }
 
-        Ok(self.finish(context, "incomplete", Some("upstream_stream_closed")))
+        if let Some(status) = self.pending_status.clone() {
+            let reason = self.pending_incomplete_reason.clone();
+            return self.finish(context, &status, reason.as_deref());
+        }
+
+        if strict {
+            return Err(StreamError::new(
+                "upstream_stream_truncated",
+                "api_resolver",
+                "OpenAI Chat stream closed without a finish_reason",
+            ));
+        }
+
+        self.finish(context, "incomplete", Some("upstream_stream_closed"))
     }
 
     fn on_transport_error(&mut self, context: &ResponseContext, error: &StreamError) -> Vec<Value> {
@@ -799,20 +868,89 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value
     }
 
     if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
+        let strict = context.policy() == ConversionPolicy::Strict;
         for tool_call in tool_calls {
             let function = tool_call.get("function").unwrap_or(&Value::Null);
-            let name = function
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown");
-            let arguments = function
-                .get("arguments")
-                .map(value_to_string)
-                .unwrap_or_else(|| "{}".to_string());
+            let name = if strict {
+                function
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .filter(|name| !name.is_empty())
+                    .ok_or_else(|| {
+                        StreamError::new(
+                            "invalid_tool_arguments",
+                            "api_resolver",
+                            "OpenAI Chat tool_call is missing function.name",
+                        )
+                    })?
+            } else {
+                function
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown")
+            };
+            let call_id = if strict {
+                tool_call
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| {
+                        StreamError::new(
+                            "invalid_tool_arguments",
+                            "api_resolver",
+                            "OpenAI Chat tool_call is missing id",
+                        )
+                    })?
+            } else {
+                tool_call
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("call")
+            };
+            let arguments = if strict {
+                let raw = function
+                    .get("arguments")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        StreamError::new(
+                            "invalid_tool_arguments",
+                            "api_resolver",
+                            "OpenAI Chat tool_call is missing string function.arguments",
+                        )
+                    })?;
+                if raw.is_empty() {
+                    "{}".to_string()
+                } else {
+                    if !provider_custom_tool(context, name) {
+                        let parsed = sonic_rs::from_str::<Value>(raw).map_err(|reason| {
+                            StreamError::new(
+                                "invalid_tool_arguments",
+                                "api_resolver",
+                                format!(
+                                    "OpenAI Chat tool_call arguments are not valid JSON: {reason}"
+                                ),
+                            )
+                        })?;
+                        if !parsed.is_object() {
+                            return Err(StreamError::new(
+                                "invalid_tool_arguments",
+                                "api_resolver",
+                                "OpenAI Chat tool_call arguments must be a JSON object",
+                            ));
+                        }
+                    }
+                    raw.to_string()
+                }
+            } else {
+                function
+                    .get("arguments")
+                    .map(value_to_string)
+                    .unwrap_or_else(|| "{}".to_string())
+            };
             let mut item = json!({
                 "id": generated_id("fc"),
                 "type": "function_call",
-                "call_id": tool_call.get("id").and_then(Value::as_str).unwrap_or("call"),
+                "call_id": call_id,
                 "name": name,
                 "arguments": arguments,
                 "status": "completed"
@@ -824,6 +962,13 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value
     }
 
     if items.is_empty() {
+        if context.policy() == ConversionPolicy::Strict {
+            return Err(StreamError::new(
+                "empty_upstream_response",
+                "api_resolver",
+                "OpenAI Chat response contained no assistant output",
+            ));
+        }
         items.push(json!({
             "id": generated_id("msg"),
             "type": "message",
@@ -1029,6 +1174,7 @@ fn chat_messages(
     context: &ResponseContext,
     request: &Map<String, Value>,
 ) -> Result<Value, StreamError> {
+    let strict = context.policy() == ConversionPolicy::Strict;
     let mut messages = Vec::new();
     let input = request.get("input");
 
@@ -1077,7 +1223,7 @@ fn chat_messages(
                                 continue;
                             }
                             Some("custom_tool_call") => {
-                                pending_tool_calls.push(chat_custom_tool_call(map)?);
+                                pending_tool_calls.push(chat_custom_tool_call(context, map)?);
                                 continue;
                             }
                             Some("function_call_output" | "custom_tool_call_output") => {
@@ -1086,7 +1232,8 @@ fn chat_messages(
                                     &mut pending_tool_calls,
                                     &mut pending_reasoning,
                                 );
-                                let (tool_message, image_parts) = chat_function_call_output(map);
+                                let (tool_message, image_parts) =
+                                    chat_function_call_output(context, map)?;
                                 messages.push(tool_message);
                                 pending_tool_output_images.extend(image_parts);
                                 continue;
@@ -1104,6 +1251,14 @@ fn chat_messages(
                                 );
                                 continue;
                             }
+                            Some("message") | None => {}
+                            Some(other) if strict => {
+                                return Err(StreamError::new(
+                                    "invalid_input_item",
+                                    "api_resolver",
+                                    format!("unsupported OpenAI Chat input item type `{other}`"),
+                                ));
+                            }
                             _type => {}
                         }
 
@@ -1112,17 +1267,22 @@ fn chat_messages(
                             &mut pending_tool_calls,
                             &mut pending_reasoning,
                         );
-                        let role = map
-                            .get("role")
-                            .and_then(Value::as_str)
-                            .map(normalize_chat_role);
+                        let role =
+                            normalize_chat_role(map.get("role").and_then(Value::as_str), strict)?;
                         let content = map.get("content");
                         match (role, content) {
                             (Some(role), Some(content)) => push_chat_message(
                                 &mut messages,
-                                chat_role_content_message(role, content, map),
+                                chat_role_content_message(role, content, map, strict)?,
                                 &mut pending_reasoning,
                             ),
+                            _ if strict => {
+                                return Err(StreamError::new(
+                                    "invalid_input_item",
+                                    "api_resolver",
+                                    "OpenAI Chat message item requires both role and content",
+                                ));
+                            }
                             _ => {
                                 discard_unattached_chat_reasoning(&mut pending_reasoning);
                                 messages.push(json!({
@@ -1133,6 +1293,13 @@ fn chat_messages(
                         }
                     }
                     value => {
+                        if strict {
+                            return Err(StreamError::new(
+                                "invalid_input_item",
+                                "api_resolver",
+                                "OpenAI Chat input item must be a JSON object",
+                            ));
+                        }
                         flush_chat_tool_output_images(
                             &mut messages,
                             &mut pending_tool_output_images,
@@ -1286,17 +1453,35 @@ fn flush_chat_tool_output_images(messages: &mut Vec<Value>, image_parts: &mut Ve
     }));
 }
 
-fn chat_tool_identity(map: &Map<String, Value>) -> (String, String) {
-    let call_id = map
-        .get("call_id")
-        .map(value_to_text)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| generated_id("call"));
-    let name = map
-        .get("name")
-        .map(value_to_text)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "unknown".to_string());
+fn chat_tool_identity(
+    context: &ResponseContext,
+    map: &Map<String, Value>,
+) -> Result<(String, String), StreamError> {
+    let strict = context.policy() == ConversionPolicy::Strict;
+    let call_id = if strict {
+        required_tool_text(
+            map,
+            "call_id",
+            "OpenAI Chat tool call item requires a non-empty call_id",
+        )?
+    } else {
+        map.get("call_id")
+            .map(value_to_text)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| generated_id("call"))
+    };
+    let name = if strict {
+        required_tool_text(
+            map,
+            "name",
+            "OpenAI Chat tool call item requires a non-empty name",
+        )?
+    } else {
+        map.get("name")
+            .map(value_to_text)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "unknown".to_string())
+    };
     let name = match map
         .get("namespace")
         .and_then(Value::as_str)
@@ -1305,18 +1490,34 @@ fn chat_tool_identity(map: &Map<String, Value>) -> (String, String) {
         Some(namespace) => flattened_namespace_tool_name(namespace, &name),
         None => flattened_namespace_tool_name("", &name),
     };
-    (call_id, name)
+    Ok((call_id, name))
+}
+
+fn required_tool_text(
+    map: &Map<String, Value>,
+    field: &str,
+    message: &'static str,
+) -> Result<String, StreamError> {
+    map.get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| StreamError::new("invalid_tool_arguments", "api_resolver", message))
 }
 
 fn chat_function_call(
-    _context: &ResponseContext,
+    context: &ResponseContext,
     map: &Map<String, Value>,
 ) -> Result<Value, StreamError> {
-    let (call_id, name) = chat_tool_identity(map);
-    let arguments = map
-        .get("arguments")
-        .map(value_to_string)
-        .unwrap_or_else(|| "{}".to_string());
+    let strict = context.policy() == ConversionPolicy::Strict;
+    let (call_id, name) = chat_tool_identity(context, map)?;
+    let arguments = if strict {
+        strict_function_arguments(map)?
+    } else {
+        map.get("arguments")
+            .map(value_to_string)
+            .unwrap_or_else(|| "{}".to_string())
+    };
 
     Ok(json!({
         "id": call_id,
@@ -1328,8 +1529,39 @@ fn chat_function_call(
     }))
 }
 
-fn chat_custom_tool_call(map: &Map<String, Value>) -> Result<Value, StreamError> {
-    let (call_id, name) = chat_tool_identity(map);
+fn strict_function_arguments(map: &Map<String, Value>) -> Result<String, StreamError> {
+    let raw = map
+        .get("arguments")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            StreamError::new(
+                "invalid_tool_arguments",
+                "api_resolver",
+                "OpenAI Chat function_call item requires string arguments",
+            )
+        })?;
+    let parsed = sonic_rs::from_str::<Value>(raw).map_err(|reason| {
+        StreamError::new(
+            "invalid_tool_arguments",
+            "api_resolver",
+            format!("OpenAI Chat function_call arguments are not valid JSON: {reason}"),
+        )
+    })?;
+    if !parsed.is_object() {
+        return Err(StreamError::new(
+            "invalid_tool_arguments",
+            "api_resolver",
+            "OpenAI Chat function_call arguments must be a JSON object",
+        ));
+    }
+    Ok(raw.to_string())
+}
+
+fn chat_custom_tool_call(
+    context: &ResponseContext,
+    map: &Map<String, Value>,
+) -> Result<Value, StreamError> {
+    let (call_id, name) = chat_tool_identity(context, map)?;
     let input = map.get("input").map(value_to_text).unwrap_or_default();
     let arguments = encode_custom_tool_arguments(&input)?;
 
@@ -1343,10 +1575,28 @@ fn chat_custom_tool_call(map: &Map<String, Value>) -> Result<Value, StreamError>
     }))
 }
 
-fn chat_function_call_output(map: &Map<String, Value>) -> (Value, Vec<Value>) {
-    let tool_call_id = map.get("call_id").map(value_to_text).unwrap_or_default();
+fn chat_function_call_output(
+    context: &ResponseContext,
+    map: &Map<String, Value>,
+) -> Result<(Value, Vec<Value>), StreamError> {
+    let strict = context.policy() == ConversionPolicy::Strict;
+    let tool_call_id = if strict {
+        map.get("call_id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| {
+                StreamError::new(
+                    "invalid_tool_arguments",
+                    "api_resolver",
+                    "OpenAI Chat tool output item requires a non-empty call_id",
+                )
+            })?
+    } else {
+        map.get("call_id").map(value_to_text).unwrap_or_default()
+    };
     let (mut text, images) =
-        chat_function_call_output_content(map.get("output").unwrap_or(&Value::Null));
+        chat_function_call_output_content(map.get("output").unwrap_or(&Value::Null), strict)?;
 
     if text.is_empty() && !images.is_empty() {
         text = "[Image output is attached in the next user message.]".to_string();
@@ -1363,19 +1613,22 @@ fn chat_function_call_output(map: &Map<String, Value>) -> (Value, Vec<Value>) {
         parts
     };
 
-    (
+    Ok((
         json!({
             "role": "tool",
             "tool_call_id": tool_call_id,
             "content": text
         }),
         image_parts,
-    )
+    ))
 }
 
-fn chat_function_call_output_content(output: &Value) -> (String, Vec<Value>) {
+fn chat_function_call_output_content(
+    output: &Value,
+    strict: bool,
+) -> Result<(String, Vec<Value>), StreamError> {
     let Value::Array(parts) = output else {
-        return (value_to_text(output), Vec::new());
+        return Ok((value_to_text(output), Vec::new()));
     };
 
     let mut text = String::new();
@@ -1391,8 +1644,15 @@ fn chat_function_call_output_content(output: &Value) -> (String, Vec<Value>) {
             map.get("type").and_then(Value::as_str),
             Some("input_image" | "image_url")
         ) {
-            match chat_function_call_output_image(map) {
+            match chat_function_call_output_image(map, strict)? {
                 Some(image) => images.push(image),
+                None if strict => {
+                    return Err(StreamError::new(
+                        "unsupported_content_modality",
+                        "api_resolver",
+                        "OpenAI Chat tool output image part is missing a valid image_url",
+                    ));
+                }
                 None => text.push_str("[image content omitted: unsupported image source]"),
             }
             continue;
@@ -1404,11 +1664,16 @@ fn chat_function_call_output_content(output: &Value) -> (String, Vec<Value>) {
         }
     }
 
-    (text, images)
+    Ok((text, images))
 }
 
-fn chat_function_call_output_image(map: &Map<String, Value>) -> Option<Value> {
-    let image_url = map.get("image_url")?;
+fn chat_function_call_output_image(
+    map: &Map<String, Value>,
+    strict: bool,
+) -> Result<Option<Value>, StreamError> {
+    let Some(image_url) = map.get("image_url") else {
+        return Ok(None);
+    };
     let valid = match image_url {
         Value::String(url) => !url.trim().is_empty(),
         Value::Object(map) => map
@@ -1418,7 +1683,11 @@ fn chat_function_call_output_image(map: &Map<String, Value>) -> Option<Value> {
         _value => false,
     };
 
-    valid.then(|| chat_image_url_part(Some(image_url)))
+    if valid {
+        Ok(Some(chat_image_url_part(Some(image_url), strict)?))
+    } else {
+        Ok(None)
+    }
 }
 
 fn chat_agent_message(map: &Map<String, Value>) -> Result<Value, StreamError> {
@@ -1443,10 +1712,18 @@ fn chat_agent_message(map: &Map<String, Value>) -> Result<Value, StreamError> {
     Ok(json!({"role": "user", "content": text}))
 }
 
-fn chat_role_content_message(role: &str, content: &Value, map: &Map<String, Value>) -> Value {
+fn chat_role_content_message(
+    role: &str,
+    content: &Value,
+    map: &Map<String, Value>,
+    strict: bool,
+) -> Result<Value, StreamError> {
     let mut message = Map::new();
     message.insert("role".to_string(), json!(role));
-    message.insert("content".to_string(), chat_message_content(role, content));
+    message.insert(
+        "content".to_string(),
+        chat_message_content(role, content, strict)?,
+    );
 
     if role == "tool"
         && let Some(tool_call_id) = map
@@ -1458,26 +1735,40 @@ fn chat_role_content_message(role: &str, content: &Value, map: &Map<String, Valu
         message.insert("tool_call_id".to_string(), json!(tool_call_id));
     }
 
-    Value::Object(message)
+    Ok(Value::Object(message))
 }
 
-fn normalize_chat_role(role: &str) -> &str {
+fn normalize_chat_role(
+    role: Option<&str>,
+    strict: bool,
+) -> Result<Option<&'static str>, StreamError> {
     match role {
-        "developer" | "system" => "system",
-        "assistant" => "assistant",
-        "tool" => "tool",
-        _role => "user",
+        Some("developer" | "system") => Ok(Some("system")),
+        Some("assistant") => Ok(Some("assistant")),
+        Some("tool") => Ok(Some("tool")),
+        Some("user") => Ok(Some("user")),
+        Some(_other) if !strict => Ok(Some("user")),
+        Some(other) => Err(StreamError::new(
+            "invalid_input_item",
+            "api_resolver",
+            format!("unsupported OpenAI Chat message role `{other}`"),
+        )),
+        None => Ok(None),
     }
 }
 
-fn chat_message_content(role: &str, content: &Value) -> Value {
+fn chat_message_content(role: &str, content: &Value, strict: bool) -> Result<Value, StreamError> {
     if role == "user"
         && let Some(parts) = content.as_array()
     {
-        return Value::Array(parts.iter().map(chat_user_content_part).collect());
+        let mut mapped = Vec::with_capacity(parts.len());
+        for part in parts {
+            mapped.push(chat_user_content_part(part, strict)?);
+        }
+        return Ok(Value::Array(mapped));
     }
 
-    json!(chat_text_content(content))
+    Ok(json!(chat_text_content(content)))
 }
 
 fn chat_text_content(content: &Value) -> String {
@@ -1509,35 +1800,59 @@ fn chat_text_content_part(part: &Value) -> Option<String> {
     }
 }
 
-fn chat_user_content_part(part: &Value) -> Value {
+fn chat_user_content_part(part: &Value, strict: bool) -> Result<Value, StreamError> {
     let Some(map) = part.as_object() else {
-        return json!({ "type": "text", "text": value_to_text(part) });
+        if strict {
+            return Err(StreamError::new(
+                "invalid_input_item",
+                "api_resolver",
+                "OpenAI Chat user content part must be a JSON object",
+            ));
+        }
+        return Ok(json!({ "type": "text", "text": value_to_text(part) }));
     };
 
     match map.get("type").and_then(Value::as_str) {
-        Some("input_text" | "output_text" | "text") => json!({
+        Some("input_text" | "output_text" | "text") => Ok(json!({
             "type": "text",
             "text": map.get("text").map(value_to_text).unwrap_or_default()
-        }),
-        Some("input_image" | "image_url") => chat_image_url_part(map.get("image_url")),
+        })),
+        Some("input_image" | "image_url") => chat_image_url_part(map.get("image_url"), strict),
+        _type if strict => Err(StreamError::new(
+            "unsupported_content_modality",
+            "api_resolver",
+            "unsupported OpenAI Chat user content part type",
+        )),
         _type => {
             if let Some(text) = map.get("text") {
-                json!({ "type": "text", "text": value_to_text(text) })
+                Ok(json!({ "type": "text", "text": value_to_text(text) }))
             } else {
-                json!({ "type": "text", "text": value_to_text(part) })
+                Ok(json!({ "type": "text", "text": value_to_text(part) }))
             }
         }
     }
 }
 
-fn chat_image_url_part(image_url: Option<&Value>) -> Value {
+fn chat_image_url_part(image_url: Option<&Value>, strict: bool) -> Result<Value, StreamError> {
     match image_url {
-        Some(Value::String(url)) => json!({ "type": "image_url", "image_url": { "url": url } }),
-        Some(Value::Object(map)) if map.get("url").and_then(Value::as_str).is_some() => {
-            json!({ "type": "image_url", "image_url": map })
+        Some(Value::String(url)) if !strict || !url.trim().is_empty() => {
+            Ok(json!({ "type": "image_url", "image_url": { "url": url } }))
         }
-        Some(value) => json!({ "type": "text", "text": value_to_text(value) }),
-        None => json!({ "type": "text", "text": "" }),
+        Some(Value::Object(map))
+            if map
+                .get("url")
+                .and_then(Value::as_str)
+                .is_some_and(|url| !strict || !url.trim().is_empty()) =>
+        {
+            Ok(json!({ "type": "image_url", "image_url": map }))
+        }
+        _ if strict => Err(StreamError::new(
+            "unsupported_content_modality",
+            "api_resolver",
+            "OpenAI Chat image_url part requires a non-empty url",
+        )),
+        Some(value) => Ok(json!({ "type": "text", "text": value_to_text(value) })),
+        None => Ok(json!({ "type": "text", "text": "" })),
     }
 }
 

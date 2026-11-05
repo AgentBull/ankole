@@ -33,6 +33,7 @@ fn identity_resolver(kind: APIResolverKind, declarations: Vec<Value>) -> APIReso
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     )
 }
@@ -222,6 +223,7 @@ fn anthropic_custom_tools_preserve_schema_choice_replay_and_fragmented_input() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         };
         let resolver = APIResolver::new(APIResolverKind::AnthropicMessages, context.clone());
         let body = Value::Object(resolver.build_body().unwrap());
@@ -354,6 +356,7 @@ fn openai_chat_emulates_and_restores_namespaced_custom_tool_calls() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -439,6 +442,7 @@ fn openai_chat_emulates_response_tool_namespaces() {
         provider_options: json!({}),
         stream: None,
         include_model: true,
+        ..ResponseContext::default()
     };
     let mut resolver = APIResolver::new(APIResolverKind::OpenAIChatCompletions, context);
 
@@ -516,6 +520,7 @@ fn anthropic_emulates_and_restores_response_tool_namespaces() {
         provider_options: json!({}),
         stream: Some(false),
         include_model: true,
+        ..ResponseContext::default()
     };
     let mut resolver = APIResolver::new(APIResolverKind::AnthropicMessages, context.clone());
     let body = Value::Object(resolver.build_body().unwrap());
@@ -603,6 +608,7 @@ fn single_name_adapters_reject_colliding_tool_namespace_aliases() {
                 provider_options: json!({}),
                 stream: None,
                 include_model: true,
+                ..ResponseContext::default()
             },
         );
 
@@ -644,6 +650,7 @@ fn single_name_adapters_treat_functions_as_the_default_namespace() {
                 provider_options: json!({}),
                 stream: None,
                 include_model: true,
+                ..ResponseContext::default()
             },
         );
 
@@ -708,6 +715,7 @@ fn single_name_adapters_use_provider_wire_name_rules() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
     let chat_body = Value::Object(chat.build_body().unwrap());
@@ -748,6 +756,7 @@ fn single_name_adapters_use_provider_wire_name_rules() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
     let anthropic_body = Value::Object(anthropic.build_body().unwrap());

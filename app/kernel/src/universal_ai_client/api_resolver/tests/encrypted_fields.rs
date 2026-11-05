@@ -30,6 +30,7 @@ fn openai_responses_preserves_native_encrypted_tool_schema() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -54,6 +55,7 @@ fn openai_responses_adapter_emulates_encrypted_tool_fields() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -84,6 +86,7 @@ fn adapter_routes_remove_aigateway_encrypted_tool_markers() {
                 provider_options: json!({}),
                 stream: Some(false),
                 include_model: true,
+                ..ResponseContext::default()
             },
         );
 
@@ -105,6 +108,7 @@ fn openai_responses_preserves_provider_encrypted_function_arguments() {
         provider_options: json!({}),
         stream: Some(false),
         include_model: true,
+        ..ResponseContext::default()
     };
 
     let mut responses = APIResolver::new(APIResolverKind::OpenAIResponses, context());
@@ -147,6 +151,7 @@ fn aigateway_encodes_marked_outputs_after_anthropic_adapter() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
     let anthropic_body = anthropic
@@ -191,6 +196,7 @@ fn openai_responses_stream_preserves_provider_encrypted_function_arguments() {
             provider_options: json!({}),
             stream: Some(true),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
     let mut public_events = Vec::new();
@@ -304,6 +310,7 @@ fn aigateway_decodes_opaque_history_before_native_responses_provider() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -344,6 +351,7 @@ fn openai_responses_preserves_provider_encrypted_agent_messages() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -379,6 +387,7 @@ fn openai_responses_preserves_provider_encrypted_function_call_output_parts() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -414,6 +423,7 @@ fn adapter_route_rejects_provider_encrypted_agent_message_content() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -441,6 +451,7 @@ fn openai_responses_rejects_corrupt_aigateway_agent_message_content() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -469,6 +480,7 @@ fn aigateway_decodes_opaque_history_without_tool_definitions() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -499,6 +511,7 @@ fn aigateway_keeps_prefix_substrings_inside_plain_argument_values_verbatim() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -531,6 +544,7 @@ fn aigateway_passes_plaintext_values_of_encrypted_fields_through() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -559,6 +573,7 @@ fn aigateway_rejects_corrupt_opaque_history_values() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -592,6 +607,7 @@ fn aigateway_rejects_nested_encrypted_tool_fields_before_provider_dispatch() {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -633,6 +649,7 @@ fn openai_chat_round_trips_response_encrypted_tool_parameters() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -710,6 +727,7 @@ fn openai_chat_round_trips_response_encrypted_tool_parameters() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
     let replay_body = Value::Object(replay.build_body().unwrap());
@@ -753,6 +771,7 @@ fn openai_chat_assembles_interleaved_encrypted_tool_call_streams() {
             provider_options: json!({}),
             stream: Some(true),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -856,6 +875,7 @@ fn openai_chat_rejects_foreign_encrypted_agent_messages() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -880,6 +900,7 @@ fn openai_chat_rejects_foreign_encrypted_agent_messages() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -915,6 +936,7 @@ fn openai_chat_redacts_incomplete_encrypted_tool_arguments() {
             provider_options: json!({}),
             stream: Some(true),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -975,6 +997,7 @@ fn openai_chat_fails_closed_for_malformed_complete_encrypted_tool_arguments() {
             provider_options: json!({}),
             stream: Some(true),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -1034,6 +1057,7 @@ fn aigateway_buffers_and_encodes_anthropic_encrypted_tool_streams() {
             provider_options: json!({}),
             stream: Some(true),
             include_model: true,
+            ..ResponseContext::default()
         },
     );
     let mut public_events = Vec::new();

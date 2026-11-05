@@ -115,6 +115,7 @@ mod tests {
                 provider_options: json!({"service_tier": "priority"}),
                 stream: Some(true),
                 include_model: true,
+                ..ResponseContext::default()
             },
             limits: StreamLimits::default(),
             hosted_tools: None,
@@ -149,6 +150,7 @@ mod tests {
                 provider_options: json!({}),
                 stream: None,
                 include_model: true,
+                ..ResponseContext::default()
             },
         );
 
@@ -167,6 +169,7 @@ mod tests {
                 provider_options: json!({}),
                 stream: None,
                 include_model: true,
+                ..ResponseContext::default()
             },
         );
 
@@ -201,6 +204,7 @@ mod tests {
                 }),
                 stream: Some(false),
                 include_model: true,
+                ..ResponseContext::default()
             },
         );
 
@@ -223,6 +227,7 @@ mod tests {
                 }),
                 stream: Some(false),
                 include_model: true,
+                ..ResponseContext::default()
             },
         );
 

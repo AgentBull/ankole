@@ -248,6 +248,7 @@ fn anthropic_text_stream_accumulates_response_body() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -299,6 +300,7 @@ fn anthropic_usage_counts_cache_reads_and_writes_as_input() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -358,6 +360,7 @@ fn anthropic_message_stop_closes_open_text_block() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -411,6 +414,7 @@ fn anthropic_eof_keeps_partial_tool_call_incomplete_without_done_events() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -475,6 +479,7 @@ fn anthropic_build_body_maps_openresponses_images_to_image_blocks() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
@@ -642,6 +647,7 @@ fn anthropic_build_body_maps_required_tool_choice_to_any_when_thinking_is_off() 
                 provider_options,
                 stream: None,
                 include_model: true,
+                ..ResponseContext::default()
             },
         );
 
@@ -675,6 +681,7 @@ fn anthropic_build_body_downgrades_forced_tool_choice_to_auto_when_thinking_is_e
                     provider_options: json!({"thinking": thinking}),
                     stream: None,
                     include_model: true,
+                    ..ResponseContext::default()
                 },
             );
 
@@ -694,6 +701,7 @@ fn anthropic_build_body_downgrades_forced_tool_choice_to_auto_when_thinking_is_e
                 provider_options: json!({"thinking": thinking}),
                 stream: None,
                 include_model: true,
+                ..ResponseContext::default()
             },
         );
 
@@ -720,6 +728,7 @@ fn anthropic_build_body_merges_consecutive_tool_outputs_into_one_user_message() 
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 

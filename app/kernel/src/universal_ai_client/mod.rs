@@ -23,7 +23,8 @@ pub use client::{
 };
 pub use error::StreamError;
 pub use spec::{
-    APIResolverKind, ResponseContext, TimeoutSpec, TransportSpec, UpstreamKind, UpstreamSpec,
+    APIResolverKind, ConversionPolicy, ResponseContext, TimeoutSpec, TransportSpec, UpstreamKind,
+    UpstreamSpec,
 };
 pub use transport::{HTTPResponse, HTTPStream, HttpTransport, SemanticIdle, safe_response_headers};
 pub use wire::{SSEEvent, SSEFrame, SSEParser};

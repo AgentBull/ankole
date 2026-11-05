@@ -37,6 +37,8 @@ pub trait APIProtocol: std::fmt::Debug + Send + Sync {
         ))
     }
 
+    fn on_done_sentinel(&mut self) {}
+
     fn on_upstream_close(&mut self, _context: &ResponseContext) -> Result<Vec<Value>, StreamError> {
         Ok(Vec::new())
     }
@@ -119,6 +121,12 @@ impl APIResolver {
         self.check_prepared()?;
         let events = self.protocol.on_provider_event(&self.context, value)?;
         self.opaque_tool_fields.lift_events(events)
+    }
+
+    pub fn on_done_sentinel(&mut self) -> Result<(), StreamError> {
+        self.check_prepared()?;
+        self.protocol.on_done_sentinel();
+        Ok(())
     }
 
     pub fn finish(&mut self) -> Result<Vec<Value>, StreamError> {

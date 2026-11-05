@@ -120,6 +120,10 @@ async fn run_http_stream(
                         }
                         for event in events {
                             if event.data == "[DONE]" {
+                                if let Err(error) = resolver.on_done_sentinel() {
+                                    finish_after_ready_error(delivery, &mut resolver, error).await;
+                                    return;
+                                }
                                 match resolver.finish() {
                                     Ok(events) => delivery.push_events(events),
                                     Err(error) => {
@@ -384,6 +388,10 @@ async fn run_websocket_stream(
                 }
 
                 if text == "[DONE]" {
+                    if let Err(error) = resolver.on_done_sentinel() {
+                        finish_after_ready_error(delivery, &mut resolver, error).await;
+                        return;
+                    }
                     match resolver.finish() {
                         Ok(events) => delivery.push_events(events),
                         Err(error) => {

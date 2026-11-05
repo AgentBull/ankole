@@ -265,6 +265,14 @@ impl Default for RequestLimits {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConversionPolicy {
+    #[default]
+    Tolerant,
+    Strict,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ResponseContext {
     #[serde(default)]
@@ -277,6 +285,8 @@ pub struct ResponseContext {
     pub stream: Option<bool>,
     #[serde(default = "default_include_model")]
     pub include_model: bool,
+    #[serde(default)]
+    pub policy: ConversionPolicy,
 }
 
 impl Default for ResponseContext {
@@ -287,11 +297,21 @@ impl Default for ResponseContext {
             provider_options: Value::Null,
             stream: None,
             include_model: true,
+            policy: ConversionPolicy::Tolerant,
         }
     }
 }
 
 impl ResponseContext {
+    pub fn with_policy(mut self, policy: ConversionPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+
+    pub fn policy(&self) -> ConversionPolicy {
+        self.policy
+    }
+
     pub(crate) fn resolved_request(&self) -> Value {
         Value::Object(self.resolved_request_object())
     }
@@ -350,7 +370,9 @@ impl ResponseContext {
             request.remove("service_tier");
         }
 
-        normalize_function_call_replay(&mut request);
+        if self.policy() == ConversionPolicy::Tolerant {
+            normalize_function_call_replay(&mut request);
+        }
         request
     }
 }
@@ -887,6 +909,7 @@ mod tests {
             }),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         };
 
         let request = context.resolved_request_object();
@@ -948,6 +971,7 @@ mod tests {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         };
 
         let provider_request = context.resolved_provider_request_object();
@@ -997,6 +1021,7 @@ mod tests {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         };
 
         let provider_request = context.resolved_provider_request_object();
@@ -1041,6 +1066,7 @@ mod tests {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         };
 
         let mut projected = context.resolved_provider_request_object();
@@ -1068,6 +1094,7 @@ mod tests {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         };
 
         let projected = context.resolved_provider_request_object();
@@ -1106,6 +1133,7 @@ mod tests {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         };
 
         let provider_request = context.resolved_provider_request_object();
@@ -1138,6 +1166,7 @@ mod tests {
             provider_options: json!({}),
             stream: Some(false),
             include_model: true,
+            ..ResponseContext::default()
         };
 
         let provider_request = context.resolved_provider_request_object();
@@ -1170,6 +1199,7 @@ mod tests {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         };
 
         let provider_request = context.resolved_provider_request_object();
@@ -1198,6 +1228,7 @@ mod tests {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         };
 
         let provider_request = context.resolved_provider_request_object();

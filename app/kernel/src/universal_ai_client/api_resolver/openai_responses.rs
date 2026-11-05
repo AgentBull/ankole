@@ -231,6 +231,9 @@ fn provider_error_diagnostic(event: &Value) -> Option<Value> {
 impl APIProtocol for OpenAIResponsesState {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
         let mut body = context.resolved_provider_request_object();
+        if context.policy() == ConversionPolicy::Strict {
+            validate_strict_openai_responses_input(&body)?;
+        }
         if custom_tool_emulation_requested(context) {
             lower_custom_tools(&mut body)?;
         }
@@ -322,4 +325,46 @@ fn classify_stateful_replay_rejection(
     } else {
         None
     }
+}
+
+fn validate_strict_openai_responses_input(body: &Map<String, Value>) -> Result<(), StreamError> {
+    let Some(Value::Array(items)) = body.get("input") else {
+        return Ok(());
+    };
+
+    for item in items {
+        let Some(map) = item.as_object() else {
+            return Err(StreamError::new(
+                "invalid_input_item",
+                "api_resolver",
+                "OpenAI Responses input item must be a JSON object",
+            ));
+        };
+        if map.get("type").and_then(Value::as_str) == Some("function_call") {
+            let Some(arguments) = map.get("arguments").and_then(Value::as_str) else {
+                return Err(StreamError::new(
+                    "invalid_tool_arguments",
+                    "api_resolver",
+                    "OpenAI Responses function_call item requires string arguments",
+                ));
+            };
+            let parsed = sonic_rs::from_str::<Value>(arguments).map_err(|reason| {
+                StreamError::new(
+                    "invalid_tool_arguments",
+                    "api_resolver",
+                    format!(
+                        "OpenAI Responses function_call arguments are not valid JSON: {reason}"
+                    ),
+                )
+            })?;
+            if !parsed.is_object() {
+                return Err(StreamError::new(
+                    "invalid_tool_arguments",
+                    "api_resolver",
+                    "OpenAI Responses function_call arguments must be a JSON object",
+                ));
+            }
+        }
+    }
+    Ok(())
 }

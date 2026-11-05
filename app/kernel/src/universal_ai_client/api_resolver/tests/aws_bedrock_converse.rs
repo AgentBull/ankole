@@ -10,6 +10,7 @@ fn bedrock_converse_one_shot_body_maps_text_usage_and_stop_reason() {
             provider_options: json!({}),
             stream: None,
             include_model: true,
+            ..ResponseContext::default()
         },
     );
 
