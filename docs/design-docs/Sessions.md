@@ -414,7 +414,12 @@ applied inputs.
 
 Every tool call must supply complete, valid JSON arguments before execution; if
 the arguments are incomplete or invalid, Ankole returns a tool error so the
-model can submit a complete call.
+model can submit a complete call. A model often writes `""` or `null` for an
+optional parameter that it means to leave out, such as a background job's
+`workspace_template_id`. When the parameter's schema rejects that empty value,
+`Sessions.ToolArguments` drops the parameter and validates the call without
+it. A required parameter and any other invalid value still return the tool
+error.
 
 Tool results are persisted before the model continues, and recovery reuses any
 committed result rather than re-running the tool. If a tool call was already

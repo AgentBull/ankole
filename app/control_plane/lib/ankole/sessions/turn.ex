@@ -8,7 +8,7 @@ defmodule Ankole.Sessions.Turn do
   All state here can be rebuilt from the existing Run, round and receipt owners.
   """
 
-  alias Ankole.Sessions.{Commands, PendingCall, Presentation, Revisions, Run}
+  alias Ankole.Sessions.{Activity, Commands, PendingCall, Presentation, Revisions, Run}
   alias Ankole.Sessions.{ToolArguments, ToolCatalog, ToolResult, Tools, Worker, WorkerAcquisition}
   alias Ankole.Signals.Signal
 
@@ -544,6 +544,14 @@ defmodule Ankole.Sessions.Turn do
             []
           end
 
+        # A Worker tool presents its own label while it runs.
+        label =
+          case events do
+            [%{"payload" => payload} | _] -> payload
+            [] -> entry.activity
+          end
+
+        result = %{result | activity: Activity.display_label(label)}
         {run, attached} = Tools.attach(turn.run, result)
         run = track_failure(run, entry.call, attached)
 
@@ -602,8 +610,21 @@ defmodule Ankole.Sessions.Turn do
     end
   end
 
-  defp worker_event(turn, {:presentation, kind, value}, _now),
-    do: {turn, [{:present, [%{"kind" => kind, "payload" => value}]}]}
+  defp worker_event(turn, {:presentation, kind, value}, _now) do
+    pending =
+      case value do
+        %{"activity" => %{"key" => key} = activity} when kind == "tool.activity" ->
+          PendingCall.put_activity(turn.pending, value["operation_id"], %{
+            "label_key" => key,
+            "label_bindings" => activity["bindings"]
+          })
+
+        _ ->
+          turn.pending
+      end
+
+    {%{turn | pending: pending}, [{:present, [%{"kind" => kind, "payload" => value}]}]}
+  end
 
   defp worker_event(turn, {:result, id, result, follow}, now) do
     turn = %{turn | run: %{turn.run | follow_ups: turn.run.follow_ups ++ follow}}

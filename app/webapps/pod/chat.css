@@ -1513,8 +1513,9 @@
   margin-left: 6px;
   font-variant-numeric: tabular-nums;
 }
-.pod-chat-work-pages {
+.pod-chat-work-errors {
   margin-left: 4px;
+  color: var(--warning-foreground);
 }
 .pod-chat-work-content {
   margin: 8px 0 10px 3px;
@@ -2162,9 +2163,6 @@
 @media (max-width: 640px) {
   .pod-chat-timeline .pod-chat-history-content {
     padding: 18px 22px 28px 16px;
-  }
-  .pod-chat-work-pages {
-    display: none;
   }
   .pod-chat-message-identity time {
     opacity: 0.8;

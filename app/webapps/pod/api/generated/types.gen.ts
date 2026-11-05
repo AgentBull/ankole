@@ -6810,6 +6810,10 @@ export type PodPeerExchangeResponses = {
           duration_ms?: number | null
           id: string
           input?: string | null
+          label_bindings?: {
+            [key: string]: unknown
+          } | null
+          label_key?: string | null
           output?: string | null
           status: string
           title: string

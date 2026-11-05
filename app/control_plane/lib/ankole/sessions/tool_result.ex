@@ -10,6 +10,8 @@ defmodule Ankole.Sessions.ToolResult do
     :outcome,
     :cursor,
     :todos,
+    # The activity label that people saw for this call, kept for its work history.
+    :activity,
     is_error: false,
     terminate: false,
     presentation: [],
@@ -30,7 +32,7 @@ defmodule Ankole.Sessions.ToolResult do
       result
       |> encode()
       |> Map.take(
-        ~w(is_error terminate outcome failure_kind todos final_text duration_ms interaction)
+        ~w(is_error terminate outcome failure_kind todos final_text duration_ms interaction activity)
       )
 
   @spec encode(t() | {:await, Ankole.Sessions.Wait.t()}) :: map()

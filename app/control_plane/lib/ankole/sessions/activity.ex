@@ -105,29 +105,38 @@ defmodule Ankole.Sessions.Activity do
     data
   end
 
-  defp display_payload(payload) do
+  @doc """
+  Returns the part of an activity payload that people may see: a known
+  activity label key with at most eight short scalar bindings. It returns
+  `nil` when the payload carries no activity label key.
+  """
+  def display_label(payload) do
     key = payload["label_key"]
 
-    key =
-      if is_binary(key) and String.starts_with?(key, "conversations.delivery.reply.activity."),
-        do: Presentation.activity_excerpt(key, 160)
+    if is_binary(key) and String.starts_with?(key, "conversations.delivery.reply.activity.") do
+      %{
+        "label_key" => Presentation.activity_excerpt(key, 160),
+        "label_bindings" => display_bindings(payload["label_bindings"])
+      }
+    end
+  end
 
-    bindings =
-      case payload["label_bindings"] do
-        bindings when is_map(bindings) ->
-          bindings
-          |> Enum.take(8)
-          |> Enum.filter(fn {key, value} ->
-            is_binary(key) and (is_binary(value) or is_number(value) or is_boolean(value))
-          end)
-          |> Map.new(fn {key, value} ->
-            {Presentation.activity_excerpt(key, 64),
-             Presentation.activity_excerpt(to_string(value), 160)}
-          end)
+  defp display_bindings(bindings) when is_map(bindings) do
+    bindings
+    |> Enum.take(8)
+    |> Enum.filter(fn {key, value} ->
+      is_binary(key) and (is_binary(value) or is_number(value) or is_boolean(value))
+    end)
+    |> Map.new(fn {key, value} ->
+      {Presentation.activity_excerpt(key, 64),
+       Presentation.activity_excerpt(to_string(value), 160)}
+    end)
+  end
 
-        _ ->
-          %{}
-      end
+  defp display_bindings(_bindings), do: %{}
+
+  defp display_payload(payload) do
+    label = display_label(payload)
 
     safe = %{
       "operation_id" => payload["operation_id"],
@@ -135,12 +144,12 @@ defmodule Ankole.Sessions.Activity do
         if(is_binary(payload["phase"]),
           do: Presentation.activity_excerpt(payload["phase"], 160)
         ),
-      "label_bindings" => bindings
+      "label_bindings" => display_bindings(payload["label_bindings"])
     }
 
     cond do
-      key ->
-        Map.put(safe, "label_key", key)
+      label ->
+        Map.merge(safe, label)
 
       is_binary(payload["label"]) ->
         Map.put(safe, "label", Presentation.activity_excerpt(payload["label"], 160))

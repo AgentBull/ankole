@@ -363,6 +363,54 @@ defmodule Ankole.Sessions.TurnTest do
     assert {:next, :boundary} in commands
   end
 
+  test "a finished call keeps the activity label that people saw while it ran" do
+    list = %{call("list") | "name" => "list_background_jobs"}
+    turn = ready_tools([call("build"), call("plain"), list])
+
+    jobs =
+      Tools.Jobs.declarations()
+      |> Enum.find(&(&1["name"] == "list_background_jobs"))
+      |> Tool.new(Tools.Jobs)
+
+    turn = %{turn | run: %{turn.run | tools: turn.run.tools ++ [jobs]}}
+    {running, _} = Turn.step(turn, :tools, 0)
+
+    activity = %{
+      "key" => "conversations.delivery.reply.activity.command_build_family",
+      "bindings" => %{"family" => "bun"}
+    }
+
+    {running, _} =
+      Turn.step(
+        running,
+        {:completed, :worker,
+         {:presentation, "tool.activity",
+          %{"operation_id" => "build", "phase" => "running", "activity" => activity}}}
+      )
+
+    finished =
+      Enum.reduce(["build", "plain"], running, fn id, turn ->
+        {turn, _} =
+          Turn.step(turn, {:completed, :worker, {:result, id, Tools.result(%{}), []}})
+
+        turn
+      end)
+
+    {finished, _} = Turn.step(finished, {:completed, {:tool, "list"}, Tools.result(%{})})
+
+    assert ToolResult.journal_fields(finished.run.results["build"])["activity"] == %{
+             "label_key" => "conversations.delivery.reply.activity.command_build_family",
+             "label_bindings" => %{"family" => "bun"}
+           }
+
+    assert finished.run.results["list"].activity == %{
+             "label_key" => "conversations.delivery.reply.activity.background_job_list",
+             "label_bindings" => %{}
+           }
+
+    assert finished.run.results["plain"].activity == nil
+  end
+
   test "sequential tools wait for parallel results and block later calls" do
     calls = [call("first"), %{call("serial") | "name" => "serial"}, call("last")]
     turn = ready_tools(calls)

@@ -55,6 +55,40 @@ defmodule Ankole.Pod.Chat.ExecutionTest do
            ] = summary["steps"]
   end
 
+  test "a step keeps the label people saw and leaves out the retry hint meant for the model" do
+    at = ~U[2026-10-25 01:00:00Z]
+
+    call = %{
+      "type" => "function_call",
+      "call_id" => "job",
+      "name" => "create_background_job",
+      "arguments" => ~s({"title":"Report","task":"Write it.","workspace_template_id":"other"})
+    }
+
+    output = %{
+      "type" => "function_call_output",
+      "call_id" => "job",
+      "output" =>
+        Ankole.Sessions.Tools.error("no matching workspace template is available").output
+    }
+
+    label = %{
+      "label_key" => "conversations.delivery.reply.activity.background_job_create",
+      "label_bindings" => %{}
+    }
+
+    states = %{"job" => %{results: %{"job" => %{"is_error" => true, "activity" => label}}}}
+
+    assert [step] = Execution.from_chain([row("job", [call, output], at)], states)["steps"]
+
+    assert %{
+             "status" => "failed",
+             "output" => "Error: no matching workspace template is available"
+           } = step
+
+    assert Map.take(step, ["label_key", "label_bindings"]) == label
+  end
+
   test "Brain and provider tool calls use the gateway's canonical item families" do
     at = ~U[2026-10-25 01:00:00Z]
 

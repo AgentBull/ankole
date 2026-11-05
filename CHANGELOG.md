@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 2.0.0-alpha.62 (2026-11-05)
+
+- Accept an Agent's tool call that fills an optional setting with an empty
+  value, such as a background job without a workspace template, instead of
+  rejecting it and making the Agent try again.
+- Mark a reply's work as failed only when its turn failed. When an Agent
+  recovers from a failed step, the work summary shows how long it worked and
+  how many steps failed, so people can still report the error, and it no
+  longer counts tool calls.
+- Name each step of a reply's work in the reader's language, with the same
+  label that people saw while the step ran, and leave out the retry hint that
+  a failed step returns to the Agent.
+
 ## Version 2.0.0-alpha.61 (2026-11-05)
 
 - Show which model served each Agent reply and how many tokens it used in the

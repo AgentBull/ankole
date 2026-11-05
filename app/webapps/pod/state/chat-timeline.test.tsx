@@ -20,7 +20,14 @@ import {
 } from '../chat/turn-timeline'
 import { activitySteps } from '../chat/collapsed-work-view'
 import { findMessageStep, firstUnreadMessageID } from '../chat-history'
-import { ToolRunView, commandDetails, formatToolDetail, humanizeToolName, patchDetails } from '../chat/tool-run-view'
+import {
+  ToolRunView,
+  commandDetails,
+  formatToolDetail,
+  humanizeToolName,
+  patchDetails,
+  stepTitle
+} from '../chat/tool-run-view'
 import { MessageActions } from '../chat/message-actions'
 import { ChatModel } from './chat'
 
@@ -58,7 +65,8 @@ test('a persisted execution restores all tool details inside a collapsed complet
   const html = render(<CollapsedWorkView execution={JSON.parse(JSON.stringify(execution))} />)
   expect(html).toContain('<details class="pod-chat-work">')
   expect(html).not.toContain('<details class="pod-chat-work" open')
-  expect(html).toContain('Worked for 4.2s · 2 tools')
+  expect(html).toContain('Worked for 4.2s</span>')
+  expect(html).not.toContain('2 tools')
   expect(html).not.toContain('pod-chat-work-content')
   const expanded = render(<CollapsedWorkView execution={JSON.parse(JSON.stringify(execution))} attention />)
   expect(expanded).toContain('Check the page structure')
@@ -70,9 +78,9 @@ test('a persisted execution restores all tool details inside a collapsed complet
 test('active, failed, stopped and pending-decision work stays expanded', () => {
   for (const [props, summary] of [
     [{ active: true, execution: { ...execution, steps: [{ ...execution.steps![0]!, status: 'running' }] } }, undefined],
-    [{ attention: true }, 'Worked for 4.2s · 2 tools'],
+    [{ attention: true }, 'Worked for 4.2s'],
     [{ execution: { ...execution, status: 'stopped' } }, 'Stopped after 4.2s'],
-    [{ execution: { ...execution, steps: [{ ...execution.steps![0]!, status: 'failed' }] } }, 'Failed after 4.2s']
+    [{ execution: { ...execution, status: 'failed' } }, 'Failed after 4.2s']
   ] satisfies [Partial<Parameters<typeof CollapsedWorkView>[0]>, string | undefined][]) {
     const html = render(<CollapsedWorkView execution={execution} {...props} />)
     expect(html).toMatch(/<details class="pod-chat-work"[^>]* open="">/)
@@ -81,9 +89,46 @@ test('active, failed, stopped and pending-decision work stays expanded', () => {
   expect(render(<CollapsedWorkView execution={{ ...execution, status: 'stopped' }} />)).toContain(
     'data-outcome="stopped"'
   )
-  expect(
-    render(<CollapsedWorkView execution={{ ...execution, steps: [{ ...execution.steps![0]!, status: 'failed' }] }} />)
-  ).toContain('data-outcome="failed"')
+  expect(render(<CollapsedWorkView execution={{ ...execution, status: 'failed' }} />)).toContain(
+    'data-outcome="failed"'
+  )
+})
+
+test('a turn that recovers from a failed step finishes collapsed and marks the error so people can report it', () => {
+  const recovered = {
+    ...execution,
+    status: 'completed',
+    steps: [{ ...execution.steps![0]!, status: 'failed' }, execution.steps![1]!]
+  }
+  const html = render(<CollapsedWorkView execution={recovered} />)
+  expect(html).toContain('<details class="pod-chat-work">')
+  expect(html).not.toContain('data-outcome')
+  expect(html).toContain('Worked for 4.2s</span>')
+  expect(html).toContain('<span class="pod-chat-work-errors">· 1 error</span>')
+  expect(render(<CollapsedWorkView execution={execution} />)).not.toContain('pod-chat-work-errors')
+  // A failed turn already says so, so its header does not count errors again.
+  expect(render(<CollapsedWorkView execution={{ ...recovered, status: 'failed' }} />)).not.toContain(
+    'pod-chat-work-errors'
+  )
+})
+
+test('a step reads as the activity label people saw while it ran, in their language', () => {
+  const created = {
+    title: 'create_background_job',
+    tool: 'create_background_job',
+    label_key: 'conversations.delivery.reply.activity.background_job_create',
+    label_bindings: {}
+  }
+  expect(stepTitle(created, i18n.getFixedT('zh-Hans-CN'))).toBe('创建后台 Agent 任务')
+  expect(stepTitle(created, i18n.getFixedT('en-US'))).toBe('Creating a Background Agent Job')
+  // A step recorded before labels existed keeps its title or a readable tool name.
+  expect(stepTitle(execution.steps![0]!, i18n.getFixedT('zh-Hans-CN'))).toBe('Read page Q4 Roadmap')
+  expect(stepTitle({ title: 'create_background_job', tool: 'create_background_job' }, i18n.getFixedT('en-US'))).toBe(
+    'Create background job'
+  )
+  expect(render(<ToolRunView steps={[{ ...created, id: 'job', status: 'completed' }]} />)).toContain(
+    'Creating a Background Agent Job'
+  )
 })
 
 test('live thinking uses one collapsed disclosure with its timer and keeps the complete text available when opened', () => {
@@ -148,7 +193,7 @@ test('live work uses the room activity phases before the final reply is committe
   expect(waiting).not.toContain('<details')
 
   const completed = render(<CollapsedWorkView phaseLabel="Waiting for computer capacity" execution={execution} />)
-  expect(completed).toContain('Worked for 4.2s · 2 tools')
+  expect(completed).toContain('Worked for 4.2s')
   expect(completed).not.toContain('Waiting for computer capacity')
 
   const parallel = render(
@@ -162,7 +207,8 @@ test('live work uses the room activity phases before the final reply is committe
       }}
     />
   )
-  expect(parallel).toContain('2 tool calls')
+  expect(parallel).toContain('Processing request')
+  expect(parallel).not.toContain('tool calls')
   expect(parallel.match(/>Searching source material</g)).toHaveLength(1)
   expect(parallel).not.toContain('pod-chat-tool-group')
 })
@@ -185,7 +231,8 @@ test('active work highlights the current action without forcing its accumulated 
   expect(html).not.toContain('Waiting for computer capacity')
   expect(html).toContain('<details class="pod-chat-thinking">')
   expect(html).toContain('<details class="pod-chat-tool-group">')
-  expect(html).toContain('3 tool calls')
+  expect(html).toContain('Work steps')
+  expect(html).not.toContain('tool calls')
   expect(html).not.toContain('0.0s')
   expect(html).toContain('Check the page structure')
   expect(html).toContain('Queried Tasks (18 rows)')

@@ -22,7 +22,8 @@ defmodule Ankole.Sessions.Tools.Jobs do
                         "minLength": 1
                       },
                       "workspace_template_id": {
-                        "type": "string"
+                        "type": "string",
+                        "minLength": 1
                       }
                     },
                     "required": [
