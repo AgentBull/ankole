@@ -230,6 +230,7 @@ RUN --mount=type=cache,target=/root/.cargo/git \
 WORKDIR /repo
 
 COPY app/control_plane ./app/control_plane
+COPY app/library/templates ./app/library/templates
 COPY app/locales ./app/locales
 COPY app/webapps/entries.json ./app/webapps/entries.json
 COPY app/webapps/entrypoints ./app/webapps/entrypoints
