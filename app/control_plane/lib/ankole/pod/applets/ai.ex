@@ -16,7 +16,10 @@ defmodule Ankole.Pod.Applets.AI do
          :ok <- prompt(options),
          {:ok, _effort} <- ReasoningEffort.normalize(options["effort"]),
          {:ok, %{body: body}} <-
-           AIGateway.create_response(principal.uid, request(options), caller: "pod_applet"),
+           AIGateway.create_response(principal.uid, request(options),
+             caller: "pod_applet",
+             request_context: human_context(principal)
+           ),
          {:ok, reason} <- finish_reason(body) do
       usage = body["usage"] || %{}
 
@@ -35,6 +38,10 @@ defmodule Ankole.Pod.Applets.AI do
          %{status: status(reason), code: code(reason), message: code(reason), details: nil}}
     end
   end
+
+  # The usage ledger attributes an Applet call of a Human to that Human.
+  defp human_context(%{type: :human, uid: uid}), do: %{"human_uid" => uid}
+  defp human_context(_principal), do: %{}
 
   defp profile(model) when model in @profiles, do: :ok
   defp profile(_), do: {:error, :invalid_model}

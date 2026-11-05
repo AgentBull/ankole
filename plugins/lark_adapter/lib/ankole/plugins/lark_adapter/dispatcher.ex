@@ -83,15 +83,22 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
     fn event_type, %Event{} = event ->
       case inner.(event_type, event) do
         {:ok, results} when is_list(results) ->
-          if Enum.any?(results, &match?(%{status: :unauthorized_action}, &1)) do
-            %{
-              "toast" => %{
-                "type" => "warning",
-                "content" => "You do not have permission to confirm this action card."
+          cond do
+            Enum.any?(results, &match?(%{status: :unauthorized_action}, &1)) ->
+              %{
+                "toast" => %{
+                  "type" => "warning",
+                  "content" => "You do not have permission to confirm this action card."
+                }
               }
-            }
-          else
-            %{"toast" => %{"type" => "success", "content" => "Request received."}}
+
+            # The card keeps the entered values, so the user fixes the named
+            # fields and submits again.
+            invalid = Enum.find(results, &match?(%{status: :invalid_form_answer}, &1)) ->
+              %{"toast" => %{"type" => "error", "content" => invalid.notice}}
+
+            true ->
+              %{"toast" => %{"type" => "success", "content" => "Request received."}}
           end
 
         other ->

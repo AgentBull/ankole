@@ -148,6 +148,214 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
       assert record.attempt == nil
     end
 
+    test "a round without reported usage keeps its counts unknown and names what served it" do
+      %{principal: agent} = agent_fixture()
+      %{principal: human} = human_fixture()
+      signal_id = Ankole.Ecto.UUIDv7.autogenerate()
+      window_started_at = DateTime.add(DateTime.utc_now(), -60, :second)
+
+      base_url =
+        start_upstream_server(fn _request ->
+          {:json, 200,
+           @completed_body |> Map.delete("usage") |> Map.put("model", "gpt-5.5-2026-10-01")}
+        end)
+
+      configure_openai_profile!(agent.uid, base_url)
+
+      assert {:ok, %{body: body}} =
+               AIGateway.create_response(agent.uid, %{"model" => "light", "input" => "hello"},
+                 subject_type: "agent",
+                 request_context: %{"signal_id" => signal_id, "human_uid" => human.uid}
+               )
+
+      # The public Responses usage object keeps integer counts.
+      assert body["usage"]["input_tokens"] == 0
+
+      assert [record] = usage_records()
+      assert record.input_tokens == nil
+      assert record.output_tokens == nil
+      assert record.cached_input_tokens == nil
+      assert record.model == "openai-token-quota/gpt-5.5"
+      assert record.provider_model == "gpt-5.5-2026-10-01"
+      assert record.model_profile == "light"
+      assert record.served_profile == "primary"
+      assert record.human_uid == human.uid
+      assert UsageLedger.window_tokens(agent.uid, window_started_at) == 0
+    end
+
+    test "a round still counts when the Human it served no longer exists" do
+      %{principal: agent} = agent_fixture()
+      window_started_at = DateTime.add(DateTime.utc_now(), -60, :second)
+
+      base_url = start_upstream_server(fn _request -> {:json, 200, @completed_body} end)
+      configure_openai_profile!(agent.uid, base_url)
+
+      # A long Job keeps the uid it froze at admission after that Human is gone.
+      assert {:ok, _response} =
+               AIGateway.create_response(agent.uid, %{"model" => "primary", "input" => "hello"},
+                 subject_type: "agent",
+                 request_context: %{"human_uid" => "departed@example.com"}
+               )
+
+      assert [%{human_uid: "departed@example.com"} = record] = usage_records()
+
+      assert UsageLedger.window_tokens(agent.uid, window_started_at) ==
+               record.input_tokens + record.output_tokens
+    end
+
+    test "a deleted Agent's rounds stay in the ledger, and a later Agent with its uid starts fresh" do
+      %{principal: agent} = agent_fixture()
+      base_url = start_upstream_server(fn _request -> {:json, 200, @completed_body} end)
+      configure_openai_profile!(agent.uid, base_url)
+
+      assert {:ok, _response} =
+               AIGateway.create_response(agent.uid, %{"model" => "primary", "input" => "hello"},
+                 subject_type: "agent"
+               )
+
+      # Deleting first disables the Agent and then removes it.
+      assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
+      assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
+      assert {:error, :not_found} = Ankole.Principals.get_agent(agent.uid)
+      assert [%UsageRecord{input_tokens: 120, output_tokens: 30} = record] = usage_records()
+      assert record.subject_uid == agent.uid
+
+      # The uid is free again once the Worker owner has torn down the old Worker;
+      # removing its row stands in for that teardown here.
+      Repo.delete_all(
+        from(w in Ankole.AgentWorkers.AgentWorker, where: w.agent_uid == ^agent.uid)
+      )
+
+      %{principal: successor} = agent_fixture(%{uid: agent.uid})
+      period_start_at = DateTime.add(DateTime.utc_now(), -86_400, :second)
+
+      assert {:ok, _quota} =
+               TokenQuota.put(successor.uid, %{
+                 "period_days" => 7,
+                 "period_start_at" => DateTime.to_iso8601(period_start_at),
+                 "limit_tokens" => 100
+               })
+
+      assert {:ok, %{usage: %{used_tokens: 0, exceeded: false}}} =
+               TokenQuota.status(successor.uid)
+    end
+
+    test "turn usage sums reported counts and keeps unreported ones unknown" do
+      %{principal: agent} = agent_fixture()
+      signal_id = Ankole.Ecto.UUIDv7.autogenerate()
+
+      record = fn model, usage ->
+        :ok =
+          UsageLedger.record(
+            %{
+              "capability" => "llm",
+              "subject_uid" => agent.uid,
+              "provider_id" => "ledger-test",
+              "model" => model,
+              "profile" => "light",
+              "served_profile" => "primary",
+              "request_context" => %{"signal_id" => signal_id}
+            },
+            "agent",
+            Map.put(@completed_body, "usage", usage)
+          )
+      end
+
+      record.("gpt-5.5", %{
+        "input_tokens" => 100,
+        "output_tokens" => 0,
+        "input_tokens_details" => %{"cached_tokens" => 40}
+      })
+
+      record.("gpt-5.5", nil)
+      record.("vision", %{"input_tokens" => 7, "output_tokens" => 3})
+
+      assert %{
+               "rounds" => 3,
+               "reported_rounds" => 2,
+               "input_tokens" => 107,
+               "output_tokens" => 3,
+               "cached_input_tokens" => 40,
+               "reasoning_tokens" => nil,
+               "models" => [
+                 %{
+                   "model" => "ledger-test/gpt-5.5",
+                   "model_profile" => "light",
+                   "served_profile" => "primary",
+                   "rounds" => 2,
+                   "reported_rounds" => 1,
+                   "input_tokens" => 100,
+                   "output_tokens" => 0
+                 },
+                 %{"model" => "ledger-test/vision", "rounds" => 1}
+               ]
+             } = AIGateway.turn_usage(signal_id)
+
+      assert AIGateway.turn_usage(Ankole.Ecto.UUIDv7.autogenerate()) == nil
+    end
+
+    test "a streaming round without usage records unknown counts and public integer usage" do
+      %{principal: agent} = agent_fixture()
+
+      base_url =
+        start_upstream_server(fn _request ->
+          {:sse, 200,
+           openai_response_stream_events("resp_stream_unreported", "gpt-5.5", "hi", nil)}
+        end)
+
+      configure_openai_profile!(agent.uid, base_url)
+
+      assert {:ok, stream, _meta} =
+               AIGateway.open_sse_stream(agent.uid, Map.put(request(), "stream", true),
+                 subject_type: "agent"
+               )
+
+      events = collect_response_events(stream, [])
+      terminal = Enum.find(events, &(&1["type"] == "response.completed"))
+      assert terminal["response"]["usage"]["input_tokens"] == 0
+
+      assert [record] = usage_records()
+      assert record.input_tokens == nil
+      assert record.output_tokens == nil
+    end
+
+    test "a hosted composite is one row that keeps only the counts its main rounds reported" do
+      %{principal: agent} = agent_fixture()
+      %{principal: human} = human_fixture()
+
+      record = fn subject_type, usage, request_context ->
+        :ok =
+          UsageLedger.record(
+            %{
+              "capability" => "llm",
+              "subject_uid" => if(subject_type == "oidc_human", do: human.uid, else: agent.uid),
+              "provider_id" => "ledger-test",
+              "model" => "model",
+              "request_context" => request_context
+            },
+            subject_type,
+            @completed_body
+            |> Map.put("usage", usage)
+            |> Map.put("tool_usage", %{
+              "image_gen" => %{"input_tokens" => 20, "output_tokens" => 5}
+            }),
+            aggregate_includes_tool_usage?: true
+          )
+      end
+
+      # The main rounds reported input only; the image tokens are already part of it.
+      record.("agent", %{"input_tokens" => 120}, %{})
+      # The main rounds reported nothing.
+      record.("agent", nil, %{})
+      # An OIDC Human calls for itself.
+      record.("oidc_human", %{"input_tokens" => 1, "output_tokens" => 1}, %{})
+
+      assert [partial, unreported, oidc] = usage_records()
+      assert {partial.input_tokens, partial.output_tokens} == {100, nil}
+      assert {unreported.input_tokens, unreported.output_tokens} == {nil, nil}
+      assert oidc.human_uid == human.uid
+    end
+
     test "an in-process round records nothing" do
       %{principal: agent} = agent_fixture()
       configure_openai_profile!(agent.uid, json_upstream(self()))

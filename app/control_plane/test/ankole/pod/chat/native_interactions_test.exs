@@ -261,6 +261,166 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
              Interactions.native_interaction(card.signal_id, interaction_id)
   end
 
+  test "a native form keeps its card through invalid answers and wakes the Agent with typed values",
+       ctx do
+    card =
+      clarify(ctx, nil, %{
+        "question" => "How should the report ship?",
+        "fields" => [
+          %{
+            "id" => "copies",
+            "label" => "Copies",
+            "type" => "number",
+            "integer" => true,
+            "max" => 10
+          },
+          %{
+            "id" => "format",
+            "label" => "Format",
+            "type" => "select",
+            "options" => [
+              %{"value" => "pdf", "label" => "PDF"},
+              %{"value" => "slides", "label" => "Slides"}
+            ]
+          }
+        ]
+      })
+
+    id = card.rich_content["clarify"]["interaction_id"]
+    assert Enum.map(card.rich_content["clarify"]["fields"], & &1["id"]) == ["copies", "format"]
+    assert card.rich_content["clarify"]["allow_free_text"]
+
+    assert {:ok, detail} = Conversations.get(actor_fixture(ctx.alice), ctx.id)
+
+    assert [%{"fields" => [_, _]}] =
+             Ankole.Pod.Chat.Presentation.detail(detail).pendingInteractions
+
+    answer = fn values ->
+      Ash.ActionInput.for_action(
+        Ankole.Pod.Chat.Browser,
+        :answer_interaction,
+        %{id: ctx.id, interaction_id: id, values: values},
+        tenant: Repo.tenant_id!()
+      )
+      |> Ankole.Ash.run_action_authorized(actor_fixture(ctx.bob))
+    end
+
+    assert {:error, %{errors: [%Ankole.Pod.APIError{reason: reason}]}} =
+             answer.(%{"copies" => 11, "format" => "paper"})
+
+    assert reason ==
+             {:invalid_form_answer, %{"copies" => "out_of_range", "format" => "not_an_option"}}
+
+    assert %{"state" => "pending"} = Interactions.native_interaction(card.signal_id, id)
+
+    assert {:ok, _detail} = answer.(%{"copies" => 3, "format" => "slides"})
+
+    assert %{"state" => "answered", "answered_by_name" => "Bob", "answer_text" => summary} =
+             Interactions.native_interaction(card.signal_id, id)
+
+    assert summary == "Copies: 3 · Format: Slides"
+
+    assert [reply] =
+             Repo.all(
+               from s in Signal, where: s.conversation_id == ^ctx.id and s.id != ^ctx.event.id
+             )
+
+    assert reply.agent_uid == ctx.agent.uid
+    assert Conversations.get_message!(reply.message_id).text == summary
+
+    assert reply.data["interaction_answer"] == %{
+             "kind" => "form",
+             "value" => summary,
+             "values" => %{"copies" => 3, "format" => "slides"}
+           }
+
+    text = Ankole.Sessions.Prompt.Input.text(Signal.envelope(reply), reply.type)
+    assert text =~ "Answer: Copies: 3 · Format: Slides"
+    assert text =~ ~s({"copies":3,"format":"slides"})
+  end
+
+  test "the standalone form dialog follows room visibility and chat permission", ctx do
+    card =
+      clarify(ctx, nil, %{
+        "question" => "How many copies?",
+        "fields" => [%{"id" => "copies", "label" => "Copies", "type" => "number"}]
+      })
+
+    ref = card.rich_content["clarify"]["interaction_id"]
+    assert String.starts_with?(ref, card.signal_id <> ":")
+
+    outsider = human_fixture(%{display_name: "Carol"}).principal
+    Ankole.ConversationsFixtures.grant_chat(outsider.uid, ctx.agent.uid)
+
+    assert {:error, :not_found} = Interactions.standalone(actor_fixture(outsider), ref)
+
+    assert {:error, :conversation_not_found} =
+             Interactions.answer_standalone(actor_fixture(outsider), ref, %{
+               values: %{"copies" => 1}
+             })
+
+    viewer = human_fixture(%{display_name: "Dave"}).principal
+
+    assert {:ok, _} =
+             NativeRoom.manage(actor_fixture(ctx.alice), ctx.id, %{add_uids: [viewer.uid]})
+
+    assert {:ok, %{"state" => "pending", "conversation_kind" => "native"}} =
+             Interactions.standalone(actor_fixture(viewer), ref)
+
+    assert {:error, {:forbidden, "chat"}} =
+             Interactions.answer_standalone(actor_fixture(viewer), ref, %{
+               values: %{"copies" => 1}
+             })
+
+    assert %{"state" => "pending"} = Interactions.native_interaction(card.signal_id, ref)
+
+    assert {:ok, %{"state" => "answered", "answer_text" => "Copies: 2"}} =
+             Interactions.answer_standalone(actor_fixture(ctx.bob), ref, %{
+               values: %{"copies" => 2}
+             })
+
+    assert {:ok, %{"answer_text" => "Copies: 2"}} =
+             Interactions.standalone(actor_fixture(viewer), ref)
+  end
+
+  test "a newer clarify from the same Agent supersedes its older pending clarify", ctx do
+    card = clarify(ctx)
+    id = card.rich_content["clarify"]["interaction_id"]
+
+    assert {:ok, wake} =
+             Repo.transact_top_level(fn ->
+               Ankole.Signals.accept_in_tx(%{
+                 producer: :kernel,
+                 source: "test://native-interactions",
+                 id: Ecto.UUID.generate(),
+                 type: "background_agent_job.completed",
+                 target: %{agent_uid: ctx.agent.uid, conversation_id: ctx.id},
+                 authorization: Ankole.Principals.WorkAccess.service(),
+                 data: %{"job_id" => 1}
+               })
+             end)
+
+    assert %{"state" => "pending"} = Interactions.native_interaction(card.signal_id, id)
+
+    assert {:ok, _} =
+             Repo.transact_top_level(fn ->
+               :ok = Ankole.Sessions.Queue.lock_session_in_tx(wake.agent_uid, wake.session_id)
+
+               Interactions.open_in_tx(
+                 wake,
+                 Ankole.Conversations.Delivery.ReplyPresentation.new(state: "awaiting_input"),
+                 DateTime.utc_now(:microsecond),
+                 clarify: %{"interaction_id" => "clarify:follow-up", "body" => "Which date?"}
+               )
+             end)
+
+    assert %{"state" => "superseded"} = Interactions.native_interaction(card.signal_id, id)
+
+    assert PreviewStates.get(card.signal_id).checkpoint["interactions"]["clarify:choose-report"][
+             "superseded_by_signal_id"
+           ] == wake.id
+  end
+
   test "ordinary new input supersedes the old native card", ctx do
     card = clarify(ctx)
 
@@ -442,7 +602,7 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
              RPCBroker.handle_read(bob_ref, query, rpc_context)
   end
 
-  defp clarify(ctx, text \\ nil) do
+  defp clarify(ctx, text \\ nil, arguments \\ nil) do
     assert {:ok, run} =
              Admission.admit(
                %{agent_uid: ctx.agent.uid, session_id: ctx.event.session_id},
@@ -456,10 +616,13 @@ defmodule Ankole.Pod.Chat.NativeInteractionsTest do
       "name" => "clarify",
       "call_id" => "choose-report",
       "arguments" =>
-        Ankole.JSON.encode!(%{
-          "question" => "Where should the report go?",
-          "choices" => [%{"label" => "Publish"}, %{"label" => "Draft only"}]
-        })
+        Ankole.JSON.encode!(
+          arguments ||
+            %{
+              "question" => "Where should the report go?",
+              "choices" => [%{"label" => "Publish"}, %{"label" => "Draft only"}]
+            }
+        )
     }
 
     assert {:ok, response} =

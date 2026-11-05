@@ -11,6 +11,7 @@ defmodule Ankole.Pod.Chat.Interaction do
         question: [type: :string, allow_nil?: false],
         allow_free_text: [type: :boolean, allow_nil?: false],
         state: [type: :string, allow_nil?: false],
+        fields: [type: {:array, :map}],
         choices: [
           type: {:array, :map},
           allow_nil?: false,

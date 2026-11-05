@@ -50,7 +50,14 @@ defmodule Ankole.AIGateway.CodexVision do
   defp fallback_summary(subject_uid, fallback, images, opts) do
     fallback_opts =
       opts
-      |> Keyword.take([:request_context, :subject_type])
+      |> Keyword.take([:subject_type])
+      |> Keyword.put(
+        :request_context,
+        Map.merge(Keyword.get(opts, :request_context) || %{}, %{
+          "model_profile" => "vision_fallback",
+          "served_profile" => "vision_fallback"
+        })
+      )
       |> Keyword.put(:caller, "codex_vision")
 
     requester =

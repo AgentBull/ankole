@@ -149,6 +149,14 @@ defmodule Ankole.Conversations do
     to: Ankole.Conversations.Delivery.Interactions,
     as: :answer_native
 
+  defdelegate get_standalone_interaction(actor, interaction_id),
+    to: Ankole.Conversations.Delivery.Interactions,
+    as: :standalone
+
+  defdelegate answer_standalone_interaction(actor, interaction_id, attrs),
+    to: Ankole.Conversations.Delivery.Interactions,
+    as: :answer_standalone
+
   defdelegate resolve_action_card(actor, id, card_id, decision),
     to: Ankole.Conversations.ActionCards,
     as: :resolve_native

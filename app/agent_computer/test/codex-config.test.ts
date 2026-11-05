@@ -66,7 +66,12 @@ describe('@ankole/agent-computer Codex config', () => {
       }
       const job =
         'job' in binding && binding.job
-          ? { jobID: binding.job.id, attempt: binding.job.attempt, signalID: binding.job.signal_id }
+          ? {
+              jobID: binding.job.id,
+              attempt: binding.job.attempt,
+              signalID: binding.job.signal_id,
+              ...('human_uid' in binding.job ? { humanUID: binding.job.human_uid } : {})
+            }
           : undefined
       expect(encodeAIGatewayModelBinding(runtime, job)).toBe(vector.encoded)
     }

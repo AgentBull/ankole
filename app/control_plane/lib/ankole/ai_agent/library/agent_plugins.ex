@@ -49,10 +49,12 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   def global_capabilities(opts \\ []) do
     with {:ok, agent_plugins} <- sources(opts),
          {:ok, defaults} <- defaults(opts) do
+      stored = stored_skills()
+
       {:ok,
        agent_plugins
        |> Enum.take(@max_catalog_plugins)
-       |> Enum.map(&capability(&1, nil, %{}, MapSet.new(), defaults))}
+       |> Enum.map(&capability(&1, nil, %{}, MapSet.new(), defaults, stored))}
     end
   end
 
@@ -85,11 +87,14 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
     with {:ok, defaults} <- defaults(opts) do
       plugin_overrides = plugin_overrides(agent_uid)
       skill_overrides = Skills.bindings(agent_uid)
+      stored = stored_skills()
 
       {:ok,
        agent_plugins
        |> Enum.take(@max_catalog_plugins)
-       |> Enum.map(&capability(&1, agent_uid, plugin_overrides, skill_overrides, defaults))}
+       |> Enum.map(
+         &capability(&1, agent_uid, plugin_overrides, skill_overrides, defaults, stored)
+       )}
     end
   end
 
@@ -181,7 +186,10 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   @spec stable_skill_id(String.t(), String.t()) :: String.t()
   def stable_skill_id(agent_plugin_id, skill_name), do: "#{agent_plugin_id}:#{skill_name}"
 
-  defp capability(agent_plugin, agent_uid, plugin_overrides, skill_overrides, defaults) do
+  # One read of the tenant's Skill rows serves every plugin Skill, keyed by slug.
+  defp stored_skills, do: Map.new(Skills.list(), &{&1.slug, &1})
+
+  defp capability(agent_plugin, agent_uid, plugin_overrides, skill_overrides, defaults, stored) do
     global_default = global_plugin_default(agent_plugin, defaults)
 
     override = Map.get(plugin_overrides, agent_plugin.id)
@@ -191,7 +199,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
       Enum.map(agent_plugin.skills, fn skill ->
         id = stable_skill_id(agent_plugin.id, skill.name)
 
-        case Skills.get(skill.name) do
+        case Map.fetch(stored, skill.name) do
           {:ok, stored} ->
             Ankole.AIAgent.Library.capability(stored, skill_overrides)
             |> Map.put("id", id)
@@ -200,7 +208,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
               effective and Skills.enabled?(stored, skill_overrides)
             )
 
-          {:error, :not_found} ->
+          :error ->
             %{
               "id" => id,
               "name" => skill.name,

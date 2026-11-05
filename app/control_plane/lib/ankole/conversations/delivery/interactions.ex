@@ -18,13 +18,20 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   alias Ankole.Signals.Binding
   alias Ankole.Conversations.Observation
   alias Ankole.Conversations.Delivery.InteractionState
+  alias Ankole.Conversations.Delivery.ClarifyForm
+  alias Ankole.Conversations.Delivery.ClarifyPrompt
   alias Ankole.Conversations.Delivery.ReplyPresentation
   alias Ankole.Conversations.Delivery.PreviewAdapter
 
   @max_free_text_chars 1_000
 
   @type accepted_resolution :: %{String.t() => term()}
-  @type acceptance :: {:accepted, accepted_resolution()} | :duplicate | :stale | :unmanaged
+  @type acceptance ::
+          {:accepted, accepted_resolution()}
+          | {:invalid_form, String.t()}
+          | :duplicate
+          | :stale
+          | :unmanaged
 
   @doc """
   Opens one durable reply interaction in the same transaction as its intent.
@@ -33,18 +40,30 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   clarification. In that case the interaction starts superseded and can never
   appear as a live question after the conversation has moved on.
   """
-  @spec open_in_tx(Signal.t(), map(), DateTime.t()) ::
+  @spec open_in_tx(Signal.t(), map(), DateTime.t(), keyword()) ::
           {:ok, Signal.t()} | {:error, term()}
-  def open_in_tx(%Signal{} = event, presentation, %DateTime{} = now)
+  def open_in_tx(%Signal{} = event, presentation, %DateTime{} = now, opts \\ [])
       when is_map(presentation) do
+    clarify = Keyword.get(opts, :clarify)
     checkpoint = PreviewStates.get(event).checkpoint || %{}
     superseded_by = first_newer_conversation_event(event)
 
     checkpoint =
-      InteractionState.initialize(checkpoint, presentation, now, superseded_by: superseded_by)
+      InteractionState.initialize(checkpoint, presentation, now,
+        superseded_by: superseded_by,
+        forms: if(is_map(clarify), do: ClarifyPrompt.forms(clarify), else: %{})
+      )
 
-    PreviewStates.put_checkpoint_in_tx(event, checkpoint)
+    with {:ok, _superseded} <- supersede_older_clarify_in_tx(event, clarify, now),
+         do: PreviewStates.put_checkpoint_in_tx(event, checkpoint)
   end
+
+  # A new clarify replaces the asking Agent's older pending clarify in the same
+  # Session; Action Cards keep their own lifecycle. The caller owns the Session lock.
+  defp supersede_older_clarify_in_tx(_event, nil, _now), do: {:ok, []}
+
+  defp supersede_older_clarify_in_tx(event, _clarify, now),
+    do: event |> older_reply_interaction_events() |> supersede_events_in_tx(event, now)
 
   @doc """
   Supersedes pending interactions older than a newly appended conversation turn.
@@ -257,6 +276,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
                end),
              target_agent_uid: source.agent_uid,
              answered_interaction_id: interaction_id,
+             interaction_answer: if(answer["kind"] == "form", do: answer),
              delivery_mode: "steer"
            }) do
       {:ok, result}
@@ -270,6 +290,177 @@ defmodule Ankole.Conversations.Delivery.Interactions do
       _ -> {:error, :invalid_reply_interaction}
     end
   end
+
+  @doc """
+  Reads one form question for the standalone Pod dialog (`/?interaction=<id>`).
+
+  `interaction_id` is the native form `<source_signal_id>:<interaction_id>`.
+  A native-room question requires room visibility; a question delivered to an
+  external channel requires an active Human, matching that channel's buttons.
+  Every viewer sees who answered, but only room members and the Human who
+  answered an external question see the answer itself.
+  """
+  def standalone(%Ankole.AuthZ.Actor{} = actor, interaction_id) do
+    with {:ok, source, id} <- interaction_source(interaction_id),
+         origin = interaction_origin(source),
+         true <- standalone_visible?(actor, origin),
+         %{"form" => form} = interaction <-
+           InteractionState.interaction(PreviewStates.get(source).checkpoint || %{}, id) do
+      {:ok,
+       %{
+         "interaction_id" => interaction_id,
+         "conversation_id" => origin && origin.id,
+         "conversation_kind" => if(origin, do: to_string(origin.kind), else: "external"),
+         "agent_uid" => source.agent_uid,
+         "question" => form["question"],
+         "fields" => form["fields"],
+         "state" => interaction["state"],
+         "answered_by_uid" => interaction["answered_by_uid"],
+         "answered_by_name" => interaction["answered_by_name"],
+         "answer_text" =>
+           if(
+             match?(%{kind: :native}, origin) or
+               interaction["answered_by_uid"] == Ankole.AuthZ.Actor.uid(actor),
+             do: interaction["answer_text"]
+           )
+       }}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Submits a form from the standalone Pod dialog.
+
+  A native-room question takes the room answer path. An external question
+  records the first valid answer on its checkpoint and wakes the asking Agent
+  with a `signal.action.invoked` Signal, as an external card callback does.
+  """
+  def answer_standalone(%Ankole.AuthZ.Actor{} = actor, interaction_id, attrs) do
+    with {:ok, _result} <-
+           Ankole.Repo.transact_top_level(
+             fn -> accept_standalone_in_tx(actor, interaction_id, attrs) end,
+             after_commit: &publish_standalone/1
+           ),
+         do: standalone(actor, interaction_id)
+  end
+
+  defp accept_standalone_in_tx(actor, interaction_id, attrs) do
+    with {:ok, source, id} <- interaction_source(interaction_id) do
+      case interaction_origin(source) do
+        %{kind: :native} = origin ->
+          accept_native_in_tx(actor, origin.id, interaction_id, attrs)
+
+        _external ->
+          accept_external_form_in_tx(actor, source, id, interaction_id, attrs)
+      end
+    end
+  end
+
+  defp accept_external_form_in_tx(actor, source, id, interaction_id, attrs) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
+    now = DateTime.utc_now(:microsecond)
+
+    with :ok <- Ankole.Pod.lock_tree_in_tx(),
+         :ok <- authorize_operator(uid),
+         :ok <- lock_interaction_source(source, %{action: %{"operator_principal_uid" => uid}}),
+         %Signal{} = source <- Ankole.Signals.lock_signal_in_tx(source.id),
+         preview = PreviewStates.lock_in_tx(source),
+         %{"state" => "pending", "form" => form} <-
+           InteractionState.interaction(preview.checkpoint || %{}, id),
+         nil <- first_newer_session_reset(source),
+         {:ok, answer} <- form_answer(form, Ankole.Attrs.get(attrs, :values)),
+         resolution =
+           actor
+           |> native_resolution(answer)
+           |> Map.merge(%{
+             "operator_principal_uid" => uid,
+             "resolved_at" => DateTime.to_iso8601(now)
+           }),
+         {:ok, checkpoint} <- InteractionState.resolve(preview.checkpoint, id, resolution),
+         {:ok, _source} <- PreviewStates.put_checkpoint_in_tx(source, checkpoint) do
+      accepted = %{"interaction_id" => id, "source_signal_id" => source.id, "answer" => answer}
+
+      if Ankole.Conversations.Peers.exchange(source.conversation_id),
+        do:
+          Ankole.Conversations.Peers.answer_external_in_tx(
+            source,
+            %{sender_key: uid, source_event_id: "interaction-answer:" <> interaction_id},
+            accepted
+          ),
+        else: wake_external_answer_in_tx(source, uid, interaction_id, accepted, now)
+    else
+      {:error, _reason} = error -> error
+      _ -> {:error, :interaction_not_pending}
+    end
+  end
+
+  defp wake_external_answer_in_tx(source, uid, interaction_id, accepted, now) do
+    Ankole.Signals.accept_in_tx(%{
+      producer: :kernel,
+      source: "control-plane://reply-interactions",
+      id: "interaction-answer:" <> interaction_id,
+      type: "signal.action.invoked",
+      subject: source.conversation_id || source.session_id,
+      target: %{agent_uid: source.agent_uid, session_id: source.session_id},
+      sender: uid,
+      time: now,
+      reply_route: %{
+        binding_id: source.reply_binding_id,
+        binding_name: source.reply_binding_name,
+        conversation_id: source.conversation_id,
+        provider_thread_id: source.provider_thread_id,
+        provider_message_id: source.provider_message_id
+      },
+      data:
+        Ankole.Attrs.maybe_put(
+          %{
+            "action" => %{
+              "name" => "reply_interaction",
+              "value" => accepted,
+              "operator_principal_uid" => uid
+            }
+          },
+          "conversation_id",
+          source.conversation_id
+        )
+    })
+  end
+
+  defp publish_standalone(%Signal{} = signal), do: Ankole.Signals.publish_committed([signal])
+
+  defp publish_standalone(result),
+    do: Ankole.Conversations.Native.publish_native_change(result)
+
+  defp interaction_source(interaction_id) when is_binary(interaction_id) do
+    with [signal_id, id] <- String.split(interaction_id, ":", parts: 2),
+         {:ok, signal_id} <- Ecto.UUID.cast(signal_id),
+         {:ok, %Signal{} = source} <- Ankole.Signals.get_signal(signal_id) do
+      {:ok, source, id}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp interaction_source(_interaction_id), do: {:error, :not_found}
+
+  # A colleague's peer question belongs to the conversation that started the exchange.
+  defp interaction_origin(%Signal{conversation_id: nil}), do: nil
+
+  defp interaction_origin(%Signal{conversation_id: id}) do
+    case Ankole.Conversations.get_conversation!(id) do
+      %{native_access_scope: :agent_peer, origin_conversation_id: origin_id} ->
+        Ankole.Conversations.get_conversation!(origin_id)
+
+      conversation ->
+        conversation
+    end
+  end
+
+  defp standalone_visible?(actor, %{kind: :native, id: id}),
+    do: Ankole.Conversations.Native.visible_conversation?(actor, id)
+
+  defp standalone_visible?(actor, _external), do: Ankole.Conversations.Native.active_human?(actor)
 
   defp answer_source_visible(_actor, id, %{conversation_id: id}), do: :ok
 
@@ -287,6 +478,8 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   defp native_answer(checkpoint, id, attrs) do
     presentation = ReplyPresentation.normalize(checkpoint["presentation"])
     choice_id = Ankole.Attrs.get(attrs, :choice_id)
+    values = Ankole.Attrs.get(attrs, :values)
+    form = InteractionState.interaction(checkpoint, id)["form"]
 
     answer_text = Ankole.Attrs.get(attrs, :answer_text) || ""
     has_attachments = (Ankole.Attrs.get(attrs, :attachments) || []) != []
@@ -294,6 +487,9 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     actions = Enum.filter(presentation["actions"], &(&1["interaction_id"] == id))
 
     cond do
+      not is_nil(values) ->
+        form_answer(form, values)
+
       is_binary(choice_id) ->
         case Enum.find(
                actions,
@@ -317,6 +513,19 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     end
   end
 
+  defp form_answer(%{"fields" => fields}, values) do
+    case ClarifyForm.answer(fields, values) do
+      {:ok, typed} ->
+        {:ok,
+         %{"kind" => "form", "values" => typed, "value" => ClarifyForm.summary(fields, typed)}}
+
+      {:error, errors} ->
+        {:error, {:invalid_form_answer, errors}}
+    end
+  end
+
+  defp form_answer(_form, _values), do: {:error, :invalid_reply_interaction}
+
   defp native_resolution(actor, answer) do
     %{
       "state" => "answered",
@@ -334,6 +543,12 @@ defmodule Ankole.Conversations.Delivery.Interactions do
 
   Unknown action protocols remain ordinary adapter actions. Managed callbacks
   are accepted at most once and always re-authorize the current human Principal.
+
+  A form submission that fails `ClarifyForm.answer/2` returns
+  `{:invalid_form, notice}` and leaves the question pending. The notice names
+  each rejected field so the adapter can show it on the callback response; a
+  channel whose adapter does not declare `action_notice`, and so has no
+  callback response, also receives the notice as a reply.
   """
   @spec accept_in_tx(Binding.t(), Observation.t(), DateTime.t()) ::
           {:ok, acceptance()} | {:error, term()}
@@ -370,7 +585,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
          %Signal{} = source <- find_source_event(binding, fact, callback),
          :ok <- lock_interaction_source(source, fact),
          %Signal{} = event <- lock_source_event(binding, fact, callback),
-         {:ok, result} <- accept_locked_event(event, fact, callback, now) do
+         {:ok, result} <- accept_locked_event(binding, event, fact, callback, now) do
       {:ok, result}
     else
       nil -> {:ok, :stale}
@@ -425,6 +640,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   defp normalize_answer_callback(base, value) do
     case map_value(value, "answerKind") do
       "free_text" -> normalize_free_text_callback(base, value)
+      "form" -> {:ok, Map.merge(base, %{kind: "form", form_value: map_value(value, "formValue")})}
       kind when kind in [nil, "choice"] -> normalize_choice_callback(base, value)
       _kind -> {:error, {:invalid_reply_interaction, "answerKind"}}
     end
@@ -524,15 +740,18 @@ defmodule Ankole.Conversations.Delivery.Interactions do
 
   defp reply_surface_entry?(_event, _provider_message_id, _binding), do: false
 
-  defp accept_locked_event(event, fact, callback, now) do
+  defp accept_locked_event(binding, event, fact, callback, now) do
     checkpoint = PreviewStates.get(event).checkpoint || %{}
 
     case InteractionState.interaction(checkpoint, callback.interaction_id) do
-      %{"state" => "pending"} ->
-        accept_pending_answer(event, checkpoint, fact, callback, now)
+      %{"state" => "pending"} = interaction ->
+        accept_pending_answer(binding, event, checkpoint, interaction, fact, callback, now)
 
-      %{"state" => "answered", "answer" => answer} ->
-        if answer == callback.answer, do: {:ok, :duplicate}, else: {:ok, :stale}
+      %{"state" => "answered", "answer" => answer} = interaction ->
+        case callback_answer(callback, interaction) do
+          {:ok, %{answer: ^answer}} -> {:ok, :duplicate}
+          _changed_or_invalid -> {:ok, :stale}
+        end
 
       %{"state" => "superseded"} ->
         {:ok, :stale}
@@ -542,7 +761,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     end
   end
 
-  defp accept_pending_answer(event, checkpoint, fact, callback, now) do
+  defp accept_pending_answer(binding, event, checkpoint, interaction, fact, callback, now) do
     case first_newer_session_reset(event) do
       %Signal{} = reset_event ->
         with {:ok, _superseded} <-
@@ -551,38 +770,99 @@ defmodule Ankole.Conversations.Delivery.Interactions do
         end
 
       nil ->
-        accept_current_answer(event, checkpoint, fact, callback, now)
+        accept_current_answer(binding, event, checkpoint, interaction, fact, callback, now)
     end
   end
 
-  defp accept_current_answer(event, checkpoint, fact, callback, now) do
+  defp accept_current_answer(binding, event, checkpoint, interaction, fact, callback, now) do
     presentation = ReplyPresentation.normalize(checkpoint["presentation"])
 
-    if ReplyPresentation.matches?(presentation, callback) do
-      resolution = %{
-        "state" => "answered",
-        "answer" => callback.answer,
-        "interaction_version" => callback.interaction_version,
-        "control_id" => callback.control_id,
-        "operator_principal_uid" => map_value(fact.action, "operator_principal_uid"),
-        "resolved_at" => DateTime.to_iso8601(now),
-        "source_event_id" => fact.source_event_id
-      }
-
-      with {:ok, updated_checkpoint} <-
-             InteractionState.resolve(checkpoint, callback.interaction_id, resolution),
-           {:ok, _updated} <-
-             PreviewStates.put_checkpoint_in_tx(
-               event,
-               updated_checkpoint
-             ) do
-        {:ok, {:accepted, accepted_resolution(callback)}}
-      else
-        :stale -> {:ok, :stale}
-        {:error, _reason} = error -> error
-      end
+    with true <- ReplyPresentation.matches?(presentation, callback) || :stale,
+         {:ok, callback} <- callback_answer(callback, interaction),
+         resolution = %{
+           "state" => "answered",
+           "answer" => callback.answer,
+           "interaction_version" => callback.interaction_version,
+           "control_id" => callback.control_id,
+           "operator_principal_uid" => map_value(fact.action, "operator_principal_uid"),
+           "resolved_at" => DateTime.to_iso8601(now),
+           "source_event_id" => fact.source_event_id
+         },
+         {:ok, updated_checkpoint} <-
+           InteractionState.resolve(checkpoint, callback.interaction_id, resolution),
+         {:ok, _updated} <- PreviewStates.put_checkpoint_in_tx(event, updated_checkpoint) do
+      {:ok, {:accepted, accepted_resolution(callback)}}
     else
-      {:ok, :stale}
+      :stale ->
+        {:ok, :stale}
+
+      {:error, {:invalid_form_answer, errors}} ->
+        reject_form_in_tx(binding, event, fact, interaction["form"], errors)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # A card form callback carries the submitted values; the pending interaction's
+  # form decides what they mean.
+  defp callback_answer(%{kind: "form"} = callback, %{"form" => form}) do
+    with {:ok, answer} <-
+           form_answer(form, ClarifyForm.card_values(form["fields"], callback.form_value)),
+         do: {:ok, Map.put(callback, :answer, answer)}
+  end
+
+  defp callback_answer(%{kind: "form"}, _interaction), do: :stale
+  defp callback_answer(callback, _interaction), do: {:ok, callback}
+
+  defp reject_form_in_tx(binding, source, fact, form, errors) do
+    notice = ClarifyForm.error_text(form["fields"], errors)
+
+    with :ok <- maybe_notify_invalid_form_in_tx(binding, source, fact, notice),
+         do: {:ok, {:invalid_form, notice}}
+  end
+
+  defp maybe_notify_invalid_form_in_tx(binding, source, fact, notice) do
+    if action_notice?(binding) do
+      :ok
+    else
+      outbound_key = "interaction-form-invalid:" <> fact.source_event_id
+
+      Ankole.Conversations.Delivery.commit_in_tx(%{
+        agent_uid: source.agent_uid,
+        binding_id: binding.id,
+        binding_name: binding.name,
+        outbound_key: outbound_key,
+        operation: if(is_binary(fact.provider_message_id), do: :reply, else: :post),
+        delivery_class: :generic,
+        conversation_id: fact.conversation_id || source.conversation_id,
+        source_signal_id: source.id,
+        provider_thread_id: fact.provider_thread_id || source.provider_thread_id,
+        reply_to_provider_message_id: fact.provider_message_id,
+        payload: %{"text" => notice, "metadata" => %{"source" => "interaction_form_invalid"}},
+        fallback_visible_text: notice,
+        idempotency_key: outbound_key
+      })
+      |> case do
+        {:ok, _intent} ->
+          :ok
+
+        {:error, reason} = error ->
+          if Ankole.Conversations.Delivery.unroutable_reply_reason?(reason), do: :ok, else: error
+      end
+    end
+  end
+
+  defp action_notice?(binding) do
+    case Ankole.Signals.Adapters.fetch_delivery(binding.adapter) do
+      {:ok, adapter} ->
+        MapSet.member?(
+          Ankole.Conversations.Delivery.Adapter.capabilities(adapter),
+          :action_notice
+        )
+
+      {:error, _unavailable} ->
+        false
     end
   end
 

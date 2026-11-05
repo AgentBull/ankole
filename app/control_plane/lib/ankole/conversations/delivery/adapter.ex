@@ -21,7 +21,10 @@ defmodule Ankole.Conversations.Delivery.Adapter do
   # The closed universe of capabilities an adapter may advertise. The gateway
   # checks an operation against these before dispatching (e.g. `:reply` needs
   # `:reply_entry`). `:outbound_reconciliation` is the one that decides whether a
-  # send interrupted mid-flight can be recovered vs. marked unknown.
+  # send interrupted mid-flight can be recovered vs. marked unknown. `:form`
+  # says the reply card renders a typed clarify form natively, and
+  # `:action_notice` says a card callback shows its notice to the sender, so
+  # the gateway does not repeat the notice as a reply.
   @capabilities MapSet.new([
                   :post_entry,
                   :reply_entry,
@@ -31,6 +34,8 @@ defmodule Ankole.Conversations.Delivery.Adapter do
                   :remove_reaction,
                   :divider,
                   :card,
+                  :form,
+                  :action_notice,
                   :outbound_reconciliation
                 ])
 

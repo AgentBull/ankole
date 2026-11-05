@@ -31,7 +31,11 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   alias Ankole.Signals.BindingMembership
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.PreviewAdapter
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Plugins.Microsoft365Adapter.ReplyPreview
 
   @app_id "11111111-2222-3333-4444-555555555555"
   @app_id_b "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
@@ -217,6 +221,57 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert {:error, :missing_card_payload} = AdaptiveCard.render(%{})
     end
 
+    test "adaptive card renders a typed form with client validation and a Pod link" do
+      signal_id = Ecto.UUID.generate()
+      presentation = form_presentation(signal_id)
+
+      assert {:ok, card} = AdaptiveCard.render_reply_presentation(presentation, signal_id)
+
+      inputs = Enum.filter(card["body"], &String.starts_with?(&1["type"], "Input."))
+
+      assert [
+               %{"type" => "Input.Number", "id" => "input.quantity", "isRequired" => true},
+               %{"type" => "Input.Date", "id" => "input.ship_date", "min" => "2026-11-05"},
+               %{
+                 "type" => "Input.ChoiceSet",
+                 "id" => "input.warehouses",
+                 "isMultiSelect" => true,
+                 "choices" => [
+                   %{"title" => "US West", "value" => "us_west"},
+                   %{"title" => "US East", "value" => "us_east"}
+                 ]
+               },
+               %{
+                 "type" => "Input.ChoiceSet",
+                 "id" => "input.rush",
+                 "label" => "Rush",
+                 "isRequired" => true,
+                 "choices" => [%{"value" => "true"}, %{"value" => "false"}]
+               } = rush
+             ] = inputs
+
+      refute Map.has_key?(rush, "value")
+
+      assert [
+               %{
+                 "type" => "Action.Submit",
+                 "title" => "Submit answer",
+                 "data" => %{
+                   "v" => "ankole.interactive_output.action.v1",
+                   "value" => %{"answerKind" => "form", "controlId" => "clarify-form"}
+                 }
+               },
+               %{
+                 "type" => "Action.OpenUrl",
+                 "title" => "Open in Ankole",
+                 "url" => "https://acme.ankole.test/?interaction=x"
+               }
+             ] = card["actions"]
+
+      answered = ReplyPresentation.resolve_interaction(presentation, "answered", %{})
+      assert :none = AdaptiveCard.render_reply_presentation(answered, signal_id)
+    end
+
     test "reaction keys normalize into the shared vocabulary" do
       assert Emoji.normalize("like") == "thumbs_up"
       assert Emoji.normalize("Heart") == "heart"
@@ -350,6 +405,286 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert {:ok, normalized} = Inbound.normalize_message_receive(activity, consumer)
       assert normalized.reply_to_provider_message_id == "activity-parent"
       assert normalized.provider_thread_id =~ ":1690000000001"
+    end
+  end
+
+  describe "clarify form callbacks" do
+    test "a submission validates on the server and a rejection replies with a notice" do
+      %{principal: agent} = agent_fixture()
+      %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+
+      binding =
+        Ankole.SignalsFixtures.binding_fixture(agent.uid, "teams", :ignore, adapter: "teams")
+
+      config = validated_chat_config()
+
+      context =
+        AdapterContext.new(
+          binding_id: binding.id,
+          agent_uid: agent.uid,
+          binding_name: "teams",
+          adapter: "teams",
+          user_name: "Teams"
+        )
+
+      consumer = Inbound.chat_consumer(context, config)
+
+      author =
+        Ankole.SignalsFixtures.provider_author_fixture(human.uid, "oid-user", %{
+          provider: Config.subject_namespace(config)
+        })
+
+      %{signal: source} =
+        Ankole.SignalsFixtures.emit_addressed_signal(
+          agent.uid,
+          "teams",
+          Ankole.SignalsFixtures.group_entry(%{
+            source_event_id: "teams-form-source",
+            provider_conversation_id: "teams:19%3Aroom%40thread.tacv2",
+            provider_message_id: "1690000000001",
+            explicit: true,
+            author: author
+          })
+        )
+
+      presentation = form_presentation(source.id)
+
+      assert {:ok, _} =
+               Repo.transact_top_level(fn ->
+                 :ok =
+                   Ankole.Sessions.Queue.lock_session_in_tx(source.agent_uid, source.session_id)
+
+                 Ankole.Conversations.Delivery.Interactions.open_in_tx(
+                   source,
+                   presentation,
+                   DateTime.utc_now(),
+                   clarify: %{
+                     "interaction_id" => "clarify:call-1",
+                     "body" => "How should I ship it?",
+                     "fields" => hd(presentation["actions"])["fields"]
+                   }
+                 )
+               end)
+
+      assert :ok =
+               Ankole.Conversations.Delivery.PreviewStates.record_provider_message(
+                 source.id,
+                 "card-activity"
+               )
+
+      {:ok, card} = AdaptiveCard.render_reply_presentation(presentation, source.id)
+      [%{"data" => data} | _] = card["actions"]
+
+      submit = fn activity_id, inputs ->
+        Inbound.handle_card_action(
+          "message",
+          message_activity(%{
+            "id" => activity_id,
+            "replyToId" => "card-activity",
+            "text" => nil,
+            "value" => Map.merge(data, inputs)
+          }),
+          [consumer]
+        )
+      end
+
+      assert {:ok, [%{status: :invalid_form_answer, notice: notice}]} =
+               submit.("form-invalid", %{
+                 "input.quantity" => "2.5",
+                 "input.ship_date" => "2026-11-20",
+                 "input.warehouses" => "",
+                 "input.rush" => "false"
+               })
+
+      assert notice =~ "Quantity (not a whole number)"
+      assert notice =~ "Warehouses (required)"
+
+      assert %Intent{fallback_visible_text: ^notice, operation: :reply} =
+               Repo.get_by!(Intent, outbound_key: "interaction-form-invalid:form-invalid")
+
+      assert {:ok, [%{status: :accepted, signal: wake}]} =
+               submit.("form-valid", %{
+                 "input.quantity" => "3",
+                 "input.ship_date" => "2026-11-20",
+                 "input.warehouses" => "us_east,us_west",
+                 "input.rush" => "true"
+               })
+
+      assert get_in(wake.data, ["action", "value", "answer", "values"]) == %{
+               "quantity" => 3,
+               "ship_date" => "2026-11-20",
+               "warehouses" => ["us_west", "us_east"],
+               "rush" => true
+             }
+    end
+  end
+
+  describe "reply preview" do
+    test "a reply shows its status, a waiting question as a card, and a closed question's outcome" do
+      signal_id = Ecto.UUID.generate()
+
+      assert [%{"text" => "Receiving your request…"}] =
+               ReplyPreview.activities(ReplyPresentation.new(), signal_id)
+
+      assert [%{"text" => "Working…"}] =
+               ReplyPreview.activities(ReplyPresentation.new(state: "working"), signal_id)
+
+      question = form_presentation(signal_id)
+
+      assert [%{"text" => text, "attachments" => [%{"contentType" => content_type}]}] =
+               ReplyPreview.activities(question, signal_id, "How should I ship it? Open the form")
+
+      assert content_type == "application/vnd.microsoft.card.adaptive"
+      assert text == "How should I ship it? Open the form"
+
+      answered =
+        ReplyPresentation.resolve_interaction(question, "answered", %{
+          "kind" => "form",
+          "interaction_id" => "clarify:call-1",
+          "value" => "Quantity: 3"
+        })
+
+      assert [%{"text" => text} = activity] = ReplyPreview.activities(answered, signal_id)
+      refute Map.has_key?(activity, "attachments")
+      assert text =~ "How should I ship it?"
+      assert text =~ "✅ Quantity: 3"
+
+      superseded = ReplyPresentation.resolve_interaction(question, "superseded")
+      assert [%{"text" => text}] = ReplyPreview.activities(superseded, signal_id)
+      assert text =~ "No longer active"
+    end
+
+    test "the card posts into the thread and an answer replaces it with the outcome" do
+      %{principal: agent} = agent_fixture()
+      %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+      binding = teams_binding_fixture(agent.uid, "teams-preview")
+      config = validated_chat_config()
+      base = "19:preview@thread.tacv2"
+
+      {:ok, _} =
+        TeamsChannels.upsert_channel_projection(
+          fixture_context(),
+          %{conversation_id: base, conversation_type: "channel", service_url: @service_url},
+          nil
+        )
+
+      author =
+        Ankole.SignalsFixtures.provider_author_fixture(human.uid, "oid-user", %{
+          provider: Config.subject_namespace(config)
+        })
+
+      %{signal: source} =
+        Ankole.SignalsFixtures.emit_addressed_signal(
+          agent.uid,
+          binding.name,
+          Ankole.SignalsFixtures.group_entry(%{
+            source_event_id: "teams-preview-source",
+            provider_conversation_id: Conversations.conversation_id(base),
+            provider_message_id: "root-1",
+            provider_thread_id: Conversations.provider_thread_id(base, "root-1"),
+            explicit: true,
+            author: author
+          })
+        )
+
+      parent = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        path = URI.decode(conn.request_path)
+
+        cond do
+          String.ends_with?(path, "/token") ->
+            Req.Test.json(conn, %{"access_token" => "bot-token", "expires_in" => 3600})
+
+          String.contains?(path, "/activities") ->
+            send(parent, {:teams, conn.method, path, Torque.decode!(body)})
+            Req.Test.json(conn, %{"id" => "teams-card"})
+
+          true ->
+            default_microsoft_request(conn)
+        end
+      end)
+
+      presentation = form_presentation(source.id)
+
+      assert {:ok, _} =
+               Repo.transact_top_level(fn ->
+                 :ok =
+                   Ankole.Sessions.Queue.lock_session_in_tx(source.agent_uid, source.session_id)
+
+                 Ankole.Conversations.Delivery.Interactions.open_in_tx(
+                   source,
+                   presentation,
+                   DateTime.utc_now(),
+                   clarify: %{
+                     "interaction_id" => "clarify:call-1",
+                     "body" => "How should I ship it?",
+                     "fields" => hd(presentation["actions"])["fields"]
+                   }
+                 )
+               end)
+
+      {:ok, adapter} = PreviewAdapter.from_module(ReplyPreview)
+
+      assert {:ok, _} =
+               PreviewAdapter.finalize(adapter, %Request{
+                 signal: source,
+                 presentation: presentation,
+                 mode: :terminal
+               })
+
+      assert_receive {:teams, "POST", path, %{"attachments" => [_card]}}
+      assert path =~ base <> ";messageid=root-1/activities"
+
+      context =
+        AdapterContext.new(
+          binding_id: binding.id,
+          agent_uid: agent.uid,
+          binding_name: binding.name,
+          adapter: "teams",
+          user_name: "Teams"
+        )
+
+      {:ok, card} = AdaptiveCard.render_reply_presentation(presentation, source.id)
+      [%{"data" => data} | _] = card["actions"]
+
+      assert {:ok, [%{status: :accepted}]} =
+               Inbound.handle_card_action(
+                 "message",
+                 message_activity(%{
+                   "id" => "teams-preview-answer",
+                   "replyToId" => "teams-card",
+                   "text" => nil,
+                   "conversation" => %{
+                     "id" => base <> ";messageid=root-1",
+                     "conversationType" => "channel"
+                   },
+                   "value" =>
+                     Map.merge(data, %{
+                       "input.quantity" => "3",
+                       "input.ship_date" => "2026-11-20",
+                       "input.warehouses" => "us_east",
+                       "input.rush" => "false"
+                     })
+                 }),
+                 [Inbound.chat_consumer(context, config)]
+               )
+
+      checkpoint = PreviewStates.get(source.id).checkpoint
+
+      assert {:ok, _} =
+               PreviewAdapter.refresh(adapter, %Request{
+                 signal: source,
+                 presentation: checkpoint["presentation"],
+                 mode: :terminal
+               })
+
+      assert_receive {:teams, "PUT", path, %{"text" => text} = activity}
+      assert path =~ base <> ";messageid=root-1/activities/teams-card"
+      refute Map.has_key?(activity, "attachments")
+      assert text =~ "How should I ship it?"
+      assert text =~ "✅ Quantity: 3"
     end
   end
 
@@ -1813,6 +2148,47 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     end)
 
     Req.default_options(plug: {Req.Test, BotOpenIDStub})
+  end
+
+  defp form_presentation(signal_id) do
+    ReplyPresentation.new()
+    |> ReplyPresentation.terminal("awaiting_input", "How should I ship it?")
+    |> ReplyPresentation.interaction_request(signal_id, %{
+      "body" => "How should I ship it?",
+      "interaction_id" => "clarify:call-1",
+      "control_id" => "clarify-choice",
+      "version" => 1,
+      "free_input" => true,
+      "choices" => [],
+      "form_url" => "https://acme.ankole.test/?interaction=x",
+      "fields" => [
+        %{
+          "id" => "quantity",
+          "label" => "Quantity",
+          "type" => "number",
+          "required" => true,
+          "integer" => true
+        },
+        %{
+          "id" => "ship_date",
+          "label" => "Ship date",
+          "type" => "date",
+          "required" => true,
+          "min" => "2026-11-05"
+        },
+        %{
+          "id" => "warehouses",
+          "label" => "Warehouses",
+          "type" => "multi_select",
+          "required" => true,
+          "options" => [
+            %{"value" => "us_west", "label" => "US West"},
+            %{"value" => "us_east", "label" => "US East"}
+          ]
+        },
+        %{"id" => "rush", "label" => "Rush", "type" => "boolean", "required" => true}
+      ]
+    })
   end
 
   defp chat_consumer(overrides \\ %{}) do

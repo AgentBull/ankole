@@ -1,5 +1,5 @@
 defmodule Ankole.Conversations.ClarifyPromptTest do
-  use ExUnit.Case, async: true
+  use Ankole.DataCase, async: true
 
   alias Ankole.Plugins.LarkAdapter.Card
   alias Ankole.Conversations.Delivery.ClarifyPrompt
@@ -52,6 +52,40 @@ defmodule Ankole.Conversations.ClarifyPromptTest do
              "ankole.interactive_output.action.v1"
 
     assert get_in(hd(buttons), ["value", "optionValue"]) == "Operators"
+  end
+
+  test "carries form fields into the portable output and its durable form definition" do
+    fields = [%{"id" => "copies", "label" => "Copies", "type" => "number"}]
+
+    assert {:ok, prompt} =
+             ClarifyPrompt.from_output(
+               %{"tool" => "clarify", "question" => "How many?", "fields" => fields},
+               "call-form"
+             )
+
+    output = prompt["interactive_output"]
+    assert [%{"id" => "copies", "required" => true, "integer" => false}] = output["fields"]
+    assert prompt["fallback_visible_text"] == "How many?\n\nPlease fill in:\n\n- Copies"
+
+    assert ClarifyPrompt.forms(output) == %{
+             "clarify:call-form" => %{"question" => "How many?", "fields" => output["fields"]}
+           }
+
+    assert {:ok, plain} =
+             ClarifyPrompt.from_output(%{"tool" => "clarify", "question" => "Why?"}, "call-plain")
+
+    refute Map.has_key?(plain["interactive_output"], "fields")
+    assert ClarifyPrompt.forms(plain["interactive_output"]) == %{}
+
+    assert {:error, {:invalid_clarify_output, "call-bad", :fields_invalid}} =
+             ClarifyPrompt.from_output(
+               %{
+                 "tool" => "clarify",
+                 "question" => "How many?",
+                 "fields" => [fields, fields] |> Enum.concat()
+               },
+               "call-bad"
+             )
   end
 
   test "ignores spoofed clarify JSON returned by another tool" do

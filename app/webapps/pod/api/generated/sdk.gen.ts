@@ -6,6 +6,9 @@ import type {
   AnswerConversationInteractionData,
   AnswerConversationInteractionErrors,
   AnswerConversationInteractionResponses,
+  AnswerPodInteractionData,
+  AnswerPodInteractionErrors,
+  AnswerPodInteractionResponses,
   ChangePodMembershipData,
   ChangePodMembershipErrors,
   ChangePodMembershipResponses,
@@ -51,6 +54,9 @@ import type {
   GetPodActionCardData,
   GetPodActionCardErrors,
   GetPodActionCardResponses,
+  GetPodInteractionData,
+  GetPodInteractionErrors,
+  GetPodInteractionResponses,
   MetaAgentContractsData,
   MetaAgentContractsErrors,
   MetaAgentContractsResponses,
@@ -552,28 +558,41 @@ export type Options<
 }
 
 /**
- * getPodActionCard operation on pod_chat_operation resource
+ * podBaseTableDelete operation on pod_base_operation resource
  */
-export const getPodActionCard = <ThrowOnError extends boolean = true>(
-  options: Options<GetPodActionCardData, ThrowOnError>
-): RequestResult<GetPodActionCardResponses, GetPodActionCardErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<GetPodActionCardResponses, GetPodActionCardErrors, ThrowOnError, 'data'>({
+export const podBaseTableDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseTableDeleteData, ThrowOnError>
+): RequestResult<PodBaseTableDeleteResponses, PodBaseTableDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodBaseTableDeleteResponses, PodBaseTableDeleteErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/action-cards/{card_id}',
+    url: '/api/v2/pod/tables/{id}',
     ...options
   })
 
 /**
- * resolvePodActionCard operation on pod_chat_operation resource
+ * podBaseSchema operation on pod_base_operation resource
  */
-export const resolvePodActionCard = <ThrowOnError extends boolean = true>(
-  options: Options<ResolvePodActionCardData, ThrowOnError>
-): RequestResult<ResolvePodActionCardResponses, ResolvePodActionCardErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<ResolvePodActionCardResponses, ResolvePodActionCardErrors, ThrowOnError, 'data'>({
+export const podBaseSchema = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseSchemaData, ThrowOnError>
+): RequestResult<PodBaseSchemaResponses, PodBaseSchemaErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodBaseSchemaResponses, PodBaseSchemaErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/action-cards/{card_id}/resolve',
+    url: '/api/v2/pod/tables/{id}',
+    ...options
+  })
+
+/**
+ * podBaseTableRename operation on pod_base_operation resource
+ */
+export const podBaseTableRename = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseTableRenameData, ThrowOnError>
+): RequestResult<PodBaseTableRenameResponses, PodBaseTableRenameErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodBaseTableRenameResponses, PodBaseTableRenameErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/tables/{id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -582,876 +601,15 @@ export const resolvePodActionCard = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podAdminAgents operation on pod_admin_operation resource
+ * podJobSchedulesRun operation on applet_job_operation resource
  */
-export const podAdminAgents = <ThrowOnError extends boolean = true>(
-  options?: Options<PodAdminAgentsData, ThrowOnError>
-): RequestResult<PodAdminAgentsResponses, PodAdminAgentsErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodAdminAgentsResponses, PodAdminAgentsErrors, ThrowOnError, 'data'>({
+export const podJobSchedulesRun = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesRunData, ThrowOnError>
+): RequestResult<PodJobSchedulesRunResponses, PodJobSchedulesRunErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobSchedulesRunResponses, PodJobSchedulesRunErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/agents',
-    ...options
-  })
-
-/**
- * disablePodAgent operation on pod_admin_operation resource
- */
-export const disablePodAgent = <ThrowOnError extends boolean = true>(
-  options: Options<DisablePodAgentData, ThrowOnError>
-): RequestResult<DisablePodAgentResponses, DisablePodAgentErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<DisablePodAgentResponses, DisablePodAgentErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/agents/{uid}/disable',
-    ...options
-  })
-
-/**
- * enablePodAgent operation on pod_admin_operation resource
- */
-export const enablePodAgent = <ThrowOnError extends boolean = true>(
-  options: Options<EnablePodAgentData, ThrowOnError>
-): RequestResult<EnablePodAgentResponses, EnablePodAgentErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<EnablePodAgentResponses, EnablePodAgentErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/agents/{uid}/enable',
-    ...options
-  })
-
-/**
- * renamePodAgent operation on pod_admin_operation resource
- */
-export const renamePodAgent = <ThrowOnError extends boolean = true>(
-  options: Options<RenamePodAgentData, ThrowOnError>
-): RequestResult<RenamePodAgentResponses, RenamePodAgentErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<RenamePodAgentResponses, RenamePodAgentErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/agents/{uid}/rename',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podAdminIdentityProviders operation on pod_admin_operation resource
- */
-export const podAdminIdentityProviders = <ThrowOnError extends boolean = true>(
-  options?: Options<PodAdminIdentityProvidersData, ThrowOnError>
-): RequestResult<PodAdminIdentityProvidersResponses, PodAdminIdentityProvidersErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<
-    PodAdminIdentityProvidersResponses,
-    PodAdminIdentityProvidersErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/identity-providers',
-    ...options
-  })
-
-/**
- * createPodIdentityProvider operation on pod_admin_operation resource
- */
-export const createPodIdentityProvider = <ThrowOnError extends boolean = true>(
-  options: Options<CreatePodIdentityProviderData, ThrowOnError>
-): RequestResult<CreatePodIdentityProviderResponses, CreatePodIdentityProviderErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<
-    CreatePodIdentityProviderResponses,
-    CreatePodIdentityProviderErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/identity-providers/{provider_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * savePodIdentityProvider operation on pod_admin_operation resource
- */
-export const savePodIdentityProvider = <ThrowOnError extends boolean = true>(
-  options: Options<SavePodIdentityProviderData, ThrowOnError>
-): RequestResult<SavePodIdentityProviderResponses, SavePodIdentityProviderErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<SavePodIdentityProviderResponses, SavePodIdentityProviderErrors, ThrowOnError, 'data'>(
-    {
-      responseStyle: 'data',
-      security: [{ name: 'Cookie', type: 'apiKey' }],
-      url: '/api/v2/pod/admin/identity-providers/{provider_id}',
-      ...options,
-      headers: {
-        'Content-Type': 'application/vnd.api+json',
-        ...options.headers
-      }
-    }
-  )
-
-/**
- * syncPodDirectory operation on pod_admin_operation resource
- */
-export const syncPodDirectory = <ThrowOnError extends boolean = true>(
-  options: Options<SyncPodDirectoryData, ThrowOnError>
-): RequestResult<SyncPodDirectoryResponses, SyncPodDirectoryErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<SyncPodDirectoryResponses, SyncPodDirectoryErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/identity-providers/{provider_id}/syncs',
-    ...options
-  })
-
-/**
- * podAdminInvitations operation on pod_admin_operation resource
- */
-export const podAdminInvitations = <ThrowOnError extends boolean = true>(
-  options?: Options<PodAdminInvitationsData, ThrowOnError>
-): RequestResult<PodAdminInvitationsResponses, PodAdminInvitationsErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodAdminInvitationsResponses, PodAdminInvitationsErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/invitations',
-    ...options
-  })
-
-/**
- * createPodInvitation operation on pod_admin_operation resource
- */
-export const createPodInvitation = <ThrowOnError extends boolean = true>(
-  options: Options<CreatePodInvitationData, ThrowOnError>
-): RequestResult<CreatePodInvitationResponses, CreatePodInvitationErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<CreatePodInvitationResponses, CreatePodInvitationErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/invitations',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * revokePodInvitation operation on pod_admin_operation resource
- */
-export const revokePodInvitation = <ThrowOnError extends boolean = true>(
-  options: Options<RevokePodInvitationData, ThrowOnError>
-): RequestResult<RevokePodInvitationResponses, RevokePodInvitationErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<RevokePodInvitationResponses, RevokePodInvitationErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/invitations/{id}',
-    ...options
-  })
-
-/**
- * podAdminMembers operation on pod_admin_operation resource
- */
-export const podAdminMembers = <ThrowOnError extends boolean = true>(
-  options?: Options<PodAdminMembersData, ThrowOnError>
-): RequestResult<PodAdminMembersResponses, PodAdminMembersErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodAdminMembersResponses, PodAdminMembersErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/members',
-    ...options
-  })
-
-/**
- * createPodMember operation on pod_admin_operation resource
- */
-export const createPodMember = <ThrowOnError extends boolean = true>(
-  options: Options<CreatePodMemberData, ThrowOnError>
-): RequestResult<CreatePodMemberResponses, CreatePodMemberErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<CreatePodMemberResponses, CreatePodMemberErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/members',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * changePodMembership operation on pod_admin_operation resource
- */
-export const changePodMembership = <ThrowOnError extends boolean = true>(
-  options: Options<ChangePodMembershipData, ThrowOnError>
-): RequestResult<ChangePodMembershipResponses, ChangePodMembershipErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<ChangePodMembershipResponses, ChangePodMembershipErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/members/{uid}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * setPodAdministrator operation on pod_admin_operation resource
- */
-export const setPodAdministrator = <ThrowOnError extends boolean = true>(
-  options: Options<SetPodAdministratorData, ThrowOnError>
-): RequestResult<SetPodAdministratorResponses, SetPodAdministratorErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<SetPodAdministratorResponses, SetPodAdministratorErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/members/{uid}/administrator',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * unbindPodMemberCredential operation on pod_admin_operation resource
- */
-export const unbindPodMemberCredential = <ThrowOnError extends boolean = true>(
-  options: Options<UnbindPodMemberCredentialData, ThrowOnError>
-): RequestResult<UnbindPodMemberCredentialResponses, UnbindPodMemberCredentialErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<
-    UnbindPodMemberCredentialResponses,
-    UnbindPodMemberCredentialErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/members/{uid}/credentials/{credential_id}',
-    ...options
-  })
-
-/**
- * renamePodMember operation on pod_admin_operation resource
- */
-export const renamePodMember = <ThrowOnError extends boolean = true>(
-  options: Options<RenamePodMemberData, ThrowOnError>
-): RequestResult<RenamePodMemberResponses, RenamePodMemberErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<RenamePodMemberResponses, RenamePodMemberErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/members/{uid}/rename',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * restorePodMember operation on pod_admin_operation resource
- */
-export const restorePodMember = <ThrowOnError extends boolean = true>(
-  options: Options<RestorePodMemberData, ThrowOnError>
-): RequestResult<RestorePodMemberResponses, RestorePodMemberErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<RestorePodMemberResponses, RestorePodMemberErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/members/{uid}/restorations',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * disablePodMember operation on pod_admin_operation resource
- */
-export const disablePodMember = <ThrowOnError extends boolean = true>(
-  options: Options<DisablePodMemberData, ThrowOnError>
-): RequestResult<DisablePodMemberResponses, DisablePodMemberErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<DisablePodMemberResponses, DisablePodMemberErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/members/{uid}/restrictions',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podAdminSettings operation on pod_admin_operation resource
- */
-export const podAdminSettings = <ThrowOnError extends boolean = true>(
-  options?: Options<PodAdminSettingsData, ThrowOnError>
-): RequestResult<PodAdminSettingsResponses, PodAdminSettingsErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodAdminSettingsResponses, PodAdminSettingsErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/settings',
-    ...options
-  })
-
-/**
- * updatePodAdminSettings operation on pod_admin_operation resource
- */
-export const updatePodAdminSettings = <ThrowOnError extends boolean = true>(
-  options: Options<UpdatePodAdminSettingsData, ThrowOnError>
-): RequestResult<UpdatePodAdminSettingsResponses, UpdatePodAdminSettingsErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<UpdatePodAdminSettingsResponses, UpdatePodAdminSettingsErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/admin/settings',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podAgents operation on pod_chat_operation resource
- */
-export const podAgents = <ThrowOnError extends boolean = true>(
-  options?: Options<PodAgentsData, ThrowOnError>
-): RequestResult<PodAgentsResponses, PodAgentsErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodAgentsResponses, PodAgentsErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/agents',
-    ...options
-  })
-
-/**
- * podModelProfiles operation on pod_chat_operation resource
- */
-export const podModelProfiles = <ThrowOnError extends boolean = true>(
-  options: Options<PodModelProfilesData, ThrowOnError>
-): RequestResult<PodModelProfilesResponses, PodModelProfilesErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodModelProfilesResponses, PodModelProfilesErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/agents/{uid}/model-profiles',
-    ...options
-  })
-
-/**
- * podBaseTables operation on pod_base_operation resource
- */
-export const podBaseTables = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseTablesData, ThrowOnError>
-): RequestResult<PodBaseTablesResponses, PodBaseTablesErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodBaseTablesResponses, PodBaseTablesErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/bases/{page_id}',
-    ...options
-  })
-
-/**
- * podBaseTableCreate operation on pod_base_operation resource
- */
-export const podBaseTableCreate = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseTableCreateData, ThrowOnError>
-): RequestResult<PodBaseTableCreateResponses, PodBaseTableCreateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodBaseTableCreateResponses, PodBaseTableCreateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/bases/{page_id}/tables',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podCommentAttention operation on pod_document_comment_operation resource
- */
-export const podCommentAttention = <ThrowOnError extends boolean = true>(
-  options?: Options<PodCommentAttentionData, ThrowOnError>
-): RequestResult<PodCommentAttentionResponses, PodCommentAttentionErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodCommentAttentionResponses, PodCommentAttentionErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/comments/attention',
-    ...options
-  })
-
-/**
- * podConnectorsCatalog operation on connector_operation resource
- */
-export const podConnectorsCatalog = <ThrowOnError extends boolean = true>(
-  options?: Options<PodConnectorsCatalogData, ThrowOnError>
-): RequestResult<PodConnectorsCatalogResponses, PodConnectorsCatalogErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodConnectorsCatalogResponses, PodConnectorsCatalogErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors',
-    ...options
-  })
-
-/**
- * podConnectorAccountsList operation on connector_operation resource
- */
-export const podConnectorAccountsList = <ThrowOnError extends boolean = true>(
-  options?: Options<PodConnectorAccountsListData, ThrowOnError>
-): RequestResult<PodConnectorAccountsListResponses, PodConnectorAccountsListErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<
-    PodConnectorAccountsListResponses,
-    PodConnectorAccountsListErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/accounts',
-    ...options
-  })
-
-/**
- * podConnectorAccountsConnectPersonal operation on connector_operation resource
- */
-export const podConnectorAccountsConnectPersonal = <ThrowOnError extends boolean = true>(
-  options: Options<PodConnectorAccountsConnectPersonalData, ThrowOnError>
-): RequestResult<
-  PodConnectorAccountsConnectPersonalResponses,
-  PodConnectorAccountsConnectPersonalErrors,
-  ThrowOnError,
-  'data'
-> =>
-  (options.client ?? client).post<
-    PodConnectorAccountsConnectPersonalResponses,
-    PodConnectorAccountsConnectPersonalErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/accounts/connect-personal',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podConnectorAccountsConnectTeam operation on connector_operation resource
- */
-export const podConnectorAccountsConnectTeam = <ThrowOnError extends boolean = true>(
-  options: Options<PodConnectorAccountsConnectTeamData, ThrowOnError>
-): RequestResult<
-  PodConnectorAccountsConnectTeamResponses,
-  PodConnectorAccountsConnectTeamErrors,
-  ThrowOnError,
-  'data'
-> =>
-  (options.client ?? client).post<
-    PodConnectorAccountsConnectTeamResponses,
-    PodConnectorAccountsConnectTeamErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/accounts/connect-team',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podConnectorAccountsDisconnect operation on connector_operation resource
- */
-export const podConnectorAccountsDisconnect = <ThrowOnError extends boolean = true>(
-  options: Options<PodConnectorAccountsDisconnectData, ThrowOnError>
-): RequestResult<PodConnectorAccountsDisconnectResponses, PodConnectorAccountsDisconnectErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<
-    PodConnectorAccountsDisconnectResponses,
-    PodConnectorAccountsDisconnectErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/accounts/{id}',
-    ...options
-  })
-
-/**
- * podConnectorAuthConfigsList operation on connector_operation resource
- */
-export const podConnectorAuthConfigsList = <ThrowOnError extends boolean = true>(
-  options?: Options<PodConnectorAuthConfigsListData, ThrowOnError>
-): RequestResult<PodConnectorAuthConfigsListResponses, PodConnectorAuthConfigsListErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<
-    PodConnectorAuthConfigsListResponses,
-    PodConnectorAuthConfigsListErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/auth-configs',
-    ...options
-  })
-
-/**
- * podConnectorAuthConfigsCreate operation on connector_operation resource
- */
-export const podConnectorAuthConfigsCreate = <ThrowOnError extends boolean = true>(
-  options: Options<PodConnectorAuthConfigsCreateData, ThrowOnError>
-): RequestResult<PodConnectorAuthConfigsCreateResponses, PodConnectorAuthConfigsCreateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<
-    PodConnectorAuthConfigsCreateResponses,
-    PodConnectorAuthConfigsCreateErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/auth-configs',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podConnectorAuthConfigsUpdate operation on connector_operation resource
- */
-export const podConnectorAuthConfigsUpdate = <ThrowOnError extends boolean = true>(
-  options: Options<PodConnectorAuthConfigsUpdateData, ThrowOnError>
-): RequestResult<PodConnectorAuthConfigsUpdateResponses, PodConnectorAuthConfigsUpdateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<
-    PodConnectorAuthConfigsUpdateResponses,
-    PodConnectorAuthConfigsUpdateErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/auth-configs/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podConnectorOAuthBegin operation on connector_operation resource
- */
-export const podConnectorOAuthBegin = <ThrowOnError extends boolean = true>(
-  options: Options<PodConnectorOAuthBeginData, ThrowOnError>
-): RequestResult<PodConnectorOAuthBeginResponses, PodConnectorOAuthBeginErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodConnectorOAuthBeginResponses, PodConnectorOAuthBeginErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/oauth',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podConnectorOAuthClaim operation on connector_operation resource
- */
-export const podConnectorOAuthClaim = <ThrowOnError extends boolean = true>(
-  options: Options<PodConnectorOAuthClaimData, ThrowOnError>
-): RequestResult<PodConnectorOAuthClaimResponses, PodConnectorOAuthClaimErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodConnectorOAuthClaimResponses, PodConnectorOAuthClaimErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/oauth/claim',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podConnectorTriggersList operation on connector_operation resource
- */
-export const podConnectorTriggersList = <ThrowOnError extends boolean = true>(
-  options?: Options<PodConnectorTriggersListData, ThrowOnError>
-): RequestResult<PodConnectorTriggersListResponses, PodConnectorTriggersListErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<
-    PodConnectorTriggersListResponses,
-    PodConnectorTriggersListErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/triggers',
-    ...options
-  })
-
-/**
- * podConnectorTriggersCreate operation on connector_operation resource
- */
-export const podConnectorTriggersCreate = <ThrowOnError extends boolean = true>(
-  options: Options<PodConnectorTriggersCreateData, ThrowOnError>
-): RequestResult<PodConnectorTriggersCreateResponses, PodConnectorTriggersCreateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<
-    PodConnectorTriggersCreateResponses,
-    PodConnectorTriggersCreateErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/triggers',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podConnectorTriggersDelete operation on connector_operation resource
- */
-export const podConnectorTriggersDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodConnectorTriggersDeleteData, ThrowOnError>
-): RequestResult<PodConnectorTriggersDeleteResponses, PodConnectorTriggersDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<
-    PodConnectorTriggersDeleteResponses,
-    PodConnectorTriggersDeleteErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/triggers/{id}',
-    ...options
-  })
-
-/**
- * podConnectorTriggersRetry operation on connector_operation resource
- */
-export const podConnectorTriggersRetry = <ThrowOnError extends boolean = true>(
-  options: Options<PodConnectorTriggersRetryData, ThrowOnError>
-): RequestResult<PodConnectorTriggersRetryResponses, PodConnectorTriggersRetryErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<
-    PodConnectorTriggersRetryResponses,
-    PodConnectorTriggersRetryErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/connectors/triggers/{id}/retry',
-    ...options
-  })
-
-/**
- * podConversations operation on pod_chat_operation resource
- */
-export const podConversations = <ThrowOnError extends boolean = true>(
-  options?: Options<PodConversationsData, ThrowOnError>
-): RequestResult<PodConversationsResponses, PodConversationsErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodConversationsResponses, PodConversationsErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations',
-    ...options
-  })
-
-/**
- * createConversation operation on pod_chat_operation resource
- */
-export const createConversation = <ThrowOnError extends boolean = true>(
-  options: Options<CreateConversationData, ThrowOnError>
-): RequestResult<CreateConversationResponses, CreateConversationErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<CreateConversationResponses, CreateConversationErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podConversationAttention operation on pod_chat_operation resource
- */
-export const podConversationAttention = <ThrowOnError extends boolean = true>(
-  options?: Options<PodConversationAttentionData, ThrowOnError>
-): RequestResult<PodConversationAttentionResponses, PodConversationAttentionErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<
-    PodConversationAttentionResponses,
-    PodConversationAttentionErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/attention',
-    ...options
-  })
-
-/**
- * deleteConversation operation on pod_chat_operation resource
- */
-export const deleteConversation = <ThrowOnError extends boolean = true>(
-  options: Options<DeleteConversationData, ThrowOnError>
-): RequestResult<DeleteConversationResponses, DeleteConversationErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<DeleteConversationResponses, DeleteConversationErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/{id}',
-    ...options
-  })
-
-/**
- * conversationDetail operation on pod_chat_operation resource
- */
-export const conversationDetail = <ThrowOnError extends boolean = true>(
-  options: Options<ConversationDetailData, ThrowOnError>
-): RequestResult<ConversationDetailResponses, ConversationDetailErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<ConversationDetailResponses, ConversationDetailErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/{id}',
-    ...options
-  })
-
-/**
- * updateConversation operation on pod_chat_operation resource
- */
-export const updateConversation = <ThrowOnError extends boolean = true>(
-  options: Options<UpdateConversationData, ThrowOnError>
-): RequestResult<UpdateConversationResponses, UpdateConversationErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<UpdateConversationResponses, UpdateConversationErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * resolveConversationActionCard operation on pod_chat_operation resource
- */
-export const resolveConversationActionCard = <ThrowOnError extends boolean = true>(
-  options: Options<ResolveConversationActionCardData, ThrowOnError>
-): RequestResult<ResolveConversationActionCardResponses, ResolveConversationActionCardErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<
-    ResolveConversationActionCardResponses,
-    ResolveConversationActionCardErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/{id}/action-cards/{card_id}/resolve',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * conversationExecution operation on pod_chat_operation resource
- */
-export const conversationExecution = <ThrowOnError extends boolean = true>(
-  options: Options<ConversationExecutionData, ThrowOnError>
-): RequestResult<ConversationExecutionResponses, ConversationExecutionErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<ConversationExecutionResponses, ConversationExecutionErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/{id}/executions/{kind}/{run_id}',
-    ...options
-  })
-
-/**
- * answerConversationInteraction operation on pod_chat_operation resource
- */
-export const answerConversationInteraction = <ThrowOnError extends boolean = true>(
-  options: Options<AnswerConversationInteractionData, ThrowOnError>
-): RequestResult<AnswerConversationInteractionResponses, AnswerConversationInteractionErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<
-    AnswerConversationInteractionResponses,
-    AnswerConversationInteractionErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/{id}/interactions/{interaction_id}/answer',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * postConversationMessage operation on pod_chat_operation resource
- */
-export const postConversationMessage = <ThrowOnError extends boolean = true>(
-  options: Options<PostConversationMessageData, ThrowOnError>
-): RequestResult<PostConversationMessageResponses, PostConversationMessageErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<
-    PostConversationMessageResponses,
-    PostConversationMessageErrors,
-    ThrowOnError,
-    'data'
-  >({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/{id}/messages',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podModelSelection operation on pod_chat_operation resource
- */
-export const podModelSelection = <ThrowOnError extends boolean = true>(
-  options: Options<PodModelSelectionData, ThrowOnError>
-): RequestResult<PodModelSelectionResponses, PodModelSelectionErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodModelSelectionResponses, PodModelSelectionErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/{id}/model-profile',
-    ...options
-  })
-
-/**
- * setPodModelSelection operation on pod_chat_operation resource
- */
-export const setPodModelSelection = <ThrowOnError extends boolean = true>(
-  options: Options<SetPodModelSelectionData, ThrowOnError>
-): RequestResult<SetPodModelSelectionResponses, SetPodModelSelectionErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<SetPodModelSelectionResponses, SetPodModelSelectionErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/{id}/model-profile',
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/run',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -1482,32 +640,6 @@ export const updateConversationParticipants = <ThrowOnError extends boolean = tr
   })
 
 /**
- * podPeerExchange operation on pod_chat_operation resource
- */
-export const podPeerExchange = <ThrowOnError extends boolean = true>(
-  options: Options<PodPeerExchangeData, ThrowOnError>
-): RequestResult<PodPeerExchangeResponses, PodPeerExchangeErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodPeerExchangeResponses, PodPeerExchangeErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}',
-    ...options
-  })
-
-/**
- * stopPodPeerExchange operation on pod_chat_operation resource
- */
-export const stopPodPeerExchange = <ThrowOnError extends boolean = true>(
-  options: Options<StopPodPeerExchangeData, ThrowOnError>
-): RequestResult<StopPodPeerExchangeResponses, StopPodPeerExchangeErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<StopPodPeerExchangeResponses, StopPodPeerExchangeErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}/stop',
-    ...options
-  })
-
-/**
  * updateConversationQueue operation on pod_chat_operation resource
  */
 export const updateConversationQueue = <ThrowOnError extends boolean = true>(
@@ -1530,45 +662,28 @@ export const updateConversationQueue = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podReplySuggestion operation on pod_chat_operation resource
+ * choosePodNextStep operation on pod_chat_operation resource
  */
-export const podReplySuggestion = <ThrowOnError extends boolean = true>(
-  options: Options<PodReplySuggestionData, ThrowOnError>
-): RequestResult<PodReplySuggestionResponses, PodReplySuggestionErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodReplySuggestionResponses, PodReplySuggestionErrors, ThrowOnError, 'data'>({
+export const choosePodNextStep = <ThrowOnError extends boolean = true>(
+  options: Options<ChoosePodNextStepData, ThrowOnError>
+): RequestResult<ChoosePodNextStepResponses, ChoosePodNextStepErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<ChoosePodNextStepResponses, ChoosePodNextStepErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/conversations/{id}/reply-suggestion',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podBaseFieldDelete operation on pod_base_operation resource
- */
-export const podBaseFieldDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseFieldDeleteData, ThrowOnError>
-): RequestResult<PodBaseFieldDeleteResponses, PodBaseFieldDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<PodBaseFieldDeleteResponses, PodBaseFieldDeleteErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/fields/{id}',
+    url: '/api/v2/pod/next-steps/{id}/choose',
     ...options
   })
 
 /**
- * podBaseFieldUpdate operation on pod_base_operation resource
+ * podPageMove operation on pod_page_operation resource
  */
-export const podBaseFieldUpdate = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseFieldUpdateData, ThrowOnError>
-): RequestResult<PodBaseFieldUpdateResponses, PodBaseFieldUpdateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<PodBaseFieldUpdateResponses, PodBaseFieldUpdateErrors, ThrowOnError, 'data'>({
+export const podPageMove = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageMoveData, ThrowOnError>
+): RequestResult<PodPageMoveResponses, PodPageMoveErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodPageMoveResponses, PodPageMoveErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/fields/{id}',
+    url: '/api/v2/pod/pages/{id}/move',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -1577,136 +692,64 @@ export const podBaseFieldUpdate = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podMe operation on pod_member_account resource
+ * podConnectorAccountsList operation on connector_operation resource
  */
-export const podMe = <ThrowOnError extends boolean = true>(
-  options?: Options<PodMeData, ThrowOnError>
-): RequestResult<PodMeResponses, PodMeErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodMeResponses, PodMeErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/me',
-    ...options
-  })
-
-/**
- * updatePodProfile operation on pod_member_account resource
- */
-export const updatePodProfile = <ThrowOnError extends boolean = true>(
-  options: Options<UpdatePodProfileData, ThrowOnError>
-): RequestResult<UpdatePodProfileResponses, UpdatePodProfileErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<UpdatePodProfileResponses, UpdatePodProfileErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/me',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * unbindPodCredential operation on pod_member_account resource
- */
-export const unbindPodCredential = <ThrowOnError extends boolean = true>(
-  options: Options<UnbindPodCredentialData, ThrowOnError>
-): RequestResult<UnbindPodCredentialResponses, UnbindPodCredentialErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<UnbindPodCredentialResponses, UnbindPodCredentialErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/me/credentials/{id}',
-    ...options
-  })
-
-/**
- * requestPodEmailBinding operation on pod_member_account resource
- */
-export const requestPodEmailBinding = <ThrowOnError extends boolean = true>(
-  options: Options<RequestPodEmailBindingData, ThrowOnError>
-): RequestResult<RequestPodEmailBindingResponses, RequestPodEmailBindingErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<RequestPodEmailBindingResponses, RequestPodEmailBindingErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/me/email/challenges',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * verifyPodEmailBinding operation on pod_member_account resource
- */
-export const verifyPodEmailBinding = <ThrowOnError extends boolean = true>(
-  options: Options<VerifyPodEmailBindingData, ThrowOnError>
-): RequestResult<VerifyPodEmailBindingResponses, VerifyPodEmailBindingErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<VerifyPodEmailBindingResponses, VerifyPodEmailBindingErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/me/email/verifications',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * exitPod operation on pod_member_account resource
- */
-export const exitPod = <ThrowOnError extends boolean = true>(
-  options?: Options<ExitPodData, ThrowOnError>
-): RequestResult<ExitPodResponses, ExitPodErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).delete<ExitPodResponses, ExitPodErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/me/membership',
-    ...options
-  })
-
-/**
- * reauthenticatePodMember operation on pod_member_account resource
- */
-export const reauthenticatePodMember = <ThrowOnError extends boolean = true>(
-  options?: Options<ReauthenticatePodMemberData, ThrowOnError>
-): RequestResult<ReauthenticatePodMemberResponses, ReauthenticatePodMemberErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).post<
-    ReauthenticatePodMemberResponses,
-    ReauthenticatePodMemberErrors,
+export const podConnectorAccountsList = <ThrowOnError extends boolean = true>(
+  options?: Options<PodConnectorAccountsListData, ThrowOnError>
+): RequestResult<PodConnectorAccountsListResponses, PodConnectorAccountsListErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<
+    PodConnectorAccountsListResponses,
+    PodConnectorAccountsListErrors,
     ThrowOnError,
     'data'
   >({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/me/reauthentication',
+    url: '/api/v2/pod/connectors/accounts',
     ...options
   })
 
 /**
- * podMentionCandidates operation on pod_page_operation resource
+ * disablePodAgent operation on pod_admin_operation resource
  */
-export const podMentionCandidates = <ThrowOnError extends boolean = true>(
-  options?: Options<PodMentionCandidatesData, ThrowOnError>
-): RequestResult<PodMentionCandidatesResponses, PodMentionCandidatesErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodMentionCandidatesResponses, PodMentionCandidatesErrors, ThrowOnError, 'data'>({
+export const disablePodAgent = <ThrowOnError extends boolean = true>(
+  options: Options<DisablePodAgentData, ThrowOnError>
+): RequestResult<DisablePodAgentResponses, DisablePodAgentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<DisablePodAgentResponses, DisablePodAgentErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/mentions/candidates',
+    url: '/api/v2/pod/admin/agents/{uid}/disable',
     ...options
   })
 
 /**
- * podMentionsResolve operation on pod_page_operation resource
+ * podAdminIdentityProviders operation on pod_admin_operation resource
  */
-export const podMentionsResolve = <ThrowOnError extends boolean = true>(
-  options?: Options<PodMentionsResolveData, ThrowOnError>
-): RequestResult<PodMentionsResolveResponses, PodMentionsResolveErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).post<PodMentionsResolveResponses, PodMentionsResolveErrors, ThrowOnError, 'data'>({
+export const podAdminIdentityProviders = <ThrowOnError extends boolean = true>(
+  options?: Options<PodAdminIdentityProvidersData, ThrowOnError>
+): RequestResult<PodAdminIdentityProvidersResponses, PodAdminIdentityProvidersErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<
+    PodAdminIdentityProvidersResponses,
+    PodAdminIdentityProvidersErrors,
+    ThrowOnError,
+    'data'
+  >({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/mentions/resolve',
+    url: '/api/v2/pod/admin/identity-providers',
+    ...options
+  })
+
+/**
+ * podVersions operation on pod_page_operation resource
+ */
+export const podVersions = <ThrowOnError extends boolean = true>(
+  options?: Options<PodVersionsData, ThrowOnError>
+): RequestResult<PodVersionsResponses, PodVersionsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).post<PodVersionsResponses, PodVersionsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/versions',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -1715,106 +758,46 @@ export const podMentionsResolve = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * metaAgents operation on meta_agent resource
+ * podJobSchedulesDelete operation on applet_job_operation resource
  */
-export const metaAgents = <ThrowOnError extends boolean = true>(
-  options?: Options<MetaAgentsData, ThrowOnError>
-): RequestResult<MetaAgentsResponses, MetaAgentsErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<MetaAgentsResponses, MetaAgentsErrors, ThrowOnError, 'data'>({
+export const podJobSchedulesDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesDeleteData, ThrowOnError>
+): RequestResult<PodJobSchedulesDeleteResponses, PodJobSchedulesDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodJobSchedulesDeleteResponses, PodJobSchedulesDeleteErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/agents',
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}',
     ...options
   })
 
 /**
- * metaCreateAgent operation on meta_agent resource
+ * podAppletJobs operation on applet_job_operation resource
  */
-export const metaCreateAgent = <ThrowOnError extends boolean = true>(
-  options: Options<MetaCreateAgentData, ThrowOnError>
-): RequestResult<MetaCreateAgentResponses, MetaCreateAgentErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<MetaCreateAgentResponses, MetaCreateAgentErrors, ThrowOnError, 'data'>({
+export const podAppletJobs = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletJobsData, ThrowOnError>
+): RequestResult<PodAppletJobsResponses, PodAppletJobsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletJobsResponses, PodAppletJobsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/agents',
+    url: '/api/v2/pod/pages/{page_id}/jobs',
+    ...options
+  })
+
+/**
+ * podAppletJobCreate operation on applet_job_operation resource
+ */
+export const podAppletJobCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletJobCreateData, ThrowOnError>
+): RequestResult<PodAppletJobCreateResponses, PodAppletJobCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodAppletJobCreateResponses, PodAppletJobCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
-  })
-
-/**
- * metaAgent operation on meta_agent resource
- */
-export const metaAgent = <ThrowOnError extends boolean = true>(
-  options: Options<MetaAgentData, ThrowOnError>
-): RequestResult<MetaAgentResponses, MetaAgentErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<MetaAgentResponses, MetaAgentErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/agents/{uid}',
-    ...options
-  })
-
-/**
- * metaUpdateAgent operation on meta_agent resource
- */
-export const metaUpdateAgent = <ThrowOnError extends boolean = true>(
-  options: Options<MetaUpdateAgentData, ThrowOnError>
-): RequestResult<MetaUpdateAgentResponses, MetaUpdateAgentErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<MetaUpdateAgentResponses, MetaUpdateAgentErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/agents/{uid}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * metaAgentContracts operation on meta_library resource
- */
-export const metaAgentContracts = <ThrowOnError extends boolean = true>(
-  options: Options<MetaAgentContractsData, ThrowOnError>
-): RequestResult<MetaAgentContractsResponses, MetaAgentContractsErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<MetaAgentContractsResponses, MetaAgentContractsErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/agents/{uid}/contracts',
-    ...options
-  })
-
-/**
- * metaSaveAgentContract operation on meta_library resource
- */
-export const metaSaveAgentContract = <ThrowOnError extends boolean = true>(
-  options: Options<MetaSaveAgentContractData, ThrowOnError>
-): RequestResult<MetaSaveAgentContractResponses, MetaSaveAgentContractErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<MetaSaveAgentContractResponses, MetaSaveAgentContractErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/agents/{uid}/contracts/{slot}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * metaBrain operation on meta_brain resource
- */
-export const metaBrain = <ThrowOnError extends boolean = true>(
-  options?: Options<MetaBrainData, ThrowOnError>
-): RequestResult<MetaBrainResponses, MetaBrainErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<MetaBrainResponses, MetaBrainErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/brain',
-    ...options
   })
 
 /**
@@ -1831,20 +814,46 @@ export const metaGlobalContracts = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * metaSaveGlobalContract operation on meta_library resource
+ * podJobSchedulesList operation on applet_job_operation resource
  */
-export const metaSaveGlobalContract = <ThrowOnError extends boolean = true>(
-  options: Options<MetaSaveGlobalContractData, ThrowOnError>
-): RequestResult<MetaSaveGlobalContractResponses, MetaSaveGlobalContractErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<MetaSaveGlobalContractResponses, MetaSaveGlobalContractErrors, ThrowOnError, 'data'>({
+export const podJobSchedulesList = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesListData, ThrowOnError>
+): RequestResult<PodJobSchedulesListResponses, PodJobSchedulesListErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodJobSchedulesListResponses, PodJobSchedulesListErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/contracts/{slot}',
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules',
+    ...options
+  })
+
+/**
+ * podJobSchedulesPut operation on applet_job_operation resource
+ */
+export const podJobSchedulesPut = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesPutData, ThrowOnError>
+): RequestResult<PodJobSchedulesPutResponses, PodJobSchedulesPutErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodJobSchedulesPutResponses, PodJobSchedulesPutErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podJobWebhooksResume operation on applet_job_operation resource
+ */
+export const podJobWebhooksResume = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksResumeData, ThrowOnError>
+): RequestResult<PodJobWebhooksResumeResponses, PodJobWebhooksResumeErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobWebhooksResumeResponses, PodJobWebhooksResumeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/resume',
+    ...options
   })
 
 /**
@@ -1870,100 +879,6 @@ export const metaCreateSkill = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/meta/skills',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * metaImportSkill operation on meta_library resource
- */
-export const metaImportSkill = <ThrowOnError extends boolean = true>(
-  options: Options<MetaImportSkillData, ThrowOnError>
-): RequestResult<MetaImportSkillResponses, MetaImportSkillErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<MetaImportSkillResponses, MetaImportSkillErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/skills/import',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * metaDeleteSkill operation on meta_library resource
- */
-export const metaDeleteSkill = <ThrowOnError extends boolean = true>(
-  options: Options<MetaDeleteSkillData, ThrowOnError>
-): RequestResult<MetaDeleteSkillResponses, MetaDeleteSkillErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<MetaDeleteSkillResponses, MetaDeleteSkillErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/skills/{slug}',
-    ...options
-  })
-
-/**
- * metaSkill operation on meta_library resource
- */
-export const metaSkill = <ThrowOnError extends boolean = true>(
-  options: Options<MetaSkillData, ThrowOnError>
-): RequestResult<MetaSkillResponses, MetaSkillErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<MetaSkillResponses, MetaSkillErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/skills/{slug}',
-    ...options
-  })
-
-/**
- * metaSaveSkill operation on meta_library resource
- */
-export const metaSaveSkill = <ThrowOnError extends boolean = true>(
-  options: Options<MetaSaveSkillData, ThrowOnError>
-): RequestResult<MetaSaveSkillResponses, MetaSaveSkillErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<MetaSaveSkillResponses, MetaSaveSkillErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/skills/{slug}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * metaSkillSetAll operation on meta_library resource
- */
-export const metaSkillSetAll = <ThrowOnError extends boolean = true>(
-  options: Options<MetaSkillSetAllData, ThrowOnError>
-): RequestResult<MetaSkillSetAllResponses, MetaSkillSetAllErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<MetaSkillSetAllResponses, MetaSkillSetAllErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/skills/{slug}/all',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * metaSkillSetBinding operation on meta_library resource
- */
-export const metaSkillSetBinding = <ThrowOnError extends boolean = true>(
-  options: Options<MetaSkillSetBindingData, ThrowOnError>
-): RequestResult<MetaSkillSetBindingResponses, MetaSkillSetBindingErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<MetaSkillSetBindingResponses, MetaSkillSetBindingErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/meta/skills/{slug}/bindings',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2019,75 +934,214 @@ export const metaSkillPutFile = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podNextSteps operation on pod_chat_operation resource
+ * podBaseQuery operation on pod_base_operation resource
  */
-export const podNextSteps = <ThrowOnError extends boolean = true>(
-  options?: Options<PodNextStepsData, ThrowOnError>
-): RequestResult<PodNextStepsResponses, PodNextStepsErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).post<PodNextStepsResponses, PodNextStepsErrors, ThrowOnError, 'data'>({
+export const podBaseQuery = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseQueryData, ThrowOnError>
+): RequestResult<PodBaseQueryResponses, PodBaseQueryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseQueryResponses, PodBaseQueryErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/next-steps',
+    url: '/api/v2/pod/tables/{id}/query',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
-      ...options?.headers
+      ...options.headers
     }
   })
 
 /**
- * choosePodNextStep operation on pod_chat_operation resource
+ * podAppletJobDelete operation on applet_job_operation resource
  */
-export const choosePodNextStep = <ThrowOnError extends boolean = true>(
-  options: Options<ChoosePodNextStepData, ThrowOnError>
-): RequestResult<ChoosePodNextStepResponses, ChoosePodNextStepErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<ChoosePodNextStepResponses, ChoosePodNextStepErrors, ThrowOnError, 'data'>({
+export const podAppletJobDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletJobDeleteData, ThrowOnError>
+): RequestResult<PodAppletJobDeleteResponses, PodAppletJobDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodAppletJobDeleteResponses, PodAppletJobDeleteErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/next-steps/{id}/choose',
+    url: '/api/v2/pod/pages/{page_id}/jobs/{id}',
     ...options
   })
 
 /**
- * podPageList operation on pod_page_operation resource
+ * podAppletJobConfigure operation on applet_job_operation resource
  */
-export const podPageList = <ThrowOnError extends boolean = true>(
-  options?: Options<PodPageListData, ThrowOnError>
-): RequestResult<PodPageListResponses, PodPageListErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodPageListResponses, PodPageListErrors, ThrowOnError, 'data'>({
+export const podAppletJobConfigure = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletJobConfigureData, ThrowOnError>
+): RequestResult<PodAppletJobConfigureResponses, PodAppletJobConfigureErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodAppletJobConfigureResponses, PodAppletJobConfigureErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages',
-    ...options
-  })
-
-/**
- * podPageCreate operation on pod_page_operation resource
- */
-export const podPageCreate = <ThrowOnError extends boolean = true>(
-  options?: Options<PodPageCreateData, ThrowOnError>
-): RequestResult<PodPageCreateResponses, PodPageCreateErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).post<PodPageCreateResponses, PodPageCreateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages',
+    url: '/api/v2/pod/pages/{page_id}/jobs/{id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
-      ...options?.headers
+      ...options.headers
     }
   })
 
 /**
- * podPageChildren operation on pod_page_operation resource
+ * podPageHistoryRestore operation on pod_document_history_operation resource
  */
-export const podPageChildren = <ThrowOnError extends boolean = true>(
-  options?: Options<PodPageChildrenData, ThrowOnError>
-): RequestResult<PodPageChildrenResponses, PodPageChildrenErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodPageChildrenResponses, PodPageChildrenErrors, ThrowOnError, 'data'>({
+export const podPageHistoryRestore = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageHistoryRestoreData, ThrowOnError>
+): RequestResult<PodPageHistoryRestoreResponses, PodPageHistoryRestoreErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodPageHistoryRestoreResponses, PodPageHistoryRestoreErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/children',
+    url: '/api/v2/pod/pages/{id}/history/{snapshot_id}/restore',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podModelProfiles operation on pod_chat_operation resource
+ */
+export const podModelProfiles = <ThrowOnError extends boolean = true>(
+  options: Options<PodModelProfilesData, ThrowOnError>
+): RequestResult<PodModelProfilesResponses, PodModelProfilesErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodModelProfilesResponses, PodModelProfilesErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/agents/{uid}/model-profiles',
+    ...options
+  })
+
+/**
+ * podAppletOwner operation on pod_page_operation resource
+ */
+export const podAppletOwner = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletOwnerData, ThrowOnError>
+): RequestResult<PodAppletOwnerResponses, PodAppletOwnerErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodAppletOwnerResponses, PodAppletOwnerErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/applet-owner',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podJobWebhooksCancel operation on applet_job_operation resource
+ */
+export const podJobWebhooksCancel = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksCancelData, ThrowOnError>
+): RequestResult<PodJobWebhooksCancelResponses, PodJobWebhooksCancelErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobWebhooksCancelResponses, PodJobWebhooksCancelErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/cancel',
+    ...options
+  })
+
+/**
+ * podConnectorTriggersRetry operation on connector_operation resource
+ */
+export const podConnectorTriggersRetry = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorTriggersRetryData, ThrowOnError>
+): RequestResult<PodConnectorTriggersRetryResponses, PodConnectorTriggersRetryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    PodConnectorTriggersRetryResponses,
+    PodConnectorTriggersRetryErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/triggers/{id}/retry',
+    ...options
+  })
+
+/**
+ * metaAgentContracts operation on meta_library resource
+ */
+export const metaAgentContracts = <ThrowOnError extends boolean = true>(
+  options: Options<MetaAgentContractsData, ThrowOnError>
+): RequestResult<MetaAgentContractsResponses, MetaAgentContractsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<MetaAgentContractsResponses, MetaAgentContractsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/agents/{uid}/contracts',
+    ...options
+  })
+
+/**
+ * podAppletJobRuns operation on applet_job_operation resource
+ */
+export const podAppletJobRuns = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletJobRunsData, ThrowOnError>
+): RequestResult<PodAppletJobRunsResponses, PodAppletJobRunsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletJobRunsResponses, PodAppletJobRunsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/runs',
+    ...options
+  })
+
+/**
+ * metaDeleteSkill operation on meta_library resource
+ */
+export const metaDeleteSkill = <ThrowOnError extends boolean = true>(
+  options: Options<MetaDeleteSkillData, ThrowOnError>
+): RequestResult<MetaDeleteSkillResponses, MetaDeleteSkillErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<MetaDeleteSkillResponses, MetaDeleteSkillErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}',
+    ...options
+  })
+
+/**
+ * metaSkill operation on meta_library resource
+ */
+export const metaSkill = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSkillData, ThrowOnError>
+): RequestResult<MetaSkillResponses, MetaSkillErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<MetaSkillResponses, MetaSkillErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}',
+    ...options
+  })
+
+/**
+ * metaSaveSkill operation on meta_library resource
+ */
+export const metaSaveSkill = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSaveSkillData, ThrowOnError>
+): RequestResult<MetaSaveSkillResponses, MetaSaveSkillErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<MetaSaveSkillResponses, MetaSaveSkillErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podConversationAttention operation on pod_chat_operation resource
+ */
+export const podConversationAttention = <ThrowOnError extends boolean = true>(
+  options?: Options<PodConversationAttentionData, ThrowOnError>
+): RequestResult<PodConversationAttentionResponses, PodConversationAttentionErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<
+    PodConversationAttentionResponses,
+    PodConversationAttentionErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/attention',
     ...options
   })
 
@@ -2105,54 +1159,41 @@ export const podPageNavigation = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podPageSearch operation on pod_page_operation resource
+ * deleteConversation operation on pod_chat_operation resource
  */
-export const podPageSearch = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageSearchData, ThrowOnError>
-): RequestResult<PodPageSearchResponses, PodPageSearchErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodPageSearchResponses, PodPageSearchErrors, ThrowOnError, 'data'>({
+export const deleteConversation = <ThrowOnError extends boolean = true>(
+  options: Options<DeleteConversationData, ThrowOnError>
+): RequestResult<DeleteConversationResponses, DeleteConversationErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<DeleteConversationResponses, DeleteConversationErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/search',
+    url: '/api/v2/pod/conversations/{id}',
     ...options
   })
 
 /**
- * podPageDelete operation on pod_page_operation resource
+ * conversationDetail operation on pod_chat_operation resource
  */
-export const podPageDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageDeleteData, ThrowOnError>
-): RequestResult<PodPageDeleteResponses, PodPageDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<PodPageDeleteResponses, PodPageDeleteErrors, ThrowOnError, 'data'>({
+export const conversationDetail = <ThrowOnError extends boolean = true>(
+  options: Options<ConversationDetailData, ThrowOnError>
+): RequestResult<ConversationDetailResponses, ConversationDetailErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<ConversationDetailResponses, ConversationDetailErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}',
+    url: '/api/v2/pod/conversations/{id}',
     ...options
   })
 
 /**
- * podPageRead operation on pod_page_operation resource
+ * updateConversation operation on pod_chat_operation resource
  */
-export const podPageRead = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageReadData, ThrowOnError>
-): RequestResult<PodPageReadResponses, PodPageReadErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodPageReadResponses, PodPageReadErrors, ThrowOnError, 'data'>({
+export const updateConversation = <ThrowOnError extends boolean = true>(
+  options: Options<UpdateConversationData, ThrowOnError>
+): RequestResult<UpdateConversationResponses, UpdateConversationErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<UpdateConversationResponses, UpdateConversationErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}',
-    ...options
-  })
-
-/**
- * podPageUpdate operation on pod_page_operation resource
- */
-export const podPageUpdate = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageUpdateData, ThrowOnError>
-): RequestResult<PodPageUpdateResponses, PodPageUpdateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<PodPageUpdateResponses, PodPageUpdateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}',
+    url: '/api/v2/pod/conversations/{id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2161,28 +1202,50 @@ export const podPageUpdate = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podPageComments operation on pod_document_comment_operation resource
+ * resolvePodActionCard operation on pod_chat_operation resource
  */
-export const podPageComments = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageCommentsData, ThrowOnError>
-): RequestResult<PodPageCommentsResponses, PodPageCommentsErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodPageCommentsResponses, PodPageCommentsErrors, ThrowOnError, 'data'>({
+export const resolvePodActionCard = <ThrowOnError extends boolean = true>(
+  options: Options<ResolvePodActionCardData, ThrowOnError>
+): RequestResult<ResolvePodActionCardResponses, ResolvePodActionCardErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<ResolvePodActionCardResponses, ResolvePodActionCardErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/comments',
+    url: '/api/v2/pod/action-cards/{card_id}/resolve',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podBaseTables operation on pod_base_operation resource
+ */
+export const podBaseTables = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseTablesData, ThrowOnError>
+): RequestResult<PodBaseTablesResponses, PodBaseTablesErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodBaseTablesResponses, PodBaseTablesErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/bases/{page_id}',
     ...options
   })
 
 /**
- * podPageCommentCreate operation on pod_document_comment_operation resource
+ * answerConversationInteraction operation on pod_chat_operation resource
  */
-export const podPageCommentCreate = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageCommentCreateData, ThrowOnError>
-): RequestResult<PodPageCommentCreateResponses, PodPageCommentCreateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodPageCommentCreateResponses, PodPageCommentCreateErrors, ThrowOnError, 'data'>({
+export const answerConversationInteraction = <ThrowOnError extends boolean = true>(
+  options: Options<AnswerConversationInteractionData, ThrowOnError>
+): RequestResult<AnswerConversationInteractionResponses, AnswerConversationInteractionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    AnswerConversationInteractionResponses,
+    AnswerConversationInteractionErrors,
+    ThrowOnError,
+    'data'
+  >({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/comments',
+    url: '/api/v2/pod/conversations/{id}/interactions/{interaction_id}/answer',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2191,32 +1254,15 @@ export const podPageCommentCreate = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podPageCommentsRead operation on pod_document_comment_operation resource
+ * getPodActionCard operation on pod_chat_operation resource
  */
-export const podPageCommentsRead = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageCommentsReadData, ThrowOnError>
-): RequestResult<PodPageCommentsReadResponses, PodPageCommentsReadErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<PodPageCommentsReadResponses, PodPageCommentsReadErrors, ThrowOnError, 'data'>({
+export const getPodActionCard = <ThrowOnError extends boolean = true>(
+  options: Options<GetPodActionCardData, ThrowOnError>
+): RequestResult<GetPodActionCardResponses, GetPodActionCardErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<GetPodActionCardResponses, GetPodActionCardErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/comments/read',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podPageCommentSummary operation on pod_document_comment_operation resource
- */
-export const podPageCommentSummary = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageCommentSummaryData, ThrowOnError>
-): RequestResult<PodPageCommentSummaryResponses, PodPageCommentSummaryErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodPageCommentSummaryResponses, PodPageCommentSummaryErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/comments/summary',
+    url: '/api/v2/pod/action-cards/{card_id}',
     ...options
   })
 
@@ -2264,6 +1310,473 @@ export const podPageCommentUpdate = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * changePodMembership operation on pod_admin_operation resource
+ */
+export const changePodMembership = <ThrowOnError extends boolean = true>(
+  options: Options<ChangePodMembershipData, ThrowOnError>
+): RequestResult<ChangePodMembershipResponses, ChangePodMembershipErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<ChangePodMembershipResponses, ChangePodMembershipErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podPageViewers operation on pod_page_operation resource
+ */
+export const podPageViewers = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageViewersData, ThrowOnError>
+): RequestResult<PodPageViewersResponses, PodPageViewersErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageViewersResponses, PodPageViewersErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/viewers',
+    ...options
+  })
+
+/**
+ * resolveConversationActionCard operation on pod_chat_operation resource
+ */
+export const resolveConversationActionCard = <ThrowOnError extends boolean = true>(
+  options: Options<ResolveConversationActionCardData, ThrowOnError>
+): RequestResult<ResolveConversationActionCardResponses, ResolveConversationActionCardErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    ResolveConversationActionCardResponses,
+    ResolveConversationActionCardErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/action-cards/{card_id}/resolve',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podBaseCopy operation on pod_base_operation resource
+ */
+export const podBaseCopy = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseCopyData, ThrowOnError>
+): RequestResult<PodBaseCopyResponses, PodBaseCopyErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseCopyResponses, PodBaseCopyErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/tables/{id}/copy',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * restorePodMember operation on pod_admin_operation resource
+ */
+export const restorePodMember = <ThrowOnError extends boolean = true>(
+  options: Options<RestorePodMemberData, ThrowOnError>
+): RequestResult<RestorePodMemberResponses, RestorePodMemberErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<RestorePodMemberResponses, RestorePodMemberErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}/restorations',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * stopPodPeerExchange operation on pod_chat_operation resource
+ */
+export const stopPodPeerExchange = <ThrowOnError extends boolean = true>(
+  options: Options<StopPodPeerExchangeData, ThrowOnError>
+): RequestResult<StopPodPeerExchangeResponses, StopPodPeerExchangeErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<StopPodPeerExchangeResponses, StopPodPeerExchangeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}/stop',
+    ...options
+  })
+
+/**
+ * podJobWebhooksPause operation on applet_job_operation resource
+ */
+export const podJobWebhooksPause = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksPauseData, ThrowOnError>
+): RequestResult<PodJobWebhooksPauseResponses, PodJobWebhooksPauseErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobWebhooksPauseResponses, PodJobWebhooksPauseErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/pause',
+    ...options
+  })
+
+/**
+ * syncPodDirectory operation on pod_admin_operation resource
+ */
+export const syncPodDirectory = <ThrowOnError extends boolean = true>(
+  options: Options<SyncPodDirectoryData, ThrowOnError>
+): RequestResult<SyncPodDirectoryResponses, SyncPodDirectoryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<SyncPodDirectoryResponses, SyncPodDirectoryErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/identity-providers/{provider_id}/syncs',
+    ...options
+  })
+
+/**
+ * podConnectorAuthConfigsList operation on connector_operation resource
+ */
+export const podConnectorAuthConfigsList = <ThrowOnError extends boolean = true>(
+  options?: Options<PodConnectorAuthConfigsListData, ThrowOnError>
+): RequestResult<PodConnectorAuthConfigsListResponses, PodConnectorAuthConfigsListErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<
+    PodConnectorAuthConfigsListResponses,
+    PodConnectorAuthConfigsListErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/auth-configs',
+    ...options
+  })
+
+/**
+ * podConnectorAuthConfigsCreate operation on connector_operation resource
+ */
+export const podConnectorAuthConfigsCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorAuthConfigsCreateData, ThrowOnError>
+): RequestResult<PodConnectorAuthConfigsCreateResponses, PodConnectorAuthConfigsCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    PodConnectorAuthConfigsCreateResponses,
+    PodConnectorAuthConfigsCreateErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/auth-configs',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podFiles operation on pod_file_operation resource
+ */
+export const podFiles = <ThrowOnError extends boolean = true>(
+  options: Options<PodFilesData, ThrowOnError>
+): RequestResult<PodFilesResponses, PodFilesErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodFilesResponses, PodFilesErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/files',
+    ...options
+  })
+
+/**
+ * podChatTeammates operation on pod_chat_operation resource
+ */
+export const podChatTeammates = <ThrowOnError extends boolean = true>(
+  options?: Options<PodChatTeammatesData, ThrowOnError>
+): RequestResult<PodChatTeammatesResponses, PodChatTeammatesErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodChatTeammatesResponses, PodChatTeammatesErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/teammates',
+    ...options
+  })
+
+/**
+ * renamePodAgent operation on pod_admin_operation resource
+ */
+export const renamePodAgent = <ThrowOnError extends boolean = true>(
+  options: Options<RenamePodAgentData, ThrowOnError>
+): RequestResult<RenamePodAgentResponses, RenamePodAgentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<RenamePodAgentResponses, RenamePodAgentErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/agents/{uid}/rename',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podConnectorAccountsConnectPersonal operation on connector_operation resource
+ */
+export const podConnectorAccountsConnectPersonal = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorAccountsConnectPersonalData, ThrowOnError>
+): RequestResult<
+  PodConnectorAccountsConnectPersonalResponses,
+  PodConnectorAccountsConnectPersonalErrors,
+  ThrowOnError,
+  'data'
+> =>
+  (options.client ?? client).post<
+    PodConnectorAccountsConnectPersonalResponses,
+    PodConnectorAccountsConnectPersonalErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/accounts/connect-personal',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * verifyPodEmailBinding operation on pod_member_account resource
+ */
+export const verifyPodEmailBinding = <ThrowOnError extends boolean = true>(
+  options: Options<VerifyPodEmailBindingData, ThrowOnError>
+): RequestResult<VerifyPodEmailBindingResponses, VerifyPodEmailBindingErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<VerifyPodEmailBindingResponses, VerifyPodEmailBindingErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/me/email/verifications',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podPagePurge operation on pod_page_operation resource
+ */
+export const podPagePurge = <ThrowOnError extends boolean = true>(
+  options: Options<PodPagePurgeData, ThrowOnError>
+): RequestResult<PodPagePurgeResponses, PodPagePurgeErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodPagePurgeResponses, PodPagePurgeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/purge',
+    ...options
+  })
+
+/**
+ * podFileCopy operation on pod_file_operation resource
+ */
+export const podFileCopy = <ThrowOnError extends boolean = true>(
+  options: Options<PodFileCopyData, ThrowOnError>
+): RequestResult<PodFileCopyResponses, PodFileCopyErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodFileCopyResponses, PodFileCopyErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/copy-file',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podJobSchedulesPause operation on applet_job_operation resource
+ */
+export const podJobSchedulesPause = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesPauseData, ThrowOnError>
+): RequestResult<PodJobSchedulesPauseResponses, PodJobSchedulesPauseErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobSchedulesPauseResponses, PodJobSchedulesPauseErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/pause',
+    ...options
+  })
+
+/**
+ * podAgents operation on pod_chat_operation resource
+ */
+export const podAgents = <ThrowOnError extends boolean = true>(
+  options?: Options<PodAgentsData, ThrowOnError>
+): RequestResult<PodAgentsResponses, PodAgentsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodAgentsResponses, PodAgentsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/agents',
+    ...options
+  })
+
+/**
+ * conversationExecution operation on pod_chat_operation resource
+ */
+export const conversationExecution = <ThrowOnError extends boolean = true>(
+  options: Options<ConversationExecutionData, ThrowOnError>
+): RequestResult<ConversationExecutionResponses, ConversationExecutionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<ConversationExecutionResponses, ConversationExecutionErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/executions/{kind}/{run_id}',
+    ...options
+  })
+
+/**
+ * podSpreadsheetRestore operation on pod_spreadsheet_operation resource
+ */
+export const podSpreadsheetRestore = <ThrowOnError extends boolean = true>(
+  options: Options<PodSpreadsheetRestoreData, ThrowOnError>
+): RequestResult<PodSpreadsheetRestoreResponses, PodSpreadsheetRestoreErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodSpreadsheetRestoreResponses, PodSpreadsheetRestoreErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/spreadsheet/versions/{version_id}/restore',
+    ...options
+  })
+
+/**
+ * podBaseAggregate operation on pod_base_operation resource
+ */
+export const podBaseAggregate = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseAggregateData, ThrowOnError>
+): RequestResult<PodBaseAggregateResponses, PodBaseAggregateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseAggregateResponses, PodBaseAggregateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/tables/{id}/aggregate',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * disablePodMember operation on pod_admin_operation resource
+ */
+export const disablePodMember = <ThrowOnError extends boolean = true>(
+  options: Options<DisablePodMemberData, ThrowOnError>
+): RequestResult<DisablePodMemberResponses, DisablePodMemberErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<DisablePodMemberResponses, DisablePodMemberErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}/restrictions',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podJobWebhooksDelete operation on applet_job_operation resource
+ */
+export const podJobWebhooksDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksDeleteData, ThrowOnError>
+): RequestResult<PodJobWebhooksDeleteResponses, PodJobWebhooksDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodJobWebhooksDeleteResponses, PodJobWebhooksDeleteErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}',
+    ...options
+  })
+
+/**
+ * podJobWebhooksUpdate operation on applet_job_operation resource
+ */
+export const podJobWebhooksUpdate = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksUpdateData, ThrowOnError>
+): RequestResult<PodJobWebhooksUpdateResponses, PodJobWebhooksUpdateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodJobWebhooksUpdateResponses, PodJobWebhooksUpdateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podBaseFieldCreate operation on pod_base_operation resource
+ */
+export const podBaseFieldCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseFieldCreateData, ThrowOnError>
+): RequestResult<PodBaseFieldCreateResponses, PodBaseFieldCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseFieldCreateResponses, PodBaseFieldCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/tables/{id}/fields',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * ensurePodPersonalAssistant operation on pod_chat_operation resource
+ */
+export const ensurePodPersonalAssistant = <ThrowOnError extends boolean = true>(
+  options?: Options<EnsurePodPersonalAssistantData, ThrowOnError>
+): RequestResult<EnsurePodPersonalAssistantResponses, EnsurePodPersonalAssistantErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).post<
+    EnsurePodPersonalAssistantResponses,
+    EnsurePodPersonalAssistantErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/personal-assistant',
+    ...options
+  })
+
+/**
+ * metaSkillSetAll operation on meta_library resource
+ */
+export const metaSkillSetAll = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSkillSetAllData, ThrowOnError>
+): RequestResult<MetaSkillSetAllResponses, MetaSkillSetAllErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<MetaSkillSetAllResponses, MetaSkillSetAllErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}/all',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * requestPodEmailBinding operation on pod_member_account resource
+ */
+export const requestPodEmailBinding = <ThrowOnError extends boolean = true>(
+  options: Options<RequestPodEmailBindingData, ThrowOnError>
+): RequestResult<RequestPodEmailBindingResponses, RequestPodEmailBindingErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<RequestPodEmailBindingResponses, RequestPodEmailBindingErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/me/email/challenges',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podPageCommentAnchor operation on pod_document_comment_operation resource
  */
 export const podPageCommentAnchor = <ThrowOnError extends boolean = true>(
@@ -2273,6 +1786,279 @@ export const podPageCommentAnchor = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{id}/comments/{comment_id}/anchor',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podPageRestore operation on pod_page_operation resource
+ */
+export const podPageRestore = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageRestoreData, ThrowOnError>
+): RequestResult<PodPageRestoreResponses, PodPageRestoreErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodPageRestoreResponses, PodPageRestoreErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/restore',
+    ...options
+  })
+
+/**
+ * podPageHistoryEntry operation on pod_document_history_operation resource
+ */
+export const podPageHistoryEntry = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageHistoryEntryData, ThrowOnError>
+): RequestResult<PodPageHistoryEntryResponses, PodPageHistoryEntryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageHistoryEntryResponses, PodPageHistoryEntryErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/history/{snapshot_id}',
+    ...options
+  })
+
+/**
+ * revokePodInvitation operation on pod_admin_operation resource
+ */
+export const revokePodInvitation = <ThrowOnError extends boolean = true>(
+  options: Options<RevokePodInvitationData, ThrowOnError>
+): RequestResult<RevokePodInvitationResponses, RevokePodInvitationErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<RevokePodInvitationResponses, RevokePodInvitationErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/invitations/{id}',
+    ...options
+  })
+
+/**
+ * podConnectorsCatalog operation on connector_operation resource
+ */
+export const podConnectorsCatalog = <ThrowOnError extends boolean = true>(
+  options?: Options<PodConnectorsCatalogData, ThrowOnError>
+): RequestResult<PodConnectorsCatalogResponses, PodConnectorsCatalogErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodConnectorsCatalogResponses, PodConnectorsCatalogErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors',
+    ...options
+  })
+
+/**
+ * podPageChildren operation on pod_page_operation resource
+ */
+export const podPageChildren = <ThrowOnError extends boolean = true>(
+  options?: Options<PodPageChildrenData, ThrowOnError>
+): RequestResult<PodPageChildrenResponses, PodPageChildrenErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodPageChildrenResponses, PodPageChildrenErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/children',
+    ...options
+  })
+
+/**
+ * podConnectorOAuthClaim operation on connector_operation resource
+ */
+export const podConnectorOAuthClaim = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorOAuthClaimData, ThrowOnError>
+): RequestResult<PodConnectorOAuthClaimResponses, PodConnectorOAuthClaimErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodConnectorOAuthClaimResponses, PodConnectorOAuthClaimErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/oauth/claim',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podAppletRun operation on applet_job_operation resource
+ */
+export const podAppletRun = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletRunData, ThrowOnError>
+): RequestResult<PodAppletRunResponses, PodAppletRunErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletRunResponses, PodAppletRunErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/runs/{id}',
+    ...options
+  })
+
+/**
+ * podPageUserState operation on pod_page_operation resource
+ */
+export const podPageUserState = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageUserStateData, ThrowOnError>
+): RequestResult<PodPageUserStateResponses, PodPageUserStateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodPageUserStateResponses, PodPageUserStateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/user-state',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * exitPod operation on pod_member_account resource
+ */
+export const exitPod = <ThrowOnError extends boolean = true>(
+  options?: Options<ExitPodData, ThrowOnError>
+): RequestResult<ExitPodResponses, ExitPodErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).delete<ExitPodResponses, ExitPodErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/me/membership',
+    ...options
+  })
+
+/**
+ * getPodInteraction operation on pod_chat_operation resource
+ */
+export const getPodInteraction = <ThrowOnError extends boolean = true>(
+  options: Options<GetPodInteractionData, ThrowOnError>
+): RequestResult<GetPodInteractionResponses, GetPodInteractionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<GetPodInteractionResponses, GetPodInteractionErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/interactions/{interaction_id}',
+    ...options
+  })
+
+/**
+ * podConnectorAccountsConnectTeam operation on connector_operation resource
+ */
+export const podConnectorAccountsConnectTeam = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorAccountsConnectTeamData, ThrowOnError>
+): RequestResult<
+  PodConnectorAccountsConnectTeamResponses,
+  PodConnectorAccountsConnectTeamErrors,
+  ThrowOnError,
+  'data'
+> =>
+  (options.client ?? client).post<
+    PodConnectorAccountsConnectTeamResponses,
+    PodConnectorAccountsConnectTeamErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/accounts/connect-team',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * postConversationMessage operation on pod_chat_operation resource
+ */
+export const postConversationMessage = <ThrowOnError extends boolean = true>(
+  options: Options<PostConversationMessageData, ThrowOnError>
+): RequestResult<PostConversationMessageResponses, PostConversationMessageErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    PostConversationMessageResponses,
+    PostConversationMessageErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/messages',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podSpreadsheet operation on pod_spreadsheet_operation resource
+ */
+export const podSpreadsheet = <ThrowOnError extends boolean = true>(
+  options: Options<PodSpreadsheetData, ThrowOnError>
+): RequestResult<PodSpreadsheetResponses, PodSpreadsheetErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodSpreadsheetResponses, PodSpreadsheetErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/spreadsheet',
+    ...options
+  })
+
+/**
+ * podBaseTableCreate operation on pod_base_operation resource
+ */
+export const podBaseTableCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseTableCreateData, ThrowOnError>
+): RequestResult<PodBaseTableCreateResponses, PodBaseTableCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseTableCreateResponses, PodBaseTableCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/bases/{page_id}/tables',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podPeerExchange operation on pod_chat_operation resource
+ */
+export const podPeerExchange = <ThrowOnError extends boolean = true>(
+  options: Options<PodPeerExchangeData, ThrowOnError>
+): RequestResult<PodPeerExchangeResponses, PodPeerExchangeErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPeerExchangeResponses, PodPeerExchangeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/peer-exchanges/{exchange_id}',
+    ...options
+  })
+
+/**
+ * unbindPodCredential operation on pod_member_account resource
+ */
+export const unbindPodCredential = <ThrowOnError extends boolean = true>(
+  options: Options<UnbindPodCredentialData, ThrowOnError>
+): RequestResult<UnbindPodCredentialResponses, UnbindPodCredentialErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<UnbindPodCredentialResponses, UnbindPodCredentialErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/me/credentials/{id}',
+    ...options
+  })
+
+/**
+ * podEventBindings operation on event_binding_operation resource
+ */
+export const podEventBindings = <ThrowOnError extends boolean = true>(
+  options?: Options<PodEventBindingsData, ThrowOnError>
+): RequestResult<PodEventBindingsResponses, PodEventBindingsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodEventBindingsResponses, PodEventBindingsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/signal-bindings',
+    ...options
+  })
+
+/**
+ * podEventBindingPut operation on event_binding_operation resource
+ */
+export const podEventBindingPut = <ThrowOnError extends boolean = true>(
+  options: Options<PodEventBindingPutData, ThrowOnError>
+): RequestResult<PodEventBindingPutResponses, PodEventBindingPutErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodEventBindingPutResponses, PodEventBindingPutErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/signal-bindings',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2298,15 +2084,28 @@ export const podPageCommentResolve = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podDocumentWrite operation on pod_page_operation resource
+ * podAdminMembers operation on pod_admin_operation resource
  */
-export const podDocumentWrite = <ThrowOnError extends boolean = true>(
-  options: Options<PodDocumentWriteData, ThrowOnError>
-): RequestResult<PodDocumentWriteResponses, PodDocumentWriteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<PodDocumentWriteResponses, PodDocumentWriteErrors, ThrowOnError, 'data'>({
+export const podAdminMembers = <ThrowOnError extends boolean = true>(
+  options?: Options<PodAdminMembersData, ThrowOnError>
+): RequestResult<PodAdminMembersResponses, PodAdminMembersErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodAdminMembersResponses, PodAdminMembersErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/content',
+    url: '/api/v2/pod/admin/members',
+    ...options
+  })
+
+/**
+ * createPodMember operation on pod_admin_operation resource
+ */
+export const createPodMember = <ThrowOnError extends boolean = true>(
+  options: Options<CreatePodMemberData, ThrowOnError>
+): RequestResult<CreatePodMemberResponses, CreatePodMemberErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<CreatePodMemberResponses, CreatePodMemberErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2315,20 +2114,451 @@ export const podDocumentWrite = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podFileCopy operation on pod_file_operation resource
+ * podSubjects operation on pod_page_operation resource
  */
-export const podFileCopy = <ThrowOnError extends boolean = true>(
-  options: Options<PodFileCopyData, ThrowOnError>
-): RequestResult<PodFileCopyResponses, PodFileCopyErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodFileCopyResponses, PodFileCopyErrors, ThrowOnError, 'data'>({
+export const podSubjects = <ThrowOnError extends boolean = true>(
+  options?: Options<PodSubjectsData, ThrowOnError>
+): RequestResult<PodSubjectsResponses, PodSubjectsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodSubjectsResponses, PodSubjectsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/copy-file',
+    url: '/api/v2/pod/subjects',
+    ...options
+  })
+
+/**
+ * podBaseFieldDelete operation on pod_base_operation resource
+ */
+export const podBaseFieldDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseFieldDeleteData, ThrowOnError>
+): RequestResult<PodBaseFieldDeleteResponses, PodBaseFieldDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodBaseFieldDeleteResponses, PodBaseFieldDeleteErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/fields/{id}',
+    ...options
+  })
+
+/**
+ * podBaseFieldUpdate operation on pod_base_operation resource
+ */
+export const podBaseFieldUpdate = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseFieldUpdateData, ThrowOnError>
+): RequestResult<PodBaseFieldUpdateResponses, PodBaseFieldUpdateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodBaseFieldUpdateResponses, PodBaseFieldUpdateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/fields/{id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * createPodIdentityProvider operation on pod_admin_operation resource
+ */
+export const createPodIdentityProvider = <ThrowOnError extends boolean = true>(
+  options: Options<CreatePodIdentityProviderData, ThrowOnError>
+): RequestResult<CreatePodIdentityProviderResponses, CreatePodIdentityProviderErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    CreatePodIdentityProviderResponses,
+    CreatePodIdentityProviderErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/identity-providers/{provider_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * savePodIdentityProvider operation on pod_admin_operation resource
+ */
+export const savePodIdentityProvider = <ThrowOnError extends boolean = true>(
+  options: Options<SavePodIdentityProviderData, ThrowOnError>
+): RequestResult<SavePodIdentityProviderResponses, SavePodIdentityProviderErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<SavePodIdentityProviderResponses, SavePodIdentityProviderErrors, ThrowOnError, 'data'>(
+    {
+      responseStyle: 'data',
+      security: [{ name: 'Cookie', type: 'apiKey' }],
+      url: '/api/v2/pod/admin/identity-providers/{provider_id}',
+      ...options,
+      headers: {
+        'Content-Type': 'application/vnd.api+json',
+        ...options.headers
+      }
+    }
+  )
+
+/**
+ * podJobSchedulesRuns operation on applet_job_operation resource
+ */
+export const podJobSchedulesRuns = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesRunsData, ThrowOnError>
+): RequestResult<PodJobSchedulesRunsResponses, PodJobSchedulesRunsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodJobSchedulesRunsResponses, PodJobSchedulesRunsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/runs',
+    ...options
+  })
+
+/**
+ * podPageDelete operation on pod_page_operation resource
+ */
+export const podPageDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageDeleteData, ThrowOnError>
+): RequestResult<PodPageDeleteResponses, PodPageDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodPageDeleteResponses, PodPageDeleteErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}',
+    ...options
+  })
+
+/**
+ * podPageRead operation on pod_page_operation resource
+ */
+export const podPageRead = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageReadData, ThrowOnError>
+): RequestResult<PodPageReadResponses, PodPageReadErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageReadResponses, PodPageReadErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}',
+    ...options
+  })
+
+/**
+ * podPageUpdate operation on pod_page_operation resource
+ */
+export const podPageUpdate = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageUpdateData, ThrowOnError>
+): RequestResult<PodPageUpdateResponses, PodPageUpdateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodPageUpdateResponses, PodPageUpdateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podPageCommentSummary operation on pod_document_comment_operation resource
+ */
+export const podPageCommentSummary = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageCommentSummaryData, ThrowOnError>
+): RequestResult<PodPageCommentSummaryResponses, PodPageCommentSummaryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageCommentSummaryResponses, PodPageCommentSummaryErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/comments/summary',
+    ...options
+  })
+
+/**
+ * podConnectorAuthConfigsUpdate operation on connector_operation resource
+ */
+export const podConnectorAuthConfigsUpdate = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorAuthConfigsUpdateData, ThrowOnError>
+): RequestResult<PodConnectorAuthConfigsUpdateResponses, PodConnectorAuthConfigsUpdateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<
+    PodConnectorAuthConfigsUpdateResponses,
+    PodConnectorAuthConfigsUpdateErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/auth-configs/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * enablePodAgent operation on pod_admin_operation resource
+ */
+export const enablePodAgent = <ThrowOnError extends boolean = true>(
+  options: Options<EnablePodAgentData, ThrowOnError>
+): RequestResult<EnablePodAgentResponses, EnablePodAgentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<EnablePodAgentResponses, EnablePodAgentErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/agents/{uid}/enable',
+    ...options
+  })
+
+/**
+ * metaBrain operation on meta_brain resource
+ */
+export const metaBrain = <ThrowOnError extends boolean = true>(
+  options?: Options<MetaBrainData, ThrowOnError>
+): RequestResult<MetaBrainResponses, MetaBrainErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<MetaBrainResponses, MetaBrainErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/brain',
+    ...options
+  })
+
+/**
+ * podKnowledgePanel operation on pod_page_operation resource
+ */
+export const podKnowledgePanel = <ThrowOnError extends boolean = true>(
+  options: Options<PodKnowledgePanelData, ThrowOnError>
+): RequestResult<PodKnowledgePanelResponses, PodKnowledgePanelErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodKnowledgePanelResponses, PodKnowledgePanelErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/knowledge',
+    ...options
+  })
+
+/**
+ * podJobWebhooksList operation on applet_job_operation resource
+ */
+export const podJobWebhooksList = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksListData, ThrowOnError>
+): RequestResult<PodJobWebhooksListResponses, PodJobWebhooksListErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodJobWebhooksListResponses, PodJobWebhooksListErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks',
+    ...options
+  })
+
+/**
+ * podJobWebhooksCreate operation on applet_job_operation resource
+ */
+export const podJobWebhooksCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobWebhooksCreateData, ThrowOnError>
+): RequestResult<PodJobWebhooksCreateResponses, PodJobWebhooksCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobWebhooksCreateResponses, PodJobWebhooksCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podAdminAgents operation on pod_admin_operation resource
+ */
+export const podAdminAgents = <ThrowOnError extends boolean = true>(
+  options?: Options<PodAdminAgentsData, ThrowOnError>
+): RequestResult<PodAdminAgentsResponses, PodAdminAgentsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodAdminAgentsResponses, PodAdminAgentsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/agents',
+    ...options
+  })
+
+/**
+ * setPodAdministrator operation on pod_admin_operation resource
+ */
+export const setPodAdministrator = <ThrowOnError extends boolean = true>(
+  options: Options<SetPodAdministratorData, ThrowOnError>
+): RequestResult<SetPodAdministratorResponses, SetPodAdministratorErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<SetPodAdministratorResponses, SetPodAdministratorErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}/administrator',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podMentionsResolve operation on pod_page_operation resource
+ */
+export const podMentionsResolve = <ThrowOnError extends boolean = true>(
+  options?: Options<PodMentionsResolveData, ThrowOnError>
+): RequestResult<PodMentionsResolveResponses, PodMentionsResolveErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).post<PodMentionsResolveResponses, PodMentionsResolveErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/mentions/resolve',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options?.headers
+    }
+  })
+
+/**
+ * podPageList operation on pod_page_operation resource
+ */
+export const podPageList = <ThrowOnError extends boolean = true>(
+  options?: Options<PodPageListData, ThrowOnError>
+): RequestResult<PodPageListResponses, PodPageListErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodPageListResponses, PodPageListErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages',
+    ...options
+  })
+
+/**
+ * podPageCreate operation on pod_page_operation resource
+ */
+export const podPageCreate = <ThrowOnError extends boolean = true>(
+  options?: Options<PodPageCreateData, ThrowOnError>
+): RequestResult<PodPageCreateResponses, PodPageCreateErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).post<PodPageCreateResponses, PodPageCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options?.headers
+    }
+  })
+
+/**
+ * unbindPodMemberCredential operation on pod_admin_operation resource
+ */
+export const unbindPodMemberCredential = <ThrowOnError extends boolean = true>(
+  options: Options<UnbindPodMemberCredentialData, ThrowOnError>
+): RequestResult<UnbindPodMemberCredentialResponses, UnbindPodMemberCredentialErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<
+    UnbindPodMemberCredentialResponses,
+    UnbindPodMemberCredentialErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}/credentials/{credential_id}',
+    ...options
+  })
+
+/**
+ * podConnectorOAuthBegin operation on connector_operation resource
+ */
+export const podConnectorOAuthBegin = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorOAuthBeginData, ThrowOnError>
+): RequestResult<PodConnectorOAuthBeginResponses, PodConnectorOAuthBeginErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodConnectorOAuthBeginResponses, PodConnectorOAuthBeginErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/oauth',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podConnectorTriggersDelete operation on connector_operation resource
+ */
+export const podConnectorTriggersDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorTriggersDeleteData, ThrowOnError>
+): RequestResult<PodConnectorTriggersDeleteResponses, PodConnectorTriggersDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<
+    PodConnectorTriggersDeleteResponses,
+    PodConnectorTriggersDeleteErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/triggers/{id}',
+    ...options
+  })
+
+/**
+ * podKnowledgeExport operation on pod_page_operation resource
+ */
+export const podKnowledgeExport = <ThrowOnError extends boolean = true>(
+  options: Options<PodKnowledgeExportData, ThrowOnError>
+): RequestResult<PodKnowledgeExportResponses, PodKnowledgeExportErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodKnowledgeExportResponses, PodKnowledgeExportErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{id}/knowledge/export',
+    ...options
+  })
+
+/**
+ * podConnectorAccountsDisconnect operation on connector_operation resource
+ */
+export const podConnectorAccountsDisconnect = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorAccountsDisconnectData, ThrowOnError>
+): RequestResult<PodConnectorAccountsDisconnectResponses, PodConnectorAccountsDisconnectErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<
+    PodConnectorAccountsDisconnectResponses,
+    PodConnectorAccountsDisconnectErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/accounts/{id}',
+    ...options
+  })
+
+/**
+ * podAdminSettings operation on pod_admin_operation resource
+ */
+export const podAdminSettings = <ThrowOnError extends boolean = true>(
+  options?: Options<PodAdminSettingsData, ThrowOnError>
+): RequestResult<PodAdminSettingsResponses, PodAdminSettingsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodAdminSettingsResponses, PodAdminSettingsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/settings',
+    ...options
+  })
+
+/**
+ * updatePodAdminSettings operation on pod_admin_operation resource
+ */
+export const updatePodAdminSettings = <ThrowOnError extends boolean = true>(
+  options: Options<UpdatePodAdminSettingsData, ThrowOnError>
+): RequestResult<UpdatePodAdminSettingsResponses, UpdatePodAdminSettingsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<UpdatePodAdminSettingsResponses, UpdatePodAdminSettingsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/settings',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podRealtimeToken operation on pod_realtime resource
+ */
+export const podRealtimeToken = <ThrowOnError extends boolean = true>(
+  options?: Options<PodRealtimeTokenData, ThrowOnError>
+): RequestResult<PodRealtimeTokenResponses, PodRealtimeTokenErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodRealtimeTokenResponses, PodRealtimeTokenErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/realtime-token',
+    ...options
   })
 
 /**
@@ -2349,16 +2579,163 @@ export const podEmbedsDelete = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podFiles operation on pod_file_operation resource
+ * podBaseTableConfigure operation on pod_base_operation resource
  */
-export const podFiles = <ThrowOnError extends boolean = true>(
-  options: Options<PodFilesData, ThrowOnError>
-): RequestResult<PodFilesResponses, PodFilesErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodFilesResponses, PodFilesErrors, ThrowOnError, 'data'>({
+export const podBaseTableConfigure = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseTableConfigureData, ThrowOnError>
+): RequestResult<PodBaseTableConfigureResponses, PodBaseTableConfigureErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodBaseTableConfigureResponses, PodBaseTableConfigureErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/files',
+    url: '/api/v2/pod/tables/{id}/settings',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podJobSchedulesResume operation on applet_job_operation resource
+ */
+export const podJobSchedulesResume = <ThrowOnError extends boolean = true>(
+  options: Options<PodJobSchedulesResumeData, ThrowOnError>
+): RequestResult<PodJobSchedulesResumeResponses, PodJobSchedulesResumeErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodJobSchedulesResumeResponses, PodJobSchedulesResumeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/resume',
     ...options
+  })
+
+/**
+ * podAppletJobActions operation on applet_job_operation resource
+ */
+export const podAppletJobActions = <ThrowOnError extends boolean = true>(
+  options: Options<PodAppletJobActionsData, ThrowOnError>
+): RequestResult<PodAppletJobActionsResponses, PodAppletJobActionsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodAppletJobActionsResponses, PodAppletJobActionsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/{page_id}/job-actions',
+    ...options
+  })
+
+/**
+ * podSpaceAgentDelete operation on pod_page_operation resource
+ */
+export const podSpaceAgentDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodSpaceAgentDeleteData, ThrowOnError>
+): RequestResult<PodSpaceAgentDeleteResponses, PodSpaceAgentDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodSpaceAgentDeleteResponses, PodSpaceAgentDeleteErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/space/agents/{uid}',
+    ...options
+  })
+
+/**
+ * podNextSteps operation on pod_chat_operation resource
+ */
+export const podNextSteps = <ThrowOnError extends boolean = true>(
+  options?: Options<PodNextStepsData, ThrowOnError>
+): RequestResult<PodNextStepsResponses, PodNextStepsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).post<PodNextStepsResponses, PodNextStepsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/next-steps',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options?.headers
+    }
+  })
+
+/**
+ * podBaseViewCreate operation on pod_base_operation resource
+ */
+export const podBaseViewCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseViewCreateData, ThrowOnError>
+): RequestResult<PodBaseViewCreateResponses, PodBaseViewCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseViewCreateResponses, PodBaseViewCreateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/tables/{id}/views',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podAdminInvitations operation on pod_admin_operation resource
+ */
+export const podAdminInvitations = <ThrowOnError extends boolean = true>(
+  options?: Options<PodAdminInvitationsData, ThrowOnError>
+): RequestResult<PodAdminInvitationsResponses, PodAdminInvitationsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodAdminInvitationsResponses, PodAdminInvitationsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/invitations',
+    ...options
+  })
+
+/**
+ * createPodInvitation operation on pod_admin_operation resource
+ */
+export const createPodInvitation = <ThrowOnError extends boolean = true>(
+  options: Options<CreatePodInvitationData, ThrowOnError>
+): RequestResult<CreatePodInvitationResponses, CreatePodInvitationErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<CreatePodInvitationResponses, CreatePodInvitationErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/invitations',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podConnectorTriggersList operation on connector_operation resource
+ */
+export const podConnectorTriggersList = <ThrowOnError extends boolean = true>(
+  options?: Options<PodConnectorTriggersListData, ThrowOnError>
+): RequestResult<PodConnectorTriggersListResponses, PodConnectorTriggersListErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<
+    PodConnectorTriggersListResponses,
+    PodConnectorTriggersListErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/triggers',
+    ...options
+  })
+
+/**
+ * podConnectorTriggersCreate operation on connector_operation resource
+ */
+export const podConnectorTriggersCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodConnectorTriggersCreateData, ThrowOnError>
+): RequestResult<PodConnectorTriggersCreateResponses, PodConnectorTriggersCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<
+    PodConnectorTriggersCreateResponses,
+    PodConnectorTriggersCreateErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/connectors/triggers',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -2375,28 +2752,41 @@ export const podPageHistory = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podPageHistoryEntry operation on pod_document_history_operation resource
+ * podSpreadsheetVersions operation on pod_spreadsheet_operation resource
  */
-export const podPageHistoryEntry = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageHistoryEntryData, ThrowOnError>
-): RequestResult<PodPageHistoryEntryResponses, PodPageHistoryEntryErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodPageHistoryEntryResponses, PodPageHistoryEntryErrors, ThrowOnError, 'data'>({
+export const podSpreadsheetVersions = <ThrowOnError extends boolean = true>(
+  options: Options<PodSpreadsheetVersionsData, ThrowOnError>
+): RequestResult<PodSpreadsheetVersionsResponses, PodSpreadsheetVersionsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodSpreadsheetVersionsResponses, PodSpreadsheetVersionsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/history/{snapshot_id}',
+    url: '/api/v2/pod/pages/{id}/spreadsheet/versions',
     ...options
   })
 
 /**
- * podPageHistoryRestore operation on pod_document_history_operation resource
+ * podBaseViewDelete operation on pod_base_operation resource
  */
-export const podPageHistoryRestore = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageHistoryRestoreData, ThrowOnError>
-): RequestResult<PodPageHistoryRestoreResponses, PodPageHistoryRestoreErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodPageHistoryRestoreResponses, PodPageHistoryRestoreErrors, ThrowOnError, 'data'>({
+export const podBaseViewDelete = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseViewDeleteData, ThrowOnError>
+): RequestResult<PodBaseViewDeleteResponses, PodBaseViewDeleteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<PodBaseViewDeleteResponses, PodBaseViewDeleteErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/history/{snapshot_id}/restore',
+    url: '/api/v2/pod/views/{id}',
+    ...options
+  })
+
+/**
+ * podBaseViewUpdate operation on pod_base_operation resource
+ */
+export const podBaseViewUpdate = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseViewUpdateData, ThrowOnError>
+): RequestResult<PodBaseViewUpdateResponses, PodBaseViewUpdateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<PodBaseViewUpdateResponses, PodBaseViewUpdateErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/views/{id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2405,85 +2795,20 @@ export const podPageHistoryRestore = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podPageInsights operation on pod_page_operation resource
+ * podBaseWrite operation on pod_base_operation resource
  */
-export const podPageInsights = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageInsightsData, ThrowOnError>
-): RequestResult<PodPageInsightsResponses, PodPageInsightsErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodPageInsightsResponses, PodPageInsightsErrors, ThrowOnError, 'data'>({
+export const podBaseWrite = <ThrowOnError extends boolean = true>(
+  options: Options<PodBaseWriteData, ThrowOnError>
+): RequestResult<PodBaseWriteResponses, PodBaseWriteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodBaseWriteResponses, PodBaseWriteErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/insights',
-    ...options
-  })
-
-/**
- * podKnowledgePanel operation on pod_page_operation resource
- */
-export const podKnowledgePanel = <ThrowOnError extends boolean = true>(
-  options: Options<PodKnowledgePanelData, ThrowOnError>
-): RequestResult<PodKnowledgePanelResponses, PodKnowledgePanelErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodKnowledgePanelResponses, PodKnowledgePanelErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/knowledge',
-    ...options
-  })
-
-/**
- * podKnowledgeExport operation on pod_page_operation resource
- */
-export const podKnowledgeExport = <ThrowOnError extends boolean = true>(
-  options: Options<PodKnowledgeExportData, ThrowOnError>
-): RequestResult<PodKnowledgeExportResponses, PodKnowledgeExportErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodKnowledgeExportResponses, PodKnowledgeExportErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/knowledge/export',
-    ...options
-  })
-
-/**
- * podPageMove operation on pod_page_operation resource
- */
-export const podPageMove = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageMoveData, ThrowOnError>
-): RequestResult<PodPageMoveResponses, PodPageMoveErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodPageMoveResponses, PodPageMoveErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/move',
+    url: '/api/v2/pod/tables/{id}/records',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
-  })
-
-/**
- * podPagePurge operation on pod_page_operation resource
- */
-export const podPagePurge = <ThrowOnError extends boolean = true>(
-  options: Options<PodPagePurgeData, ThrowOnError>
-): RequestResult<PodPagePurgeResponses, PodPagePurgeErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodPagePurgeResponses, PodPagePurgeErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/purge',
-    ...options
-  })
-
-/**
- * podPageRestore operation on pod_page_operation resource
- */
-export const podPageRestore = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageRestoreData, ThrowOnError>
-): RequestResult<PodPageRestoreResponses, PodPageRestoreErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodPageRestoreResponses, PodPageRestoreErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/restore',
-    ...options
   })
 
 /**
@@ -2534,54 +2859,28 @@ export const podPageSharingWrite = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podSpreadsheet operation on pod_spreadsheet_operation resource
+ * podConversations operation on pod_chat_operation resource
  */
-export const podSpreadsheet = <ThrowOnError extends boolean = true>(
-  options: Options<PodSpreadsheetData, ThrowOnError>
-): RequestResult<PodSpreadsheetResponses, PodSpreadsheetErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodSpreadsheetResponses, PodSpreadsheetErrors, ThrowOnError, 'data'>({
+export const podConversations = <ThrowOnError extends boolean = true>(
+  options?: Options<PodConversationsData, ThrowOnError>
+): RequestResult<PodConversationsResponses, PodConversationsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodConversationsResponses, PodConversationsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/spreadsheet',
+    url: '/api/v2/pod/conversations',
     ...options
   })
 
 /**
- * podSpreadsheetVersions operation on pod_spreadsheet_operation resource
+ * createConversation operation on pod_chat_operation resource
  */
-export const podSpreadsheetVersions = <ThrowOnError extends boolean = true>(
-  options: Options<PodSpreadsheetVersionsData, ThrowOnError>
-): RequestResult<PodSpreadsheetVersionsResponses, PodSpreadsheetVersionsErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodSpreadsheetVersionsResponses, PodSpreadsheetVersionsErrors, ThrowOnError, 'data'>({
+export const createConversation = <ThrowOnError extends boolean = true>(
+  options: Options<CreateConversationData, ThrowOnError>
+): RequestResult<CreateConversationResponses, CreateConversationErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<CreateConversationResponses, CreateConversationErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/spreadsheet/versions',
-    ...options
-  })
-
-/**
- * podSpreadsheetRestore operation on pod_spreadsheet_operation resource
- */
-export const podSpreadsheetRestore = <ThrowOnError extends boolean = true>(
-  options: Options<PodSpreadsheetRestoreData, ThrowOnError>
-): RequestResult<PodSpreadsheetRestoreResponses, PodSpreadsheetRestoreErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodSpreadsheetRestoreResponses, PodSpreadsheetRestoreErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/spreadsheet/versions/{version_id}/restore',
-    ...options
-  })
-
-/**
- * podPageUserState operation on pod_page_operation resource
- */
-export const podPageUserState = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageUserStateData, ThrowOnError>
-): RequestResult<PodPageUserStateResponses, PodPageUserStateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<PodPageUserStateResponses, PodPageUserStateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/user-state',
+    url: '/api/v2/pod/conversations',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2590,28 +2889,15 @@ export const podPageUserState = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podPageViewers operation on pod_page_operation resource
+ * metaImportSkill operation on meta_library resource
  */
-export const podPageViewers = <ThrowOnError extends boolean = true>(
-  options: Options<PodPageViewersData, ThrowOnError>
-): RequestResult<PodPageViewersResponses, PodPageViewersErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodPageViewersResponses, PodPageViewersErrors, ThrowOnError, 'data'>({
+export const metaImportSkill = <ThrowOnError extends boolean = true>(
+  options: Options<MetaImportSkillData, ThrowOnError>
+): RequestResult<MetaImportSkillResponses, MetaImportSkillErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<MetaImportSkillResponses, MetaImportSkillErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{id}/viewers',
-    ...options
-  })
-
-/**
- * podAppletOwner operation on pod_page_operation resource
- */
-export const podAppletOwner = <ThrowOnError extends boolean = true>(
-  options: Options<PodAppletOwnerData, ThrowOnError>
-): RequestResult<PodAppletOwnerResponses, PodAppletOwnerErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<PodAppletOwnerResponses, PodAppletOwnerErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/applet-owner',
+    url: '/api/v2/pod/meta/skills/import',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2620,41 +2906,15 @@ export const podAppletOwner = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podAppletJobActions operation on applet_job_operation resource
+ * podPageCommentsRead operation on pod_document_comment_operation resource
  */
-export const podAppletJobActions = <ThrowOnError extends boolean = true>(
-  options: Options<PodAppletJobActionsData, ThrowOnError>
-): RequestResult<PodAppletJobActionsResponses, PodAppletJobActionsErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodAppletJobActionsResponses, PodAppletJobActionsErrors, ThrowOnError, 'data'>({
+export const podPageCommentsRead = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageCommentsReadData, ThrowOnError>
+): RequestResult<PodPageCommentsReadResponses, PodPageCommentsReadErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodPageCommentsReadResponses, PodPageCommentsReadErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/job-actions',
-    ...options
-  })
-
-/**
- * podAppletJobs operation on applet_job_operation resource
- */
-export const podAppletJobs = <ThrowOnError extends boolean = true>(
-  options: Options<PodAppletJobsData, ThrowOnError>
-): RequestResult<PodAppletJobsResponses, PodAppletJobsErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodAppletJobsResponses, PodAppletJobsErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs',
-    ...options
-  })
-
-/**
- * podAppletJobCreate operation on applet_job_operation resource
- */
-export const podAppletJobCreate = <ThrowOnError extends boolean = true>(
-  options: Options<PodAppletJobCreateData, ThrowOnError>
-): RequestResult<PodAppletJobCreateResponses, PodAppletJobCreateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodAppletJobCreateResponses, PodAppletJobCreateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs',
+    url: '/api/v2/pod/pages/{id}/comments/read',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2663,28 +2923,15 @@ export const podAppletJobCreate = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podAppletJobDelete operation on applet_job_operation resource
+ * podDocumentWrite operation on pod_page_operation resource
  */
-export const podAppletJobDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodAppletJobDeleteData, ThrowOnError>
-): RequestResult<PodAppletJobDeleteResponses, PodAppletJobDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<PodAppletJobDeleteResponses, PodAppletJobDeleteErrors, ThrowOnError, 'data'>({
+export const podDocumentWrite = <ThrowOnError extends boolean = true>(
+  options: Options<PodDocumentWriteData, ThrowOnError>
+): RequestResult<PodDocumentWriteResponses, PodDocumentWriteErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<PodDocumentWriteResponses, PodDocumentWriteErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{id}',
-    ...options
-  })
-
-/**
- * podAppletJobConfigure operation on applet_job_operation resource
- */
-export const podAppletJobConfigure = <ThrowOnError extends boolean = true>(
-  options: Options<PodAppletJobConfigureData, ThrowOnError>
-): RequestResult<PodAppletJobConfigureResponses, PodAppletJobConfigureErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<PodAppletJobConfigureResponses, PodAppletJobConfigureErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{id}',
+    url: '/api/v2/pod/pages/{id}/content',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2693,41 +2940,28 @@ export const podAppletJobConfigure = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podAppletJobRuns operation on applet_job_operation resource
+ * metaAgents operation on meta_agent resource
  */
-export const podAppletJobRuns = <ThrowOnError extends boolean = true>(
-  options: Options<PodAppletJobRunsData, ThrowOnError>
-): RequestResult<PodAppletJobRunsResponses, PodAppletJobRunsErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodAppletJobRunsResponses, PodAppletJobRunsErrors, ThrowOnError, 'data'>({
+export const metaAgents = <ThrowOnError extends boolean = true>(
+  options?: Options<MetaAgentsData, ThrowOnError>
+): RequestResult<MetaAgentsResponses, MetaAgentsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<MetaAgentsResponses, MetaAgentsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/runs',
+    url: '/api/v2/pod/meta/agents',
     ...options
   })
 
 /**
- * podJobSchedulesList operation on applet_job_operation resource
+ * metaCreateAgent operation on meta_agent resource
  */
-export const podJobSchedulesList = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobSchedulesListData, ThrowOnError>
-): RequestResult<PodJobSchedulesListResponses, PodJobSchedulesListErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodJobSchedulesListResponses, PodJobSchedulesListErrors, ThrowOnError, 'data'>({
+export const metaCreateAgent = <ThrowOnError extends boolean = true>(
+  options: Options<MetaCreateAgentData, ThrowOnError>
+): RequestResult<MetaCreateAgentResponses, MetaCreateAgentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<MetaCreateAgentResponses, MetaCreateAgentErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules',
-    ...options
-  })
-
-/**
- * podJobSchedulesPut operation on applet_job_operation resource
- */
-export const podJobSchedulesPut = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobSchedulesPutData, ThrowOnError>
-): RequestResult<PodJobSchedulesPutResponses, PodJobSchedulesPutErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<PodJobSchedulesPutResponses, PodJobSchedulesPutErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules',
+    url: '/api/v2/pod/meta/agents',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2736,54 +2970,41 @@ export const podJobSchedulesPut = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podJobSchedulesDelete operation on applet_job_operation resource
+ * podPageInsights operation on pod_page_operation resource
  */
-export const podJobSchedulesDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobSchedulesDeleteData, ThrowOnError>
-): RequestResult<PodJobSchedulesDeleteResponses, PodJobSchedulesDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<PodJobSchedulesDeleteResponses, PodJobSchedulesDeleteErrors, ThrowOnError, 'data'>({
+export const podPageInsights = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageInsightsData, ThrowOnError>
+): RequestResult<PodPageInsightsResponses, PodPageInsightsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageInsightsResponses, PodPageInsightsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}',
+    url: '/api/v2/pod/pages/{id}/insights',
     ...options
   })
 
 /**
- * podJobSchedulesPause operation on applet_job_operation resource
+ * podPageComments operation on pod_document_comment_operation resource
  */
-export const podJobSchedulesPause = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobSchedulesPauseData, ThrowOnError>
-): RequestResult<PodJobSchedulesPauseResponses, PodJobSchedulesPauseErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodJobSchedulesPauseResponses, PodJobSchedulesPauseErrors, ThrowOnError, 'data'>({
+export const podPageComments = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageCommentsData, ThrowOnError>
+): RequestResult<PodPageCommentsResponses, PodPageCommentsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageCommentsResponses, PodPageCommentsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/pause',
+    url: '/api/v2/pod/pages/{id}/comments',
     ...options
   })
 
 /**
- * podJobSchedulesResume operation on applet_job_operation resource
+ * podPageCommentCreate operation on pod_document_comment_operation resource
  */
-export const podJobSchedulesResume = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobSchedulesResumeData, ThrowOnError>
-): RequestResult<PodJobSchedulesResumeResponses, PodJobSchedulesResumeErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodJobSchedulesResumeResponses, PodJobSchedulesResumeErrors, ThrowOnError, 'data'>({
+export const podPageCommentCreate = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageCommentCreateData, ThrowOnError>
+): RequestResult<PodPageCommentCreateResponses, PodPageCommentCreateErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodPageCommentCreateResponses, PodPageCommentCreateErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/resume',
-    ...options
-  })
-
-/**
- * podJobSchedulesRun operation on applet_job_operation resource
- */
-export const podJobSchedulesRun = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobSchedulesRunData, ThrowOnError>
-): RequestResult<PodJobSchedulesRunResponses, PodJobSchedulesRunErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodJobSchedulesRunResponses, PodJobSchedulesRunErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/run',
+    url: '/api/v2/pod/pages/{id}/comments',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2792,41 +3013,28 @@ export const podJobSchedulesRun = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podJobSchedulesRuns operation on applet_job_operation resource
+ * podModelSelection operation on pod_chat_operation resource
  */
-export const podJobSchedulesRuns = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobSchedulesRunsData, ThrowOnError>
-): RequestResult<PodJobSchedulesRunsResponses, PodJobSchedulesRunsErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodJobSchedulesRunsResponses, PodJobSchedulesRunsErrors, ThrowOnError, 'data'>({
+export const podModelSelection = <ThrowOnError extends boolean = true>(
+  options: Options<PodModelSelectionData, ThrowOnError>
+): RequestResult<PodModelSelectionResponses, PodModelSelectionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodModelSelectionResponses, PodModelSelectionErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/schedules/{id}/runs',
+    url: '/api/v2/pod/conversations/{id}/model-profile',
     ...options
   })
 
 /**
- * podJobWebhooksList operation on applet_job_operation resource
+ * setPodModelSelection operation on pod_chat_operation resource
  */
-export const podJobWebhooksList = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobWebhooksListData, ThrowOnError>
-): RequestResult<PodJobWebhooksListResponses, PodJobWebhooksListErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodJobWebhooksListResponses, PodJobWebhooksListErrors, ThrowOnError, 'data'>({
+export const setPodModelSelection = <ThrowOnError extends boolean = true>(
+  options: Options<SetPodModelSelectionData, ThrowOnError>
+): RequestResult<SetPodModelSelectionResponses, SetPodModelSelectionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<SetPodModelSelectionResponses, SetPodModelSelectionErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks',
-    ...options
-  })
-
-/**
- * podJobWebhooksCreate operation on applet_job_operation resource
- */
-export const podJobWebhooksCreate = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobWebhooksCreateData, ThrowOnError>
-): RequestResult<PodJobWebhooksCreateResponses, PodJobWebhooksCreateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodJobWebhooksCreateResponses, PodJobWebhooksCreateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks',
+    url: '/api/v2/pod/conversations/{id}/model-profile',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2835,28 +3043,28 @@ export const podJobWebhooksCreate = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podJobWebhooksDelete operation on applet_job_operation resource
+ * podMentionCandidates operation on pod_page_operation resource
  */
-export const podJobWebhooksDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobWebhooksDeleteData, ThrowOnError>
-): RequestResult<PodJobWebhooksDeleteResponses, PodJobWebhooksDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<PodJobWebhooksDeleteResponses, PodJobWebhooksDeleteErrors, ThrowOnError, 'data'>({
+export const podMentionCandidates = <ThrowOnError extends boolean = true>(
+  options?: Options<PodMentionCandidatesData, ThrowOnError>
+): RequestResult<PodMentionCandidatesResponses, PodMentionCandidatesErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodMentionCandidatesResponses, PodMentionCandidatesErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}',
+    url: '/api/v2/pod/mentions/candidates',
     ...options
   })
 
 /**
- * podJobWebhooksUpdate operation on applet_job_operation resource
+ * renamePodMember operation on pod_admin_operation resource
  */
-export const podJobWebhooksUpdate = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobWebhooksUpdateData, ThrowOnError>
-): RequestResult<PodJobWebhooksUpdateResponses, PodJobWebhooksUpdateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<PodJobWebhooksUpdateResponses, PodJobWebhooksUpdateErrors, ThrowOnError, 'data'>({
+export const renamePodMember = <ThrowOnError extends boolean = true>(
+  options: Options<RenamePodMemberData, ThrowOnError>
+): RequestResult<RenamePodMemberResponses, RenamePodMemberErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<RenamePodMemberResponses, RenamePodMemberErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}',
+    url: '/api/v2/pod/admin/members/{uid}/rename',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -2865,111 +3073,170 @@ export const podJobWebhooksUpdate = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * podJobWebhooksCancel operation on applet_job_operation resource
+ * podSpreadsheetCreate operation on pod_spreadsheet_operation resource
  */
-export const podJobWebhooksCancel = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobWebhooksCancelData, ThrowOnError>
-): RequestResult<PodJobWebhooksCancelResponses, PodJobWebhooksCancelErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodJobWebhooksCancelResponses, PodJobWebhooksCancelErrors, ThrowOnError, 'data'>({
+export const podSpreadsheetCreate = <ThrowOnError extends boolean = true>(
+  options?: Options<PodSpreadsheetCreateData, ThrowOnError>
+): RequestResult<PodSpreadsheetCreateResponses, PodSpreadsheetCreateErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).post<PodSpreadsheetCreateResponses, PodSpreadsheetCreateErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/cancel',
+    url: '/api/v2/pod/spreadsheet-pages',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options?.headers
+    }
+  })
+
+/**
+ * podMe operation on pod_member_account resource
+ */
+export const podMe = <ThrowOnError extends boolean = true>(
+  options?: Options<PodMeData, ThrowOnError>
+): RequestResult<PodMeResponses, PodMeErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodMeResponses, PodMeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/me',
     ...options
   })
 
 /**
- * podJobWebhooksPause operation on applet_job_operation resource
+ * updatePodProfile operation on pod_member_account resource
  */
-export const podJobWebhooksPause = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobWebhooksPauseData, ThrowOnError>
-): RequestResult<PodJobWebhooksPauseResponses, PodJobWebhooksPauseErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodJobWebhooksPauseResponses, PodJobWebhooksPauseErrors, ThrowOnError, 'data'>({
+export const updatePodProfile = <ThrowOnError extends boolean = true>(
+  options: Options<UpdatePodProfileData, ThrowOnError>
+): RequestResult<UpdatePodProfileResponses, UpdatePodProfileErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<UpdatePodProfileResponses, UpdatePodProfileErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/pause',
-    ...options
+    url: '/api/v2/pod/me',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
- * podJobWebhooksResume operation on applet_job_operation resource
+ * metaSaveAgentContract operation on meta_library resource
  */
-export const podJobWebhooksResume = <ThrowOnError extends boolean = true>(
-  options: Options<PodJobWebhooksResumeData, ThrowOnError>
-): RequestResult<PodJobWebhooksResumeResponses, PodJobWebhooksResumeErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodJobWebhooksResumeResponses, PodJobWebhooksResumeErrors, ThrowOnError, 'data'>({
+export const metaSaveAgentContract = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSaveAgentContractData, ThrowOnError>
+): RequestResult<MetaSaveAgentContractResponses, MetaSaveAgentContractErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<MetaSaveAgentContractResponses, MetaSaveAgentContractErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/jobs/{job_id}/webhooks/{id}/resume',
-    ...options
+    url: '/api/v2/pod/meta/agents/{uid}/contracts/{slot}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
- * podAppletRun operation on applet_job_operation resource
+ * reauthenticatePodMember operation on pod_member_account resource
  */
-export const podAppletRun = <ThrowOnError extends boolean = true>(
-  options: Options<PodAppletRunData, ThrowOnError>
-): RequestResult<PodAppletRunResponses, PodAppletRunErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodAppletRunResponses, PodAppletRunErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/pages/{page_id}/runs/{id}',
-    ...options
-  })
-
-/**
- * ensurePodPersonalAssistant operation on pod_chat_operation resource
- */
-export const ensurePodPersonalAssistant = <ThrowOnError extends boolean = true>(
-  options?: Options<EnsurePodPersonalAssistantData, ThrowOnError>
-): RequestResult<EnsurePodPersonalAssistantResponses, EnsurePodPersonalAssistantErrors, ThrowOnError, 'data'> =>
+export const reauthenticatePodMember = <ThrowOnError extends boolean = true>(
+  options?: Options<ReauthenticatePodMemberData, ThrowOnError>
+): RequestResult<ReauthenticatePodMemberResponses, ReauthenticatePodMemberErrors, ThrowOnError, 'data'> =>
   (options?.client ?? client).post<
-    EnsurePodPersonalAssistantResponses,
-    EnsurePodPersonalAssistantErrors,
+    ReauthenticatePodMemberResponses,
+    ReauthenticatePodMemberErrors,
     ThrowOnError,
     'data'
   >({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/personal-assistant',
+    url: '/api/v2/pod/me/reauthentication',
     ...options
   })
 
 /**
- * podRealtimeToken operation on pod_realtime resource
+ * podCommentAttention operation on pod_document_comment_operation resource
  */
-export const podRealtimeToken = <ThrowOnError extends boolean = true>(
-  options?: Options<PodRealtimeTokenData, ThrowOnError>
-): RequestResult<PodRealtimeTokenResponses, PodRealtimeTokenErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodRealtimeTokenResponses, PodRealtimeTokenErrors, ThrowOnError, 'data'>({
+export const podCommentAttention = <ThrowOnError extends boolean = true>(
+  options?: Options<PodCommentAttentionData, ThrowOnError>
+): RequestResult<PodCommentAttentionResponses, PodCommentAttentionErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodCommentAttentionResponses, PodCommentAttentionErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/realtime-token',
+    url: '/api/v2/pod/comments/attention',
     ...options
   })
 
 /**
- * podEventBindings operation on event_binding_operation resource
+ * podPageSearch operation on pod_page_operation resource
  */
-export const podEventBindings = <ThrowOnError extends boolean = true>(
-  options?: Options<PodEventBindingsData, ThrowOnError>
-): RequestResult<PodEventBindingsResponses, PodEventBindingsErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodEventBindingsResponses, PodEventBindingsErrors, ThrowOnError, 'data'>({
+export const podPageSearch = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageSearchData, ThrowOnError>
+): RequestResult<PodPageSearchResponses, PodPageSearchErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageSearchResponses, PodPageSearchErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/signal-bindings',
+    url: '/api/v2/pod/pages/search',
     ...options
   })
 
 /**
- * podEventBindingPut operation on event_binding_operation resource
+ * metaAgent operation on meta_agent resource
  */
-export const podEventBindingPut = <ThrowOnError extends boolean = true>(
-  options: Options<PodEventBindingPutData, ThrowOnError>
-): RequestResult<PodEventBindingPutResponses, PodEventBindingPutErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<PodEventBindingPutResponses, PodEventBindingPutErrors, ThrowOnError, 'data'>({
+export const metaAgent = <ThrowOnError extends boolean = true>(
+  options: Options<MetaAgentData, ThrowOnError>
+): RequestResult<MetaAgentResponses, MetaAgentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<MetaAgentResponses, MetaAgentErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/signal-bindings',
+    url: '/api/v2/pod/meta/agents/{uid}',
+    ...options
+  })
+
+/**
+ * metaUpdateAgent operation on meta_agent resource
+ */
+export const metaUpdateAgent = <ThrowOnError extends boolean = true>(
+  options: Options<MetaUpdateAgentData, ThrowOnError>
+): RequestResult<MetaUpdateAgentResponses, MetaUpdateAgentErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<MetaUpdateAgentResponses, MetaUpdateAgentErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/agents/{uid}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podReplySuggestion operation on pod_chat_operation resource
+ */
+export const podReplySuggestion = <ThrowOnError extends boolean = true>(
+  options: Options<PodReplySuggestionData, ThrowOnError>
+): RequestResult<PodReplySuggestionResponses, PodReplySuggestionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<PodReplySuggestionResponses, PodReplySuggestionErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/conversations/{id}/reply-suggestion',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * metaSaveGlobalContract operation on meta_library resource
+ */
+export const metaSaveGlobalContract = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSaveGlobalContractData, ThrowOnError>
+): RequestResult<MetaSaveGlobalContractResponses, MetaSaveGlobalContractErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<MetaSaveGlobalContractResponses, MetaSaveGlobalContractErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/contracts/{slot}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -3008,6 +3275,40 @@ export const podSpaceWrite = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * answerPodInteraction operation on pod_chat_operation resource
+ */
+export const answerPodInteraction = <ThrowOnError extends boolean = true>(
+  options: Options<AnswerPodInteractionData, ThrowOnError>
+): RequestResult<AnswerPodInteractionResponses, AnswerPodInteractionErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<AnswerPodInteractionResponses, AnswerPodInteractionErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/interactions/{interaction_id}/answer',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * metaSkillSetBinding operation on meta_library resource
+ */
+export const metaSkillSetBinding = <ThrowOnError extends boolean = true>(
+  options: Options<MetaSkillSetBindingData, ThrowOnError>
+): RequestResult<MetaSkillSetBindingResponses, MetaSkillSetBindingErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<MetaSkillSetBindingResponses, MetaSkillSetBindingErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/meta/skills/{slug}/bindings',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podSpaceAgentWrite operation on pod_page_operation resource
  */
 export const podSpaceAgentWrite = <ThrowOnError extends boolean = true>(
@@ -3017,271 +3318,6 @@ export const podSpaceAgentWrite = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/space/agents',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podSpaceAgentDelete operation on pod_page_operation resource
- */
-export const podSpaceAgentDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodSpaceAgentDeleteData, ThrowOnError>
-): RequestResult<PodSpaceAgentDeleteResponses, PodSpaceAgentDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<PodSpaceAgentDeleteResponses, PodSpaceAgentDeleteErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/space/agents/{uid}',
-    ...options
-  })
-
-/**
- * podSpreadsheetCreate operation on pod_spreadsheet_operation resource
- */
-export const podSpreadsheetCreate = <ThrowOnError extends boolean = true>(
-  options?: Options<PodSpreadsheetCreateData, ThrowOnError>
-): RequestResult<PodSpreadsheetCreateResponses, PodSpreadsheetCreateErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).post<PodSpreadsheetCreateResponses, PodSpreadsheetCreateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/spreadsheet-pages',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options?.headers
-    }
-  })
-
-/**
- * podSubjects operation on pod_page_operation resource
- */
-export const podSubjects = <ThrowOnError extends boolean = true>(
-  options?: Options<PodSubjectsData, ThrowOnError>
-): RequestResult<PodSubjectsResponses, PodSubjectsErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodSubjectsResponses, PodSubjectsErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/subjects',
-    ...options
-  })
-
-/**
- * podBaseTableDelete operation on pod_base_operation resource
- */
-export const podBaseTableDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseTableDeleteData, ThrowOnError>
-): RequestResult<PodBaseTableDeleteResponses, PodBaseTableDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<PodBaseTableDeleteResponses, PodBaseTableDeleteErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/tables/{id}',
-    ...options
-  })
-
-/**
- * podBaseSchema operation on pod_base_operation resource
- */
-export const podBaseSchema = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseSchemaData, ThrowOnError>
-): RequestResult<PodBaseSchemaResponses, PodBaseSchemaErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).get<PodBaseSchemaResponses, PodBaseSchemaErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/tables/{id}',
-    ...options
-  })
-
-/**
- * podBaseTableRename operation on pod_base_operation resource
- */
-export const podBaseTableRename = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseTableRenameData, ThrowOnError>
-): RequestResult<PodBaseTableRenameResponses, PodBaseTableRenameErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<PodBaseTableRenameResponses, PodBaseTableRenameErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/tables/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podBaseAggregate operation on pod_base_operation resource
- */
-export const podBaseAggregate = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseAggregateData, ThrowOnError>
-): RequestResult<PodBaseAggregateResponses, PodBaseAggregateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodBaseAggregateResponses, PodBaseAggregateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/tables/{id}/aggregate',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podBaseCopy operation on pod_base_operation resource
- */
-export const podBaseCopy = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseCopyData, ThrowOnError>
-): RequestResult<PodBaseCopyResponses, PodBaseCopyErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodBaseCopyResponses, PodBaseCopyErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/tables/{id}/copy',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podBaseFieldCreate operation on pod_base_operation resource
- */
-export const podBaseFieldCreate = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseFieldCreateData, ThrowOnError>
-): RequestResult<PodBaseFieldCreateResponses, PodBaseFieldCreateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodBaseFieldCreateResponses, PodBaseFieldCreateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/tables/{id}/fields',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podBaseQuery operation on pod_base_operation resource
- */
-export const podBaseQuery = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseQueryData, ThrowOnError>
-): RequestResult<PodBaseQueryResponses, PodBaseQueryErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodBaseQueryResponses, PodBaseQueryErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/tables/{id}/query',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podBaseWrite operation on pod_base_operation resource
- */
-export const podBaseWrite = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseWriteData, ThrowOnError>
-): RequestResult<PodBaseWriteResponses, PodBaseWriteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodBaseWriteResponses, PodBaseWriteErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/tables/{id}/records',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podBaseTableConfigure operation on pod_base_operation resource
- */
-export const podBaseTableConfigure = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseTableConfigureData, ThrowOnError>
-): RequestResult<PodBaseTableConfigureResponses, PodBaseTableConfigureErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<PodBaseTableConfigureResponses, PodBaseTableConfigureErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/tables/{id}/settings',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podBaseViewCreate operation on pod_base_operation resource
- */
-export const podBaseViewCreate = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseViewCreateData, ThrowOnError>
-): RequestResult<PodBaseViewCreateResponses, PodBaseViewCreateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<PodBaseViewCreateResponses, PodBaseViewCreateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/tables/{id}/views',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * podChatTeammates operation on pod_chat_operation resource
- */
-export const podChatTeammates = <ThrowOnError extends boolean = true>(
-  options?: Options<PodChatTeammatesData, ThrowOnError>
-): RequestResult<PodChatTeammatesResponses, PodChatTeammatesErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodChatTeammatesResponses, PodChatTeammatesErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/teammates',
-    ...options
-  })
-
-/**
- * podVersions operation on pod_page_operation resource
- */
-export const podVersions = <ThrowOnError extends boolean = true>(
-  options?: Options<PodVersionsData, ThrowOnError>
-): RequestResult<PodVersionsResponses, PodVersionsErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).post<PodVersionsResponses, PodVersionsErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/versions',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options?.headers
-    }
-  })
-
-/**
- * podBaseViewDelete operation on pod_base_operation resource
- */
-export const podBaseViewDelete = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseViewDeleteData, ThrowOnError>
-): RequestResult<PodBaseViewDeleteResponses, PodBaseViewDeleteErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).delete<PodBaseViewDeleteResponses, PodBaseViewDeleteErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/views/{id}',
-    ...options
-  })
-
-/**
- * podBaseViewUpdate operation on pod_base_operation resource
- */
-export const podBaseViewUpdate = <ThrowOnError extends boolean = true>(
-  options: Options<PodBaseViewUpdateData, ThrowOnError>
-): RequestResult<PodBaseViewUpdateResponses, PodBaseViewUpdateErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).patch<PodBaseViewUpdateResponses, PodBaseViewUpdateErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/pod/views/{id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

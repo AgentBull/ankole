@@ -42,7 +42,7 @@ impl AnthropicState {
             thinking_blocks: BTreeMap::new(),
             reasoning_item_id: None,
             reasoning_output_index: None,
-            usage: json!({}),
+            usage: Value::Null,
             stop_reason: None,
             terminal: false,
             next_output_index: 0,

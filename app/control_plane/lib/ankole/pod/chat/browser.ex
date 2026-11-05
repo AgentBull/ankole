@@ -23,6 +23,8 @@ defmodule Ankole.Pod.Chat.Browser do
     allow(:resolve_action_card, check: :guardrail)
     allow(:show_action_card, check: :guardrail)
     allow(:resolve_standalone_action_card, check: :guardrail)
+    allow(:show_interaction, check: :guardrail)
+    allow(:answer_standalone_interaction, check: :guardrail)
     allow(:list, check: :guardrail)
     allow(:show, check: :guardrail)
     allow(:execution, check: :guardrail)
@@ -70,6 +72,19 @@ defmodule Ankole.Pod.Chat.Browser do
     agent_uid: [type: PrincipalKey, allow_nil?: false]
   ]
 
+  @standalone_interaction [
+    interaction_id: [type: :string, allow_nil?: false],
+    conversation_id: [type: UUIDv7],
+    conversation_kind: [type: :string, allow_nil?: false],
+    agent_uid: [type: PrincipalKey, allow_nil?: false],
+    question: [type: :string, allow_nil?: false, constraints: [trim?: false]],
+    fields: [type: {:array, :map}, allow_nil?: false],
+    state: [type: :string, allow_nil?: false],
+    answered_by_uid: [type: PrincipalKey],
+    answered_by_name: [type: :string, constraints: [trim?: false]],
+    answer_text: [type: :string, constraints: [trim?: false]]
+  ]
+
   resource do
     require_primary_key?(false)
   end
@@ -100,7 +115,7 @@ defmodule Ankole.Pod.Chat.Browser do
                   seq: [type: :integer, allow_nil?: false],
                   authorUID: [type: PrincipalKey],
                   text: [type: :string],
-                  execution: [type: :map]
+                  execution: [type: Ankole.Pod.Chat.Execution]
                 ]
               ]
             ]
@@ -378,11 +393,13 @@ defmodule Ankole.Pod.Chat.Browser do
       argument(:links, {:array, Ankole.Pod.Chat.Link})
       argument(:attachments, {:array, :string})
       argument(:mentions, {:array, Ankole.Pod.Chat.Mention})
+      argument(:values, :map)
 
       run(fn input, context ->
         attrs = input.arguments
 
         Conversations.answer_interaction(context.actor, attrs.id, attrs.interaction_id, %{
+          values: attrs[:values],
           choice_id: attrs[:choiceID],
           answer_text: attrs[:text],
           attachments: attrs[:attachments],
@@ -422,6 +439,31 @@ defmodule Ankole.Pod.Chat.Browser do
       run(fn input, context ->
         Conversations.get_browser_action_card(context.actor, input.arguments.card_id)
         |> APIError.result(&standalone_action_card/1)
+      end)
+    end
+
+    action :show_interaction, :map do
+      constraints(fields: @standalone_interaction)
+      argument(:interaction_id, :string, allow_nil?: false)
+
+      run(fn input, context ->
+        Conversations.get_standalone_interaction(context.actor, input.arguments.interaction_id)
+        |> APIError.result(&atom_keys/1)
+      end)
+    end
+
+    action :answer_standalone_interaction, :map do
+      constraints(fields: @standalone_interaction)
+      argument(:interaction_id, :string, allow_nil?: false)
+      argument(:values, :map, allow_nil?: false)
+
+      run(fn input, context ->
+        attrs = input.arguments
+
+        Conversations.answer_standalone_interaction(context.actor, attrs.interaction_id, %{
+          values: attrs.values
+        })
+        |> APIError.result(&atom_keys/1)
       end)
     end
 
@@ -631,6 +673,9 @@ defmodule Ankole.Pod.Chat.Browser do
 
   defp selection(value),
     do: %{profile: value.profile, activeProfile: value.active_profile, profiles: value.profiles}
+
+  defp atom_keys(value),
+    do: Map.new(@standalone_interaction, fn {key, _} -> {key, value[Atom.to_string(key)]} end)
 
   defp standalone_action_card(value),
     do: %{

@@ -17,6 +17,7 @@ import {
   cn
 } from '@ankole/uikit'
 import {
+  RiBarChartBoxLine,
   RiBrainLine,
   RiBroadcastLine,
   RiChat3Line,
@@ -105,6 +106,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: 'console.nav.group_connections',
     items: [
       { to: '/model-profiles', label: 'console.nav.model_profiles', icon: RiSettings3Line },
+      { to: '/ai-usage', label: 'console.nav.ai_usage', icon: RiBarChartBoxLine },
       { to: '/providers', label: 'console.nav.providers', icon: RiSparkling2Line },
       { to: '/worker-providers', label: 'console.worker_providers.title', icon: RiServerLine },
       { to: '/signals', label: 'console.nav.signals', icon: RiBroadcastLine },

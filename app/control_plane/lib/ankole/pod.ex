@@ -458,6 +458,15 @@ defmodule Ankole.Pod do
 
         route(:get, "/action-cards/:card_id", :show_action_card, name: "getPodActionCard")
 
+        route(:get, "/interactions/:interaction_id", :show_interaction, name: "getPodInteraction")
+
+        route(
+          :post,
+          "/interactions/:interaction_id/answer",
+          :answer_standalone_interaction,
+          name: "answerPodInteraction"
+        )
+
         route(
           :post,
           "/action-cards/:card_id/resolve",

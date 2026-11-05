@@ -79,30 +79,35 @@ defmodule Ankole.AIAgent.Library do
 
   def enabled_skills_for_agent(uid, opts \\ []) do
     with {:ok, _} <- Principals.get_agent(uid),
-         {:ok, plugins} <- AgentPlugins.capabilities_for_agent(uid, opts) do
-      parents = Map.new(plugins, &{&1["id"], &1["effective_enabled"]})
-      bindings = Skills.bindings(uid)
-      lessons = SkillLessons.delivered_skill_names(uid)
-
-      {:ok,
-       Skills.list()
-       |> Enum.filter(
-         &(Ankole.BackgroundAgentJobs.RuntimeProjection.allows_skill?(
-             opts[:runtime_projection],
-             &1
-           ) and Skills.enabled?(&1, bindings) and
-             (is_nil(&1.agent_plugin_id) or parents[&1.agent_plugin_id] == true))
-       )
-       |> Enum.map(&summary(&1, uid, MapSet.member?(lessons, &1.slug)))}
-    end
+         {:ok, plugins} <- AgentPlugins.capabilities_for_agent(uid, opts),
+         do: {:ok, enabled_skills(uid, plugins, opts)}
   end
 
   def runtime_catalog_for_agent(uid, opts \\ []) do
-    with {:ok, skills} <- enabled_skills_for_agent(uid, opts),
-         {:ok, plugins} <-
-           AgentPlugins.capabilities_for_agent(uid, Keyword.put(opts, :sync, false)) do
-      {:ok, %{"agent_plugins" => AgentPlugins.enabled_catalog(plugins), "skills" => skills}}
+    with {:ok, _} <- Principals.get_agent(uid),
+         {:ok, plugins} <- AgentPlugins.capabilities_for_agent(uid, opts) do
+      {:ok,
+       %{
+         "agent_plugins" => AgentPlugins.enabled_catalog(plugins),
+         "skills" => enabled_skills(uid, plugins, opts)
+       }}
     end
+  end
+
+  defp enabled_skills(uid, plugins, opts) do
+    parents = Map.new(plugins, &{&1["id"], &1["effective_enabled"]})
+    bindings = Skills.bindings(uid)
+    lessons = SkillLessons.delivered_skill_names(uid)
+
+    Skills.list()
+    |> Enum.filter(
+      &(Ankole.BackgroundAgentJobs.RuntimeProjection.allows_skill?(
+          opts[:runtime_projection],
+          &1
+        ) and Skills.enabled?(&1, bindings) and
+          (is_nil(&1.agent_plugin_id) or parents[&1.agent_plugin_id] == true))
+    )
+    |> Enum.map(&summary(&1, uid, MapSet.member?(lessons, &1.slug)))
   end
 
   def runtime_skills_for_agent(uid, opts \\ []), do: enabled_skills_for_agent(uid, opts)

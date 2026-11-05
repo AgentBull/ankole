@@ -1,17 +1,32 @@
 defmodule Ankole.AIGateway.Schemas.UsageRecord do
-  @moduledoc "Append-only LLM usage accounting for Agent quotas and control-plane callers."
+  @moduledoc """
+  One immutable row per counted provider round of an LLM request. A hosted
+  composite Response is one row: the kernel runs its main-model and image
+  rounds internally and reports one aggregate, from which the row keeps the
+  language-model usage alone.
+
+  A token count is `nil` when the Provider did not report it, and 0 only when
+  the Provider reported zero. `model` is the requested `provider_id/model`;
+  `provider_model` is the model that the Provider reported when it differs.
+  """
   use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway
 
   postgres do
     table("ai_gateway_usage_records")
     repo(Ankole.Repo)
     migrate?(false)
-    foreign_key_names(subject_uid: "ai_gateway_usage_records_subject_uid_fkey")
 
     check_constraints do
       check_constraint(:origin, "ai_gateway_usage_records_origin_check")
       check_constraint(:input_tokens, "ai_gateway_usage_records_input_tokens_check")
       check_constraint(:output_tokens, "ai_gateway_usage_records_output_tokens_check")
+
+      check_constraint(
+        :cached_input_tokens,
+        "ai_gateway_usage_records_cached_input_tokens_check"
+      )
+
+      check_constraint(:reasoning_tokens, "ai_gateway_usage_records_reasoning_tokens_check")
       check_constraint(:job_id, "ai_gateway_usage_records_job_id_check")
       check_constraint(:attempt, "ai_gateway_usage_records_attempt_check")
     end
@@ -32,8 +47,14 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
     )
 
     attribute(:model, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:input_tokens, :integer, allow_nil?: false, constraints: [min: 0])
-    attribute(:output_tokens, :integer, allow_nil?: false, constraints: [min: 0])
+    attribute(:provider_model, :string, constraints: [trim?: false])
+    attribute(:model_profile, :string, constraints: [trim?: false])
+    attribute(:served_profile, :string, constraints: [trim?: false])
+    attribute(:input_tokens, :integer, constraints: [min: 0])
+    attribute(:output_tokens, :integer, constraints: [min: 0])
+    attribute(:cached_input_tokens, :integer, constraints: [min: 0])
+    attribute(:reasoning_tokens, :integer, constraints: [min: 0])
+    attribute(:human_uid, Ankole.Ash.Types.PrincipalKey)
     attribute(:session_id, :string, constraints: [trim?: false])
     attribute(:signal_id, :uuid)
     attribute(:job_id, :integer, constraints: [min: 1])
@@ -49,8 +70,14 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
         :subject_uid,
         :origin,
         :model,
+        :provider_model,
+        :model_profile,
+        :served_profile,
         :input_tokens,
         :output_tokens,
+        :cached_input_tokens,
+        :reasoning_tokens,
+        :human_uid,
         :session_id,
         :signal_id,
         :job_id,

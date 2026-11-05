@@ -388,6 +388,7 @@ defmodule Ankole.AIGateway.ModelProfiles do
       "provider_options" => Map.get(runtime_profile, "provider_options", %{}),
       "supports_parallel_tool_calls" => supports_parallel_tool_calls?(runtime_profile)
     }
+    |> Attrs.maybe_put("served_profile", runtime_profile["fallback_profile"])
     |> Attrs.maybe_put("context_length", Map.get(runtime_profile, "context_length"))
     |> Attrs.maybe_put(
       "max_completion_tokens",

@@ -138,7 +138,8 @@ defmodule Ankole.Conversations.NextSteps do
     with {:ok, %{body: body}} <-
            AIGateway.create_response(assistant_uid, request,
              subject_type: "agent",
-             caller: "next_steps"
+             caller: "next_steps",
+             request_context: %{"human_uid" => Actor.uid(actor)}
            ),
          {:ok, text} <- AIGateway.completed_output_text(body),
          {:ok, %{"steps" => steps}} when is_list(steps) <- Ankole.JSON.decode(text) do

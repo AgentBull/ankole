@@ -926,24 +926,66 @@ projection asynchronously via its OIDC Client Source rather than enqueueing jobs
 inside AIGateway's response commit; internal Agent requests carry no OIDC origin
 and unattributed rows are never matched to a Client by inference.
 
-Finally, `ai_gateway_usage_records` appends one immutable row per provider round
-that counts toward an Agent token quota (see
-[Agent Token Quota](AgentTokenQuota.md)), recording the Agent, origin, resolved
-model selector, input/output tokens, and work attribution (`session_id`,
-`signal_id`, `job_id`, and `attempts`, read from the same request-context keys
-as the Turn root span):
+Finally, `ai_gateway_usage_records` is the single per-round fact table of model
+usage. AIGateway appends one immutable row for each classified provider round
+that ends with `response.completed` or `response.incomplete` (see
+[Agent Token Quota](AgentTokenQuota.md) for the origins and the quota window).
+A hosted composite Response counts as one round: the kernel runs its main-model
+and image rounds internally, and the row records the language-model usage that
+remains after AIGateway subtracts the image usage.
+A row records the subject, origin, requested `provider_id/model` selector, the
+model that the Provider reported when it differs from the requested one, the
+requested model profile and the profile that served it, the input, output,
+cached input, and reasoning tokens, and work attribution (`session_id`,
+`signal_id`, `job_id`, `attempts`, and `human_uid`, read from the same
+request-context keys as the Turn root span):
 
-- A Session Turn populates `session_id` during runtime resolution and
-  `signal_id` when attaching the Turn span.
-- A Background Agent Job attempt populates all four fields at admission, embeds
-  the attempt in the `job` block of `x-ankole-aigateway-model-binding`, and
-  restores them on every Codex request via
-  `Ankole.Sessions.CodexModelBinding.request_context/2`.
+- A Session Turn populates `session_id`, `model_profile`, and `served_profile`
+  during runtime resolution, and `signal_id` and `human_uid` when attaching the
+  Turn span. Ambient triage runs before that Turn exists, so it adds the
+  Signal and its Human itself.
+- A Background Agent Job attempt populates `job_id`, `attempts`, `signal_id`,
+  `session_id`, and `human_uid` at admission, embeds the attempt and its Human
+  in the `job` block of `x-ankole-aigateway-model-binding`, and restores them on
+  every Codex request via `Ankole.Sessions.CodexModelBinding.request_context/2`.
+- Side calls of a Turn keep its request context: the vision fallback marks its
+  rounds with the `vision_fallback` profile, and automatic compaction, local or
+  upstream, keeps the Turn's attribution while it still bypasses the quota as
+  origin `compaction`.
+- Next steps and reply suggestions name the Human who asked for them, and a
+  reply suggestion also names the conversation's Session.
+- `human_uid` is the Human that the work serves: the Signal's Human, or else the
+  owner of a personal assistant (`Ankole.Principals.served_human_uid/2`). An
+  OIDC Human subject and an Applet call of a Human serve that Human. Work that
+  serves no Human, such as a team Agent's scheduled run or Brain maintenance,
+  writes `NULL`.
 - In-process calls lacking those keys write `NULL`. These attribution columns
-  join to `background_agent_jobs.id`, the Session, and `signals.id` by value
-  without foreign keys so a stale reference can never block quota accounting,
-  and rows survive untouched until deleting the Agent Principal deletes all of
-  its AIGateway records.
+  join to `background_agent_jobs.id`, the Session, `signals.id`, and the Human
+  Principal by value without foreign keys so a stale reference can never block
+  quota accounting. `subject_uid` joins its Principal by value as well, because
+  the ledger is usage history: deleting a Principal keeps its rows while the
+  Principal's other AIGateway records go with it. The Principal rename owner
+  rewrites `subject_uid` and `human_uid` when a Principal is renamed.
+
+A token count is `NULL` when the Provider did not report it and 0 only when the
+Provider reported zero. A round with no usage at all still gets a row, so
+readers can tell how many rounds went unreported. Two readers summarize the
+ledger:
+
+- `AIGateway.turn_usage/1` sums the rows of one Signal, across every attempt and
+  side call, for the execution record of the turn (see
+  [Conversations](Conversations.md)). Each total stays `NULL` when no round
+  reported it.
+- `GET /api/v2/ai-gateway/usage?days=<1..90>` serves the Console's Model usage
+  page through the stateless `Ankole.AIGateway.UsageConsole` resource. It sums
+  the tenant's rows of the window in total, by Agent, by Human, and by origin,
+  and gives each row its `rounds` and `reported_rounds`. A row by Agent or
+  Human also carries the Principal's display name, and the Agent breakdown
+  lists only Agent subjects. A deleted Agent keeps its row without a name,
+  because its `agent` or `codex` rounds, which only an Agent makes, identify
+  it. The summary reads each row of the window once in
+  `(inserted_at, id)` keyset pages. Principal/AuthZ
+  authorizes it on `site_console:ai_gateway_usage` with the `read` action.
 
 ### Persistence Contract
 
@@ -1291,12 +1333,27 @@ for audit, and hard deletion deletes only the validated rows.
 
 ## Shorten Long History
 
-`AIGateway.Usage` normalizes token usage for both stored Responses and
-compaction artifacts using non-negative integers: canonical nested cached and
-reasoning counts take priority over legacy provider detail names and flat fields
-(preserving explicit zeros, including an explicit zero total), missing or
-invalid totals default to `input + output`, re-normalizing a canonical struct is
-idempotent, and lost historical counts are never guessed.
+The Rust kernel normalizes Provider usage to the Responses usage shape and
+keeps a count that the Provider did not report as `null`; a usage that the
+Provider omitted entirely is `null` as a whole. A hosted composite response sums
+the counts that its main-model rounds reported, keeps a count that no main-model
+round reported `null`, and adds the image tokens only to the counts that the
+main-model rounds reported, so subtracting `tool_usage.image_gen` never turns an
+image-only report into a reported zero. `tool_usage.image_gen` itself keeps
+integer counts. The composite `model` is the model that the last main-model
+round reported.
+
+`AIGateway.Usage` reads that usage in two ways. `counts/1` returns the input,
+output, cached input, and reasoning counts with `nil` for an unreported count,
+and the usage ledger records exactly those values. `normalize/1` projects usage
+to the public Responses object with non-negative integers for stored Responses,
+compaction artifacts, and every public terminal event or non-streaming body:
+canonical nested cached and reasoning counts take priority over legacy provider
+detail names and flat fields (preserving explicit zeros, including an explicit
+zero total), an unreported count is 0, missing or invalid totals default to
+`input + output`, re-normalizing a canonical struct is idempotent, and lost
+historical counts are never guessed. Merging the usage of several rounds sums
+the reported counts and never replaces a reported count with a missing one.
 
 Compaction uses a single caller-facing protocol owned by AIGateway: any caller
 requests compaction by including a `compaction_trigger` input item in a
@@ -1481,8 +1538,9 @@ notice, retained client Tool Search pairs, selected tail, and current input—re
   generated images linked to a `Message` row in PostgreSQL are retained with
   that conversation.
 - `CompactionArtifact` exposes only a `create` action (no updates), and
-  `UsageRecord` is append-only with non-negative counts summed via one
-  tenant-scoped aggregate query and normalized through `AIGateway.Usage`.
+  `UsageRecord` is append-only with non-negative or `NULL` counts read through
+  `AIGateway.Usage.counts/1`; the quota window sums them in one tenant-scoped
+  aggregate query.
 
 For `image_generation` (which AIGateway includes only when declared by the
 caller, validating up front that `output_compression` is set only when

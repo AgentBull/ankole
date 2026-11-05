@@ -16,6 +16,7 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.AIGateway.CompactionSummarizer
   alias Ankole.AIGateway.CompactionRetention
   alias Ankole.AIGateway.UpstreamCompaction
+  alias Ankole.AIGateway.UsageLedger
   alias Ankole.AIGateway.Schemas.Message
 
   alias Ankole.AIGateway.CompactionCandidate
@@ -218,6 +219,7 @@ defmodule Ankole.AIGateway.Compaction do
       current_input: current_input,
       brain_context_pack: pack,
       request: request,
+      runtime: runtime,
       total_tokens: total_tokens,
       threshold: threshold,
       native_state: native_state
@@ -241,7 +243,11 @@ defmodule Ankole.AIGateway.Compaction do
              tail_rows_requested
            ),
          candidate = %{candidate | brain_context_pack: pack},
-         {:ok, summary} <- CompactionSummarizer.summarize_candidate(subject_uid, candidate),
+         # The summary bypasses the quota but stays attributed to the Turn that needed it.
+         {:ok, summary} <-
+           CompactionSummarizer.summarize_candidate(subject_uid, candidate,
+             request_context: UsageLedger.attribution(Map.get(runtime, "request_context"))
+           ),
          :ok <-
            CompactionArtifacts.checkpoint_within_budget(
              candidate,

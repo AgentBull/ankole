@@ -51,6 +51,66 @@ defmodule Ankole.Sessions.ToolsTest do
     assert {:error, _} = ToolArguments.parse(~s({"path":) <> String.duplicate("x", 256 * 1024))
   end
 
+  test "clarify validates a form definition and returns precise invalid arguments to the model" do
+    tool =
+      Tools.Session.declarations()
+      |> Enum.find(&(&1["name"] == "clarify"))
+      |> Ankole.Sessions.Tool.new(Tools.Session)
+
+    quantity = %{"id" => "quantity", "label" => "Quantity", "type" => "number", "min" => 1}
+
+    # The schema step of `Tools.prepare/2`; the run-level authorization needs a live Agent.
+    prepare =
+      &ToolArguments.validate(tool.schema["parameters"], Tools.Session.normalize("clarify", &1))
+
+    assert {:error, error} =
+             prepare.(%{
+               "question" => "How many?",
+               "fields" => [%{quantity | "type" => "slider"}]
+             })
+
+    assert error =~ "#/fields/0/type"
+
+    for {args, message} <- [
+          {%{"question" => "How many?", "fields" => [quantity, quantity]},
+           "fields repeats id \"quantity\""},
+          {%{"question" => "How many?", "fields" => [quantity], "choices" => ["A", "B"]},
+           "fields or choices, not both"},
+          {%{"question" => "How many?", "fields" => [Map.put(quantity, "default", 0)]},
+           "fields[0].default is not a valid number value"}
+        ] do
+      assert {:ok, args} = prepare.(args)
+
+      assert {:ok, result} =
+               Tools.Session.execute(nil, %{"name" => "clarify", "call_id" => "form"}, args)
+
+      assert result.is_error
+      assert result.failure_kind == "invalid_arguments"
+      assert result.output =~ message
+    end
+
+    assert {:ok, args} = prepare.(%{"question" => " How many? ", "fields" => [quantity]})
+
+    assert {:ok, result} =
+             Tools.Session.execute(nil, %{"name" => "clarify", "call_id" => "form"}, args)
+
+    refute result.is_error
+    assert result.terminate
+
+    assert [%{"id" => "quantity", "required" => true, "integer" => false}] =
+             result.details["fields"]
+
+    assert %{
+             "kind" => "clarify",
+             "prompt" => %{"interactive_output" => %{"fields" => [_]} = output}
+           } =
+             result.interaction
+
+    assert output["body"] == "How many?"
+    assert output["free_input"]
+    assert output["fallback_visible_text"] =~ "- Quantity"
+  end
+
   test "session declarations send strict false unless they opt in, so optional parameters stay optional" do
     declaration =
       Tools.Jobs.declarations()

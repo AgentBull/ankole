@@ -497,7 +497,8 @@ defmodule Ankole.AIGateway.ToolSearchStreamTest do
                message_event["item"]["id"]
              ]
 
-      assert terminal["response"]["usage"] == %{"input_tokens" => 140, "output_tokens" => 30}
+      assert terminal["response"]["usage"] ==
+               Ankole.AIGateway.Usage.normalize(%{"input_tokens" => 140, "output_tokens" => 30})
 
       assert terminal["response"]["tool_usage"] == %{
                "image_gen" => %{"input_tokens" => 5, "output_tokens" => 2}

@@ -200,7 +200,7 @@ impl ChatState {
             reasoning_item_id: None,
             reasoning_output_index: None,
             tool_calls: BTreeMap::new(),
-            usage: json!({}),
+            usage: Value::Null,
             terminal: false,
             pending_status: None,
             pending_incomplete_reason: None,

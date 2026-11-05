@@ -41,7 +41,7 @@ const execution: ExecutionSummary = {
       title: 'Read page Q4 Roadmap',
       status: 'completed',
       duration_ms: 180,
-      input: { page: 'Q4' }
+      input: JSON.stringify({ page: 'Q4' })
     },
     {
       id: 'query',
@@ -49,7 +49,7 @@ const execution: ExecutionSummary = {
       title: 'Queried Tasks (18 rows)',
       status: 'completed',
       duration_ms: 340,
-      output: { count: 18 }
+      output: JSON.stringify({ count: 18 })
     }
   ]
 }
@@ -213,7 +213,7 @@ test('terminal details show the real command, output and exit code without expos
   expect(html).toContain(' M report.md')
   expect(html).not.toContain('&quot;command&quot;')
   expect(html).not.toContain('duration=120ms')
-  const structured = { ...command, output: { stderr: 'Permission denied', exit_code: 2 } }
+  const structured = { ...command, output: JSON.stringify({ stderr: 'Permission denied', exit_code: 2 }) }
   expect(commandDetails(structured)).toMatchObject({ stdout: undefined, stderr: 'Permission denied', exitCode: 2 })
   const failed = render(<ToolRunView steps={[{ ...structured, status: 'failed' }]} />)
   expect(failed).toContain('Exit 2')
@@ -479,7 +479,7 @@ test('tool steps omit empty disclosures and humanize raw tool identifiers', () =
           tool: 'mcp__github__search_api_issues',
           title: 'mcp__github__search_api_issues',
           status: 'completed',
-          input: {},
+          input: '{}',
           output: '[]'
         }
       ]}

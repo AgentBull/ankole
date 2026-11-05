@@ -25,12 +25,18 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
       when is_map(checkpoint) and is_map(presentation) do
     interactions = interactions(checkpoint)
     superseded_by = Keyword.get(opts, :superseded_by)
+    forms = Keyword.get(opts, :forms, %{})
 
     initialized =
       presentation
       |> interaction_ids()
+      |> Kernel.++(Map.keys(forms))
+      |> Enum.uniq()
       |> Map.new(fn interaction_id ->
-        {interaction_id, initial_interaction(interaction_id, now, superseded_by)}
+        {interaction_id,
+         interaction_id
+         |> initial_interaction(now, superseded_by)
+         |> Ankole.Attrs.maybe_put("form", forms[interaction_id])}
       end)
 
     checkpoint
@@ -58,13 +64,13 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
 
     if interaction_state(checkpoint, interaction_id) == "pending" and
          terminal_state?(resolution) do
+      interactions = interactions(checkpoint)
+
       interactions =
-        checkpoint
-        |> interactions()
-        |> Map.put(
+        Map.put(
+          interactions,
           interaction_id,
-          resolution
-          |> Map.put("interaction_id", interaction_id)
+          terminal(resolution, interactions[interaction_id], interaction_id)
         )
 
       {:ok, Map.put(checkpoint, "interactions", interactions)}
@@ -95,7 +101,11 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
 
         interactions =
           Enum.reduce(interaction_ids, interactions(checkpoint), fn interaction_id, acc ->
-            Map.put(acc, interaction_id, Map.put(resolution, "interaction_id", interaction_id))
+            Map.put(
+              acc,
+              interaction_id,
+              terminal(resolution, acc[interaction_id], interaction_id)
+            )
           end)
 
         {:ok, Map.put(checkpoint, "interactions", interactions)}
@@ -180,6 +190,14 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
     else
       initial_interaction(interaction_id, now, nil)
     end
+  end
+
+  # A terminal entry keeps the pending form definition so a standalone surface
+  # can still show the question it closed.
+  defp terminal(resolution, pending, interaction_id) do
+    resolution
+    |> Map.put("interaction_id", interaction_id)
+    |> Ankole.Attrs.maybe_put("form", pending && pending["form"])
   end
 
   defp supersedable_by?("action_card:" <> _, %Signal{type: "conversation.message.removed"}),
@@ -287,6 +305,10 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
         answer
 
       %{"kind" => "free_text", "value" => value} when is_binary(value) ->
+        answer
+
+      %{"kind" => "form", "value" => value, "values" => values}
+      when is_binary(value) and is_map(values) ->
         answer
 
       _stale ->

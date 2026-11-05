@@ -1,5 +1,33 @@
 # Changelog
 
+## Version 2.0.0-alpha.61 (2026-11-05)
+
+- Show which model served each Agent reply and how many tokens it used in the
+  reply's work history. Usage that a provider did not report appears as not
+  reported instead of zero, and a turn that only some rounds reported shows
+  how many rounds are missing.
+- Record each AI call's token usage together with the Human it served, and
+  give site administrators a Console usage page with totals by Agent, Human,
+  and origin and the share of rounds that reported usage. Rounds without
+  reported usage do not count toward an Agent's token quota.
+- Keep an Agent's model usage after the Agent is deleted, so the Console still
+  shows it. A new Agent that reuses the name starts its token quota without
+  that usage.
+- Let Agents ask a structured question with up to five typed fields: text,
+  number, date, single or multiple choice, and yes or no. Ankole checks every
+  answer before it reaches the Agent and keeps the question open after an
+  invalid answer. Feishu/Lark and Teams show the form in the card, and other
+  chat channels link to the same form in Pod.
+- Replace an Agent's older unanswered question when it asks a new one in the
+  same conversation.
+- Update Microsoft Teams cards in place: an answered question or a decided
+  approval card shows its outcome instead of keeping its form or buttons, and a
+  reply shows its status until its first words arrive.
+- Start an Agent's Turns sooner. Turns that start together in a tenant whose
+  shipped Skills are not yet installed install them once instead of each
+  repeating the work, the installation uploads files in parallel, and each Turn
+  reads its Skill catalog with about one-eighth of the earlier database queries.
+
 ## Version 2.0.0-alpha.60 (2026-11-05)
 
 - Open Console `/model-profiles` on Site defaults across Pods with a dedicated Pod

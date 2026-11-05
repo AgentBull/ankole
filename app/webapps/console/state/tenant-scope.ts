@@ -20,6 +20,7 @@ const collections = new Set([
   '/background-agent-jobs',
   '/workers',
   '/conversations',
+  '/ai-usage',
   '/worker-envs',
   '/settings',
   '/brain/objects',

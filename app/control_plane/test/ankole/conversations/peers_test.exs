@@ -664,6 +664,61 @@ defmodule Ankole.Conversations.PeersTest do
     assert answer.data["peer_hop_count"] == 0
   end
 
+  test "answering a colleague's external form in Pod requires chat on that colleague", ctx do
+    alias Ankole.Conversations.{Observe, InboundBatches}
+    alias Ankole.SignalsFixtures
+
+    assert {:ok, binding} =
+             SignalsFixtures.raw_binding_fixture(%{
+               name: "peer-form-bot",
+               adapter: "lark",
+               config_ref: "app-config://peer-form-bot",
+               routing_mode: :sender_personal_assistant,
+               agent_uid: nil
+             })
+
+    author = SignalsFixtures.provider_author_fixture(ctx.human.uid, "peer-form-human", %{})
+
+    entry =
+      SignalsFixtures.group_entry(%{
+        author: author,
+        channel: %{kind: :im_dm, reply_mode: :entry},
+        explicit: true,
+        provider_conversation_id: "lark:chat:peer-form-dm"
+      })
+
+    assert {:ok, %{inbound_batch: batch}} = Observe.emit_entry(binding.id, entry)
+
+    assert {:ok, %{signal: event}} =
+             InboundBatches.finalize_inbound_batch_by_id(batch.id, now: batch.available_at)
+
+    id = send_peer(ctx, event)
+    [peer_event] = Signals.list_signals!(query: [filter: [conversation_id: id]])
+
+    finish_tool(peer_event, "clarify", "choose-report", %{
+      "question" => "How many copies?",
+      "fields" => [%{"id" => "copies", "label" => "Copies", "type" => "number"}]
+    })
+
+    ref = "#{peer_event.id}:clarify:choose-report"
+    outsider = human_fixture().principal
+
+    assert {:ok, %{"state" => "pending", "conversation_kind" => "external"}} =
+             Interactions.standalone(actor_fixture(outsider), ref)
+
+    assert {:error, {:forbidden, "chat"}} =
+             Interactions.answer_standalone(actor_fixture(outsider), ref, %{
+               values: %{"copies" => 2}
+             })
+
+    assert PreviewStates.get(peer_event).checkpoint["interactions"]["clarify:choose-report"][
+             "state"
+           ] == "pending"
+
+    assert {:ok, %{"state" => "answered", "answer_text" => "Copies: 2"}} =
+             Interactions.answer_standalone(ctx.actor, ref, %{values: %{"copies" => 2}})
+  end
+
   test "a background Job delegates through its real fenced RPC and retries create one exchange input",
        ctx do
     origin = room(ctx.actor, ctx.assistant.uid)

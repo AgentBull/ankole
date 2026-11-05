@@ -251,8 +251,20 @@ defmodule Ankole.AIGateway.Resolver do
 
   defp maybe_put_profile(runtime, binding) do
     case fetch_any(binding, :profile) do
-      {:ok, profile} when is_binary(profile) -> Map.put(runtime, "profile", profile)
-      _value -> runtime
+      {:ok, profile} when is_binary(profile) ->
+        # A missing tier is served by the tier it falls back to, such as `light` by `primary`.
+        served_profile =
+          case fetch_any(binding, :fallback_profile) do
+            {:ok, fallback} when is_binary(fallback) -> fallback
+            _value -> profile
+          end
+
+        runtime
+        |> Map.put("profile", profile)
+        |> Map.put("served_profile", served_profile)
+
+      _value ->
+        runtime
     end
   end
 

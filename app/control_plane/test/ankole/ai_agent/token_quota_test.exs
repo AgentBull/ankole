@@ -11,6 +11,13 @@ defmodule Ankole.AIAgent.TokenQuotaTest do
 
   setup do
     %{principal: agent} = agent_fixture()
+
+    # A quota counts only rounds made since the Agent was created, and these
+    # windows reach back days, so the Agent has existed for a month.
+    Repo.update_all(from(a in Agent, where: a.uid == ^agent.uid),
+      set: [inserted_at: DateTime.add(DateTime.utc_now(), -30 * @day, :second)]
+    )
+
     %{agent_uid: agent.uid}
   end
 

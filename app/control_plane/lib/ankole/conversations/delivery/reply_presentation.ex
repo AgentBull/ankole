@@ -12,13 +12,14 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
   """
 
   alias Ankole.I18n
+  alias Ankole.Conversations.Delivery.ClarifyForm
 
   @schema_version 1
   @terminal_states ~w(awaiting_input completed continued failed stopped scheduled)
   @states ["debouncing", "working" | @terminal_states]
   @plan_statuses ~w(pending in_progress completed cancelled)
   @activity_phases ~w(pending running completed failed)
-  @action_types ~w(button form)
+  @action_types ~w(button form link)
   @interaction_statuses ~w(pending answered superseded)
   @action_protocol "ankole.interactive_output.action.v1"
   @trigger_context_kinds ~w(background_agent_job_failure scheduled_task)
@@ -134,8 +135,10 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
   @doc """
   Builds one clarification request from the portable interaction output.
 
-  This function owns the presentation action locator, choice, and free-text
-  shapes. Provider renderers only encode the resulting actions.
+  This function owns the presentation action locator, choice, free-text, and
+  typed form shapes. An output with `fields` becomes one form control with
+  those typed fields, followed by a link control to `form_url` when the output
+  carries one. Provider renderers only encode the resulting actions.
   """
   @spec interaction_request(t(), String.t(), map()) :: t()
   def interaction_request(presentation, source_signal_id, output)
@@ -149,6 +152,7 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
       |> Enum.map(&choice_control(&1, source_signal_id, output))
       |> Enum.reject(&is_nil/1)
       |> append_free_input_control(source_signal_id, output)
+      |> append_form_controls(source_signal_id, output)
 
     apply_interaction_request(presentation, %{
       "revision" => presentation |> normalize() |> Map.fetch!("revision") |> Kernel.+(1),
@@ -211,6 +215,25 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
     end
   end
 
+  def callback_value(source_signal_id, %{"type" => "form", "fields" => [_ | _]} = action)
+      when is_binary(source_signal_id) do
+    with interaction_id when is_binary(interaction_id) <- action["interaction_id"],
+         control_id when is_binary(control_id) <- action["control_id"],
+         revision when is_integer(revision) and revision >= 0 <- action["revision"] do
+      {:ok,
+       %{
+         "version" => @action_protocol,
+         "answerKind" => "form",
+         "interactionId" => interaction_id,
+         "interactionVersion" => revision,
+         "controlId" => control_id,
+         "sourceSignalId" => source_signal_id
+       }}
+    else
+      _invalid -> {:error, :invalid_callback_action}
+    end
+  end
+
   def callback_value(_source_signal_id, _action),
     do: {:error, :invalid_callback_action}
 
@@ -241,7 +264,21 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
     end)
   end
 
+  def matches?(presentation, %{kind: "form"} = callback) do
+    presentation
+    |> normalize()
+    |> Map.fetch!("actions")
+    |> Enum.any?(&(typed_form?(&1) and matching_locator?(&1, callback)))
+  end
+
   def matches?(_presentation, _callback), do: false
+
+  @doc "Returns whether an action is a form of typed fields rather than one free-text input."
+  @spec typed_form?(map()) :: boolean()
+  def typed_form?(%{"type" => "form", "fields" => [%{"type" => type} | _]}),
+    do: type != "input"
+
+  def typed_form?(_action), do: false
 
   @doc """
   Projects the internal event that triggered a visible Agent turn into bounded
@@ -625,8 +662,10 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
 
   defp choice_control(_choice, _source_signal_id, _output), do: nil
 
+  # A form clarify answers through its form; the user replies in the channel
+  # to answer in their own words.
   defp append_free_input_control(controls, source_signal_id, output) do
-    if value(output, "free_input") == true do
+    if value(output, "free_input") == true and list(value(output, "fields")) == [] do
       controls ++
         [
           %{
@@ -653,6 +692,42 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
         ]
     else
       controls
+    end
+  end
+
+  defp append_form_controls(controls, source_signal_id, output) do
+    case list(value(output, "fields")) do
+      [] ->
+        controls
+
+      fields ->
+        form = %{
+          "id" => "clarify-form",
+          "type" => "form",
+          "label" => I18n.t("conversations.delivery.clarify.submit"),
+          "style" => "primary",
+          "source_signal_id" => source_signal_id,
+          "interaction_id" => value(output, "interaction_id"),
+          "control_id" => "clarify-form",
+          "revision" => value(output, "version"),
+          "fields" => fields
+        }
+
+        link =
+          if is_binary(value(output, "form_url")) do
+            [
+              %{
+                "id" => "clarify-form-link",
+                "type" => "link",
+                "label" => I18n.t("conversations.delivery.clarify.open_form"),
+                "url" => value(output, "form_url")
+              }
+            ]
+          else
+            []
+          end
+
+        controls ++ [form | link]
     end
   end
 
@@ -803,8 +878,9 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
         id = bounded_optional_text(value(action, "id"), 80)
         label = bounded_optional_text(value(action, "label"), 200)
         fields = normalize_form_fields(value(action, "fields"))
+        url = link_url(value(action, "url"))
 
-        if type && id && label && valid_action_fields?(type, fields) do
+        if type && id && label && valid_action?(type, fields, url) do
           [
             %{
               "type" => type,
@@ -844,6 +920,7 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
             |> Ankole.Attrs.maybe_put("disabled", optional_boolean(value(action, "disabled")))
             |> Ankole.Attrs.maybe_put("selected", optional_boolean(value(action, "selected")))
             |> Ankole.Attrs.maybe_put("fields", fields)
+            |> Ankole.Attrs.maybe_put("url", url)
           ]
         else
           []
@@ -865,7 +942,19 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
 
   defp normalize_prompt(presentation, _prompt), do: Map.delete(presentation, "prompt")
 
+  # `ClarifyForm` owns typed fields; this module owns only the one free-text input.
   defp normalize_form_fields(fields) do
+    if Enum.any?(list(fields), &(value(&1, "type") != "input")) do
+      case ClarifyForm.definition(fields) do
+        {:ok, [_ | _] = fields} -> fields
+        _invalid -> nil
+      end
+    else
+      normalize_input_fields(fields)
+    end
+  end
+
+  defp normalize_input_fields(fields) do
     fields
     |> list()
     |> Enum.take(8)
@@ -953,9 +1042,17 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
 
   defp normalize_trigger_context(_context), do: nil
 
-  defp valid_action_fields?("button", _fields), do: true
-  defp valid_action_fields?("form", [%{"type" => "input"}]), do: true
-  defp valid_action_fields?(_type, _fields), do: false
+  defp valid_action?("button", _fields, _url), do: true
+  defp valid_action?("link", _fields, url), do: is_binary(url)
+  defp valid_action?("form", [%{"type" => "input"}], _url), do: true
+  defp valid_action?("form", [%{"type" => "input"} | _], _url), do: false
+  defp valid_action?("form", [_ | _], _url), do: true
+
+  defp valid_action?(_type, _fields, _url), do: false
+
+  defp link_url("https://" <> _rest = url), do: bounded_optional_text(url, 2_000)
+  defp link_url("http://" <> _rest = url), do: bounded_optional_text(url, 2_000)
+  defp link_url(_url), do: nil
 
   defp normalize_interaction_status(
          %{"state" => "awaiting_input", "actions" => [_ | _]} = presentation,
@@ -996,8 +1093,9 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
       when is_binary(interaction_id) and is_binary(option_id) and is_binary(answer_text) ->
         selected_choice_label(actions, interaction_id, option_id) || answer_text
 
-      {"free_text", interaction_id, _option_id, answer_text}
-      when is_binary(interaction_id) and is_binary(answer_text) ->
+      {kind, interaction_id, _option_id, answer_text}
+      when kind in ["free_text", "form"] and is_binary(interaction_id) and
+             is_binary(answer_text) ->
         answer_text
 
       _invalid ->

@@ -12,6 +12,8 @@ defmodule Ankole.Principals.Rename.References do
   @principal_keys [
     {"skills", "created_by"},
     {"agent_contracts", "updated_by"},
+    {"ai_gateway_usage_records", "human_uid"},
+    {"ai_gateway_usage_records", "subject_uid"},
     {"authn_challenges", "principal_uid"},
     {"automation_jobs", "human_uid"},
     {"background_agent_jobs", "human_uid"},

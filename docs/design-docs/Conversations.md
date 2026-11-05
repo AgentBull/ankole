@@ -398,10 +398,12 @@ expose only active Agents on which the Human holds `chat` permission.
 | `POST /conversations/:id/participants` | Add or remove participants, or change an Agent's intervention setting |
 | `POST /conversations/:id/messages` | Human message with structured mentions, links, and optional Agent target |
 | `POST /conversations/:id/queue` | Queue, stop, or retry command for the selected Agent |
-| `POST /conversations/:id/interactions/:interaction_id/answer` | First accepted choice or message answer to a pending Clarify interaction, with optional references, Human mentions, and attachments |
+| `POST /conversations/:id/interactions/:interaction_id/answer` | First accepted choice, form `values`, or message answer to a pending Clarify interaction, with optional references, Human mentions, and attachments |
 | `POST /conversations/:id/action-cards/:card_id/resolve` | Confirm or cancel a native room `ActionCard` and return updated room detail |
 | `GET /action-cards/:card_id` | Inspect a standalone `ActionCard` opened via `/?actionCard=<uuid>` from an external channel |
 | `POST /action-cards/:card_id/resolve` | Confirm or cancel a standalone `ActionCard` from Pod WebUI |
+| `GET /interactions/:interaction_id` | Inspect a Clarify form opened via `/?interaction=<source_signal_id>:<interaction_id>` from an external channel |
+| `POST /interactions/:interaction_id/answer` | Submit form `values` for that Clarify from Pod WebUI |
 | `GET /conversations/:id/events` | One SSE connection for room changes and all participating Agents |
 | `GET /agents/:uid/model-profiles` | Available model profiles for that Agent |
 | `GET /conversations/:id/model-profile` | Selected and active profile for the requested Agent |
@@ -846,10 +848,79 @@ and `WorkAccess` identity, appending their reply message, waking the asking
 Agent, and publishing after commit. Users can click a choice or type a quick
 reply directly on the card, or open the question in the composer (which pins the
 asking Agent as recipient and preserves drafts if dismissed) to attach files,
-Page chips, quotes, or Human mentions; an attachment alone is a valid answer. If
+Page chips, quotes, or Human mentions; an attachment alone is a valid answer. A
+typed answer in Pod keeps its full text and indentation, while the free-text
+input on an external channel's card accepts at most 1,000 characters. If
 an unanswered question sits above the loaded 500-message window, the UI surfaces
 it in the timeline's attention banner and smoothly restores it to its inline
 position once the user scrolls back to that message.
+
+A Clarify can carry a form instead of choices. `Delivery.ClarifyForm` owns the
+field contract: one to five fields, each with a snake_case `id`, a `label`,
+optional `help`, `required` (default `true`), an optional `default`, and a type
+(`text`, `number`, `date`, `select`, `multi_select`, or `boolean`) with
+type-specific bounds, and at least one field must be required so that a
+submission always carries an answer. The `clarify` tool validates the
+definition before it records the question, so a repeated ID or option value, a
+minimum above its maximum, an invalid default, or a form without a required
+field returns `invalid_arguments` with the exact problem to the model. Every
+surface renders a `boolean` field as a Yes/No choice that starts empty, so a
+required boolean means that the person chose. The message's
+`rich_content.clarify.fields` carries the definition for display, while the
+pending interaction entry in the Delivery checkpoint holds the authoritative
+`form` (`question` and `fields`).
+
+Every answer surface validates a submission against that checkpoint entry. An
+invalid submission returns HTTP 422 `invalid_form_answer` with one code per
+field (`required`, `too_long`, `out_of_range`, `invalid_date`, `not_an_option`,
+`too_few`, `too_many`, `not_an_integer`, or `invalid`), never echoes the
+submitted value, and leaves the question pending. The first valid submission
+records a `form` answer that holds the typed values (option `value`s for select
+fields and ISO dates) and a readable summary built from the field labels. The
+room message shows that summary, and the asking Agent receives the summary and
+the typed values as JSON through `interaction_answer` on its reply Signal. The
+composer remains the way to answer a form in the Human's own words.
+
+When an Agent opens a Clarify, Ankole supersedes that Agent's older pending
+Clarify in the same Session; Action Cards keep their own lifecycle.
+
+Every external form Clarify carries a link to
+`https://<slug>.<site>/?interaction=<source_signal_id>:clarify:<tool_call_id>`,
+which opens a standalone Pod dialog; opening it never answers the question, and
+a reply in the channel supersedes the form like any other message.
+`Delivery.Posting` chooses the surface from the primary target's adapter. When
+the adapter declares the `form` outbound capability (Feishu/Lark and Microsoft
+Teams), Posting commits a clarify reply whose presentation holds one `form`
+control with the typed fields and a `link` control to the Pod dialog, and the
+channel card renders both. Every other channel receives an ordinary final reply
+with the question, the field labels, and the link. Either way, Posting opens the
+pending interaction with its form.
+
+A card form submits through the `ankole.interactive_output.action.v1` callback
+with `answerKind: "form"` and the field values in `formValue`.
+`ClarifyForm.card_values/2` reads the strings that card inputs submit (numbers,
+`true`/`false`, a date with an optional time zone, and comma-joined
+multi-select values) before `ClarifyForm.answer/2` validates them against the
+pending interaction's form. An invalid submission leaves the question pending
+and returns a localized notice that names each rejected field and its problem:
+Feishu/Lark, whose adapter declares `action_notice`, shows it as a toast on the
+callback, and Teams, whose `Action.Submit` callback has no response, receives it
+as a reply. Interaction IDs,
+revisions, control IDs, and duplicate or stale callbacks follow the same rules
+as choice buttons. The first valid submission records the `form` answer, and a
+channel that refreshes its card replaces the form with the answer summary.
+
+A question from a native room follows the room answer path. For an external
+question answered in Pod, Ankole records the first valid submission on the
+source checkpoint and wakes the asking Agent with a kernel
+`signal.action.invoked` Signal on the source Session and reply route, or
+through the peer answer path when a colleague asked. Answering an external
+question requires an active Human, the same rule that the channel's card
+buttons apply, and a colleague's question additionally requires `chat`
+permission on that colleague. The standalone dialog shows every allowed viewer
+that a question was answered and by whom, but it shows the text of an external
+answer only to the Human who gave it; room members see a native answer in the
+room anyway.
 
 A colleague's peer Clarify is projected into the original conversation with
 its attribution and original checkpoint identity. Answering there records the
@@ -916,11 +987,11 @@ concurrent writer that commits while confirmation waits invalidates the card:
   whereas `cancel` transitions it to `cancelled` silently without waking the
   Agent. Withdrawing the source message cancels an open `prepared` card.
 - External channels follow explicit capability tiers: Tier 1 adapters with
-  `PreviewAdapter.refresh/2` (Feishu/Lark, Slack, Discord, Telegram, and WeCom AI
-  Bot when `response_url` is available) refresh the original card in place to
-  remove buttons and display the outcome; Tier 2 button-callback adapters without
-  preview-adapter card refresh (Microsoft Teams via Adaptive Card `Action.Submit`,
-  LINE, WhatsApp, DingTalk, and WeCom AI Bot fallback) enforce server-side
+  `PreviewAdapter.refresh/2` (Feishu/Lark, Slack, Discord, Telegram, Microsoft
+  Teams, and WeCom AI Bot when `response_url` is available) refresh the original
+  card in place to remove buttons and display the outcome; Tier 2 button-callback
+  adapters without preview-adapter card refresh (LINE, WhatsApp, DingTalk, and
+  WeCom AI Bot fallback) enforce server-side
   idempotency on the locked card row, reject unlinked external clicks without
   creating Principal records, and send one settlement receipt
   (`outbound_key: "action-card-settlement:<card_id>"`, plus at most one duplicate
@@ -945,6 +1016,30 @@ and failed work; on a stopped or failed native turn, `Presentation` stores the
 execution record on the turn's notice message and marks any missing or
 interrupted tool results with that terminal turn outcome (merely emitting a tool
 call never counts as tool completion without a recorded result).
+
+The execution record also carries `execution.usage`, which `AIGateway.turn_usage/1`
+sums from the usage ledger rows of the turn's Signal on completed, stopped, and
+failed turns. The sum covers every attempt and every side call of the turn, such
+as a vision fallback or a compaction that the turn needed. `usage.models` lists
+each model that served the turn with its requested `provider_id/model`, the
+model that the Provider reported when it differs, the requested profile and the
+profile that served it when they differ, and its own totals. Every level carries
+`rounds`, `reported_rounds`, and `input_tokens`, `output_tokens`,
+`cached_input_tokens`, and `reasoning_tokens`; a token total is `null` when no
+round reported that count. A turn without ledger rows has no `usage`.
+`Ankole.Pod.Chat.Execution` declares the execution record's fields for the Pod
+API, so the generated Pod client derives the record's steps and usage types
+from that declaration.
+
+Pod shows that usage in the work header of everyone who can see the reply: a
+quiet line at the right end names the main model and the reported input and
+output tokens, such as `gpt-5.5 · 12.4K tokens`. When some rounds did not
+report, the line reads `≥12.4K tokens (2 rounds not reported)`; when no round
+reported, it reads `Usage not reported`. A reply without tool steps still shows
+the header so that its usage stays visible. Expanding the header lists each
+model's rounds and its input, output, cached, and reasoning tokens, and a
+profile fallback such as `light → primary`.
+
 Linked Background Agent Jobs and Workflows carry `sourceMessageID` from the
 triggering Signal (attaching directly to that Human message on silent turns) and
 render as inline cards backed by a read-only detail drawer.

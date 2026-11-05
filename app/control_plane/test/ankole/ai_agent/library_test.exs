@@ -50,6 +50,47 @@ defmodule Ankole.AIAgent.LibraryTest do
              SourceReader.read_skill_source(root, "library", "yaml-example")
   end
 
+  test "concurrent first syncs of a tenant install a shipped package once" do
+    root = Path.join(System.tmp_dir!(), "ankole-skill-sync-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(Path.join([root, "sync-example", "references"]))
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.write!(Path.join([root, "sync-example", "SKILL.md"]), """
+    ---
+    name: sync-example
+    description: Shows a package with reference files.
+    ---
+    # Example
+    """)
+
+    for name <- ["one.md", "two.md"],
+        do: File.write!(Path.join([root, "sync-example", "references", name]), name)
+
+    assert {:ok, source} = SourceReader.read_skill_source(root, "library", "sync-example")
+    objects = fn -> Repo.aggregate(Ankole.Files.Schemas.FileObject, :count) end
+    stored_before = objects.()
+    tenant_id = Repo.tenant_id!()
+
+    # Each First Turn of a new tenant syncs, so several can start together.
+    results =
+      1..4
+      |> Task.async_stream(
+        fn _ -> Repo.with_tenant(tenant_id, fn -> Skills.sync([source]) end) end,
+        timeout: :infinity
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
+
+    assert Enum.all?(results, &match?({:ok, [%Skill{slug: "sync-example"}]}, &1))
+    assert {:ok, skill} = Skills.get("sync-example")
+
+    assert Enum.map(Skills.files(skill.id), & &1.relative_path) == [
+             "references/one.md",
+             "references/two.md"
+           ]
+
+    assert objects.() - stored_before == 2
+  end
+
   test "syncs the first-party builtin skills into the catalog" do
     %{principal: agent} = agent_fixture()
     assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)

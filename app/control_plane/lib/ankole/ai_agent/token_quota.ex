@@ -140,7 +140,11 @@ defmodule Ankole.AIAgent.TokenQuota do
       period_days = Map.fetch!(quota, "period_days")
       limit_tokens = Map.fetch!(quota, "limit_tokens")
       window_started_at = window_start(period_start_at, period_days, now)
-      used_tokens = UsageLedger.window_tokens(agent.uid, window_started_at)
+
+      # The ledger keeps a deleted Agent's rounds under its uid, so an Agent that
+      # reuses the uid counts only the rounds made since it was created.
+      counted_from = Enum.max([window_started_at, agent.inserted_at], DateTime)
+      used_tokens = UsageLedger.window_tokens(agent.uid, counted_from)
 
       %{
         window_started_at: window_started_at,
