@@ -201,7 +201,8 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
     if (bootstrap.data.path.length) {
       model.revealPath(
         bootstrap.data.path.slice(0, -1).map(page => page.id),
-        bootstrap.data.path[0].private_owner_uid ? 'private' : 'space'
+        // shortcut: a top Page beyond the first loaded root rows has no known scope and opens Space, as before.
+        bootstrap.data.scope ?? 'space'
       )
     }
   }, [bootstrap.data, model])

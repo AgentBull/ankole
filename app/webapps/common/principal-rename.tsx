@@ -43,6 +43,7 @@ export function PrincipalRename({
         type="button"
         variant="outline"
         size="sm"
+        aria-label={t('principal_rename.action_for', { uid })}
         onClick={() => {
           mutation.reset()
           model.start(uid)

@@ -245,6 +245,8 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
   let presenceSentAt = Number.NEGATIVE_INFINITY
   let presenceNext: PresenceSelection | null = null
   let functionList: Promise<FunctionInfo[]> | undefined
+  /** The undo step of this tab's latest fill, which a fill in another mode replaces. */
+  let lastFill: UndoRecord | undefined
 
   /** Engine work and state transitions run one at a time, in the order they were requested. */
   const serial = <T>(task: () => Promise<T>): Promise<T> => {
@@ -358,6 +360,8 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
         unsupported.value = source.unsupported
         error.value = undefined
         status.value = options.canEdit ? 'ready' : 'read_only'
+        // Views that read the document while it loaded got nothing, so they read it again now.
+        version.value++
       })
       publishCounts()
       // Changes committed between the bootstrap and the channel join reach this tab here.
@@ -683,10 +687,13 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       return applied
     })
 
-  const fill = (source: Rect, to: Rect, mode: FillMode = 'series') => {
+  const fill = async (source: Rect, to: Rect, mode: FillMode = 'series') => {
     const sheetID = activeSheetID.peek()
     const op = { type: 'range.fill', sheet_id: sheetID, range: rangeName(source), to: rangeName(to), mode }
-    return recorded([op], sheetID, to, mode === 'formats' ? 'formats' : 'both')
+    const applied = await recorded([op], sheetID, to, mode === 'formats' ? 'formats' : 'both')
+    // The edit queue resumes this caller before it starts its next task, so the fill's step is still on top.
+    lastFill = applied ? undoStack.at(-1) : undefined
+    return applied
   }
 
   /** Reads the merged areas that touch `rect`, or `undefined` when the area is too large to read. */
@@ -1064,15 +1071,26 @@ export const SpreadsheetModel = createModel((options: SpreadsheetOptions) => {
       })
     },
     fill,
-    /** Ctrl+D and Ctrl+R: copies the first row or column of the selection over the rest, or the line before a single one. */
-    fillSelection(direction: 'down' | 'right') {
+    /**
+     * Fills `to` again in another mode. While the latest fill is still the latest undo step, the
+     * new fill replaces it: undo first puts back the values from before that fill.
+     */
+    async refill(source: Rect, to: Rect, mode: FillMode) {
+      if (lastFill && undoStack.at(-1) === lastFill) await replay('undo')
+      return fill(source, to, mode)
+    },
+    /**
+     * Ctrl+D and Ctrl+R: copies the first row or column of the selection over the rest, or the line
+     * before a single one. In series mode the fill continues that line instead.
+     */
+    fillSelection(direction: 'down' | 'right', mode: FillMode = 'copy') {
       const { rect } = target()
       const down = direction === 'down'
       const lines = down ? rect.r1 - rect.r0 : rect.c1 - rect.c0
       if (lines === 0 && (down ? rect.r0 : rect.c0) === 0) return Promise.resolve(undefined)
       const to = lines === 0 ? (down ? { ...rect, r0: rect.r0 - 1 } : { ...rect, c0: rect.c0 - 1 }) : rect
       const source = down ? { ...to, r1: to.r0 } : { ...to, c1: to.c0 }
-      return fill(source, to, 'copy')
+      return fill(source, to, mode)
     },
     /** Patches the format of `rect` as one undo step. */
     format(rect: Rect, patch: Record<string, unknown>) {

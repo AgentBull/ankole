@@ -142,11 +142,13 @@ test('inline mention search keeps the draft focused and sends the selected Agent
     const query = agent.displayName.split(/\s+/).find(word => word.length > 2) || agent.displayName
     await input.pressSequentially(`Ask @${query}`)
     const list = page.getByRole('listbox', { name: '补全建议', exact: true })
-    await expect(list.getByRole('option', { name: agent.displayName, exact: true })).toBeVisible()
+    // An Agent option names its uid after the display name so same-named Agents stay distinguishable.
+    const agentName = new RegExp(`^${agent.displayName} @${agent.uid}\\b`)
+    await expect(list.getByRole('option', { name: agentName })).toBeVisible()
     await expect(input).toBeFocused()
     await expect(page.locator('.pod-chat-composer-picker input')).toHaveCount(0)
     const count = await list.getByRole('option').count()
-    const target = list.getByRole('option', { name: agent.displayName, exact: true })
+    const target = list.getByRole('option', { name: agentName })
     for (let step = 0; step < count; step++) {
       if ((await target.getAttribute('aria-selected')) === 'true') break
       await input.press('ArrowDown')
@@ -157,7 +159,7 @@ test('inline mention search keeps the draft focused and sends the selected Agent
     await expect(target).toHaveAttribute('aria-selected', 'false')
     await input.press('ArrowUp')
     await expect(target).toHaveAttribute('aria-selected', 'true')
-    await expect(list.getByRole('option', { selected: true })).toHaveAccessibleName(agent.displayName)
+    await expect(list.getByRole('option', { selected: true })).toHaveAccessibleName(agentName)
     await input.pressSequentially(agent.displayName.slice(query.length))
     await expect(input).toHaveValue(`Ask @${agent.displayName}`)
     await expect(target).toHaveAttribute('aria-selected', 'true')
@@ -328,7 +330,7 @@ test('a mention inserted at a selected range keeps the caret and removing its co
     )
     await page
       .getByRole('listbox', { name: '补全建议', exact: true })
-      .getByRole('option', { name: colleague.displayName, exact: true })
+      .getByRole('option', { name: new RegExp(`^${colleague.displayName} @${colleague.uid}\\b`) })
       .click()
     await expect(input).toBeFocused()
     await expect(input).toHaveValue(`Ask @${colleague.displayName} now`)

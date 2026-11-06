@@ -1,5 +1,6 @@
 import {
   Button,
+  buttonVariants,
   Select,
   SelectContent,
   SelectItem,
@@ -110,14 +111,14 @@ export function PageChat({
           </SelectContent>
         </Select>
         {conversationID && (
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label={t('pod.page_chat.open_chat')}
-            render={<Link to={podLocation(`/conversations/${conversationID}`).pathname} />}
-            nativeButton={false}>
+          <Link
+            to={podLocation(`/conversations/${conversationID}`).pathname}
+            // pod.css gives every data-slot="button" control a 32px touch target on mobile.
+            data-slot="button"
+            className={buttonVariants({ variant: 'ghost', size: 'icon-xs' })}
+            aria-label={t('pod.page_chat.open_chat')}>
             <RiExternalLinkLine aria-hidden />
-          </Button>
+          </Link>
         )}
         <Button
           size="icon-xs"

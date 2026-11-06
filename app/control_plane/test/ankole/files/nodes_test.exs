@@ -89,10 +89,10 @@ defmodule Ankole.Pod.Pages.TreeTest do
     attrs = %{parent_id: ctx.root.id, type: :file, name: "report.txt"}
     {:ok, first} = Nodes.create(ctx.owner, attrs)
     {:ok, second} = Nodes.create(ctx.owner, attrs)
-    assert second.name == "report.txt (1)"
+    assert second.name == "report (1).txt"
     assert {:ok, _} = Nodes.trash(ctx.owner, first.id)
     assert {:ok, %{name: "report.txt"}} = Nodes.create(ctx.owner, attrs)
-    assert {:ok, %{name: "report.txt (2)"}} = Nodes.restore(ctx.owner, first.id)
+    assert {:ok, %{name: "report (2).txt"}} = Nodes.restore(ctx.owner, first.id)
 
     for name <- [
           "",
@@ -114,7 +114,7 @@ defmodule Ankole.Pod.Pages.TreeTest do
     {:ok, first} = Nodes.create(ctx.owner, attrs)
     {:ok, second} = Nodes.create(ctx.owner, attrs)
     assert Nodes.available_name(ctx.root.id, first.name, first.id) == first.name
-    assert Nodes.available_name(ctx.root.id, first.name, second.id) == second.name
+    assert Nodes.available_name(ctx.root.id, first.name, second.id, :file) == second.name
 
     handler = {__MODULE__, self()}
 
@@ -257,7 +257,7 @@ defmodule Ankole.Pod.Pages.TreeTest do
     assert {:ok, first} = Nodes.fetch(first.id)
     assert {:ok, second} = Nodes.fetch(second.id)
     assert is_nil(first.deleted_at) && is_nil(second.deleted_at)
-    assert Enum.sort([first.name, second.name]) == ["report.txt", "report.txt (1)"]
+    assert Enum.sort([first.name, second.name]) == ["report (1).txt", "report.txt"]
     assert {:ok, restricted} = Nodes.fetch(restricted.id)
     refute is_nil(restricted.deleted_at)
   end

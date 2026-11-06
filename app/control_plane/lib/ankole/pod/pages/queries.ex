@@ -472,12 +472,17 @@ defmodule Ankole.Pod.Pages.Queries do
 
   defp maybe_filter_embeddable(query, _embeddable), do: query
 
+  # Ancestors describe where a result lives, so they include the readable root (Space, the reader's
+  # Private, or Brain) and every ancestor the reader can view, whatever action the results require.
   defp ancestors(actor, pages, policy) do
     ids = Ankole.Pod.ancestor_node_ids(Enum.map(pages, & &1.id))
 
     Page
     |> Ash.Query.filter(id in ^ids)
-    |> Ankole.AuthZ.Checks.PageAnchorFilter.apply_policy(actor, policy)
+    |> Ankole.AuthZ.Checks.PageAnchorFilter.apply_policy(
+      actor,
+      Ankole.AuthZ.Checks.PageAnchorFilter.policy(policy.reachable)
+    )
     |> read_pages(actor)
   end
 

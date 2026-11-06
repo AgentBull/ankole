@@ -55,6 +55,14 @@ export async function refreshAgentQueries(client: QueryClient): Promise<void> {
 
 async function refreshQuery(client: QueryClient, queryKey: QueryKey, exact = true): Promise<void> {
   const filter = { queryKey, exact }
+  // A page the user asked for finishes first, so the refetch below rereads it with every loaded page.
+  await Promise.all(
+    client
+      .getQueryCache()
+      .findAll(filter)
+      .filter(query => query.state.fetchStatus === 'fetching' && query.state.fetchMeta?.fetchMore)
+      .map(query => query.promise?.catch(() => undefined))
+  )
   // Invalidation alone can reuse a pending first GET with no cached data.
   await client.cancelQueries(filter)
   await client.invalidateQueries(filter)

@@ -236,7 +236,9 @@ defmodule Ankole.Conversations.TitleGenerator do
           ]
         }
       ],
-      "max_output_tokens" => 200,
+      # A reasoning light model spends its default effort from this budget before
+      # it writes the short answer, so the cap matches the next-step menu's.
+      "max_output_tokens" => 2_000,
       "text" => %{
         "format" => %{
           "type" => "json_schema",

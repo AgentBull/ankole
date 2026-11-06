@@ -9334,6 +9334,7 @@ export type PodPageSharingResponses = {
       subtitle?: string | null
       target_scope?: string | null
     }>
+    has_parent: boolean
     inherit_permissions: boolean
     inherited: Array<{
       avatar_url?: string | null
@@ -9441,6 +9442,7 @@ export type PodPageSharingUpdateResponses = {
       subtitle?: string | null
       target_scope?: string | null
     }>
+    has_parent: boolean
     inherit_permissions: boolean
     inherited: Array<{
       avatar_url?: string | null

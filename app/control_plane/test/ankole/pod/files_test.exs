@@ -66,7 +66,7 @@ defmodule Ankole.Pod.FilesTest do
                "text/plain"
              )
 
-    assert duplicate.name == "new.txt (1)"
+    assert duplicate.name == "new (1).txt"
     assert {:ok, _, "second"} = Files.read(reader, duplicate.id, duplicate.name)
 
     assert {:error, :forbidden} =
@@ -454,7 +454,7 @@ defmodule Ankole.Pod.FilesTest do
 
     assert saved.saved_from_message_id == message.id
     assert saved.title == attachment["name"]
-    assert saved.name == attachment["name"] <> " (1)"
+    assert saved.name == "report (1).pdf"
     assert saved.object_id == attachment["object_id"]
 
     assert {:ok, _, "committed report bytes"} =

@@ -157,7 +157,33 @@ defmodule Ankole.Pod.PagesTest do
     assert leaf.id in Enum.map(pages, & &1.id)
     assert {:ok, %{pages: [found], ancestors: ancestors}} = Pages.search(actor, "Needle")
     assert found.id == leaf.id
-    assert MapSet.new(ancestors, & &1.id) == MapSet.new([root.id, middle.id])
+    {:ok, space} = Ankole.Pod.public_root()
+    assert MapSet.new(ancestors, & &1.id) == MapSet.new([space.id, root.id, middle.id])
+  end
+
+  test "search ancestors carry the readable root that names a result's Space, Private, or share",
+       ctx do
+    owner = actor_fixture(ctx.owner.uid)
+    reader = actor_fixture(ctx.reader.uid)
+    {:ok, private} = Pages.create(owner, %{title: "Own folder", private_owner_uid: ctx.owner.uid})
+    {:ok, _leaf} = Pages.create(owner, %{title: "Located leaf", parent_id: private.id})
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, private.id, %{
+        grants: [%{principal_uid: ctx.reader.uid, role: "edit"}]
+      })
+
+    assert {:ok, %{ancestors: ancestors}} =
+             Pages.search(owner, "Located leaf", %{required_action: :node_edit})
+
+    assert [root] = Enum.filter(ancestors, & &1.is_root)
+    assert root.private_owner_uid == ctx.owner.uid
+    assert private.id in Enum.map(ancestors, & &1.id)
+
+    assert {:ok, %{ancestors: [%Page{id: shared_id}]}} =
+             Pages.search(reader, "Located leaf", %{required_action: :node_edit})
+
+    assert shared_id == private.id
   end
 
   test "a page read returns the ancestors its reader can open, from the root down to the parent",

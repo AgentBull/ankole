@@ -13,7 +13,7 @@ import {
   TableHead,
   TableHeader
 } from '@ankole/uikit'
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { getAiGatewayUsageOptions } from '../api/v2/generated/@tanstack/react-query.gen'
@@ -108,19 +108,30 @@ function PrincipalName({ row }: { row: UsageRow }) {
   )
 }
 
-function UsageTable({ title, rows, label }: { title: string; rows: UsageRow[]; label: (row: UsageRow) => ReactNode }) {
+export function UsageTable({
+  title,
+  rows,
+  label
+}: {
+  title: string
+  rows: UsageRow[]
+  label: (row: UsageRow) => ReactNode
+}) {
   const { t, i18n } = useTranslation()
   const number = new Intl.NumberFormat(i18n.language)
   const count = (value?: number | null) => (value == null ? '—' : number.format(value))
+  const titleID = useId()
 
   return (
     <section className="grid min-w-0 gap-3">
-      <h3 className="title-section">{title}</h3>
+      <h3 id={titleID} className="title-section">
+        {title}
+      </h3>
       {rows.length === 0 ? (
         <p className="border border-border bg-card p-6 text-sm text-muted-foreground">{t('console.ai_usage.empty')}</p>
       ) : (
         <div className="overflow-x-auto border border-border bg-card">
-          <Table className="min-w-[560px]">
+          <Table aria-labelledby={titleID} className="min-w-[560px]">
             <TableHeader>
               <TableRow>
                 <TableHead>{t('console.ai_usage.name')}</TableHead>

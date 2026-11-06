@@ -6,6 +6,7 @@ import {
   AlertDescription,
   AlertTitle,
   Button,
+  buttonVariants,
   Dialog,
   DialogClose,
   DialogContent,
@@ -157,12 +158,12 @@ export function WorkerEnvsListPage() {
       description={t('console.worker_envs.description')}
       createAction={
         <div className="flex gap-2">
-          <Button render={<Link to="new" search={{ scope: 'global' }} />} size="sm" variant="outline">
+          <Link to="new" search={{ scope: 'global' }} className={buttonVariants({ size: 'sm', variant: 'outline' })}>
             {t('console.worker_envs.new_global')}
-          </Button>
-          <Button render={<Link to="new" search={{ scope: 'tenant' }} />} size="sm">
+          </Link>
+          <Link to="new" search={{ scope: 'tenant' }} className={buttonVariants({ size: 'sm' })}>
             {t('console.worker_envs.new_tenant')}
-          </Button>
+          </Link>
         </div>
       }
       columns={[t('console.worker_envs.name'), t('console.settings.scope_global'), t('console.settings.scope_tenant')]}

@@ -526,10 +526,12 @@ export function projectGraphAnchors(
   return next
 }
 
+const NO_COMBOS: readonly AnkoleGraphCombo[] = []
+
 export function AnkoleGraph({
   nodes,
   edges,
-  combos = [],
+  combos = NO_COMBOS,
   layout = 'force',
   ariaLabel,
   selectedNodeId = null,
@@ -890,6 +892,11 @@ export function AnkoleGraph({
       latestOnSelectRef.current?.(null)
     }
 
+    // G6 gives every canvas layer `tabindex="1"`. The canvas host is hidden from assistive technology
+    // and the node links carry keyboard access, so the canvases leave the tab order.
+    graph.on(GraphEvent.AFTER_CANVAS_INIT, () => {
+      for (const canvas of host.querySelectorAll('canvas')) canvas.tabIndex = -1
+    })
     graph.on(GraphEvent.AFTER_RENDER, handleSync)
     graph.on(GraphEvent.AFTER_LAYOUT, handleSync)
     graph.on(GraphEvent.AFTER_TRANSFORM, handleSync)
@@ -926,6 +933,13 @@ export function AnkoleGraph({
     prevStructureKeyRef.current = structureKey
 
     if (structureChanged) {
+      // A layout left running from the previous render keeps ticking on removed nodes. G6 then throws
+      // from the shared d3 timer, so no layout finishes and the graph never reports itself rendered.
+      try {
+        graph.stopLayout()
+      } catch {
+        // Before the first render prepares its runtime, G6 has no layout controller and nothing to stop.
+      }
       graph.setOptions({
         animation: !reducedMotion,
         data: graphSpec.data,

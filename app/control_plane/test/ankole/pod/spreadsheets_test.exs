@@ -147,7 +147,7 @@ defmodule Ankole.Pod.SpreadsheetsTest do
 
     # A second blank workbook in the same folder takes Drive's duplicate name and stays editable.
     {:ok, second} = Spreadsheets.create_blank(ctx.actor, %{private_owner_uid: ctx.owner.uid})
-    assert second.name == "Untitled.xlsx (1)"
+    assert second.name == "Untitled (1).xlsx"
     assert {:ok, %{revision: 1}} = Spreadsheets.bootstrap(ctx.actor, second.id)
   end
 

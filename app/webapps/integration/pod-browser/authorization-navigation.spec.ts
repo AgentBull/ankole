@@ -66,7 +66,7 @@ test('document sharing grants comment access without editing or management, and 
 
     await memberPage.goto(pageRoute(id))
     const detail = await request<{ actions: string[]; page: { revision: number } }>(memberPage, `/pages/${id}`)
-    expect(detail.actions.toSorted()).toEqual(['node_comment', 'node_view', 'node_contribute'])
+    expect(detail.actions.toSorted()).toEqual(['node_comment', 'node_contribute', 'node_view'])
     await expect(memberPage.getByRole('textbox', { name: '页面标题', exact: true })).toHaveCount(0)
     await expect(memberPage.getByRole('button', { name: '分享', exact: true })).toHaveCount(1)
     await memberPage.getByRole('button', { name: '分享', exact: true }).click()
@@ -147,6 +147,9 @@ test('a collapsed Space loads root permissions after reload for page creation an
   let createdID: string | undefined
   try {
     await page.goto(pageRoute(state.report_id))
+    // Ankole returns physical parent IDs, so a Space root Page reports the Space root as its parent.
+    const spaceRootID = (await request<{ page: { parent_id: string } }>(page, `/pages/${state.report_id}`)).page
+      .parent_id
     const sourceTitle = `Private root move ${suffix()}`
     const source = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
       type: 'doc',
@@ -172,10 +175,10 @@ test('a collapsed Space loads root permissions after reload for page creation an
     const response = await created
     expect(response.status()).toBe(201)
     const result = (await response.json()) as {
-      page: { id: string; parent_id: string | null; private_owner_uid: string | null }
+      page: { id: string; parent_id: string; private_owner_uid: string | null }
     }
     createdID = result.page.id
-    expect(result.page).toMatchObject({ parent_id: null, private_owner_uid: null })
+    expect(result.page).toMatchObject({ parent_id: spaceRootID, private_owner_uid: null })
     await expect(page).toHaveURL(state.base_url + pageRoute(createdID))
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
 
@@ -192,11 +195,11 @@ test('a collapsed Space loads root permissions after reload for page creation an
     expect((await moved).status()).toBe(201)
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     await expect(space.getByRole('link', { name: sourceTitle, exact: true })).toBeVisible()
-    const persisted = await request<{ page: { parent_id: string | null; private_owner_uid: string | null } }>(
+    const persisted = await request<{ page: { parent_id: string; private_owner_uid: string | null } }>(
       page,
       `/pages/${sourceID}`
     )
-    expect(persisted.page).toMatchObject({ parent_id: null, private_owner_uid: null })
+    expect(persisted.page).toMatchObject({ parent_id: spaceRootID, private_owner_uid: null })
   } finally {
     if (sourceID) await request(page, `/pages/${sourceID}`, 'DELETE')
     if (createdID) await request(page, `/pages/${createdID}`, 'DELETE')
@@ -252,8 +255,10 @@ test('navigation fetches a branch on expansion, follows its cursor, and searches
     })
     await expect(lastRow).toBeVisible()
     await lastRow.click({ button: 'right' })
-    await expect(page.getByRole('menuitem', { name: '上移', exact: true })).toBeDisabled()
-    await expect(page.getByRole('menuitem', { name: '下移', exact: true })).toBeDisabled()
+    // Step moves need continuously loaded siblings; the menu omits them until then.
+    await expect(page.getByRole('menuitem', { name: '移动到…', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: '上移', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('menuitem', { name: '下移', exact: true })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await branch.getByRole('button', { name: '加载更多页面', exact: true }).click()
     await lastRow.click({ button: 'right' })
@@ -370,7 +375,7 @@ test('sharing offers useful roles and preserves read-only advanced grants throug
         response.request().method() === 'PATCH' &&
         new URL(response.url()).pathname === `/api/v2/pod/pages/${targetID}/sharing`
     )
-    await viewerPage.getByRole('switch').first().click()
+    await viewerPage.getByRole('switch', { name: /^继承上级页面或空间的访问权限/ }).click()
     await blockedWrite.promise
     await request(ownerPage, `/pages/${targetID}/sharing`, 'PATCH', {
       upserts: [{ principal_uid: state.member.uid, role: 'view', target_scope: 'container' }]

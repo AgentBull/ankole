@@ -65,11 +65,6 @@ defmodule Ankole.Files.ConsoleActions do
           else: Ash.Expr.expr(^filter and is_nil(parent_id))
 
       filter =
-        if is_nil(attrs.parent_id) and attrs.owner_uid,
-          do: Ash.Expr.expr(^filter and private_owner_uid == ^attrs.owner_uid),
-          else: filter
-
-      filter =
         case cursor do
           nil -> filter
           {name, id} -> Ash.Expr.expr(^filter and (name > ^name or (name == ^name and id > ^id)))
@@ -165,10 +160,11 @@ defmodule Ankole.Files.ConsoleActions do
     with {:ok, _} <- Nodes.authorize(actor, id, "node_view"), do: :ok
   end
 
+  # The owner's private root is the base directory; an omitted path opens the root itself.
   defp selected_parent(%{parent_id: nil, owner_uid: uid, relative_path: path})
-       when is_binary(uid) and is_binary(path) do
+       when is_binary(uid) do
     with {:ok, root} <- Nodes.private_root(uid),
-         {:ok, node} <- Files.Paths.resolve(root, path),
+         {:ok, node} <- Files.Paths.resolve(root, path || ""),
          do: {:ok, node.id}
   end
 

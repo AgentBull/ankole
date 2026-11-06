@@ -109,10 +109,13 @@ defmodule Ankole.Plugins.LarkAdapter do
         public_fields: [
           %{
             key: "domain",
-            label: "Platform",
+            label: "Domain",
             type: "select",
             default: "feishu",
-            options: [%{value: "feishu", label: "Feishu"}, %{value: "lark", label: "Lark"}]
+            options: [
+              %{value: "feishu", label: "Feishu.cn"},
+              %{value: "lark", label: "Larksuite.com"}
+            ]
           },
           %{key: "identityProvider", label: "Employee identity provider", required: false}
         ],

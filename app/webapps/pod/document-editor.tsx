@@ -149,7 +149,9 @@ export function DocumentPage({
         : {}),
       mountEmbed: (attributes, container, update, remove) => {
         const trashed = Boolean(detail.page.deleted_at)
-        const root = createRoot(container, rootErrorOptions)
+        // The editor can hand a reused container to the next embed before this root unmounts.
+        const mount = container.appendChild(document.createElement('div'))
+        const root = createRoot(mount, rootErrorOptions)
         root.render(
           <I18nextProvider i18n={i18n}>
             <QueryClientProvider client={client}>
@@ -181,7 +183,10 @@ export function DocumentPage({
           </I18nextProvider>
         )
         return () => {
-          queueMicrotask(() => root.unmount())
+          queueMicrotask(() => {
+            root.unmount()
+            mount.remove()
+          })
         }
       },
       // The upload panel shows the rejection's message as it is.

@@ -1,5 +1,14 @@
 import { podLocation, podRouteID } from '../common/browser-context'
-import { Button, cn, Dialog, DialogContent, DialogTitle, DialogFooter, useIsMobile } from '@ankole/uikit'
+import {
+  Button,
+  buttonVariants,
+  cn,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogFooter,
+  useIsMobile
+} from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react'
@@ -761,9 +770,9 @@ function ConversationGone({
           {t('pod.chat.new_conversation')}
         </Button>
       ) : (
-        <Button render={<Link to={podLocation('/').pathname} />} nativeButton={false} variant="outline">
+        <Link to={podLocation('/').pathname} className={buttonVariants({ variant: 'outline' })}>
           {t('pod.chat.new_conversation')}
-        </Button>
+        </Link>
       )}
     </section>
   )

@@ -78,7 +78,8 @@ runtime paths are
 relative and at most 1024 bytes. Roots cannot be moved, renamed or trashed. Files
 are leaves. A node has one parent and one ACL owner; moves recompute affected ACL
 anchors and prevent cycles. Ordinary browser/RPC name collisions receive a
-suffix. Pod display titles can remain empty or duplicated; their Drive names are
+numbered suffix; a file keeps its extension last, so a second `report.txt`
+becomes `report (1).txt`, while VFS writes reject the collision. Pod display titles can remain empty or duplicated; their Drive names are
 normalized. Drive rename and move operations call the Pod tree owner, which updates the
 Page name and title under the same transaction.
 
@@ -467,7 +468,7 @@ and directory trees, download, move, rename and trash. Roots are immutable.
 
 | Route | Operation |
 | --- | --- |
-| `GET /api/v2/drive/:tenant_id/nodes` | List roots or children by `parent_id`, optionally `after` and `limit` |
+| `GET /api/v2/drive/:tenant_id/nodes` | List roots, or the children of `parent_id` or of `relative_path` under `owner_uid`'s private root (the root itself when the path is omitted), optionally `after` and `limit` |
 | `POST /api/v2/drive/:tenant_id/nodes` | Create a document or empty file in collaboration roots; knowledge within Brain |
 | `PATCH /api/v2/drive/:tenant_id/nodes/:id` | Move or rename |
 | `DELETE /api/v2/drive/:tenant_id/nodes/:id` | Trash a subtree |

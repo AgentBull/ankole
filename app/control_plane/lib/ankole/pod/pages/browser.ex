@@ -133,6 +133,7 @@ defmodule Ankole.Pod.Pages.Browser do
   @sharing_fields [
     can_manage: [type: :boolean, allow_nil?: false],
     scope_kind: [type: :atom, constraints: [one_of: [:space, :private]], allow_nil?: false],
+    has_parent: [type: :boolean, allow_nil?: false],
     space_name: [
       type: :string,
       allow_nil?: false,

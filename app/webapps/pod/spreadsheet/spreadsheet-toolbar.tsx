@@ -129,16 +129,20 @@ export function ColorSwatches({ tokens, onPick }: { tokens: readonly string[]; o
   return (
     <div className="grid gap-2">
       <div className="grid grid-cols-5 gap-1.5">
-        {tokens.map(token => (
-          <button
-            key={token}
-            type="button"
-            aria-label={token.replace('--color-', '')}
-            className="size-7 rounded-control border border-border focus-visible:outline-offset-1"
-            style={{ background: `var(${token})` }}
-            onClick={() => onPick(tokenColor(token))}
-          />
-        ))}
+        {tokens.map(token => {
+          const name = t(`pod.spreadsheet.colors.${token.replace('--color-', '')}`)
+          return (
+            <button
+              key={token}
+              type="button"
+              aria-label={name}
+              title={name}
+              className="size-7 rounded-control border border-border focus-visible:outline-offset-1"
+              style={{ background: `var(${token})` }}
+              onClick={() => onPick(tokenColor(token))}
+            />
+          )
+        })}
       </div>
       <Button size="sm" variant="outline" onClick={() => onPick(null)}>
         {t('pod.spreadsheet.no_color')}
@@ -679,9 +683,9 @@ export function SpreadsheetToolbar({
             {canEdit ? status : t('pod.spreadsheet.view_only')}
           </span>
           {members.length > 0 && (
-            <AvatarGroup aria-label={t('pod.spreadsheet.collaborators')}>
+            <AvatarGroup role="group" aria-label={t('pod.spreadsheet.collaborators')}>
               {members.map(member => (
-                <Avatar key={member.uid} size="sm" title={member.name}>
+                <Avatar key={member.uid} size="sm" role="img" aria-label={member.name} title={member.name}>
                   <AvatarFallback className="text-white" style={{ background: `var(${member.color})` }}>
                     {member.name.slice(0, 1).toUpperCase()}
                   </AvatarFallback>

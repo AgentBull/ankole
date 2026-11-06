@@ -1372,6 +1372,12 @@
   right: 0;
   left: auto;
 }
+/* The next message's quiet identity floats over this bar, so the bar the reader is using rises above it. */
+.pod-chat-timeline-message:hover > .pod-chat-message-actions,
+.pod-chat-timeline-message:focus-within > .pod-chat-message-actions,
+.pod-chat-message-actions[data-visible] {
+  z-index: 1;
+}
 .pod-chat-timeline .pod-chat-agent-message > .pod-chat-markdown {
   margin-top: 0;
 }

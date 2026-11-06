@@ -48,7 +48,15 @@ defmodule AnkoleWeb.PodExecutionLogTest do
         %{
           "type" => "userMessage",
           "id" => "client:steer-1",
-          "content" => [%{"type" => "text", "text" => "Focus on HMAC webhook verification"}]
+          "content" => [
+            %{
+              "type" => "text",
+              "text" =>
+                "The following original Human request comes from the committed source Message.\n" <>
+                  ~s(<original_human_request>\n{"text":"Private original room request"}\n</original_human_request>) <>
+                  "\n\nDelegated message:\nFocus on HMAC webhook verification"
+            }
+          ]
         },
         %{
           "type" => "dynamicToolCall",
@@ -124,6 +132,8 @@ defmodule AnkoleWeb.PodExecutionLogTest do
     refute encoded =~ "Private model context must not appear"
     refute encoded =~ "Confidential skill system prompt"
     refute encoded =~ "<skill"
+    refute encoded =~ "Private original room request"
+    refute encoded =~ "Delegated message"
 
     assert Enum.any?(projected, fn item ->
              item["kind"] == "steer_message" and
@@ -317,6 +327,42 @@ defmodule AnkoleWeb.PodExecutionLogTest do
 
     assert stopped_wf["runID"] == to_string(workflow.id)
     assert stopped_wf["status"] == "cancelled"
+  end
+
+  test "a room member who may not command the Agent cannot stop its executions", ctx do
+    :ok = Ankole.ConversationsFixtures.revoke_default_chat(ctx.agent.uid)
+    room_id = ctx.room.conversation.id
+    owner = Ankole.PrincipalsFixtures.actor_fixture(ctx.uid)
+    member = Ankole.PrincipalsFixtures.human_fixture(%{display_name: "Room reader"}).principal
+    member_actor = Ankole.PrincipalsFixtures.actor_fixture(member)
+
+    assert {:ok, _} =
+             Ankole.Conversations.manage_participants(owner, room_id, %{add_uids: [member.uid]})
+
+    assert {:ok, _} = Ankole.Conversations.visible_native_conversation(member_actor, room_id)
+
+    assert {:ok, %{run: workflow}} =
+             Workflow.create_with_dispatch(%{
+               "source_signal_id" => ctx.source.id,
+               "agent_uid" => ctx.agent.uid,
+               "owner_session_id" => ctx.source.session_id,
+               "source_tool_call_id" => "guarded-workflow",
+               "reply_route" => %{"conversation_id" => room_id},
+               "title" => "Guarded workflow",
+               "script" => "return null;",
+               "concurrency" => 1,
+               "max_agent_calls" => 4
+             })
+
+    Ankole.SessionsCase.stub_workflow_drivers(workflow)
+
+    assert {:error, {:forbidden, "chat"}} =
+             Ankole.Conversations.stop_execution(member_actor, room_id, :workflow, workflow.id)
+
+    refute Workflow.get_run!(workflow.id).status == :cancelled
+
+    assert {:ok, %{status: "cancelled"}} =
+             Ankole.Conversations.stop_execution(owner, room_id, :workflow, workflow.id)
   end
 
   test "older message windows keep all retained execution cards beyond twenty per kind", ctx do

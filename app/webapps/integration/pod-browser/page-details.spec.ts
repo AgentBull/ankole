@@ -680,7 +680,7 @@ test('move destinations respect the visible tree and sharing cannot discard a pe
     await expect(owner.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true })).toBeFocused()
     await owner.getByRole('button', { name: '分享', exact: true }).click()
     await owner.getByRole('button', { name: '权限设置', exact: true }).click()
-    const inherit = owner.getByRole('switch')
+    const inherit = owner.getByRole('dialog', { name: '权限设置' }).getByRole('switch')
     await expect(inherit).toBeChecked()
     await inherit.click()
     await expect(inherit).not.toBeChecked()

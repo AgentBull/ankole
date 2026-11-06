@@ -154,6 +154,8 @@ type Tokens = Record<
 export type CellBox = { x: number; y: number; width: number; height: number }
 
 const cellKey = (row: number, col: number) => row * MAX_COLS + col
+/** The row and column step of each arrow direction. */
+const STEPS: Record<Direction, [number, number]> = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] }
 
 function readTokens(element: Element): Tokens {
   const style = getComputedStyle(element)
@@ -259,6 +261,7 @@ export function SpreadsheetCanvas({
   const pointed = useRef<Pointed | undefined>(undefined)
   const fillOptions = useRef<HTMLDivElement>(null)
   const [selectedImage, setSelectedImage] = useState<RenderImage>()
+  const [pictureCount, setPictureCount] = useState(0)
   const selectedImageRef = useRef<RenderImage | undefined>(undefined)
   const [filled, setFilled] = useState<{ source: Rect; target: Rect }>()
   const filledRef = useRef(filled)
@@ -493,6 +496,7 @@ export function SpreadsheetCanvas({
         imagesKey.current = ''
         if (!list) return
         images.current = { sheetID: id, version: current, list }
+        setPictureCount(list.length)
         const selected = selectedImageRef.current
         if (selected) selectImage(list.find(image => image.image_id === selected.image_id))
         requestPaint()
@@ -1500,11 +1504,7 @@ export function SpreadsheetCanvas({
     showFillOptions(undefined)
     const view = layout()!
     if (hit.kind === 'filter') {
-      const col = hit.col
-      setFilterMenu({ col, box: hit.box })
-      void model.filterValues(col).then(values => {
-        setFilterMenu(menu => (menu && menu.col === col ? { ...menu, values: values ?? [] } : menu))
-      })
+      openFilter(hit.col, hit.box)
       return
     }
     if (hit.kind === 'dropdown') {
@@ -1722,12 +1722,10 @@ export function SpreadsheetCanvas({
     toast.info(t('pod.spreadsheet.fill_range_unknown'))
   }
 
-  /** Re-fills the last fill in another mode; formats only first restores the values the fill replaced. */
+  /** Fills the last fill's target again in another mode, in place of that fill. */
   const refill = async (mode: FillMode) => {
     const last = filledRef.current
-    if (!last) return
-    if (mode === 'formats') await model.undo()
-    await model.fill(last.source, last.target, mode)
+    if (last) await model.refill(last.source, last.target, mode)
   }
 
   /** Shows a picture full size in a dialog. */
@@ -1785,6 +1783,105 @@ export function SpreadsheetCanvas({
     scrollTo(target)
   }
 
+  const openFilter = (col: number, area: CellBox) => {
+    setFilterMenu({ col, box: area })
+    void model.filterValues(col).then(values => {
+      setFilterMenu(menu => (menu && menu.col === col ? { ...menu, values: values ?? [] } : menu))
+    })
+  }
+
+  /**
+   * The list that `cell` opens from the keyboard, as its painted button or arrow opens it: the
+   * column's values in a filter's header row, or else the entries of a list validation.
+   */
+  const listAt = (cell: CellAddress) => {
+    const filter = frame.current?.sheetID === model.activeSheetID.peek() ? frame.current.filter : undefined
+    if (filter && cell.row === filter.range.r0 && cell.col >= filter.range.c0 && cell.col <= filter.range.c1) {
+      return {
+        label: t('pod.spreadsheet.filter_button', { column: columnName(cell.col) }),
+        open: (view: Layout) => openFilter(cell.col, filterButtonBox(view, cell.row, cell.col))
+      }
+    }
+    const rule = model.editable.peek() && !model.draft.peek() ? dropdownRule(cell) : undefined
+    if (!rule) return undefined
+    return {
+      label: t('pod.spreadsheet.validation_dropdown', { cell: cellName(cell) }),
+      open: (view: Layout) => setDropdown({ cell, box: dropdownBox(view, cell), rule })
+    }
+  }
+
+  const openList = (cell: CellAddress): boolean => {
+    const list = listAt(cell)
+    if (!list) return false
+    scrollTo(cell)
+    const view = layout()
+    if (view) list.open(view)
+    return true
+  }
+
+  /**
+   * Opens the context menu from the keyboard by right-clicking, in effect, where the selection
+   * shows: on the selected picture, on the header of whole selected rows or columns, or else on
+   * the active cell.
+   */
+  const openMenu = () => {
+    const image = selectedImageRef.current
+    const { anchor } = model.selection.peek()
+    scrollTo(image ? anchorCell(image) : anchor)
+    const view = layout()
+    const element = scroller.current
+    if (!view || !element) return
+    const rect = selectionRect(model.selection.peek())
+    const rows = rect.c0 === 0 && rect.c1 === MAX_COLS - 1
+    const cols = rect.r0 === 0 && rect.r1 === MAX_ROWS - 1
+    const cell = box(view, mergedArea(anchor) ?? { r0: anchor.row, c0: anchor.col, r1: anchor.row, c1: anchor.col })
+    const area = image
+      ? imageBox(view, image)
+      : rows && !cols
+        ? { x: 0, y: cell.y, width: HEADER_WIDTH, height: cell.height }
+        : cols && !rows
+          ? { x: cell.x, y: 0, width: cell.width, height: HEADER_HEIGHT }
+          : cell
+    // A point on a picture or a cell stays inside the visible cells, so the press does not land on a header.
+    const inner = image || rows === cols
+    const x = area.x + area.width / 2
+    const y = area.y + area.height / 2
+    const left = inner ? Math.min(Math.max(x, HEADER_WIDTH), view.width - 1) : x
+    const top = inner ? Math.min(Math.max(y, HEADER_HEIGHT), view.height - 1) : y
+    const bounds = element.getBoundingClientRect()
+    element.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: bounds.left + left,
+        clientY: bounds.top + top
+      })
+    )
+  }
+
+  /** Selects the floating picture after the selected one, in the order the grid paints them. */
+  const selectNextPicture = () => {
+    const list = images.current?.sheetID === model.activeSheetID.peek() ? images.current.list : []
+    const index = list.findIndex(image => image.image_id === selectedImageRef.current?.image_id)
+    const next = list[(index + 1) % list.length]
+    if (!next) return
+    selectImage(next)
+    scrollTo(anchorCell(next))
+    input.current?.focus({ preventScroll: true })
+    requestPaint()
+  }
+
+  /** Moves a floating picture by whole cells, keeping its offset inside its anchor cell and its size. */
+  const movePicture = (image: RenderImage, [rows, cols]: [number, number]) => {
+    const from = anchorCell(image)
+    const cell = clampCell({ row: from.row + rows, col: from.col + cols })
+    const { dx, dy, width, height } = image
+    // The selection follows at once, so the next arrow moves on from here before the sheet reloads.
+    selectImage({ ...image, cell: cellName(cell) })
+    scrollTo(cell)
+    void model.updateImage(image.image_id, { cell: cellName(cell), dx, dy, width, height })
+  }
+
   /** Keyboard navigation and commands while no cell is being edited. Returns whether it handled the key. */
   const navigate = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
     const view = layout()
@@ -1800,15 +1897,36 @@ export function SpreadsheetCanvas({
       ArrowRight: 'right'
     }
     const direction = arrows[event.key]
-    // Moving the selection leaves a selected picture, so Delete then clears cells, not the picture.
-    if (selectedImageRef.current && !['Delete', 'Backspace', 'Escape'].includes(event.key)) selectImage(undefined)
+    const image = selectedImageRef.current
+    if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+      openMenu()
+      return true
+    }
+    if (command && event.altKey && event.code === 'KeyP') {
+      selectNextPicture()
+      return true
+    }
+    if (image && direction && model.editable.peek() && !command && !event.altKey && !event.shiftKey) {
+      movePicture(image, STEPS[direction])
+      return true
+    }
+    // Any other move of the selection leaves a selected picture, so Delete then clears cells, not the picture.
+    if (image && !['Delete', 'Backspace', 'Escape'].includes(event.key)) selectImage(undefined)
+    if (direction === 'down' && event.altKey && !command && openList(anchor)) return true
     if (direction) {
       if (command) {
         void model.dataEdge(from, direction).then(cell => moveTo(cell, event.shiftKey))
       } else {
-        const [rows, cols] = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] }[direction]
-        moveTo({ row: from.row + rows!, col: from.col + cols! }, event.shiftKey)
+        const [rows, cols] = STEPS[direction]
+        moveTo({ row: from.row + rows, col: from.col + cols }, event.shiftKey)
       }
+      return true
+    }
+    // Shift+Space selects the selection's rows and Ctrl+Space its columns, so their header menu opens from the keyboard.
+    if (event.key === ' ' && (event.shiftKey || event.ctrlKey) && !event.metaKey && !event.altKey) {
+      const rect = selectionRect(model.selection.peek())
+      if (event.ctrlKey) selectLines('cols', rect.c0, rect.c1)
+      else selectLines('rows', rect.r0, rect.r1)
       return true
     }
     switch (event.key) {
@@ -1816,6 +1934,11 @@ export function SpreadsheetCanvas({
         moveTo({ row: anchor.row, col: anchor.col + (event.shiftKey ? -1 : 1) }, false)
         return true
       case 'Enter':
+        // While the format painter holds formats, Enter paints them over the selection, as releasing a drag does.
+        if (model.painter.peek()) {
+          void model.paintFormats(selectionRect(model.selection.peek()))
+          return true
+        }
         moveTo({ row: anchor.row + (event.shiftKey ? -1 : 1), col: anchor.col }, false)
         return true
       case 'Home':
@@ -1836,14 +1959,12 @@ export function SpreadsheetCanvas({
         moveTo({ row: from.row - page, col: from.col }, event.shiftKey)
         return true
       case 'Delete':
-      case 'Backspace': {
-        const image = selectedImageRef.current
+      case 'Backspace':
         if (image && model.editable.peek()) {
           selectImage(undefined)
           void model.deleteImage(image.image_id)
         } else if (model.editable.peek()) void model.clearContents()
         return true
-      }
       case 'F2':
         void startEditing(anchor)
         return true
@@ -1958,6 +2079,13 @@ export function SpreadsheetCanvas({
     return frame.current?.cells.get(cellKey(anchor.row, anchor.col))?.cell.picture ? anchor : undefined
   }
 
+  /** The list entry of the cell menu, which opens the active cell's filter or validation list. */
+  const cellList = () => {
+    const { anchor } = model.selection.peek()
+    const list = listAt(anchor)
+    return list && { label: list.label, open: () => void openList(anchor) }
+  }
+
   /** The actions of the picture the context menu opened on: a floating one, or the active cell's. */
   const pictureActions = () => {
     const sheet = model.activeSheetID.peek()
@@ -1991,7 +2119,15 @@ export function SpreadsheetCanvas({
   }
 
   return (
-    <div ref={container} className="relative min-h-0 flex-1 overflow-hidden">
+    <div
+      ref={container}
+      className="relative min-h-0 flex-1 overflow-hidden"
+      onContextMenu={event => {
+        // The cell editor ignores the pointer until it opens, so a context menu on it came from the keyboard.
+        if (event.target !== input.current || model.draft.peek()) return
+        event.preventDefault()
+        openMenu()
+      }}>
       <ContextMenu disabled={!editable}>
         <ContextMenuTrigger
           ref={scroller}
@@ -2061,10 +2197,16 @@ export function SpreadsheetCanvas({
             onLines={lineAction}
             onResize={resizeAction}
             picture={pictureActions()}
+            list={menu === 'cells' ? cellList() : undefined}
+            onSelectPicture={pictureCount ? selectNextPicture : undefined}
           />
         </ContextMenuContent>
       </ContextMenu>
       <canvas ref={canvas} aria-hidden className="pointer-events-none absolute top-0 left-0" />
+      <p role="status" className="sr-only">
+        {selectedImage &&
+          t('pod.spreadsheet.picture_selected', { name: selectedImage.alt || t('pod.spreadsheet.picture') })}
+      </p>
       <SpreadsheetCellEditor model={model} pageID={pageID} inputRef={input} navigate={navigate} />
       {filterMenu && (
         <div
@@ -2078,7 +2220,7 @@ export function SpreadsheetCanvas({
             <PopoverTrigger
               render={<button type="button" aria-hidden tabIndex={-1} className="block size-px opacity-0" />}
             />
-            <PopoverContent align="start" className="w-auto p-3">
+            <PopoverContent align="start" className="w-auto p-3" finalFocus={input}>
               <SpreadsheetFilterPopover
                 column={columnName(filterMenu.col)}
                 values={filterMenu.values}
@@ -2111,7 +2253,7 @@ export function SpreadsheetCanvas({
             <PopoverTrigger
               render={<button type="button" aria-hidden tabIndex={-1} className="block size-px opacity-0" />}
             />
-            <PopoverContent align="end" className="w-56 gap-1 p-2">
+            <PopoverContent align="end" className="w-56 gap-1 p-2" finalFocus={input}>
               <PopoverTitle className="px-2">
                 {t('pod.spreadsheet.validation_dropdown', { cell: cellName(dropdown.cell) })}
               </PopoverTitle>

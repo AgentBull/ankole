@@ -111,13 +111,17 @@ defmodule AnkoleWeb.AgentFileControllerTest do
            end) == "brief"
   end
 
-  test "owner filtering accepts named Principal IDs", %{conn: conn, tenant: tenant} do
+  test "an owner without a path opens its private root, including named Principal IDs", %{
+    conn: conn,
+    tenant: tenant
+  } do
     conn = console_conn(conn)
     %{principal: agent} = agent_fixture(%{uid: "ops+team@example.com"})
+    drive_file_fixture(agent.uid, "brief.txt", "brief")
     {:ok, root} = Ankole.Pod.private_root(agent.uid)
     query = URI.encode_query(%{"owner_uid" => agent.uid})
 
-    assert %{"nodes" => [%{"id" => root_id}]} =
+    assert %{"ancestors" => [%{"id" => root_id}], "nodes" => [%{"name" => "brief.txt"}]} =
              conn
              |> recycle_api()
              |> api_get("/api/v2/drive/#{tenant.id}/nodes?#{query}")

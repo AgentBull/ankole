@@ -13,7 +13,8 @@ test('command search coalesces a typing burst and opens the current result', asy
     await page.keyboard.press('ControlOrMeta+k')
     const menu = page.getByRole('dialog', { name: '搜索或跳转', exact: true })
     const input = menu.locator('[cmdk-input]')
-    await expect(menu.locator(`[cmdk-item][data-value="page:${state.report_id}"]`)).toBeVisible()
+    // Other specs create pages, so the empty-query listing need not include the report; any page proves it loaded.
+    await expect(menu.locator('[cmdk-item][data-value^="page:"]').first()).toBeVisible()
     const { page: report } = await request<{ page: { title: string } }>(page, `/pages/${state.report_id}`)
     const queries: string[] = []
     page.on('request', request => {
@@ -204,6 +205,8 @@ for (const decision of ['proceed', 'cancel'] as const) {
     let agentsRequests = 0
     try {
       id = await createDocument(page)
+      // Gate only the new-chat discovery: the freshly loaded document must finish its own Agent discovery first.
+      await expect(page.locator('.pod-sidebar-header').getByRole('link', { name: '新对话', exact: true })).toBeVisible()
       await page.route('**/api/v2/pod/agents', async route => {
         agentsRequests++
         await agentsGate
@@ -222,6 +225,8 @@ for (const decision of ['proceed', 'cancel'] as const) {
       await title.fill('Unfinished command navigation title')
       await title.blur()
       expect((await failedSave).status()).toBe(503)
+      // The editor has spent longer than the 15 s query freshness window, so opening the menu rediscovers Agents.
+      await page.clock.setSystemTime(Date.now() + 16_000)
       await page.keyboard.press('ControlOrMeta+k')
       await page
         .getByRole('dialog', { name: '搜索或跳转', exact: true })
@@ -229,7 +234,7 @@ for (const decision of ['proceed', 'cancel'] as const) {
         .click()
       const blocker = page.getByRole('dialog', { name: '修改尚未保存', exact: true })
       await expect(blocker).toBeVisible()
-      await expect(page).toHaveURL(state.base_url + pageRoute(id))
+      await expect(page).toHaveURL(state.base_url + pageRoute(id, undefined, createdTitles.get(id)))
       if (decision === 'cancel') {
         await blocker.getByRole('button', { name: '继续编辑', exact: true }).click()
         await expect(blocker).toBeHidden()
@@ -294,7 +299,12 @@ test('one command menu restores focus, protects IME and keeps the native new-cha
     await input.press('Enter')
     await expect(menu).toBeHidden()
     await expect(composer).toBeFocused()
-    await expect(composer).toHaveValue('Unsent draft retained by command navigation')
+    // New Chat opens a clean composer and keeps the unsent draft in local recovery.
+    await expect(composer).toHaveValue('')
+    const retained = page
+      .getByRole('region', { name: '保留的对话内容', exact: true })
+      .getByRole('textbox', { name: '本地内容 1', exact: true })
+    await expect(retained).toHaveValue('Unsent draft retained by command navigation')
 
     await page.getByRole('button', { name: '搜索或跳转', exact: true }).click()
     await expect(input).toBeFocused()
@@ -308,7 +318,8 @@ test('one command menu restores focus, protects IME and keeps the native new-cha
     await expect(menu).toBeHidden()
     await expect(page).toHaveURL(`${state.base_url}/`)
     await expect(composer).toBeFocused()
-    await expect(composer).toHaveValue('Unsent draft retained by command navigation')
+    await expect(composer).toHaveValue('')
+    await expect(retained).toHaveValue('Unsent draft retained by command navigation')
 
     await composer.press('ControlOrMeta+k')
     const chat = menu.locator('[cmdk-item][data-value^="chat:"]').first()

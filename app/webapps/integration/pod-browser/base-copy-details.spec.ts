@@ -83,8 +83,12 @@ test('copying a shared base selects an editable destination and opens an indepen
     const popup = await target.getAttribute('aria-controls')
     if (!popup) throw new Error('The copy destination has no controlled popup')
     const options = owner.locator(`[id=${JSON.stringify(popup)}]`)
-    await expect(options.getByRole('option', { name: readonlyTitle, exact: true })).toHaveCount(0)
-    await options.getByRole('option', { name: destinationTitle, exact: true }).click()
+    // Each page option names its title followed by its location.
+    const option = (title: string) =>
+      options.getByRole('option').filter({ has: owner.getByText(title, { exact: true }) })
+    await expect(option(destinationTitle)).toBeVisible()
+    await expect(option(readonlyTitle)).toHaveCount(0)
+    await option(destinationTitle).click()
     await expect(dialog.locator('.pod-selected-destination')).toContainText(destinationTitle)
     await dialog.getByRole('textbox', { name: '页面标题', exact: true }).fill(copiedTitle)
     const copiedResponse = owner.waitForResponse(

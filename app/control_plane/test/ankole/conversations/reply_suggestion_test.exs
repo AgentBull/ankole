@@ -49,6 +49,8 @@ defmodule Ankole.Conversations.ReplySuggestionTest do
     assert text =~ "Planner: The plan is ready."
     assert body["instructions"] =~ "language the Human writes in this conversation"
     assert body["instructions"] =~ "en-US"
+    # A reasoning light model must have budget left for the line after it reasons.
+    assert body["max_output_tokens"] >= 2_000
   end
 
   test "a room with another Human or a latest Human message asks no model", ctx do

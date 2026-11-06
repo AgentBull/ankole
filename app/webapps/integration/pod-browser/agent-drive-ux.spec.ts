@@ -47,14 +47,22 @@ test('drive uploads start from the picker and rename preserves the folder and by
     const name = page.getByRole('textbox', { name: '名称', exact: true })
     await expect(name).toHaveValue('original.txt')
     await name.fill('occupied.txt')
-    const rejected = page.waitForResponse(
+    const suffixed = page.waitForResponse(
       response =>
         new URL(response.url()).pathname.startsWith(`/api/v2/drive/${state.tenant_id}/nodes/`) &&
         response.request().method() === 'PATCH'
     )
     await name.press('Enter')
-    expect((await rejected).ok()).toBe(false)
-    await expect(name).toHaveValue('occupied.txt')
+    // Browser renames into an occupied name receive a suffix and leave the existing file in place.
+    expect((await suffixed).ok()).toBe(true)
+    await expect(name).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'occupied.txt', exact: true })).toBeVisible()
+    const suffixedRow = page
+      .getByRole('row')
+      .filter({ has: page.getByRole('button', { name: 'occupied (1).txt', exact: true }) })
+    await suffixedRow.getByRole('button', { name: '更多操作', exact: true }).click()
+    await page.getByRole('menuitem', { name: '重命名', exact: true }).click()
+    await expect(name).toHaveValue('occupied (1).txt')
     await name.fill('renamed.txt')
     const renamedResponse = page.waitForResponse(
       response =>

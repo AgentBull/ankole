@@ -431,6 +431,24 @@ test('navigation revalidation preserves loaded pages and stores only the active 
   }
 })
 
+test('navigation reveals the scope whose root directory holds the active top Page', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, retry: false } } })
+  const original = pageAPI.navigation
+  pageAPI.navigation = async () => ({
+    directories: [
+      { ...directory([row('shared', 'space-root')]), scope: 'space', parent_id: null },
+      { ...directory([row('note', 'private-root')]), scope: 'private', parent_id: null }
+    ],
+    path: [row('active', 'private-root')]
+  })
+  try {
+    expect(await client.fetchQuery(navigationQuery(client, 'active'))).toMatchObject({ scope: 'private' })
+  } finally {
+    pageAPI.navigation = original
+    client.clear()
+  }
+})
+
 test('subpages directory queries and parent child_count stay synchronized across tree mutations and children_view patches', async () => {
   const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
   const parent = row('parent')

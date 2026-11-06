@@ -267,17 +267,19 @@ test('the home recent list keeps the latest room ahead of older pinned rooms', a
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
   const created: string[] = []
-  const title = `Latest recent room ${crypto.randomUUID()}`
+  const title = `Latest recent room ${crypto.randomUUID().slice(0, 8)}` // within the 40-character derived title
   try {
     await page.goto('/')
     for (let index = 0; index < 5; index++) {
-      const id = crypto.randomUUID()
-      await request(page, '/conversations', 'POST', {
-        conversationID: id,
+      const { conversation } = await request<ConversationDetail>(page, '/conversations', 'POST', {
+        conversationID: crypto.randomUUID(),
         messageID: crypto.randomUUID(),
         agentUID: state.agent_uid,
-        text: index === 4 ? title : `Old pinned room ${index} ${id}`
+        // A one-Agent DM reuses the colleague pair, so each recent room is an explicit group.
+        roomMode: 'group',
+        text: index === 4 ? title : `Old pinned room ${index} ${crypto.randomUUID()}`
       })
+      const id = conversation.id
       created.push(id)
       if (index < 4) await request(page, `/conversations/${id}`, 'PATCH', { pinned: true })
     }

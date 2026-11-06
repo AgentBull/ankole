@@ -1,5 +1,7 @@
 import {
   Button,
+  buttonVariants,
+  cn,
   Dialog,
   DialogContent,
   DialogFooter,
@@ -309,10 +311,12 @@ function BrainInspectorCard({
       </div>
 
       <div className="flex items-center gap-1.5">
-        <Button size="sm" className="flex-1 justify-center gap-1" render={<Link to={`/meta/brain/${object.id}`} />}>
+        <Link
+          to={`/meta/brain/${object.id}`}
+          className={cn(buttonVariants({ size: 'sm' }), 'flex-1 justify-center gap-1')}>
           <span>{t('pod.meta.open_object')}</span>
           <RiArrowRightUpLine className="size-3.5" />
-        </Button>
+        </Link>
         <Button
           size="sm"
           variant="outline"
@@ -573,6 +577,7 @@ export function MetaBrain() {
               <button
                 key={mode}
                 type="button"
+                aria-label={t(`pod.meta.${labelKey}`)}
                 aria-pressed={active}
                 onClick={() => {
                   const next = new URLSearchParams(params)
@@ -594,6 +599,7 @@ export function MetaBrain() {
           <Button
             variant="outline"
             size="sm"
+            aria-label={t('pod.meta.toggle_layers')}
             aria-pressed={layersOpen}
             onClick={() => setLayersOpen(prev => !prev)}
             className={layersOpen ? 'gap-1.5 bg-bg-secondary text-fg-primary' : 'gap-1.5 text-fg-secondary'}>
@@ -604,6 +610,7 @@ export function MetaBrain() {
             <Button
               variant="outline"
               size="sm"
+              aria-label={t('pod.meta.category_hubs')}
               aria-pressed={includeCategoryHubs}
               onClick={() => setIncludeCategoryHubs(prev => !prev)}
               className={includeCategoryHubs ? 'gap-1.5 bg-bg-secondary text-fg-primary' : 'gap-1.5 text-fg-secondary'}>
@@ -614,6 +621,7 @@ export function MetaBrain() {
           <Button
             variant="outline"
             size="sm"
+            aria-label={t('pod.meta.edge_labels')}
             aria-pressed={showEdgeLabels}
             onClick={() => setShowEdgeLabels(prev => !prev)}
             className={showEdgeLabels ? 'gap-1.5 bg-bg-secondary text-fg-primary' : 'gap-1.5 text-fg-secondary'}>
