@@ -1,6 +1,15 @@
 import { EmbeddedKnowledgePage } from './knowledge-page'
-import { DropdownMenuCheckboxItem, toast } from '@ankole/uikit'
-import { RiBrainLine } from '@remixicon/react'
+import {
+  Button,
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverTitle,
+  PopoverTrigger,
+  Switch,
+  toast
+} from '@ankole/uikit'
+import { RiBrainFill, RiBrainLine } from '@remixicon/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useId, type Ref } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -42,8 +51,11 @@ export function PageContent({
   }
 }
 
-/** The page menu's Learn business facts toggle, offered to Page managers only. */
-export function PageLearningMenuItem({ detail }: { detail: PageDetail }) {
+/**
+ * The Page header's Learn business facts control, offered to Page managers only.
+ * The trigger shows the learning state without opening, and the popover holds the switch.
+ */
+export function PageLearningButton({ detail }: { detail: PageDetail }) {
   const { t } = useTranslation()
   const id = useId()
   const client = useQueryClient()
@@ -54,20 +66,35 @@ export function PageLearningMenuItem({ detail }: { detail: PageDetail }) {
     onError: error => toast.error(requestErrorMessage(contentError(error)))
   })
   if (!setting || detail.page.deleted_at || !detail.actions.includes('node_manage')) return null
+  const learning = setting.enabled || setting.inherited
 
   return (
-    <DropdownMenuCheckboxItem
-      checked={setting.enabled || setting.inherited}
-      disabled={save.isPending || setting.inherited}
-      aria-describedby={`${id}-description`}
-      onCheckedChange={enabled => save.mutate(enabled)}>
-      <RiBrainLine aria-hidden />
-      <span className="flex max-w-64 flex-col gap-0.5">
-        <span>{t('pod.knowledge.learn_page')}</span>
-        <span id={`${id}-description`} className="text-xs text-fg-secondary">
-          {t(setting.inherited ? 'pod.knowledge.learn_inherited' : 'pod.knowledge.learn_page_description')}
+    <Popover>
+      <PopoverTrigger
+        render={<Button size={learning ? 'sm' : 'icon-sm'} variant="ghost" title={t('pod.knowledge.learn_page')} />}>
+        {learning ? <RiBrainFill aria-hidden className="size-4" /> : <RiBrainLine aria-hidden className="size-4" />}
+        <span className={learning ? '@max-[640px]:sr-only' : 'sr-only'}>
+          {t(learning ? 'pod.knowledge.learning' : 'pod.knowledge.learn_page')}
         </span>
-      </span>
-    </DropdownMenuCheckboxItem>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[min(22rem,calc(100vw-2rem))]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <PopoverTitle id={`${id}-title`}>{t('pod.knowledge.learn_page')}</PopoverTitle>
+            <PopoverDescription id={`${id}-description`}>
+              {t(setting.inherited ? 'pod.knowledge.learn_inherited' : 'pod.knowledge.learn_page_description')}
+            </PopoverDescription>
+          </div>
+          <Switch
+            aria-labelledby={`${id}-title`}
+            aria-describedby={`${id}-description`}
+            checked={learning}
+            disabled={save.isPending || setting.inherited}
+            onCheckedChange={enabled => save.mutate(enabled)}
+          />
+        </div>
+        <p className="text-xs text-fg-tertiary">{t('pod.knowledge.learn_visibility')}</p>
+      </PopoverContent>
+    </Popover>
   )
 }

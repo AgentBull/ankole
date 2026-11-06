@@ -343,36 +343,36 @@ test('a manager can enable learning for existing folder content and see its inhe
       title: '供应商复盘',
       xml: '<page><p>Supplier review</p></page>'
     })
-    // Page managers find the learning toggle in the page header's more-actions menu.
-    const learning = page.getByRole('menuitemcheckbox', { name: /^学习业务事实/ })
-    const openMenu = async () => {
-      await page.locator('.pod-page-header').getByRole('button', { name: '更多操作', exact: true }).click()
+    // Page managers read the learning state on the page header and change it in the header popover.
+    const header = page.locator('.pod-page-header')
+    const learning = page.getByRole('switch', { name: '学习业务事实', exact: true })
+    const openLearning = async (label: '学习业务事实' | '学习中') => {
+      await header.getByRole('button', { name: label, exact: true }).click()
       await expect(learning).toBeVisible()
     }
     await page.goto(state.base_url + pageRoute(id))
-    await expect(page.getByText('学习业务事实')).toHaveCount(0)
-    await openMenu()
+    await openLearning('学习业务事实')
     await expect(learning).not.toBeChecked()
     await learning.focus()
     await page.keyboard.press('Space')
     await expect(learning).toBeChecked()
     await page.reload()
-    await openMenu()
+    await openLearning('学习中')
     await expect(learning).toBeChecked()
     expect((await read(page, id)).page.metadata.extract_facts).toBe(true)
 
     await page.goto(state.base_url + pageRoute(child.page.id))
-    await openMenu()
+    await openLearning('学习中')
     await expect(learning).toBeChecked()
     await expect(learning).toBeDisabled()
-    await expect(learning).toContainText('上级页面已开启学习，设置适用于此页面。')
+    await expect(page.getByText('上级页面已开启学习，设置适用于此页面。')).toBeVisible()
 
     await page.goto(state.base_url + pageRoute(id))
-    await openMenu()
+    await openLearning('学习中')
     await learning.click()
     await expect(learning).not.toBeChecked()
     await page.goto(state.base_url + pageRoute(child.page.id))
-    await openMenu()
+    await openLearning('学习业务事实')
     await expect(learning).not.toBeChecked()
     await expect(learning).toBeEnabled()
     await page.screenshot({ path: test.info().outputPath('folder-learning.png') })

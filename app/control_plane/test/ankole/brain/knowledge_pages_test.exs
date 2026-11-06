@@ -383,6 +383,14 @@ defmodule Ankole.Brain.KnowledgePagesTest do
     assert enabled.metadata["extract_facts"]
   end
 
+  test "Pod offers no learning setting while Brain is disabled", ctx do
+    actor = actor_fixture(ctx.owner)
+    {:ok, folder} = Pages.create(actor, %{type: :doc, metadata: %{"extract_facts" => true}})
+    assert {:ok, _} = Ankole.AppConfigure.put_global_by_key("brain.enabled", false)
+
+    assert {:ok, %{fact_learning: nil}} = Pages.get(actor, folder.id)
+  end
+
   test "Page learning uses the Page's management permission", ctx do
     actor = actor_fixture(ctx.owner)
     {:ok, folder} = Pages.create(actor, %{type: :doc})

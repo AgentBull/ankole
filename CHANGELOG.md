@@ -1,5 +1,16 @@
 # Changelog
 
+## Version 2.0.0-alpha.65 (2026-11-05)
+
+- Move **Learn business facts** from the Page more-actions menu to the Page
+  header for Page managers. The header shows a brain icon while learning is off
+  and a **Learning** label once the Page or an ancestor enables it; its popover
+  holds the switch and explains that extracted facts stay visible only to
+  members and Agents who can read the Page. Pod hides the control while Brain is
+  disabled.
+- Move an Applet's **Automation** button into the Page header, so the Applet
+  starts right below its title instead of under a row holding only that button.
+
 ## Version 2.0.0-alpha.64 (2026-11-05)
 
 - Stop a room's Background Agent Job or Workflow only when the Human may command

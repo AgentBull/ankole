@@ -101,8 +101,9 @@ terminal endpoint remains available as history until Job or Page deletion.
 Fired, cancelled and expired endpoints reject edits, pause and resume with
 `webhook_terminal`. Repeated cancellation leaves their recorded outcome intact.
 
-The Applet's **Automation** panel lets a member select a published Action and
-create a personal Job, or create a team Job when they can edit the Page. The panel
+The **Automation** button in an Applet Page's header opens the Applet's
+Automation panel. There, a member can select a published Action and create a
+personal Job, or create a team Job when they can edit the Page. The panel
 edits Job configuration, schedules, and webhook endpoints, and shows source
 receipts and Run results. Calendar recurrence uses the shared Cron editor for
 daily, weekly, monthly, and custom schedules. Selecting a receipt opens the
