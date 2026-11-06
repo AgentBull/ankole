@@ -292,7 +292,7 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
         ? 'line'
         : (spec.seriesType ?? (spec.data[0] && isOhlcPoint(spec.data[0]) ? 'candlestick' : 'line'))
 
-    const primaryLineColor = spec.color ?? palette.categorical[2]
+    const primaryLineColor = spec.color ?? palette.categoricalStrokes[0]
 
     switch (defaultSeriesType) {
       case 'candlestick': {
@@ -407,12 +407,12 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
         key: ov.id ?? ov.title ?? `overlay-${idx}`,
         optionColor: ov.color ?? null
       }))
-      const overlayColors = assignSeriesColors(overlayDescriptors, palette)
+      const overlayColors = assignSeriesColors(overlayDescriptors, palette, { variant: 'stroke' })
 
       spec.overlays.forEach((ov, idx) => {
         const key = ov.id ?? ov.title ?? `overlay-${idx}`
         const resolvedColor =
-          ov.color ?? overlayColors.get(key) ?? palette.categorical[idx % palette.categorical.length]!
+          ov.color ?? overlayColors.get(key) ?? palette.categoricalStrokes[idx % palette.categoricalStrokes.length]!
         if (ov.type === 'area') {
           const s = chart.addSeries(
             AreaSeries,
@@ -477,12 +477,12 @@ export function mountFinancialChart<HorzItem = FinancialTime>(
           key: item.id ?? item.title ?? `sub-${paneIdx}-${idx}`,
           optionColor: item.color ?? null
         }))
-        const subColors = assignSeriesColors(seriesDescriptors, palette)
+        const subColors = assignSeriesColors(seriesDescriptors, palette, { variant: 'stroke' })
 
         paneSpec.series.forEach((item, idx) => {
           const key = item.id ?? item.title ?? `sub-${paneIdx}-${idx}`
           const resolvedColor =
-            item.color ?? subColors.get(key) ?? palette.categorical[idx % palette.categorical.length]!
+            item.color ?? subColors.get(key) ?? palette.categoricalStrokes[idx % palette.categoricalStrokes.length]!
 
           if (item.type === 'histogram') {
             const s = chart.addSeries(

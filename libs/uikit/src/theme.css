@@ -234,6 +234,7 @@
   --color-chart-5: var(--chart-5);
   --color-chart-other: var(--chart-other);
   --color-chart-empty: var(--chart-empty);
+  --color-chart-total: var(--chart-total);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -385,21 +386,25 @@
   --badge-yellow-hover: #dfc684;
   --badge-green-hover: #9edaab;
 
-  /* Dedicated data visualization tokens, decoupled from UI status colors so regional market
-     conventions (such as Mainland China A-share red-up / green-down) never invert success/destructive chrome. */
-  --chart-up: #0f8a5f;
-  --chart-up-foreground: #086646;
-  --chart-up-subtle: #e6f6ef;
-  --chart-down: #c81e3a;
-  --chart-down-foreground: #9e142c;
-  --chart-down-subtle: #fdecef;
-  --chart-1: #b31b5d;
-  --chart-2: #009d9a;
-  --chart-3: #0f62fe;
-  --chart-4: #f1c21b;
-  --chart-5: #a56eff;
-  --chart-other: var(--color-gray-50);
-  --chart-empty: var(--color-gray-30);
+  /* Dedicated data visualization tokens ("Mineral Ink & Ceramic Glaze").
+     Decoupled from UI status colors and brand Berry (#e10059) so regional market conventions
+     (such as Mainland China A-share red-up / green-down) never invert success/destructive chrome,
+     categorical series maintain Okabe-Ito CUD separability across normal and dichromatic vision,
+     and Berry stays available as a focal highlight rather than saturating default charts. */
+  --chart-up: #19875c;
+  --chart-up-foreground: #0d6946;
+  --chart-up-subtle: #e6f5ee;
+  --chart-down: #c1384b;
+  --chart-down-foreground: #992235;
+  --chart-down-subtle: #fbecee;
+  --chart-1: #2864b9;
+  --chart-2: #049383;
+  --chart-3: #be8100;
+  --chart-4: #b3395a;
+  --chart-5: #a665b0;
+  --chart-other: #949698;
+  --chart-empty: #d4d3d0;
+  --chart-total: #3f5368;
 
   /* Alumina ceramic diffuses the underlying colours beneath a softly lit surface.
      Transient menus use the more translucent primary tier. */
@@ -533,19 +538,20 @@
   --info-foreground: var(--color-blue-40);
   --info-subtle: #222938;
 
-  --chart-up: #2ec28b;
-  --chart-up-foreground: #5cdba9;
-  --chart-up-subtle: #193028;
-  --chart-down: #f2556a;
-  --chart-down-foreground: #ff8594;
-  --chart-down-subtle: #381e24;
-  --chart-1: #d83d82;
-  --chart-2: #08bdba;
-  --chart-3: #78a9ff;
-  --chart-4: #f1c21b;
-  --chart-5: #be95ff;
-  --chart-other: var(--color-gray-50);
-  --chart-empty: var(--color-gray-70);
+  --chart-up: #43c291;
+  --chart-up-foreground: #6edab0;
+  --chart-up-subtle: #193027;
+  --chart-down: #eb6b7d;
+  --chart-down-foreground: #ff94a2;
+  --chart-down-subtle: #361e24;
+  --chart-1: #5d98e7;
+  --chart-2: #51c6b5;
+  --chart-3: #ecb457;
+  --chart-4: #db6b83;
+  --chart-5: #d497de;
+  --chart-other: #6e7173;
+  --chart-empty: #434648;
+  --chart-total: #7d94ad;
 
   /* In dark mode, diffused colour and soft edge lighting separate the ceramic from the page. */
   --ceramic-body: 42 43 46;

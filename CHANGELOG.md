@@ -1,5 +1,18 @@
 # Changelog
 
+## Version 2.0.0-alpha.72 (2026-11-06)
+
+- Introduce the Mineral Ink and Ceramic Glaze visualization palette and
+  channel-encoding rules across `@ankole/uikit`, Base chart views, Document
+  chart blocks, Knowledge Mermaid diagrams, and `ankole-viz`: pair warm matte
+  mineral pigments in light mode with luminous ceramic glazes in dark mode,
+  keep single-series bar and column charts in uniform Cobalt while reserving
+  neutral grays for `"Other"` and `"Empty"` buckets, separate continuous
+  sequential and zero-anchored diverging heatmap ramps, anchor waterfall totals
+  with `--chart-total`, choose readable light or dark ink for inside data
+  labels, and clear prior G2 view state before switching chart types on a live
+  canvas.
+
 ## Version 2.0.0-alpha.71 (2026-11-06)
 
 - Preserve G2's built-in category legend, axis, label, and tooltip theme defaults

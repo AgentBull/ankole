@@ -135,8 +135,8 @@ defmodule Ankole.AIAgent.AgentDocumentsTest do
 
     raw_template = Ankole.AIAgent.Library.SourceReader.load_default_design_template()
     assert {:ok, parsed_template} = Ankole.Kernel.knowledge_parse(raw_template)
-    assert get_in(parsed_template.metadata, ["colors", "chart-up"]) == "#0f8a5f"
-    assert get_in(parsed_template.metadata, ["colors", "chart-down"]) == "#c81e3a"
+    assert get_in(parsed_template.metadata, ["colors", "chart-up"]) == "#19875c"
+    assert get_in(parsed_template.metadata, ["colors", "chart-down"]) == "#c1384b"
 
     tenant_id = Ankole.Repo.tenant_id!()
     {:ok, current} = Contracts.get(nil, :design)
@@ -177,8 +177,8 @@ defmodule Ankole.AIAgent.AgentDocumentsTest do
 
     {:ok, migrated} = Contracts.get(nil, :design)
     assert migrated.revision == 4
-    assert get_in(migrated.metadata, ["colors", "chart-up"]) == "#0f8a5f"
-    assert get_in(migrated.metadata, ["colors", "chart-down"]) == "#c81e3a"
+    assert get_in(migrated.metadata, ["colors", "chart-up"]) == "#19875c"
+    assert get_in(migrated.metadata, ["colors", "chart-down"]) == "#c1384b"
     assert migrated.upstream_state["status"] == "clean"
     assert migrated.upstream_state["custom_marker"] == "keep-me"
 
@@ -204,8 +204,8 @@ defmodule Ankole.AIAgent.AgentDocumentsTest do
 
     {:ok, migrated_legacy} = Contracts.get(nil, :design)
     assert migrated_legacy.revision == 8
-    assert get_in(migrated_legacy.metadata, ["colors", "chart-up"]) == "#0f8a5f"
-    assert get_in(migrated_legacy.metadata, ["colors", "chart-down"]) == "#c81e3a"
+    assert get_in(migrated_legacy.metadata, ["colors", "chart-up"]) == "#19875c"
+    assert get_in(migrated_legacy.metadata, ["colors", "chart-down"]) == "#c1384b"
 
     # Case 3: Human-customized global DESIGN contract is NEVER overwritten by migration.
     custom_markdown =

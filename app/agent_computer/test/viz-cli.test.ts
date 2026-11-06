@@ -279,6 +279,12 @@ describe('ankole-viz CLI, validator, pure-Bun Mermaid renderer, and data/design 
 
       const parsedColors = parseDesignFrontmatterColors(readFileSync(designPath, 'utf8'))
       expect(designColorsToTokenOverrides(parsedColors, 'dark')).toEqual({ '--chart-1': '#2a6f97' })
+
+      const defaultDesignColors = parseDesignFrontmatterColors(
+        readFileSync(join(import.meta.dir, '../../library/templates/DESIGN.md'), 'utf8')
+      )
+      expect(designColorsToTokenOverrides(defaultDesignColors, 'dark')).toEqual({})
+      expect(designColorsToTokenOverrides(defaultDesignColors, 'light')['--chart-1']).toBe('#2864b9')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

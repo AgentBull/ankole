@@ -11,7 +11,9 @@ import {
   AnkoleStatCard,
   assignSeriesColors,
   isPrintSafeSvg,
+  pickReadableDataLabelInk,
   resolveSelectOptionColor,
+  resolveSelectOptionStrokeColor,
   resolveVizTheme,
   sanitizeExportedSvg,
   type DonutCenterLabel
@@ -112,29 +114,53 @@ describe('Bundle isolation invariant (`libs/uikit/src/index.ts`)', () => {
 describe('Theme tokens & pure viz theme utilities (`viz/theme.ts`)', () => {
   test('defines dedicated --chart-* CSS custom properties in light, dark, and @theme inline blocks', () => {
     const css = readFileSync(resolve(import.meta.dir, '../src/theme.css'), 'utf8')
-    expect(css).toContain('--chart-up: #0f8a5f;')
-    expect(css).toContain('--chart-down: #c81e3a;')
-    expect(css).toContain('--chart-up: #2ec28b;')
-    expect(css).toContain('--chart-down: #f2556a;')
-    expect(css).toContain('--chart-1: #b31b5d;')
-    expect(css).toContain('--chart-1: #d83d82;')
-    expect(css).toContain('--chart-other: var(--color-gray-50);')
-    expect(css).toContain('--chart-empty: var(--color-gray-30);')
-    expect(css).toContain('--chart-empty: var(--color-gray-70);')
+    expect(css).toContain('--chart-up: #19875c;')
+    expect(css).toContain('--chart-down: #c1384b;')
+    expect(css).toContain('--chart-up: #43c291;')
+    expect(css).toContain('--chart-down: #eb6b7d;')
+    expect(css).toContain('--chart-1: #2864b9;')
+    expect(css).toContain('--chart-1: #5d98e7;')
+    expect(css).toContain('--chart-5: #a665b0;')
+    expect(css).toContain('--chart-5: #d497de;')
+    expect(css).toContain('--chart-other: #949698;')
+    expect(css).toContain('--chart-empty: #d4d3d0;')
+    expect(css).toContain('--chart-empty: #434648;')
+    expect(css).toContain('--chart-total: #3f5368;')
+    expect(css).toContain('--chart-total: #7d94ad;')
     expect(css).toContain('--color-chart-up: var(--chart-up);')
     expect(css).toContain('--color-chart-5: var(--chart-5);')
+    expect(css).toContain('--color-chart-total: var(--chart-total);')
   })
 
-  test('resolves light/dark palettes and swaps up/down tokens cleanly for Mainland China A-share (`cn`) convention', () => {
+  test('resolves light/dark palettes, monotonic sequential ramps, zero-anchored diverging scales, and cn convention swap', () => {
+    const srgbLuminance = (hex: string): number => {
+      const ch = [hex.slice(1, 3), hex.slice(3, 5), hex.slice(5, 7)].map(p => {
+        const c = Number.parseInt(p, 16) / 255
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * ch[0]! + 0.7152 * ch[1]! + 0.0722 * ch[2]!
+    }
+
     const lightIntl = resolveVizTheme(null, { theme: 'light', marketConvention: 'intl' })
     const lightCn = resolveVizTheme(null, { theme: 'light', marketConvention: 'cn' })
     expect(lightIntl.isDark).toBe(false)
-    expect(lightIntl.up).toBe('#0f8a5f')
-    expect(lightIntl.down).toBe('#c81e3a')
-    expect(lightCn.up).toBe('#c81e3a')
-    expect(lightCn.down).toBe('#0f8a5f')
+    expect(lightIntl.up).toBe('#19875c')
+    expect(lightIntl.down).toBe('#c1384b')
+    expect(lightCn.up).toBe('#c1384b')
+    expect(lightCn.down).toBe('#19875c')
     expect(lightCn.upSubtle).toBe(lightIntl.downSubtle)
     expect(lightCn.downForeground).toBe(lightIntl.upForeground)
+    expect(lightIntl.totalColor).toBe('#3f5368')
+    expect(lightIntl.categoricalStrokes[0]).toBe('#0c58b4')
+    expect(lightIntl.diverging[3]).toBe('#f4f4f2')
+    expect(lightCn.diverging[3]).toBe('#f4f4f2')
+    expect(lightCn.diverging[0]).toBe(lightIntl.diverging[6])
+    expect(lightCn.diverging[6]).toBe(lightIntl.diverging[0])
+
+    // Light mode sequential: dark-is-more on matte paper (strictly decreasing luminance)
+    for (let i = 1; i < lightIntl.sequential.length; i += 1) {
+      expect(srgbLuminance(lightIntl.sequential[i]!)).toBeLessThan(srgbLuminance(lightIntl.sequential[i - 1]!))
+    }
 
     const darkIntl = resolveVizTheme(null, {
       theme: 'dark',
@@ -142,13 +168,27 @@ describe('Theme tokens & pure viz theme utilities (`viz/theme.ts`)', () => {
       tokenOverrides: { '--chart-1': '#123456' }
     })
     expect(darkIntl.isDark).toBe(true)
-    expect(darkIntl.up).toBe('#2ec28b')
-    expect(darkIntl.down).toBe('#f2556a')
+    expect(darkIntl.up).toBe('#43c291')
+    expect(darkIntl.down).toBe('#eb6b7d')
     expect(darkIntl.categorical[0]).toBe('#123456')
+    expect(darkIntl.categoricalStrokes[0]).toBe('#123456')
+    expect(darkIntl.categoricalStrokes[1]).toBe('#3dd3c0')
     expect(darkIntl.otherColor).not.toBe(darkIntl.emptyColor)
+    expect(darkIntl.diverging[3]).toBe('#232526')
+
+    // Dark mode sequential: light-is-more on graphite (strictly increasing luminance)
+    for (let i = 1; i < darkIntl.sequential.length; i += 1) {
+      expect(srgbLuminance(darkIntl.sequential[i]!)).toBeGreaterThan(srgbLuminance(darkIntl.sequential[i - 1]!))
+    }
+
+    expect(pickReadableDataLabelInk('#2864b9')).toBe('#ffffff')
+    expect(pickReadableDataLabelInk('#b3395a')).toBe('#ffffff')
+    expect(pickReadableDataLabelInk('#ecb457')).toBe('#18191a')
+    expect(pickReadableDataLabelInk('#51c6b5')).toBe('#18191a')
+    expect(pickReadableDataLabelInk('#dcf3ff')).toBe('#18191a')
   })
 
-  test('assigns series colors strictly in rank order (never hashing) while honoring optionColor, Other, and Empty', () => {
+  test('assigns series fill and stroke colors strictly in rank order (never hashing) while honoring optionColor, Other, and Empty', () => {
     const palette = resolveVizTheme(null, { theme: 'light' })
 
     const orderA = assignSeriesColors(
@@ -162,6 +202,11 @@ describe('Theme tokens & pure viz theme utilities (`viz/theme.ts`)', () => {
       palette
     )
     const orderB = assignSeriesColors([{ key: 'APAC' }, { key: 'North America' }], palette)
+    const strokeOrder = assignSeriesColors(
+      [{ key: 'North America' }, { key: 'Priority', optionColor: 'teal' }],
+      palette,
+      { variant: 'stroke' }
+    )
 
     expect(orderA.get('North America')).toBe(palette.categorical[0])
     expect(orderA.get('APAC')).toBe(palette.categorical[1])
@@ -170,6 +215,8 @@ describe('Theme tokens & pure viz theme utilities (`viz/theme.ts`)', () => {
     expect(orderB.get('North America')).toBe(palette.categorical[1])
 
     expect(orderA.get('Priority')).toBe(resolveSelectOptionColor('teal', false))
+    expect(strokeOrder.get('North America')).toBe(palette.categoricalStrokes[0])
+    expect(strokeOrder.get('Priority')).toBe(resolveSelectOptionStrokeColor('teal', false))
     expect(orderA.get('Other')).toBe(palette.otherColor)
     expect(orderA.get('Empty')).toBe(palette.emptyColor)
 
@@ -301,14 +348,116 @@ describe('Statistical & financial pure spec builders', () => {
     ]
 
     const intlColored = colorizeVolumePoints(volume, candles, intlPalette)
-    expect(intlColored[0]?.color).toBe('#0f8a5f')
-    expect(intlColored[1]?.color).toBe('#c81e3a')
+    expect(intlColored[0]?.color).toBe('#19875c')
+    expect(intlColored[1]?.color).toBe('#c1384b')
     expect(intlColored[2]?.color).toBe('#112233')
 
     const cnColored = colorizeVolumePoints(volume, candles, cnPalette)
-    expect(cnColored[0]?.color).toBe('#c81e3a')
-    expect(cnColored[1]?.color).toBe('#0f8a5f')
+    expect(cnColored[0]?.color).toBe('#c1384b')
+    expect(cnColored[1]?.color).toBe('#19875c')
     expect(mapPriceScaleMode('logarithmic')).toBe(1)
+  })
+
+  test('enforces 1D uniform Cobalt focus with neutral Other/Empty, zero-anchored diverging heatmaps, IBCS waterfall totals, and dynamic funnel label contrast', () => {
+    const lightPalette = resolveVizTheme(null, { theme: 'light' })
+    const darkPalette = resolveVizTheme(null, { theme: 'dark' })
+
+    // 1D bar/column without optionColor keeps uniform primary Cobalt on normal categories (no rainbow circus)
+    const oneDimRanking = prepareStatisticalChartSpec(
+      {
+        type: 'column',
+        xField: 'customer',
+        yField: 'arr',
+        seriesMeta: [
+          { key: 'Acme', isOther: false, isEmpty: false },
+          { key: 'Globex', isOther: false, isEmpty: false },
+          { key: 'Other', isOther: true, isEmpty: false },
+          { key: 'Empty', isOther: false, isEmpty: true }
+        ],
+        data: [
+          { customer: 'Acme', arr: 500 },
+          { customer: 'Globex', arr: 320 },
+          { customer: 'Other', arr: 120, __isOther: true },
+          { customer: 'Empty', arr: 40 }
+        ]
+      },
+      lightPalette
+    )
+    const oneDimScale = (oneDimRanking.g2Spec as { scale?: { color?: { domain: string[]; range: string[] } } }).scale
+      ?.color
+    expect(oneDimScale).toEqual({
+      domain: ['Acme', 'Globex', 'Other', 'Empty'],
+      range: [
+        lightPalette.categorical[0],
+        lightPalette.categorical[0],
+        lightPalette.otherColor,
+        lightPalette.emptyColor
+      ]
+    })
+    expect((oneDimRanking.g2Spec as { legend?: unknown }).legend).toBe(false)
+
+    // Mixed negative-and-positive heatmap anchors 0 strictly to neutral surface midpoint
+    const mixedHeatmap = prepareStatisticalChartSpec(
+      {
+        type: 'heatmap',
+        xField: 'sector',
+        yField: 'quarter',
+        valueField: 'mom',
+        showDataLabels: true,
+        data: [
+          { sector: 'Cloud', quarter: 'Q1', mom: -12 },
+          { sector: 'Cloud', quarter: 'Q2', mom: 0 },
+          { sector: 'AI', quarter: 'Q2', mom: 36 }
+        ]
+      },
+      darkPalette
+    )
+    const hmScale = (mixedHeatmap.g2Spec as { scale?: { color?: { type: string; domain: number[]; range: string[] } } })
+      .scale?.color
+    expect(hmScale?.type).toBe('linear')
+    expect(hmScale?.domain[3]).toBe(0)
+    expect(hmScale?.domain[0]).toBe(-36)
+    expect(hmScale?.domain[6]).toBe(36)
+    expect(hmScale?.range).toEqual([...darkPalette.diverging])
+
+    // Waterfall separates total bars into neutral slate totalColor rather than categorical slot 3
+    const wfPrepared = prepareStatisticalChartSpec(
+      {
+        type: 'waterfall',
+        xField: 'step',
+        yField: 'delta',
+        data: [
+          { step: 'Q1 ARR', delta: 100 },
+          { step: 'Churn', delta: -15 },
+          { step: 'Ending ARR', delta: 85, isTotal: true }
+        ]
+      },
+      lightPalette
+    )
+    const wfScale = (wfPrepared.g2Spec as { scale?: { color?: { domain: string[]; range: string[] } } }).scale?.color
+    expect(wfScale?.range).toEqual([lightPalette.up, lightPalette.down, lightPalette.totalColor])
+
+    // Funnel inside labels dynamically choose high-contrast ink over dark vs bright stage fills
+    const funnelDark = prepareStatisticalChartSpec(
+      {
+        type: 'funnel',
+        xField: 'stage',
+        valueField: 'leads',
+        showDataLabels: true,
+        data: [
+          { stage: 'Visited', leads: 1000 },
+          { stage: 'Activated', leads: 420 }
+        ]
+      },
+      darkPalette
+    )
+    const funnelLabelFill = (
+      funnelDark.g2Spec as {
+        labels?: { style?: { fill?: (d: Record<string, unknown>) => string } }[]
+      }
+    ).labels?.[0]?.style?.fill
+    expect(typeof funnelLabelFill).toBe('function')
+    expect(funnelLabelFill?.({ stage: 'Visited', leads: 1000 })).toBe('#18191a')
   })
 
   test('builds semantic formatted tooltips, data labels, smooth curves, and donut center total without internal key leaks', () => {

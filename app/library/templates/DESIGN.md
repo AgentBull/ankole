@@ -32,13 +32,13 @@ colors:
   warning: "#f1c21b"
   success: "#24a148"
   info: "#0f62fe"
-  chart-1: "#b31b5d"
-  chart-2: "#009d9a"
-  chart-3: "#0f62fe"
-  chart-4: "#f1c21b"
-  chart-5: "#a56eff"
-  chart-up: "#0f8a5f"
-  chart-down: "#c81e3a"
+  chart-1: "#2864b9"
+  chart-2: "#049383"
+  chart-3: "#be8100"
+  chart-4: "#b3395a"
+  chart-5: "#a665b0"
+  chart-up: "#19875c"
+  chart-down: "#c1384b"
 
 typography:
   display-01:
@@ -253,7 +253,7 @@ The berry scale is Ankole's only brand hue. Grade 60 is the anchor and the sole 
 | brand-90 | #3f0b22 | Deep brand fields in editorial art, rare |
 | brand-100 | #240512 | Near-black brand, rare |
 
-Use the accent scarcely: the keyline on a cover or section title, links, the first chart series, the one number or phrase a slide exists to deliver, and primary actions in interactive reports. Never use berry for headings at large, body text, icon tinting at rest, or background washes. Neutrals are the Carbon gray family (gray-10 #f4f4f4 through gray-100 #161616); do not tint grays with the brand hue.
+Use the accent scarcely: the keyline on a cover or section title, links, focal callouts in a chart, the one number or phrase a slide exists to deliver, and primary actions in interactive reports. Never use berry for headings at large, body text, icon tinting at rest, or background washes. Neutrals are the Carbon gray family (gray-10 #f4f4f4 through gray-100 #161616); do not tint grays with the brand hue.
 
 ### Surfaces and layering
 
@@ -280,7 +280,7 @@ Documents and slides render on the light theme by default; the dark mapping serv
 | accent fill | #b31b5d | #b31b5d (unchanged) |
 | hover / active | #8f1248 / #681036 | #d83d82 / #f76aa7 (flips lighter) |
 | error / info / success | #da1e28 / #0f62fe / #24a148 | #fa4d56 / #78a9ff / #42be65 |
-| chart-up / chart-down | #0f8a5f / #c81e3a | #2ec28b / #f2556a |
+| chart-up / chart-down | #19875c / #c1384b | #43c291 / #eb6b7d |
 
 Berry-60 stays the fill color for accents in both themes, but as small text on dark it fails contrast — use `{colors.accent-on-dark}` (brand-40) or brand-50 for links and text accents on dark surfaces.
 
@@ -375,7 +375,7 @@ The component vocabulary is document-first: the atoms below are what reports, de
 ## Do's and Don'ts
 
 - Do ship every artifact as a finished, self-contained piece for reading: each element on the page earns its place by serving the content.
-- Do reserve berry (#b31b5d) for the reader's entry point: cover keyline, links, chart series 1, the one number that matters, primary action.
+- Do reserve berry (#b31b5d) for the reader's entry point: cover keyline, links, focal callouts, the one number that matters, primary action.
 - Do keep every corner at 0px; `{rounded.full}` is for avatars and status dots only.
 - Do build hierarchy with layers and hairlines; add a shadow only to floating ephemera on screens, never in print.
 - Do use sentence case in every heading, label, and button.
@@ -390,9 +390,9 @@ The component vocabulary is document-first: the atoms below are what reports, de
 
 ## Charts & data
 
-Categorical series take `{colors.chart-1}` through `{colors.chart-5}` in global rank order (when a Base `:select` field defines explicit option colors, honor those option ramps first); a single-series chart uses `{colors.chart-1}` alone. Beyond five series, fold the tail into `"other"` in neutral gray rather than inventing hues, and keep unassigned (`null`) records in a separate lighter neutral gray bucket so missing values stay distinct from `"other"`. On dark, shift categorical hues to brand-50 #d83d82, teal-40 #08bdba, blue-40 #78a9ff, yellow-30, purple-40 #be95ff.
+Categorical series take `{colors.chart-1}` through `{colors.chart-5}` in global rank order — Cobalt #2864b9, Celadon #049383, Ochre #be8100, Berry #b3395a, and Mulberry #a665b0 on light surfaces, calibrated for perceptual balance and color-vision deficiency (CUD) separability (when a Base `:select` field defines explicit option colors, honor those option ramps first). A single-series chart or 1D ranking without explicit option colors uses `{colors.chart-1}` alone so bar length and position carry magnitude without decorative hue noise. Beyond five series, fold the tail into `"other"` in neutral gray (#949698 on light, #6e7173 on dark) rather than inventing hues, and keep unassigned (`null`) records in a separate lighter neutral gray bucket (#d4d3d0 on light, #434648 on dark) so missing values stay distinct from `"other"`. On dark surfaces, shift categorical fills to luminous ceramic tones: Cobalt #5d98e7, Celadon #51c6b5, Ochre #ecb457, Berry #db6b83, and Mulberry #d497de.
 
-Directional metrics and financial candles follow the international convention (绿涨红跌) by default: `{colors.chart-up}` (#0f8a5f on light, #2ec28b on dark) marks positive deltas or upward closes, and `{colors.chart-down}` (#c81e3a on light, #f2556a on dark) marks negative deltas or downward closes, always paired with explicit sign or arrow glyphs (`+`/`-`, `▲`/`▼`). Swap `{colors.chart-up}` and `{colors.chart-down}` to red-up/green-down (红涨绿跌) only when rendering Mainland China A-share (A股) equity prices or indices. Keep `{colors.chart-up}` and `{colors.chart-down}` distinct from `{colors.success}` and `{colors.error}`, which signal operational status rather than numeric sign.
+Directional metrics and financial candles follow the international convention (绿涨红跌) by default: `{colors.chart-up}` (#19875c on light, #43c291 on dark) marks positive deltas or upward closes, and `{colors.chart-down}` (#c1384b on light, #eb6b7d on dark) marks negative deltas or downward closes, while waterfall totals take neutral slate (#3f5368 on light, #7d94ad on dark), always paired with explicit sign or arrow glyphs (`+`/`-`, `▲`/`▼`). Swap `{colors.chart-up}` and `{colors.chart-down}` to red-up/green-down (红涨绿跌) only when rendering Mainland China A-share (A股) equity prices or indices. Keep `{colors.chart-up}` and `{colors.chart-down}` distinct from `{colors.success}` and `{colors.error}`, which signal operational status rather than numeric sign. Continuous heatmaps encode magnitude monotonically against the surface (dark-is-more on light paper, light-is-more on dark graphite) and anchor mixed negative-and-positive domains symmetrically at neutral zero.
 
 Keep charts flat: no 3D, gradients, or drop shadows. Gridlines are `{colors.border-subtle}`; axes and captions use `{typography.label-01}` in `{colors.text-secondary}`; lines are 2px; bars are square-cornered. Prefer direct series labels over legends when there are three or fewer series. Series must stay distinguishable in grayscale print — vary dash or marker when hue alone would carry the difference. Interactive charts follow the same palette and rules; tooltips are `{typography.body-compact-01}` on `{colors.layer-02}` with a hairline and the small shadow.
 

@@ -44,8 +44,8 @@ export const MERMAID_PALETTES: Record<
     surface: '#f4f4f2',
     surfaceAlt: '#e5e4e1',
     border: '#cbcac7',
-    accent: '#1561ff',
-    critical: '#c81e3a'
+    accent: '#2864b9',
+    critical: '#c1384b'
   },
   dark: {
     bg: '#18191a',
@@ -57,8 +57,8 @@ export const MERMAID_PALETTES: Record<
     surface: '#232526',
     surfaceAlt: '#343637',
     border: '#47494a',
-    accent: '#77a9ff',
-    critical: '#f2556a'
+    accent: '#5d98e7',
+    critical: '#eb6b7d'
   }
 }
 

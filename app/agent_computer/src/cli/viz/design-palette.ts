@@ -96,10 +96,38 @@ export function parseDesignFrontmatterColors(markdown: string): Record<string, s
   return colors
 }
 
+const STOCK_LIGHT_DESIGN_CHART_DEFAULTS: Readonly<Record<string, ReadonlySet<string>>> = {
+  'chart-1': new Set(['#2864b9', '#b31b5d']),
+  'chart-2': new Set(['#049383', '#009d9a']),
+  'chart-3': new Set(['#be8100', '#0f62fe']),
+  'chart-4': new Set(['#b3395a', '#f1c21b']),
+  'chart-5': new Set(['#a665b0', '#a56eff']),
+  'chart-up': new Set(['#19875c', '#0f8a5f']),
+  'chart-down': new Set(['#c1384b', '#c81e3a'])
+}
+
+function pickChartTokenOverride(
+  colors: Readonly<Record<string, string>>,
+  key: string,
+  isDark: boolean
+): string | undefined {
+  if (isDark) {
+    const explicitDark = colors[`${key}-dark`]
+    if (explicitDark) return explicitDark
+  }
+  const raw = colors[key]
+  if (!raw) return undefined
+  if (isDark && STOCK_LIGHT_DESIGN_CHART_DEFAULTS[key]?.has(raw.trim().toLowerCase())) {
+    return undefined
+  }
+  return raw
+}
+
 /**
  * Converts parsed `DESIGN.md` `colors:` entries into `tokenOverrides` for `resolveVizTheme`.
  * When `theme === 'dark'`, surface and foreground overrides (`paper`, `ink`, `muted`, `line`)
- * are intentionally omitted so dark-mode contrast is preserved.
+ * and uncustomized stock light-mode chart defaults are intentionally omitted so dark-mode
+ * contrast and luminous Ceramic Glaze chart ramps are preserved.
  */
 export function designColorsToTokenOverrides(
   colors: Readonly<Record<string, string>>,
@@ -108,16 +136,30 @@ export function designColorsToTokenOverrides(
   const overrides: Record<string, string> = {}
   const isDark = theme === 'dark'
 
-  const chart1 =
-    colors['chart-1'] ??
-    (isDark ? (colors['accent-on-dark'] ?? colors.brand ?? colors.primary) : (colors.brand ?? colors.primary))
+  const explicitChart1 = pickChartTokenOverride(colors, 'chart-1', isDark)
+  const fallbackBrand = isDark
+    ? (colors['accent-on-dark'] ?? colors.brand ?? colors.primary)
+    : (colors.brand ?? colors.primary)
+  const hasStockDefaultChart1 = Boolean(
+    colors['chart-1'] && STOCK_LIGHT_DESIGN_CHART_DEFAULTS['chart-1']?.has(colors['chart-1'].trim().toLowerCase())
+  )
+  const chart1 = explicitChart1 ?? (hasStockDefaultChart1 ? undefined : fallbackBrand)
+
   if (chart1) overrides['--chart-1'] = chart1
-  if (colors['chart-2']) overrides['--chart-2'] = colors['chart-2']
-  if (colors['chart-3']) overrides['--chart-3'] = colors['chart-3']
-  if (colors['chart-4']) overrides['--chart-4'] = colors['chart-4']
-  if (colors['chart-5']) overrides['--chart-5'] = colors['chart-5']
-  if (colors['chart-up']) overrides['--chart-up'] = colors['chart-up']
-  if (colors['chart-down']) overrides['--chart-down'] = colors['chart-down']
+  const chart2 = pickChartTokenOverride(colors, 'chart-2', isDark)
+  if (chart2) overrides['--chart-2'] = chart2
+  const chart3 = pickChartTokenOverride(colors, 'chart-3', isDark)
+  if (chart3) overrides['--chart-3'] = chart3
+  const chart4 = pickChartTokenOverride(colors, 'chart-4', isDark)
+  if (chart4) overrides['--chart-4'] = chart4
+  const chart5 = pickChartTokenOverride(colors, 'chart-5', isDark)
+  if (chart5) overrides['--chart-5'] = chart5
+  const chartUp = pickChartTokenOverride(colors, 'chart-up', isDark)
+  if (chartUp) overrides['--chart-up'] = chartUp
+  const chartDown = pickChartTokenOverride(colors, 'chart-down', isDark)
+  if (chartDown) overrides['--chart-down'] = chartDown
+  const chartTotal = pickChartTokenOverride(colors, 'chart-total', isDark)
+  if (chartTotal) overrides['--chart-total'] = chartTotal
 
   if (!isDark) {
     const paper = colors.paper ?? colors.canvas ?? colors.background

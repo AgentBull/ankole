@@ -147,6 +147,7 @@ function applyPaletteToRoot(palette: VizThemePalette): void {
     '--chart-5': palette.categorical[4],
     '--chart-other': palette.otherColor,
     '--chart-empty': palette.emptyColor,
+    '--chart-total': palette.totalColor,
     '--chart-up': palette.up,
     '--chart-up-foreground': palette.upForeground,
     '--chart-up-subtle': palette.upSubtle,

@@ -2,8 +2,10 @@ import { Renderer as SVGRenderer } from '@antv/g-svg'
 import { corelib, extend, graphlib, plotlib, Runtime, type G2Spec } from '@antv/g2'
 import {
   assignSeriesColors,
+  pickReadableDataLabelInk,
   resolveVizTheme,
   sanitizeExportedSvg,
+  type AssignSeriesColorsOptions,
   type MarketConvention,
   type SeriesColorDescriptor,
   type VizThemeMode,
@@ -208,7 +210,8 @@ function deriveColorScale(
   rows: readonly Record<string, unknown>[],
   colorField: string | undefined,
   seriesMeta: readonly SeriesColorDescriptor[] | undefined,
-  palette: VizThemePalette
+  palette: VizThemePalette,
+  options?: AssignSeriesColorsOptions
 ): { domain: string[]; range: string[] } | undefined {
   if (!colorField && (!seriesMeta || seriesMeta.length === 0)) return undefined
 
@@ -243,10 +246,179 @@ function deriveColorScale(
   }
 
   if (descriptors.length === 0) return undefined
-  const assigned = assignSeriesColors(descriptors, palette)
+  const assigned = assignSeriesColors(descriptors, palette, options)
   return {
     domain: [...assigned.keys()],
     range: [...assigned.values()]
+  }
+}
+
+/**
+ * Preserves Munzner's expressiveness rule for 1D bar/column charts without explicit `:select`
+ * option colors: normal categories share uniform primary Cobalt (`palette.categorical[0]`) so
+ * position/length carries magnitude without false categorical hue noise, while residual `Other`
+ * and `Empty` buckets step back into neutral mineral gray.
+ */
+function derive1DFocusColorScale(
+  rows: readonly Record<string, unknown>[],
+  xField: string,
+  seriesMeta: readonly SeriesColorDescriptor[] | undefined,
+  palette: VizThemePalette
+): { domain: string[]; range: string[] } | undefined {
+  const domain: string[] = []
+  const range: string[] = []
+  const seen = new Set<string>()
+  const metaMap = new Map((seriesMeta ?? []).map(item => [item.key, item]))
+
+  const pushKey = (key: string, isEmpty: boolean, isOther: boolean) => {
+    if (seen.has(key)) return
+    seen.add(key)
+    domain.push(key)
+    if (isEmpty) {
+      range.push(palette.emptyColor)
+    } else if (isOther) {
+      range.push(palette.otherColor)
+    } else {
+      range.push(palette.categorical[0])
+    }
+  }
+
+  if (seriesMeta) {
+    for (const item of seriesMeta) {
+      pushKey(item.key, Boolean(item.isEmpty), Boolean(item.isOther))
+    }
+  }
+
+  for (const row of rows) {
+    const raw = row[xField]
+    const isEmptyRow = raw === null || raw === undefined || raw === ''
+    const key = isEmptyRow ? 'Empty' : String(raw)
+    const meta = metaMap.get(key)
+    pushKey(
+      key,
+      Boolean(meta?.isEmpty || isEmptyRow || key === 'Empty'),
+      Boolean(meta?.isOther || key === 'Other' || row.__isOther)
+    )
+  }
+
+  return domain.length > 0 ? { domain, range } : undefined
+}
+
+const LIGHT_FUNNEL_PROGRESSION = ['#1b4d9b', '#2864b9', '#1c79b5', '#0f8ba3', '#049383', '#2e9e8f'] as const
+const DARK_FUNNEL_PROGRESSION = ['#7ab4ff', '#5d98e7', '#4aa5cf', '#51c6b5', '#3e9e92', '#357e82'] as const
+
+function deriveFunnelOrderedScale(
+  rows: readonly Record<string, unknown>[],
+  categoryKey: string,
+  seriesMeta: readonly SeriesColorDescriptor[] | undefined,
+  palette: VizThemePalette
+): { domain: string[]; range: string[] } {
+  const hasExplicitOptionColor = Boolean(seriesMeta?.some(item => Boolean(item.optionColor)))
+  if (hasExplicitOptionColor) {
+    const explicit = deriveColorScale(rows, categoryKey, seriesMeta, palette)
+    if (explicit) return explicit
+  }
+
+  const ramp = palette.isDark ? DARK_FUNNEL_PROGRESSION : LIGHT_FUNNEL_PROGRESSION
+  const metaMap = new Map((seriesMeta ?? []).map(item => [item.key, item]))
+  const domain: string[] = []
+  const range: string[] = []
+  const seen = new Set<string>()
+  let stageIdx = 0
+
+  for (const row of rows) {
+    const raw = row[categoryKey]
+    const isEmptyRow = raw === null || raw === undefined || raw === ''
+    const key = isEmptyRow ? 'Empty' : String(raw)
+    if (seen.has(key)) continue
+    seen.add(key)
+    const meta = metaMap.get(key)
+    domain.push(key)
+    if (meta?.isEmpty || isEmptyRow || key === 'Empty') {
+      range.push(palette.emptyColor)
+    } else if (meta?.isOther || key === 'Other' || row.__isOther) {
+      range.push(palette.otherColor)
+    } else {
+      const firstOverride =
+        stageIdx === 0 && palette.categorical[0].toLowerCase() !== (palette.isDark ? '#5d98e7' : '#2864b9')
+          ? palette.categorical[0]
+          : undefined
+      range.push(firstOverride ?? ramp[Math.min(stageIdx, ramp.length - 1)]!)
+      stageIdx += 1
+    }
+  }
+
+  return { domain, range }
+}
+
+function interpolateHexLinear(a: string, b: string, t: number): string {
+  const parse = (hex: string): [number, number, number] => [
+    Number.parseInt(hex.slice(1, 3), 16),
+    Number.parseInt(hex.slice(3, 5), 16),
+    Number.parseInt(hex.slice(5, 7), 16)
+  ]
+  if (!/^#[0-9a-fA-F]{6}$/.test(a) || !/^#[0-9a-fA-F]{6}$/.test(b)) return t < 0.5 ? a : b
+  const [ar, ag, ab] = parse(a)
+  const [br, bg, bb] = parse(b)
+  const clamp = (v: number) =>
+    Math.round(Math.min(255, Math.max(0, v)))
+      .toString(16)
+      .padStart(2, '0')
+  return `#${clamp(ar + (br - ar) * t)}${clamp(ag + (bg - ag) * t)}${clamp(ab + (bb - ab) * t)}`
+}
+
+function samplePiecewiseColor(value: number, domain: readonly number[], range: readonly string[]): string {
+  if (domain.length === 0 || range.length === 0) return '#2864b9'
+  if (value <= domain[0]!) return range[0]!
+  const lastIdx = Math.min(domain.length, range.length) - 1
+  if (value >= domain[lastIdx]!) return range[lastIdx]!
+  for (let i = 0; i < lastIdx; i += 1) {
+    const d0 = domain[i]!
+    const d1 = domain[i + 1]!
+    if (value >= d0 && value <= d1) {
+      const span = d1 - d0
+      const t = span === 0 ? 0 : (value - d0) / span
+      return interpolateHexLinear(range[i]!, range[i + 1]!, t)
+    }
+  }
+  return range[lastIdx]!
+}
+
+function buildHeatmapColorScale(
+  rows: readonly Record<string, unknown>[],
+  valueField: string,
+  palette: VizThemePalette
+): { type: 'linear'; domain: number[]; range: string[] } {
+  const nums: number[] = []
+  for (const row of rows) {
+    const val = toFiniteNumber(row[valueField])
+    if (val !== null) nums.push(val)
+  }
+
+  const hasNegative = nums.some(n => n < 0)
+  const hasPositive = nums.some(n => n > 0)
+
+  if (hasNegative && hasPositive) {
+    const maxAbs = Math.max(...nums.map(n => Math.abs(n)), 1e-9)
+    const stops = palette.diverging.length
+    const mid = (stops - 1) / 2
+    const domain = Array.from({ length: stops }, (_, idx) => ((idx - mid) / mid) * maxAbs)
+    return {
+      type: 'linear',
+      domain,
+      range: [...palette.diverging]
+    }
+  }
+
+  const minVal = nums.length > 0 ? Math.min(...nums) : 0
+  const rawMax = nums.length > 0 ? Math.max(...nums) : 1
+  const maxVal = rawMax > minVal ? rawMax : minVal + 1
+  const stops = palette.sequential.length
+  const domain = Array.from({ length: stops }, (_, idx) => minVal + (idx / Math.max(1, stops - 1)) * (maxVal - minVal))
+  return {
+    type: 'linear',
+    domain,
+    range: [...palette.sequential]
   }
 }
 
@@ -287,11 +459,11 @@ function buildBaseG2Theme(palette: VizThemePalette): Record<string, unknown> {
       titleOpacity: 1,
       titleFontFamily: palette.fontSans,
       lineStroke: palette.border,
-      lineStrokeOpacity: 1,
+      lineStrokeOpacity: 0.72,
       tickStroke: palette.border,
-      tickOpacity: 1,
+      tickOpacity: 0,
       gridStroke: palette.border,
-      gridStrokeOpacity: 1,
+      gridStrokeOpacity: palette.isDark ? 0.48 : 0.58,
       gridLineDash: [3, 3]
     },
     legendCategory: {
@@ -511,15 +683,32 @@ export function prepareStatisticalChartSpec(
       ]
     : undefined
 
-  const has1DCategoryColors =
+  const hasExplicit1DOptionColors =
     !seriesField &&
     (spec.type === 'column' || spec.type === 'bar') &&
-    Boolean(spec.seriesMeta?.some(item => item.optionColor || item.isOther || item.isEmpty))
+    Boolean(spec.seriesMeta?.some(item => Boolean(item.optionColor)))
+
+  const has1DResidualBuckets =
+    !seriesField &&
+    (spec.type === 'column' || spec.type === 'bar') &&
+    !hasExplicit1DOptionColors &&
+    Boolean(
+      spec.seriesMeta?.some(item => item.isOther || item.isEmpty) ||
+      normalizedRows.some(row => Boolean(row.__isOther) || row[xField] === 'Other' || row[xField] === 'Empty')
+    )
+
+  const has1DCategoryColors = hasExplicit1DOptionColors || has1DResidualBuckets
 
   const colorFieldForPalette =
-    seriesField ??
-    (['pie', 'donut', 'funnel', 'wordcloud'].includes(spec.type) || has1DCategoryColors ? xField : undefined)
-  const colorScale = deriveColorScale(normalizedRows, colorFieldForPalette, spec.seriesMeta, palette)
+    seriesField ?? (['pie', 'donut', 'wordcloud'].includes(spec.type) || hasExplicit1DOptionColors ? xField : undefined)
+
+  const colorScale = has1DResidualBuckets
+    ? derive1DFocusColorScale(normalizedRows, xField, spec.seriesMeta, palette)
+    : deriveColorScale(normalizedRows, colorFieldForPalette, spec.seriesMeta, palette)
+
+  const strokeColorScale = seriesField
+    ? deriveColorScale(normalizedRows, seriesField, spec.seriesMeta, palette, { variant: 'stroke' })
+    : undefined
 
   const animateEnabled = options?.forceNoAnimation ? false : (spec.animate ?? spec.renderer !== 'svg')
   const showLegend =
@@ -580,6 +769,7 @@ export function prepareStatisticalChartSpec(
   switch (spec.type) {
     case 'column':
     case 'bar': {
+      const isStacked = Boolean(seriesField && (effectiveStackMode === 'stacked' || effectiveStackMode === 'percent'))
       primaryNode = {
         type: 'interval',
         data: normalizedRows,
@@ -590,6 +780,9 @@ export function prepareStatisticalChartSpec(
         },
         transform: buildStackTransforms(),
         scale: scaleConfig,
+        style: isStacked
+          ? { stroke: palette.background, lineWidth: 1 }
+          : { radius: 2, ...(!seriesField && !has1DCategoryColors ? { fill: palette.categorical[0] } : {}) },
         axis: { x: xAxisConfig, y: yAxisConfig },
         ...(cartesianTooltip !== false ? { tooltip: cartesianTooltip } : {}),
         ...(cartesianDataLabels ? { labels: cartesianDataLabels } : {}),
@@ -600,6 +793,10 @@ export function prepareStatisticalChartSpec(
     }
 
     case 'line': {
+      const lineScaleConfig: Record<string, unknown> = {
+        ...scaleConfig,
+        ...(strokeColorScale ? { color: { domain: strokeColorScale.domain, range: strokeColorScale.range } } : {})
+      }
       primaryNode = {
         type: 'line',
         data: normalizedRows,
@@ -613,8 +810,13 @@ export function prepareStatisticalChartSpec(
           seriesField && (effectiveStackMode === 'stacked' || effectiveStackMode === 'percent')
             ? [{ type: 'stackY' }]
             : [],
-        scale: scaleConfig,
-        style: { lineWidth: 2 },
+        scale: lineScaleConfig,
+        style: {
+          lineWidth: 2,
+          lineCap: 'round',
+          lineJoin: 'round',
+          ...(!seriesField ? { stroke: palette.categoricalStrokes[0] } : {})
+        },
         axis: { x: xAxisConfig, y: yAxisConfig },
         ...(cartesianTooltip !== false ? { tooltip: cartesianTooltip } : {}),
         ...(cartesianDataLabels ? { labels: cartesianDataLabels } : {}),
@@ -643,7 +845,10 @@ export function prepareStatisticalChartSpec(
               ...(spec.smooth ? { shape: 'smooth' } : {})
             },
             transform: areaTransforms,
-            style: { fillOpacity: 0.24 },
+            style: {
+              fillOpacity: seriesField ? 0.18 : 0.2,
+              ...(!seriesField ? { fill: palette.categorical[0] } : {})
+            },
             tooltip: false,
             ...(animateEnabled === false ? { animate: false } : {})
           },
@@ -656,7 +861,12 @@ export function prepareStatisticalChartSpec(
               ...(spec.smooth ? { shape: 'smooth' } : {})
             },
             transform: areaTransforms,
-            style: { lineWidth: 2 },
+            style: {
+              lineWidth: 2,
+              lineCap: 'round',
+              lineJoin: 'round',
+              ...(!seriesField ? { stroke: palette.categoricalStrokes[0] } : {})
+            },
             ...(cartesianTooltip !== false ? { tooltip: cartesianTooltip } : {}),
             ...(cartesianDataLabels ? { labels: cartesianDataLabels } : {}),
             ...(animateEnabled === false ? { animate: false } : {})
@@ -693,6 +903,7 @@ export function prepareStatisticalChartSpec(
       primaryNode = {
         type: 'view',
         data: normalizedRows,
+        ...(seriesField ? { scale: scaleConfig } : {}),
         children: [
           {
             type: 'interval',
@@ -701,7 +912,12 @@ export function prepareStatisticalChartSpec(
               y: yField,
               ...(seriesField ? { color: seriesField } : {})
             },
-            style: { fill: palette.categorical[0] },
+            ...(seriesField ? { transform: buildStackTransforms() } : {}),
+            style: {
+              ...(!seriesField ? { fill: palette.categorical[0] } : {}),
+              fillOpacity: 0.84,
+              radius: 2
+            },
             axis: { x: xAxisConfig, y: { title: spec.yTitle ?? false } },
             ...(primaryComboTooltip !== false ? { tooltip: primaryComboTooltip } : {}),
             ...(cartesianDataLabels ? { labels: cartesianDataLabels } : {}),
@@ -715,7 +931,12 @@ export function prepareStatisticalChartSpec(
               ...(spec.smooth ? { shape: 'smooth' } : {})
             },
             scale: { y: { independent: true } },
-            style: { stroke: palette.categorical[2], lineWidth: 2 },
+            style: {
+              stroke: palette.categoricalStrokes[2],
+              lineWidth: 2.2,
+              lineCap: 'round',
+              lineJoin: 'round'
+            },
             axis: { x: false, y: { position: 'right', grid: null, title: spec.secondaryYTitle ?? false } },
             ...(secondaryComboTooltip !== false ? { tooltip: secondaryComboTooltip } : {}),
             ...(animateEnabled === false ? { animate: false } : {})
@@ -730,8 +951,8 @@ export function prepareStatisticalChartSpec(
       const categoryKey = seriesField ?? xField
       const thetaCoordinate = {
         type: 'theta',
-        outerRadius: 0.85,
-        ...(spec.type === 'donut' ? { innerRadius: 0.56 } : {})
+        outerRadius: 0.86,
+        ...(spec.type === 'donut' ? { innerRadius: 0.62 } : {})
       }
       const pieTooltip = tooltipDisabled
         ? false
@@ -768,6 +989,10 @@ export function prepareStatisticalChartSpec(
         },
         transform: [{ type: 'stackY' }],
         scale: scaleConfig,
+        style: {
+          stroke: palette.background,
+          lineWidth: 1.5
+        },
         axis: false,
         ...(pieTooltip !== false ? { tooltip: pieTooltip } : {}),
         ...(pieLabels ? { labels: pieLabels } : {}),
@@ -829,6 +1054,8 @@ export function prepareStatisticalChartSpec(
 
     case 'funnel': {
       const categoryKey = seriesField ?? xField
+      const funnelColorScale = deriveFunnelOrderedScale(normalizedRows, categoryKey, spec.seriesMeta, palette)
+      const stageColorMap = new Map(funnelColorScale.domain.map((k, idx) => [k, funnelColorScale.range[idx]!]))
       const funnelTooltip = tooltipDisabled
         ? false
         : {
@@ -847,7 +1074,11 @@ export function prepareStatisticalChartSpec(
                 `${String(d[categoryKey] ?? '')}: ${formatRowMetricText(d, valueField, spec.formattedYField)}`,
               position: 'inside',
               style: {
-                fill: '#ffffff',
+                fill: (d: Record<string, unknown>) => {
+                  const raw = d[categoryKey]
+                  const key = raw === null || raw === undefined || raw === '' ? 'Empty' : String(raw)
+                  return pickReadableDataLabelInk(stageColorMap.get(key) ?? palette.categorical[0])
+                },
                 fontSize: 11,
                 fontFamily: palette.fontSans
               },
@@ -866,7 +1097,16 @@ export function prepareStatisticalChartSpec(
         },
         transform: [{ type: 'symmetryY' }],
         coordinate: { transform: [{ type: 'transpose' }] },
-        scale: scaleConfig,
+        scale: {
+          ...scaleConfig,
+          ...(funnelColorScale.domain.length > 0
+            ? { color: { domain: funnelColorScale.domain, range: funnelColorScale.range } }
+            : {})
+        },
+        style: {
+          stroke: palette.background,
+          lineWidth: 1.5
+        },
         axis: false,
         ...(funnelTooltip !== false ? { tooltip: funnelTooltip } : {}),
         ...(funnelLabels ? { labels: funnelLabels } : {}),
@@ -906,10 +1146,16 @@ export function prepareStatisticalChartSpec(
         encode: {
           x: xField,
           y: yField,
+          shape: 'point',
           ...(seriesField ? { color: seriesField } : {}),
           ...(spec.sizeField ? { size: spec.sizeField } : {})
         },
         scale: scaleConfig,
+        style: {
+          fillOpacity: 0.62,
+          lineWidth: 1.2,
+          ...(!seriesField ? { fill: palette.categorical[0], stroke: palette.categoricalStrokes[0] } : {})
+        },
         axis: { x: xAxisConfig, y: { title: spec.yTitle ?? false } },
         ...(scatterTooltip !== false ? { tooltip: scatterTooltip } : {}),
         ...(animateEnabled === false ? { animate: false } : {})
@@ -923,7 +1169,8 @@ export function prepareStatisticalChartSpec(
         data: normalizedRows,
         encode: { x: spec.xField ?? yField },
         transform: [{ type: 'binX', y: 'count' }],
-        style: { inset: 0.5, fill: palette.categorical[2] },
+        style: { inset: 0.75, radius: 2, fill: palette.categorical[0] },
+        axis: { x: xAxisConfig, y: yAxisConfig },
         ...(animateEnabled === false ? { animate: false } : {})
       }
       break
@@ -939,12 +1186,43 @@ export function prepareStatisticalChartSpec(
           ...(seriesField ? { color: seriesField } : {})
         },
         scale: scaleConfig,
+        axis: { x: xAxisConfig, y: yAxisConfig },
         ...(animateEnabled === false ? { animate: false } : {})
       }
       break
     }
 
     case 'heatmap': {
+      const heatmapColorScale = buildHeatmapColorScale(normalizedRows, valueField, palette)
+      const heatmapTooltip = tooltipDisabled
+        ? false
+        : {
+            title: (d: Record<string, unknown>) => `${String(d[xField] ?? '')} · ${String(d[yField] ?? '')}`,
+            items: [
+              (d: Record<string, unknown>) => ({
+                name: spec.yTitle ?? valueField,
+                value: formatRowMetricText(d, valueField, spec.formattedYField)
+              })
+            ]
+          }
+      const heatmapLabels = spec.showDataLabels
+        ? [
+            {
+              text: (d: Record<string, unknown>) => formatRowMetricText(d, valueField, spec.formattedYField),
+              position: 'inside',
+              style: {
+                fill: (d: Record<string, unknown>) => {
+                  const num = toFiniteNumber(d[valueField]) ?? 0
+                  const cellHex = samplePiecewiseColor(num, heatmapColorScale.domain, heatmapColorScale.range)
+                  return pickReadableDataLabelInk(cellHex)
+                },
+                fontSize: 11,
+                fontFamily: palette.fontMono || palette.fontSans
+              },
+              transform: [{ type: 'overlapHide' }]
+            }
+          ]
+        : undefined
       primaryNode = {
         type: 'cell',
         data: normalizedRows,
@@ -953,7 +1231,13 @@ export function prepareStatisticalChartSpec(
           y: yField,
           color: valueField
         },
-        style: { inset: 0.5 },
+        scale: {
+          color: heatmapColorScale
+        },
+        style: { inset: 1, radius: 2 },
+        axis: { x: xAxisConfig, y: { title: spec.yTitle ?? false } },
+        ...(heatmapTooltip !== false ? { tooltip: heatmapTooltip } : {}),
+        ...(heatmapLabels ? { labels: heatmapLabels } : {}),
         ...(animateEnabled === false ? { animate: false } : {})
       }
       break
@@ -976,7 +1260,10 @@ export function prepareStatisticalChartSpec(
               y: yField,
               ...(seriesField ? { color: seriesField } : {})
             },
-            style: { fillOpacity: 0.22 },
+            style: {
+              fillOpacity: 0.2,
+              ...(!seriesField ? { fill: palette.categorical[0] } : {})
+            },
             ...(animateEnabled === false ? { animate: false } : {})
           },
           {
@@ -986,7 +1273,11 @@ export function prepareStatisticalChartSpec(
               y: yField,
               ...(seriesField ? { color: seriesField } : {})
             },
-            style: { lineWidth: 2 },
+            style: {
+              lineWidth: 2,
+              lineJoin: 'round',
+              ...(!seriesField ? { stroke: palette.categoricalStrokes[0] } : {})
+            },
             ...(animateEnabled === false ? { animate: false } : {})
           }
         ]
@@ -996,6 +1287,17 @@ export function prepareStatisticalChartSpec(
 
     case 'waterfall': {
       const wfRows = buildWaterfallRows(rawRows, yField)
+      const wfTooltip = tooltipDisabled
+        ? false
+        : {
+            title: (d: Record<string, unknown>) => String(d[xField] ?? ''),
+            items: [
+              (d: Record<string, unknown>) => ({
+                name: spec.yTitle ?? yField,
+                value: formatRowMetricText(d, yField, spec.formattedYField)
+              })
+            ]
+          }
       primaryNode = {
         type: 'interval',
         data: wfRows,
@@ -1007,9 +1309,13 @@ export function prepareStatisticalChartSpec(
         scale: {
           color: {
             domain: ['up', 'down', 'total'],
-            range: [palette.up, palette.down, palette.categorical[2]]
+            range: [palette.up, palette.down, palette.totalColor]
           }
         },
+        style: { radius: 2 },
+        axis: { x: xAxisConfig, y: yAxisConfig },
+        ...(wfTooltip !== false ? { tooltip: wfTooltip } : {}),
+        ...(cartesianDataLabels ? { labels: cartesianDataLabels } : {}),
         ...(animateEnabled === false ? { animate: false } : {})
       }
       break
@@ -1029,6 +1335,17 @@ export function prepareStatisticalChartSpec(
             name
           }
         },
+        scale: {
+          color: {
+            range: [palette.categorical[0], palette.isDark ? palette.layer02 : palette.emptyColor]
+          }
+        },
+        style: {
+          pinFill: palette.background,
+          textFill: palette.foreground,
+          textFontFamily: palette.fontMono || palette.fontSans,
+          textFontWeight: 600
+        },
         ...(animateEnabled === false ? { animate: false } : {})
       }
       break
@@ -1041,6 +1358,10 @@ export function prepareStatisticalChartSpec(
           value: buildHierarchyRoot(spec.data, xField, valueField)
         },
         encode: { value: 'value' },
+        style: {
+          rectStroke: palette.background,
+          rectLineWidth: 1.5
+        },
         ...(animateEnabled === false ? { animate: false } : {})
       }
       break
@@ -1052,6 +1373,10 @@ export function prepareStatisticalChartSpec(
         data: [buildHierarchyRoot(spec.data, xField, valueField)],
         encode: { value: 'value', name: 'name' },
         coordinate: { type: 'polar', innerRadius: 0.2 },
+        style: {
+          stroke: palette.background,
+          lineWidth: 1.5
+        },
         ...(animateEnabled === false ? { animate: false } : {})
       }
       break
@@ -1282,6 +1607,7 @@ export async function mountStatisticalChart(
       prepared = prepareStatisticalChartSpec({ ...currentSpec, width: currentWidth, height: currentHeight }, palette, {
         forceNoAnimation: useSvgRenderer
       })
+      chart.clear(false)
       chart.options(prepared.g2Spec)
       await chart.render()
     },
