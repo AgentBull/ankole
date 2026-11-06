@@ -598,6 +598,9 @@ while keyboard shortcuts toggle in-room search and the summary drawer:
   their Agent) and Humans (using Principal avatars with initials fallbacks),
   plus room-wide referenced/saved Pages, attachment previews/downloads, and
   background executions regardless of how far back the timeline has scrolled.
+  `Escape` closes only the topmost layer: while an attachment preview or another
+  popup is open, the drawer and the inspector pane leave the key to that popup,
+  even before focus has moved into it.
 - **In-room search:** pages backward through the message cache, flags partial
   results while loading or if a page fetch fails, halts pagination as soon as
   search closes, and highlights matches via browser text ranges without mutating
