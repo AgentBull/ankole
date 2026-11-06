@@ -26,6 +26,7 @@ import * as T from '../core/types'
 import { CellSelection } from '../core/table'
 import { Callout } from '../blocks/callout'
 import { Embed } from '../blocks/embed'
+import { InfographicBlock, InfographicView } from '../blocks/infographic'
 import { MermaidBlock, MermaidView } from '../blocks/mermaid'
 import { isList } from './block-insert'
 import {
@@ -89,7 +90,9 @@ function caretBlock(state: GardState, side: -1 | 1): Pos.Plot | null {
   return block && (side < 0 ? head.isAtStart(block) : head.isAtEnd(block)) ? block : null
 }
 
-const isDiagramOnlyMermaid = (node: Node) => node.type === MermaidBlock.type && node.mark(MermaidView) === 'diagram'
+const isDiagramOnlyMermaid = (node: Node) =>
+  (node.type === MermaidBlock.type && node.mark(MermaidView) === 'diagram') ||
+  (node.type === InfographicBlock.type && node.mark(InfographicView) === 'diagram')
 
 /** A caret between blocks next to a block leaf, such as a divider or an embed, or a diagram-only Mermaid block. */
 function besideLeaf(state: GardState, side: -1 | 1) {

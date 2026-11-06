@@ -446,6 +446,21 @@ defmodule Ankole.BrowserSessionsTest do
              )
   end
 
+  test "renewal skips fresh authentications and never revives revoked ones", %{browser: browser} do
+    {:ok, signed_in} = site_login(browser, "renewer")
+    reference = ref(signed_in)
+    authenticated_at = signed_in.authentication.authenticated_at
+
+    assert {:ok, browser_row} = BrowserSessions.get(browser)
+    assert browser_row.expires_at == BrowserSessions.absolute_expiry(authenticated_at)
+
+    assert {:ok, fresh} = BrowserSessions.renew(reference)
+    assert fresh.expires_at == signed_in.authentication.expires_at
+
+    {:ok, _} = BrowserSessions.revoke(browser, reference)
+    assert {:error, :browser_session_expired} = BrowserSessions.renew(reference)
+  end
+
   test "new Pod access is atomic and does not rotate the site authentication", %{browser: browser} do
     {:ok, signed_in} = site_login(browser, "creator")
     reference = ref(signed_in)

@@ -877,6 +877,124 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert Ankole.JSON.decode!(content) == %{"image_key" => "img_native"}
     end
 
+    test "routes svg attachments to im/v1/files while uploading raster formats to im/v1/images" do
+      parent = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        case {conn.method, conn.request_path} do
+          {"POST", "/open-apis/im/v1/files"} ->
+            assert conn.body_params["file_type"] == "stream"
+            %Plug.Upload{filename: filename} = conn.body_params["file"]
+            send(parent, {:lark_upload, :file, filename})
+            Req.Test.json(conn, %{"code" => 0, "data" => %{"file_key" => "file_svg_1"}})
+
+          {"POST", "/open-apis/im/v1/images"} ->
+            assert conn.body_params["image_type"] == "message"
+            %Plug.Upload{filename: filename} = conn.body_params["image"]
+            send(parent, {:lark_upload, :image, filename})
+            Req.Test.json(conn, %{"code" => 0, "data" => %{"image_key" => "img_raster_1"}})
+
+          {"POST", "/open-apis/im/v1/messages"} ->
+            send(
+              parent,
+              {:lark_message, conn.body_params["msg_type"],
+               Ankole.JSON.decode!(conn.body_params["content"])}
+            )
+
+            Req.Test.json(conn, %{
+              "code" => 0,
+              "data" => %{"message_id" => "om_attachment", "root_id" => "om_attachment"}
+            })
+
+          request ->
+            flunk("unexpected Lark request: #{inspect(request)}")
+        end
+      end)
+
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-svg-vs-raster"
+      config = chat_config(%{"appID" => "cli_svg_vs_raster"})
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+
+      binding_id = Ankole.Signals.get_agent_binding!(agent.uid, binding_name).id
+      conversation_id = external_conversation_id("lark:oc_group")
+      svg_object_id = store_content!("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>")
+      raster_object_id = store_content!(<<137, 80, 78, 71, 13, 10, 26, 10>>)
+
+      for {name, mime_type} <- [
+            {"chart.svg", "image/svg+xml"},
+            {"chart-utf8.svg", "image/svg+xml; charset=utf-8"},
+            {"chart-no-mime.svg", nil}
+          ] do
+        key = "svg-#{Ecto.UUID.generate()}"
+
+        intent = %Intent{
+          binding_id: binding_id,
+          agent_uid: agent.uid,
+          binding_name: binding_name,
+          outbound_key: key,
+          operation: :post,
+          conversation_id: conversation_id,
+          payload: %{
+            "attachments" => [
+              %{
+                "name" => name,
+                "mime_type" => mime_type,
+                "path" => "sent/#{name}",
+                "object_id" => svg_object_id
+              }
+            ]
+          },
+          fallback_visible_text: name,
+          idempotency_key: key
+        }
+
+        assert {:ok, %{created_provider_message_id: "om_attachment"}} = Delivery.deliver(intent)
+        assert_receive {:lark_upload, :file, ^name}
+        assert_receive {:lark_message, "file", %{"file_key" => "file_svg_1"}}
+      end
+
+      for {name, mime_type} <- [
+            {"plot.png", "image/png"},
+            {"plot.jpg", "image/jpeg"},
+            {"plot.webp", "image/webp"},
+            {"plot.gif", "image/gif"}
+          ] do
+        key = "raster-#{Ecto.UUID.generate()}"
+
+        intent = %Intent{
+          binding_id: binding_id,
+          agent_uid: agent.uid,
+          binding_name: binding_name,
+          outbound_key: key,
+          operation: :post,
+          conversation_id: conversation_id,
+          payload: %{
+            "attachments" => [
+              %{
+                "name" => name,
+                "mime_type" => mime_type,
+                "path" => "sent/#{name}",
+                "object_id" => raster_object_id
+              }
+            ]
+          },
+          fallback_visible_text: name,
+          idempotency_key: key
+        }
+
+        assert {:ok, %{created_provider_message_id: "om_attachment"}} = Delivery.deliver(intent)
+        assert_receive {:lark_upload, :image, ^name}
+        assert_receive {:lark_message, "image", %{"image_key" => "img_raster_1"}}
+      end
+    end
+
     test "blocks a durable reply when its attachment content no longer exists" do
       %{principal: agent} = agent_fixture()
       binding_name = "lark-missing-worker-attachment"

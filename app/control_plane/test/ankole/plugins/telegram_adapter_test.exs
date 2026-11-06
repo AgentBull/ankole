@@ -1475,6 +1475,67 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert body["photo"] == "telegram-image-id"
     end
 
+    test "routes svg attachments to sendDocument while keeping raster formats on sendPhoto" do
+      conversation_id = external_conversation_id("telegram:77:chat:501")
+
+      for mime_type <- ["image/svg+xml", "image/svg+xml; charset=utf-8"] do
+        intent = %Intent{
+          agent_uid: "agent-a",
+          binding_name: "telegram-main",
+          outbound_key: "attachment-svg-#{System.unique_integer([:positive])}",
+          operation: :post,
+          conversation_id: conversation_id,
+          payload: %{
+            "attachments" => [
+              %{
+                "provider_file_id" => "telegram-svg-id",
+                "name" => "chart.svg",
+                "mime_type" => mime_type
+              }
+            ]
+          },
+          fallback_visible_text: ""
+        }
+
+        assert {:ok, [%{method: "sendDocument", body: body}]} =
+                 Delivery.requests_for_intent(intent)
+
+        assert body["document"] == "telegram-svg-id"
+        refute Map.has_key?(body, "photo")
+      end
+
+      for {name, mime_type} <- [
+            {"chart.png", "image/png"},
+            {"chart.jpg", "image/jpeg"},
+            {"chart.webp", "image/webp"},
+            {"chart.gif", "image/gif"}
+          ] do
+        intent = %Intent{
+          agent_uid: "agent-a",
+          binding_name: "telegram-main",
+          outbound_key: "attachment-raster-#{System.unique_integer([:positive])}",
+          operation: :post,
+          conversation_id: conversation_id,
+          payload: %{
+            "attachments" => [
+              %{
+                "provider_file_id" => "telegram-raster-id",
+                "name" => name,
+                "mime_type" => mime_type
+              }
+            ]
+          },
+          fallback_visible_text: ""
+        }
+
+        assert {:ok, [%{method: "sendPhoto", body: body}]} =
+                 Delivery.requests_for_intent(intent)
+
+        assert body["photo"] == "telegram-raster-id"
+        refute Map.has_key?(body, "document")
+      end
+    end
+
     test "returns unknown when a non-idempotent provider send has an uncertain result" do
       %{principal: agent} = agent_fixture()
 

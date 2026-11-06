@@ -895,12 +895,35 @@ defmodule Ankole.Plugins.LarkAdapter.Delivery do
       Path.basename(optional_text(attachment, "path") || "file")
   end
 
+  @raster_image_mime_types ~w(
+    image/png
+    image/jpeg
+    image/jpg
+    image/gif
+    image/webp
+    image/bmp
+    image/tiff
+    image/x-tiff
+  )
+
   defp image_attachment?(attachment) do
-    case optional_text(attachment, "mime_type") do
-      "image/" <> _subtype -> true
+    case normalized_mime_type(optional_text(attachment, "mime_type")) do
+      "image/svg+xml" -> false
+      mime when mime in @raster_image_mime_types -> true
+      "image/" <> _unsupported -> false
       _other -> image_filename?(optional_text(attachment, "name"))
     end
   end
+
+  defp normalized_mime_type(mime) when is_binary(mime) do
+    mime
+    |> String.split(";", parts: 2)
+    |> List.first("")
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalized_mime_type(_mime), do: nil
 
   defp image_filename?(name) when is_binary(name) do
     name

@@ -1,5 +1,92 @@
 //! Attribute value grammar shared by XML normalization and OT mark validation.
+use super::document_schema::NodeKind;
 use super::tree::{Attrs, Element, Result, SPAN_LIMIT, name_valid, valid_character};
+
+pub(super) const DIAGRAM_VIEWS: [&str; 3] = ["both", "code", "diagram"];
+pub(super) const DIAGRAM_THEMES: [&str; 3] = ["auto", "light", "dark"];
+pub(super) const DIAGRAM_DOC_ATTRS: [&str; 2] = ["view", "theme"];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct SourceDiagramSpec {
+    pub tag: &'static str,
+    pub kind: NodeKind,
+    pub view_mark: &'static str,
+    pub theme_mark: &'static str,
+    pub doc_attrs: &'static [&'static str],
+    #[cfg(feature = "markdown")]
+    pub fence_lang: &'static str,
+    #[cfg(feature = "markdown")]
+    pub knowledge_attrs: Option<&'static [&'static str]>,
+    #[cfg(feature = "markdown")]
+    pub overview_label: &'static str,
+}
+
+pub(super) const SOURCE_DIAGRAMS: [SourceDiagramSpec; 2] = [
+    SourceDiagramSpec {
+        tag: "mermaid",
+        kind: NodeKind::Mermaid,
+        view_mark: "MermaidView",
+        theme_mark: "MermaidTheme",
+        doc_attrs: &DIAGRAM_DOC_ATTRS,
+        #[cfg(feature = "markdown")]
+        fence_lang: "mermaid",
+        #[cfg(feature = "markdown")]
+        knowledge_attrs: Some(&[]),
+        #[cfg(feature = "markdown")]
+        overview_label: "Mermaid block",
+    },
+    SourceDiagramSpec {
+        tag: "infographic",
+        kind: NodeKind::Infographic,
+        view_mark: "InfographicView",
+        theme_mark: "InfographicTheme",
+        doc_attrs: &DIAGRAM_DOC_ATTRS,
+        #[cfg(feature = "markdown")]
+        fence_lang: "infographic",
+        #[cfg(feature = "markdown")]
+        knowledge_attrs: None,
+        #[cfg(feature = "markdown")]
+        overview_label: "Infographic block",
+    },
+];
+
+pub(super) fn source_diagram_by_tag(tag: &str) -> Option<&'static SourceDiagramSpec> {
+    SOURCE_DIAGRAMS.iter().find(|spec| spec.tag == tag)
+}
+
+pub(super) fn source_diagram_by_kind(kind: NodeKind) -> Option<&'static SourceDiagramSpec> {
+    SOURCE_DIAGRAMS.iter().find(|spec| spec.kind == kind)
+}
+
+pub(super) fn is_source_diagram_tag(tag: &str) -> bool {
+    source_diagram_by_tag(tag).is_some()
+}
+
+pub(super) fn source_diagram_mark(
+    mark: &str,
+) -> Option<(&'static SourceDiagramSpec, &'static str)> {
+    SOURCE_DIAGRAMS.iter().find_map(|spec| {
+        if spec.view_mark == mark {
+            Some((spec, "view"))
+        } else if spec.theme_mark == mark {
+            Some((spec, "theme"))
+        } else {
+            None
+        }
+    })
+}
+
+#[cfg(feature = "markdown")]
+pub(super) fn knowledge_source_diagram_by_tag(tag: &str) -> Option<&'static SourceDiagramSpec> {
+    source_diagram_by_tag(tag).filter(|spec| spec.knowledge_attrs.is_some())
+}
+
+#[cfg(feature = "markdown")]
+pub(super) fn knowledge_source_diagram_by_fence(lang: &str) -> Option<&'static SourceDiagramSpec> {
+    SOURCE_DIAGRAMS
+        .iter()
+        .find(|spec| spec.knowledge_attrs.is_some() && spec.fence_lang == lang)
+}
 
 pub(super) fn valid_value(name: &str, key: &str, value: &str) -> bool {
     match key {
@@ -14,12 +101,12 @@ pub(super) fn valid_value(name: &str, key: &str, value: &str) -> bool {
         "task" => ["todo", "done"].contains(&value),
         "tone" => ["info", "warning", "success", "danger", "neutral"].contains(&value),
         "wrap" => value == "true",
-        "view" if name == "mermaid" => ["both", "code", "diagram"].contains(&value),
+        "view" if is_source_diagram_tag(name) => DIAGRAM_VIEWS.contains(&value),
         "view" if ["media", "bookmark"].contains(&name) => {
             ["link", "title", "card", "preview"].contains(&value)
         }
         "kind" if ["media", "bookmark"].contains(&name) => ["image", "video"].contains(&value),
-        "theme" if name == "mermaid" => ["auto", "light", "dark"].contains(&value),
+        "theme" if is_source_diagram_tag(name) => DIAGRAM_THEMES.contains(&value),
         "page" | "principal" if name == "mention" => !value.is_empty(),
         _ => true,
     }
@@ -36,7 +123,9 @@ fn allowed_attribute(name: &str, key: &str) -> bool {
         "column" => key == "width",
         "li" => key == "task",
         "pre" => matches!(key, "lang" | "meta" | "wrap"),
-        "mermaid" => matches!(key, "view" | "theme"),
+        tag if source_diagram_by_tag(tag).is_some() => {
+            source_diagram_by_tag(tag).is_some_and(|spec| spec.doc_attrs.contains(&key))
+        }
         "callout" => matches!(key, "tone" | "icon"),
         "embed" => matches!(key, "ref" | "table" | "view" | "href" | "title"),
         "media" | "bookmark" => matches!(
@@ -100,7 +189,7 @@ pub(super) fn normalize(node: &Element) -> Result<Attrs> {
                     && (key == "colspan"
                         || key == "rowspan"
                         || (key == "start" && node.name == "ol")))
-                || (node.name == "mermaid"
+                || (is_source_diagram_tag(&node.name)
                     && ((key == "view" && value == "both") || (key == "theme" && value == "auto")))
             {
                 continue;

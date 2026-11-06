@@ -16,7 +16,7 @@ pub(super) fn body(root: &Element) -> Result<String> {
             if read::body(&candidate).is_ok_and(|actual| actual == expected) {
                 Ok(candidate)
             } else {
-                Ok(tree::print(node))
+                Ok(raw_xml_block(node))
             }
         })
         .collect::<Result<Vec<_>>>()
@@ -86,22 +86,27 @@ fn block(node: &Element) -> Result<String> {
             items.join("\n")
         }
         "pre" => {
-            let text = text(&node.children);
-            let fence = "`".repeat(
-                text.split(|c| c != '`')
-                    .map(str::len)
-                    .max()
-                    .unwrap_or(0)
-                    .max(2)
-                    + 1,
-            );
-            let info = [node.attrs.get("lang"), node.attrs.get("meta")]
-                .into_iter()
-                .flatten()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(" ");
-            format!("{fence}{info}\n{text}\n{fence}")
+            if !node.attrs.contains_key("meta")
+                && node.attrs.get("lang").is_some_and(|lang| {
+                    crate::page_document::attributes::knowledge_source_diagram_by_fence(lang)
+                        .is_some()
+                })
+            {
+                raw_xml_block(node)
+            } else {
+                let info = [node.attrs.get("lang"), node.attrs.get("meta")]
+                    .into_iter()
+                    .flatten()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                fenced_code(&info, &text(&node.children))
+            }
+        }
+        tag if crate::page_document::attributes::knowledge_source_diagram_by_tag(tag).is_some() => {
+            let spec = crate::page_document::attributes::knowledge_source_diagram_by_tag(tag)
+                .expect("checked source diagram tag");
+            fenced_code(spec.fence_lang, &text(&node.children))
         }
         "table" => table(node)?,
         "media" => {
@@ -120,9 +125,38 @@ fn block(node: &Element) -> Result<String> {
                 title(node)
             )
         }
-        _ => tree::print(node),
+        _ => raw_xml_block(node),
     };
     Ok(result)
+}
+
+fn fenced_code(info: &str, text: &str) -> String {
+    let fence = "`".repeat(
+        text.split(|c| c != '`')
+            .map(str::len)
+            .max()
+            .unwrap_or(0)
+            .max(2)
+            + 1,
+    );
+    if text.is_empty() {
+        format!("{fence}{info}\n{fence}")
+    } else {
+        format!("{fence}{info}\n{text}\n{fence}")
+    }
+}
+
+fn raw_xml_block(node: &Element) -> String {
+    let printed = tree::print(node);
+    // CommonMark type-1 HTML blocks (<pre>) only close on an explicit </pre> tag.
+    if node.name == "pre"
+        && node.children.is_empty()
+        && let Some(prefix) = printed.strip_suffix(" />")
+    {
+        format!("{prefix}></pre>")
+    } else {
+        printed
+    }
 }
 
 fn table(node: &Element) -> Result<String> {

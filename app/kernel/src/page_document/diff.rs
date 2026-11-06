@@ -105,11 +105,9 @@ impl PartialEq for Payload<'_> {
                 (Some(a_children), Some(b_children)) => {
                     if matches!(
                         a.kind,
-                        NodeKind::Paragraph
-                            | NodeKind::Heading
-                            | NodeKind::CodeBlock
-                            | NodeKind::Mermaid
-                    ) {
+                        NodeKind::Paragraph | NodeKind::Heading | NodeKind::CodeBlock
+                    ) || super::attributes::source_diagram_by_kind(a.kind).is_some()
+                    {
                         inline_units(a_children).eq(inline_units(b_children))
                     } else {
                         a_children
@@ -168,8 +166,9 @@ fn node(old: &DocNode, new: &DocNode, out: &mut Changes) {
         }
         if matches!(
             old.kind,
-            NodeKind::Paragraph | NodeKind::Heading | NodeKind::CodeBlock | NodeKind::Mermaid
-        ) {
+            NodeKind::Paragraph | NodeKind::Heading | NodeKind::CodeBlock
+        ) || super::attributes::source_diagram_by_kind(old.kind).is_some()
+        {
             inline(a, b, out);
         } else {
             children(a, b, out);

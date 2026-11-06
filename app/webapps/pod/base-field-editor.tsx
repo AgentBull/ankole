@@ -1,6 +1,21 @@
 import { uuidV4 } from '@agentbull/active-support'
 import { useTranslation } from 'react-i18next'
-import { Button, Checkbox, Input, Popover, PopoverContent, PopoverTitle, PopoverTrigger, Textarea } from '@ankole/uikit'
+import {
+  Button,
+  Checkbox,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTitle,
+  PopoverTrigger,
+  Textarea,
+  resolveSelectOptionColor,
+  useTheme
+} from '@ankole/uikit'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRef } from 'react'
 import { useModel } from '@preact/signals-react'
@@ -13,7 +28,7 @@ import type { BaseField, BaseTable } from '@ankole/applet-sdk/types'
 import { contentKeys } from './content-api'
 import { Choice, ContentError, TextField } from './content-primitives'
 import { baseHTTP } from './base-api'
-import { fieldTypes } from './base-field-types'
+import { fieldTypes, SELECT_OPTION_COLORS } from './base-field-types'
 
 export function FieldEditorButton({
   tableID,
@@ -34,6 +49,8 @@ export function FieldEditorButton({
 }) {
   useSignals()
   const { t } = useTranslation()
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme === 'dark'
   const model = useModel(FieldEditorModel)
   const open = model.open.value
   const name = model.name.value
@@ -177,29 +194,93 @@ export function FieldEditorButton({
             {type === 'select' && (
               <div className="grid gap-2 text-sm">
                 <span>{t('pod.content.select')}</span>
-                {options.map((option, index) => (
-                  <div className="flex gap-2" key={option.id}>
-                    <Input
-                      variant="overlay"
-                      disabled={pending}
-                      aria-label={t('pod.content.option', { value1: index + 1 })}
-                      value={option.name}
-                      onChange={event =>
-                        setOptions(
-                          options.map((item, i) => (i === index ? { ...item, name: event.target.value } : item))
-                        )
-                      }
-                    />
-                    <Button
-                      type="button"
-                      disabled={pending}
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setOptions(options.filter((_, i) => i !== index))}>
-                      {t('pod.content.remove')}
-                    </Button>
-                  </div>
-                ))}
+                {options.map((option, index) => {
+                  const swatchColor = resolveSelectOptionColor(option.color, isDark)
+                  return (
+                    <div className="flex items-center gap-1.5" key={option.id}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon-xs"
+                              disabled={pending}
+                              aria-label={t('pod.content.option_color', {
+                                defaultValue: 'Option {$value1} color',
+                                value1: index + 1
+                              })}
+                              title={t('pod.content.option_color', {
+                                defaultValue: 'Option {$value1} color',
+                                value1: index + 1
+                              })}
+                            />
+                          }>
+                          <span
+                            aria-hidden="true"
+                            className="size-2.5 rounded-full border border-border-strong/50"
+                            style={{ backgroundColor: swatchColor ?? 'transparent' }}
+                          />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="min-w-36">
+                          <DropdownMenuItem
+                            onClick={() =>
+                              setOptions(
+                                options.map((item, i) => {
+                                  if (i !== index) return item
+                                  const { color: _removed, ...rest } = item
+                                  return rest
+                                })
+                              )
+                            }>
+                            <span
+                              aria-hidden="true"
+                              className="size-2.5 rounded-full border border-dashed border-fg-tertiary"
+                            />
+                            {t('pod.content.color_auto', { defaultValue: 'Automatic' })}
+                          </DropdownMenuItem>
+                          {SELECT_OPTION_COLORS.map(colorKey => (
+                            <DropdownMenuItem
+                              key={colorKey}
+                              onClick={() =>
+                                setOptions(
+                                  options.map((item, i) => (i === index ? { ...item, color: colorKey } : item))
+                                )
+                              }>
+                              <span
+                                aria-hidden="true"
+                                className="size-2.5 rounded-full"
+                                style={{ backgroundColor: resolveSelectOptionColor(colorKey, isDark) }}
+                              />
+                              <span className="capitalize">
+                                {t(`pod.content.option_color_${colorKey}`, { defaultValue: colorKey })}
+                              </span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <Input
+                        variant="overlay"
+                        disabled={pending}
+                        aria-label={t('pod.content.option', { value1: index + 1 })}
+                        value={option.name}
+                        onChange={event =>
+                          setOptions(
+                            options.map((item, i) => (i === index ? { ...item, name: event.target.value } : item))
+                          )
+                        }
+                      />
+                      <Button
+                        type="button"
+                        disabled={pending}
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setOptions(options.filter((_, i) => i !== index))}>
+                        {t('pod.content.remove')}
+                      </Button>
+                    </div>
+                  )
+                })}
                 <Button
                   type="button"
                   variant="outline"

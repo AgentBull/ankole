@@ -111,3 +111,69 @@ test('array-valued formulas honor the same database comparison gate as their ref
     })
   ).toBe(true)
 })
+
+test('fail-closed allowlists route ranking, distinct counts, empty omission, drill-down slices, and unknown clauses to PostgreSQL', () => {
+  expect(
+    canAggregateLocally(schema, {
+      metrics: [{ operation: 'count_distinct', field_id: 'name', alias: 'unique_names' }]
+    })
+  ).toBe(false)
+  expect(
+    canAggregateLocally(schema, {
+      group_by: [{ field_id: 'name' }],
+      metrics: [{ operation: 'count', alias: 'count' }],
+      top_n: { limit: 5, include_other: true, target_group_index: 0 }
+    })
+  ).toBe(false)
+  expect(
+    canAggregateLocally(schema, {
+      group_by: [{ field_id: 'name' }],
+      metrics: [{ operation: 'count', alias: 'count' }],
+      order_by: [{ metric_alias: 'count', direction: 'desc' }]
+    })
+  ).toBe(false)
+  expect(
+    canAggregateLocally(schema, {
+      group_by: [{ field_id: 'name' }],
+      metrics: [{ operation: 'count', alias: 'count' }],
+      omit_empty: true
+    })
+  ).toBe(false)
+  expect(
+    canAggregateLocally(schema, {
+      metrics: [{ operation: 'count', alias: 'count' }],
+      ...({ future_clause: true } as Record<string, unknown>)
+    })
+  ).toBe(false)
+
+  expect(
+    canQueryLocally(schema, {
+      group: [{ field_id: 'name', value: 'Ada' }]
+    })
+  ).toBe(false)
+  expect(
+    canQueryLocally(schema, {
+      groups: [{ field_id: 'name', value: 'Ada' }]
+    })
+  ).toBe(false)
+  expect(
+    canQueryLocally(schema, {
+      group: { field_id: 'name', bucket: 'month', value: '2026-11' }
+    })
+  ).toBe(false)
+  expect(
+    canQueryLocally(schema, {
+      group: { field_id: 'name', cumulative_from_json: '"2026-01"', value_json: '"2026-11"' }
+    })
+  ).toBe(false)
+  expect(
+    canQueryLocally(schema, {
+      group: { field_id: 'name', other_exclude_values_json: ['"Ada"'] }
+    })
+  ).toBe(false)
+  expect(
+    canQueryLocally(schema, {
+      ...({ future_record_option: 1 } as Record<string, unknown>)
+    })
+  ).toBe(false)
+})

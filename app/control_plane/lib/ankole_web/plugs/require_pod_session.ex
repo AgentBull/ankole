@@ -16,6 +16,8 @@ defmodule AnkoleWeb.Plugs.RequirePodSession do
          :ok <- Repo.put_tenant_id(tenant.id),
          %{"principal_uid" => uid} = authentication <- WebSession.pod_session(conn),
          {:ok, %{type: :human} = principal} <- Ankole.Principals.get_principal(uid) do
+      :ok = WebSession.renew_authentication(authentication)
+
       conn
       |> assign(:current_tenant, tenant)
       |> assign(:current_principal_uid, uid)

@@ -150,18 +150,18 @@ fn from_block(node: &Element) -> Result<DocNode> {
             add_str_attr(&mut marks, attrs, "task", "Task");
             children = Some(blocks(node)?);
         }
-        "pre" | "mermaid" => {
-            if node.name == "pre" {
+        tag if tag == "pre" || super::attributes::is_source_diagram_tag(tag) => {
+            if let Some(spec) = super::attributes::source_diagram_by_tag(tag) {
+                kind = spec.kind;
+                marks = extras(attrs, spec.doc_attrs);
+                add_str_attr(&mut marks, attrs, "view", spec.view_mark);
+                add_str_attr(&mut marks, attrs, "theme", spec.theme_mark);
+            } else {
                 kind = NodeKind::CodeBlock;
                 marks = extras(attrs, &["lang", "meta", "wrap"]);
                 add_str_attr(&mut marks, attrs, "lang", "CodeBlockLanguage");
                 add_str_attr(&mut marks, attrs, "meta", "CodeMeta");
                 add_str_attr(&mut marks, attrs, "wrap", "CodeWrap");
-            } else {
-                kind = NodeKind::Mermaid;
-                marks = extras(attrs, &["view", "theme"]);
-                add_str_attr(&mut marks, attrs, "view", "MermaidView");
-                add_str_attr(&mut marks, attrs, "theme", "MermaidTheme");
             }
             let mut content = Vec::new();
             for text in from_inline(&node.children, &Marks::new(), "")? {
@@ -453,11 +453,13 @@ fn to_block(node: &DocNode) -> Result<Element> {
                 children.push(Node::Text(text.into()));
             }
         }
-        NodeKind::CodeBlock | NodeKind::Mermaid => {
-            if node.kind == NodeKind::Mermaid {
-                name = "mermaid".into();
-                restore(&mut attrs, node, "view", "MermaidView");
-                restore(&mut attrs, node, "theme", "MermaidTheme");
+        kind if kind == NodeKind::CodeBlock
+            || super::attributes::source_diagram_by_kind(kind).is_some() =>
+        {
+            if let Some(spec) = super::attributes::source_diagram_by_kind(kind) {
+                name = spec.tag.into();
+                restore(&mut attrs, node, "view", spec.view_mark);
+                restore(&mut attrs, node, "theme", spec.theme_mark);
             } else {
                 name = "pre".into();
                 restore(&mut attrs, node, "lang", "CodeBlockLanguage");

@@ -63,6 +63,8 @@ export type EditorHost = {
   askAgent?(selection: CommentSelection): void
   /** Atomically deletes the resources chosen by the block menu. Selection edits only remove references. */
   deleteEmbeds?(ids: readonly string[]): Promise<boolean>
+  /** Ask the host to insert a chart block at the current selection. */
+  insertChart?(editor: Wordgard): void
 }
 
 export const hostFacet = GardState.Facet.define<EditorHost, EditorHost | undefined>({

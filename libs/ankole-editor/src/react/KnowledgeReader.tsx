@@ -1,4 +1,4 @@
-import { createElement, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react'
+import { createElement, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { parseXml } from '../document/xml'
 import { validateKnowledge } from '../document/knowledge'
 import { assetURL, safeLinkHref } from '../document/resources'
@@ -46,6 +46,65 @@ function Mention({ target, host }: { target: MentionTarget; host?: ReaderHost })
     <span className="editor-mention" ref={container}>
       {host?.mountMention ? undefined : host?.mentionText?.(target) || page || `@${principal}`}
     </span>
+  )
+}
+
+type ThemeContainer = {
+  closest(selector: string): { getAttribute(name: string): string | null } | null
+}
+
+/**
+ * Lazily renders Mermaid source to SVG for `KnowledgeReader`, resolving light/dark theme from the
+ * nearest `[data-theme]` ancestor or `document.documentElement`. Returns `null` when empty or invalid.
+ */
+export async function renderKnowledgeMermaid(
+  source: string,
+  container?: ThemeContainer | null
+): Promise<{ svg: string; theme: 'light' | 'dark' } | null> {
+  const trimmed = source.trim()
+  if (!trimmed) return null
+  const themeAttr = container?.closest('[data-theme]')?.getAttribute('data-theme')
+  const isDark =
+    themeAttr === 'dark' ||
+    (themeAttr !== 'light' && typeof document !== 'undefined' && document.documentElement.classList.contains('dark'))
+  const theme: 'light' | 'dark' = isDark ? 'dark' : 'light'
+  try {
+    const { renderAsync } = await import('pele/lazy')
+    const result = await renderAsync(trimmed, {
+      responsive: true,
+      config: { theme: isDark ? 'dark' : 'default' }
+    })
+    return { svg: result.svg, theme }
+  } catch {
+    return null
+  }
+}
+
+function KnowledgeMermaid({ source }: { source: string }) {
+  const figureRef = useRef<HTMLElement>(null)
+  const [rendered, setRendered] = useState<{ source: string; svg: string; theme: 'light' | 'dark' } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void renderKnowledgeMermaid(source, figureRef.current).then(result => {
+      if (!cancelled) setRendered(result ? { source, ...result } : null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [source])
+
+  const active = rendered?.source === source ? rendered : null
+  return (
+    <figure ref={figureRef} className="knowledge-reader-mermaid" data-theme={active?.theme}>
+      {active ? (
+        <div className="knowledge-reader-mermaid-diagram" dangerouslySetInnerHTML={{ __html: active.svg }} />
+      ) : (
+        <pre>
+          <code>{source}</code>
+        </pre>
+      )}
+    </figure>
   )
 }
 
@@ -140,6 +199,8 @@ export function KnowledgeReader({ xml, host, pageHref, className = '' }: Knowled
             </pre>
           </div>
         )
+      case 'mermaid':
+        return <KnowledgeMermaid key={key} source={textOf(node)} />
       case 'table': {
         const rows = node.children.filter((child): child is Element => child.type === 'element')
         return (

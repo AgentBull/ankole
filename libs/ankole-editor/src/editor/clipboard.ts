@@ -21,9 +21,12 @@ import { GardSelection, Transaction, type GardState } from '../core/state'
 import { CellSelection } from '../core/table'
 import * as T from '../core/types'
 import { parseMarkdown } from '../document/markdown'
+import { validateKnowledge } from '../document/knowledge'
 import { element, type Element } from '../document/tree'
 import { assetURL, resourceContent, resourceText } from '../document/resources'
 import { blocks } from '../blocks'
+import { InfographicBlock } from '../blocks/infographic'
+import { MermaidBlock } from '../blocks/mermaid'
 import { unknownNames, vocabulary } from '../document/vocabulary'
 import { recordOf } from './attributes'
 import { dispatchStep } from './block-insert'
@@ -31,6 +34,7 @@ import { normalizedPageDocument } from './convert'
 import { BlockSelection } from './block-selection'
 import { withoutCommentSlice } from './comments'
 import { hostFacet } from './host-context'
+import { isKnowledge } from './knowledge'
 import { linkAt } from './links'
 import { inheritedMentionMarks } from './mention'
 import { Comment, Link, Mention, type MentionTarget } from './schema'
@@ -215,15 +219,48 @@ const hasMarkdown = (page: Element) =>
     block => block.type === 'element' && (block.name !== 'p' || block.children.some(node => node.type !== 'text'))
   )
 
+function downgradeKnowledgeTag(tag: Plot.Tag): Plot.Tag {
+  if (tag.type === MermaidBlock.type) {
+    return tag.marks.length ? MermaidBlock.withMarks([]) : tag
+  }
+  if (tag.type === InfographicBlock.type) {
+    return T.CodeBlock.withMarks([T.CodeBlockLanguage.of('infographic')])
+  }
+  return tag
+}
+
+function downgradeKnowledgeNode(node: Node): Node {
+  if (node.isLeaf) return node
+  const tag = downgradeKnowledgeTag(node.tag)
+  const content = node.content.map(downgradeKnowledgeNode)
+  return tag === node.tag && content.every((child, i) => child === node.content[i]) ? node : tag.create(content)
+}
+
+/**
+ * Downgrade cross-page diagram nodes pasted into a knowledge editor so display-only Mermaid marks
+ * are stripped and `<infographic>` blocks become `<pre lang="infographic">` preserving source text.
+ */
+export function downgradeKnowledgeSlice(slice: Slice): Slice {
+  const content = slice.content.map((token): Token => {
+    if (isOpen(token)) return downgradeKnowledgeTag(token)
+    if (isClose(token)) return token
+    return downgradeKnowledgeNode(token as Node)
+  })
+  const context = slice.context.map(downgradeKnowledgeTag)
+  return Slice.of(content, context)
+}
+
 /**
  * Plain text that reads as Markdown beyond plain paragraphs pastes as page content. Plain
  * paragraphs, unknown elements and unreadable Markdown paste as plain text. The core does not ask
  * this parser in code.
  */
-function readMarkdown(text: string): Slice | null {
+function readMarkdown(text: string, state: GardState): Slice | null {
+  const knowledge = isKnowledge(state)
   let page: Element
   try {
-    page = parseMarkdown(text)
+    page = parseMarkdown(text, knowledge ? 'knowledge' : 'doc')
+    if (knowledge) validateKnowledge(page)
   } catch {
     return null
   }
@@ -382,10 +419,11 @@ export const clipboard: GardState.Extension = [
   // Text sources (plain text, Markdown) already choose their edges: they close more plots than
   // they name in the context.
   Wordgard.clipboardInputHTMLFilter.of(wordListHTML),
-  Wordgard.clipboardInputFilter.of((slice, state) =>
-    withoutCommentSlice(
+  Wordgard.clipboardInputFilter.of((slice, state) => {
+    const normalized =
       closedCount(slice.content) > slice.context.length ? slice : normalize(state.schema, slice.content, slice.context)
-    )
-  ),
-  Wordgard.clipboardTextParser.of((text, state) => readBarePageUrl(text, state) ?? readMarkdown(text))
+    const stripped = withoutCommentSlice(normalized)
+    return isKnowledge(state) ? downgradeKnowledgeSlice(stripped) : stripped
+  }),
+  Wordgard.clipboardTextParser.of((text, state) => readBarePageUrl(text, state) ?? readMarkdown(text, state))
 ]

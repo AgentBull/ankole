@@ -230,7 +230,8 @@ fn content(name: &str) -> Content {
             Content::Blocks
         }
         "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "a" | "span" | "comment" => Content::Inline,
-        "pre" | "math" | "mermaid" => Content::Text,
+        "pre" | "math" => Content::Text,
+        tag if super::attributes::is_source_diagram_tag(tag) => Content::Text,
         "hr" | "embed" | "media" | "bookmark" | "img" | "br" | "mention" => Content::Empty,
         "ul" | "ol" => Content::Items,
         "table" => Content::Rows,
@@ -526,8 +527,8 @@ fn flatten(
         if parent == "math" {
             return Err("math can contain text only".into());
         }
-        if parent == "mermaid" && node.name != "comment" {
-            return Err("mermaid can contain text only".into());
+        if super::attributes::is_source_diagram_tag(parent) && node.name != "comment" {
+            return Err(format!("{parent} can contain text only"));
         }
         if !name_valid(&node.name, false) {
             return Err("invalid element name".into());
@@ -700,7 +701,7 @@ fn normalize_inline(
         depth + 1,
         size,
     )?;
-    if parent != "pre" && parent != "math" && parent != "mermaid" {
+    if parent != "pre" && parent != "math" && !super::attributes::is_source_diagram_tag(parent) {
         convert_line_breaks(&mut atoms);
     }
     let mut split = Vec::new();

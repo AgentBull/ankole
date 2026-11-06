@@ -37,11 +37,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { TableWorkspaceModel } from './state/table-workspace'
-import { parseViewConfig, type ViewConfig, type ConfiguredView } from './state/view-config'
-import { useMemo, useRef, useState } from 'react'
+import { isUnconfiguredChartSpec, parseViewConfig, type ViewConfig, type ConfiguredView } from './state/view-config'
+import { deriveDefaultChartSpec, serializeResolvedToViewConfig } from './state/chart-view'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   RiAddLine,
+  RiBarChartBoxLine,
   RiCloseLine,
+  RiEqualizerLine,
   RiFileCopyLine,
   RiGalleryLine,
   RiLayoutColumnLine,
@@ -73,29 +76,41 @@ export const viewLabels: Record<ViewType, string> = {
   },
   get gallery() {
     return t('pod.content.gallery')
+  },
+  get chart() {
+    return t('pod.content.chart', { defaultValue: 'Chart' })
   }
 }
 
-const viewIcons = {
+const viewIcons: Record<ViewType, typeof RiTableLine> = {
   grid: RiTableLine,
   kanban: RiLayoutColumnLine,
-  gallery: RiGalleryLine
+  gallery: RiGalleryLine,
+  chart: RiBarChartBoxLine
 }
 
-type InlineView = { config?: ViewConfig; configure(config: ViewConfig, table?: string): void }
+type EmbedBridge = {
+  inlineConfig?: ViewConfig
+  configureInline?: (config: ViewConfig, table?: string) => void
+  bindSavedView?: (viewID: string, table?: string) => void
+}
 
 export function BasePage({
   detail,
   tableID,
   viewID,
   inlineConfig,
-  configureInline
+  configureInline,
+  bindSavedView,
+  embedded = false
 }: {
   detail: PageDetail
   tableID?: string
   viewID?: string
   inlineConfig?: ViewConfig
   configureInline?: (config: ViewConfig, table?: string) => void
+  bindSavedView?: (viewID: string, table?: string) => void
+  embedded?: boolean
 }) {
   const { base, realtime, readDenial } = useContent()
   const { resolvedTheme } = useTheme()
@@ -121,13 +136,14 @@ export function BasePage({
     }),
     [detail.page.id, detail.page.revision, detail.actions, client, readDenial, base, realtime, theme]
   )
+  const isEmbed = embedded || Boolean(configureInline || inlineConfig || bindSavedView)
   return (
     <AppletRuntimeProvider runtime={runtime}>
       <BaseWorkspace
         detail={detail}
         initialTable={tableID}
         initialView={viewID}
-        inline={configureInline ? { config: inlineConfig, configure: configureInline } : undefined}
+        embed={isEmbed ? { inlineConfig, configureInline, bindSavedView } : undefined}
       />
     </AppletRuntimeProvider>
   )
@@ -143,7 +159,22 @@ function nextTableName(tables: BaseTable[]): string {
   return `${prefix} ${tables.length + 1}`
 }
 
-function sanitizeViewConfig(config: ViewConfig, fields: BaseField[]): ViewConfig {
+export function nextViewName(views: readonly Pick<BaseView, 'name'>[], baseLabel: string): string {
+  const trimmedBase = baseLabel.trim() || 'View'
+  const existing = new Set(views.map(v => v.name.trim()))
+  if (!existing.has(trimmedBase)) return trimmedBase
+  for (let index = 2; index <= views.length + 2; index++) {
+    const candidate = `${trimmedBase} ${index}`
+    if (!existing.has(candidate)) return candidate
+  }
+  return `${trimmedBase} ${views.length + 2}`
+}
+
+export function sanitizeViewConfig(config: ViewConfig, fields: BaseField[], viewType?: ViewType): ViewConfig {
+  if (viewType === 'chart' || config.type === 'chart' || Boolean(config.chart) || Boolean(config.chart_type)) {
+    // Preserve chart field references intact so deleted fields trigger in-place repair instead of silent erasure.
+    return { ...config }
+  }
   const known = new Set(fields.map(field => field.id))
   const primaryID = fields.find(field => field.is_primary)?.id
   const next: ViewConfig = { ...config }
@@ -160,12 +191,12 @@ function BaseWorkspace({
   detail,
   initialTable,
   initialView,
-  inline
+  embed
 }: {
   detail: PageDetail
   initialTable?: string
   initialView?: string
-  inline?: InlineView
+  embed?: EmbedBridge
 }) {
   const { t } = useTranslation()
   const tables = useQuery(baseTablesQuery(detail.page.id))
@@ -186,7 +217,28 @@ function BaseWorkspace({
       tableSaving.current = false
     }
   })
-  const tableID = tables.data?.tables.some(table => table.id === selected) ? selected : tables.data?.tables[0]?.id
+  const explicitMissingTable =
+    Boolean(initialTable) &&
+    Boolean(tables.data) &&
+    selected === initialTable &&
+    !tables.data!.tables.some(table => table.id === selected)
+  const tableID = explicitMissingTable
+    ? undefined
+    : tables.data?.tables.some(table => table.id === selected)
+      ? selected
+      : tables.data?.tables[0]?.id
+  const activeEmbedSchema = useQuery({
+    ...baseSchemaQuery(tableID ?? ''),
+    enabled: Boolean(embed && tableID)
+  })
+  const resolvedEmbedView = embed?.inlineConfig
+    ? undefined
+    : initialView
+      ? activeEmbedSchema.data?.views.find(item => item.id === initialView)
+      : activeEmbedSchema.data?.views[0]
+  const quietSingleChartEmbed = Boolean(
+    embed && (embed.inlineConfig?.type === 'chart' || resolvedEmbedView?.type === 'chart')
+  )
   const remove = useMutation({
     mutationFn: () => baseHTTP.removeTable(tableID!),
     onSuccess: async () => {
@@ -201,79 +253,121 @@ function BaseWorkspace({
   })
   const hasTableActions = detail.actions.includes('node_edit') || detail.actions.includes('node_manage')
   return (
-    <section className="pod-base min-w-0" data-inline={!!inline}>
-      <div className="pod-base-sources" aria-label={t('pod.content.table')}>
-        {tables.data?.tables.map(table =>
-          renaming === table.id ? (
-            <DefinitionName
-              key={table.id}
-              name={table.name}
-              label={t('pod.content.table_name')}
-              invalidateKey={tablesQueryKey}
-              save={name => baseHTTP.renameTable(table.id, name)}
-              close={() => setRenaming(undefined)}
-            />
-          ) : (
-            <div key={table.id} className="inline-flex shrink-0 items-center gap-0.5">
-              <Button
-                size="sm"
-                variant="ghost"
-                className={table.id === tableID ? 'font-semibold' : undefined}
-                aria-pressed={table.id === tableID}
-                onDoubleClick={() => detail.actions.includes('node_edit') && setRenaming(table.id)}
-                onClick={() => {
-                  setSelected(table.id)
-                  inline?.configure({}, table.id)
-                }}>
-                {table.name}
-              </Button>
-              {hasTableActions && table.id === tableID && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    render={<Button size="icon-sm" variant="ghost" aria-label={t('pod.content.table_actions')} />}>
-                    ⋯
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    {detail.actions.includes('node_edit') && (
-                      <DropdownMenuItem onClick={() => setRenaming(table.id)}>
-                        {t('pod.sidebar.rename')}
-                      </DropdownMenuItem>
-                    )}
-                    {detail.actions.includes('node_manage') && (
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onClick={() => {
-                          remove.reset()
-                          setDeleting(true)
-                        }}>
-                        {t('pod.content.delete_table')}
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
-            </div>
-          )
-        )}
-        {detail.actions.includes('node_edit') && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={create.isPending}
-            onClick={() => {
-              if (!tableSaving.current) {
-                tableSaving.current = true
-                create.mutate()
-              }
-            }}>
-            {t('pod.content.table_2')}
-          </Button>
-        )}
-      </div>
+    <section className="pod-base min-w-0" data-inline={!!embed} data-quiet-chart={quietSingleChartEmbed || undefined}>
+      {!quietSingleChartEmbed && !explicitMissingTable && (
+        <div className="pod-base-sources" aria-label={t('pod.content.table')}>
+          {tables.data?.tables.map(table =>
+            renaming === table.id ? (
+              <DefinitionName
+                key={table.id}
+                name={table.name}
+                label={t('pod.content.table_name')}
+                invalidateKey={tablesQueryKey}
+                save={name => baseHTTP.renameTable(table.id, name)}
+                close={() => setRenaming(undefined)}
+              />
+            ) : (
+              <div key={table.id} className="inline-flex shrink-0 items-center gap-0.5">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className={table.id === tableID ? 'font-semibold' : undefined}
+                  aria-pressed={table.id === tableID}
+                  onDoubleClick={() => detail.actions.includes('node_edit') && setRenaming(table.id)}
+                  onClick={() => {
+                    setSelected(table.id)
+                    if (embed?.inlineConfig && embed.configureInline) {
+                      embed.configureInline({ type: embed.inlineConfig.type ?? 'grid' }, table.id)
+                    } else if (embed?.bindSavedView) {
+                      embed.bindSavedView('', table.id)
+                    }
+                  }}>
+                  {table.name}
+                </Button>
+                {hasTableActions && table.id === tableID && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={<Button size="icon-sm" variant="ghost" aria-label={t('pod.content.table_actions')} />}>
+                      ⋯
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      {detail.actions.includes('node_edit') && (
+                        <DropdownMenuItem onClick={() => setRenaming(table.id)}>
+                          {t('pod.sidebar.rename')}
+                        </DropdownMenuItem>
+                      )}
+                      {detail.actions.includes('node_manage') && (
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => {
+                            remove.reset()
+                            setDeleting(true)
+                          }}>
+                          {t('pod.content.delete_table')}
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
+            )
+          )}
+          {detail.actions.includes('node_edit') && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={create.isPending}
+              onClick={() => {
+                if (!tableSaving.current) {
+                  tableSaving.current = true
+                  create.mutate()
+                }
+              }}>
+              {t('pod.content.table_2')}
+            </Button>
+          )}
+        </div>
+      )}
       <ContentError error={tables.error} retry={() => void tables.refetch()} />
       <ContentError error={create.error} />
       {tables.isPending ? (
         <p role="status">{t('pod.content.loading_tables')}</p>
+      ) : explicitMissingTable ? (
+        <div
+          role="alert"
+          data-slot="missing-embed-table"
+          className="space-y-2 rounded-control border border-border bg-layer-01 p-4 text-sm">
+          <p className="font-medium text-foreground">
+            {t('pod.content.embed_bound_table_missing', {
+              defaultValue: 'The bound table was deleted or is inaccessible.'
+            })}
+          </p>
+          {Boolean(embed?.configureInline || embed?.bindSavedView) && (tables.data?.tables.length ?? 0) > 0 && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-xs text-fg-secondary">
+                {t('pod.content.rebind_embed_table', { defaultValue: 'Rebind to table:' })}
+              </span>
+              {tables.data!.tables.map(candidate => (
+                <Button
+                  key={candidate.id}
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setSelected(candidate.id)
+                    if (embed?.inlineConfig && embed.configureInline) {
+                      embed.configureInline({ type: embed.inlineConfig.type ?? 'chart' }, candidate.id)
+                    } else if (embed?.bindSavedView) {
+                      embed.bindSavedView('', candidate.id)
+                    } else if (embed?.configureInline) {
+                      embed.configureInline({}, candidate.id)
+                    }
+                  }}>
+                  {candidate.name}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
       ) : tableID ? (
         <TableWorkspace
           key={tableID}
@@ -281,7 +375,13 @@ function BaseWorkspace({
           page={detail}
           tables={tables.data!.tables}
           initialView={initialView}
-          inline={inline}
+          embed={embed}
+          onSwitchEmbedTable={nextTableId => {
+            setSelected(nextTableId)
+            if (embed?.inlineConfig && embed.configureInline) {
+              embed.configureInline({ type: embed.inlineConfig.type ?? 'chart' }, nextTableId)
+            }
+          }}
         />
       ) : (
         <p className="py-12 text-sm text-fg-tertiary">
@@ -312,13 +412,15 @@ function TableWorkspace({
   page,
   tables,
   initialView,
-  inline
+  embed,
+  onSwitchEmbedTable
 }: {
   tableID: string
   page: PageDetail
   tables: BaseTable[]
   initialView?: string
-  inline?: InlineView
+  embed?: EmbedBridge
+  onSwitchEmbedTable?(tableID: string): void
 }) {
   const { t } = useTranslation()
   const { base } = useContent()
@@ -337,10 +439,79 @@ function TableWorkspace({
   }
   const newRecordSaving = useRef(false)
   const viewSaving = useRef(false)
+  const inlineDebounceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const pendingInlineFlush = useRef<(() => void) | undefined>(undefined)
+  const chartAutoSaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const pendingChartSave = useRef<{ viewId: string; config: ViewConfig } | undefined>(undefined)
+  const chartSaveInFlight = useRef<Promise<void> | null>(null)
+  const latestViewVersions = useRef<Map<string, number>>(new Map())
+  const flushChartAutoSaveRef = useRef<() => void>(() => {})
+  const [chartAutoSaveError, setChartAutoSaveError] = useState<unknown>(undefined)
   const [renamingView, setRenamingView] = useState<string>()
   const [deletingView, setDeletingView] = useState<BaseView>()
   const [copiedPageID, setCopiedPageID] = useState<string>()
+  const chartControlsId = useId()
   const client = useQueryClient()
+
+  if (schema.data?.views) {
+    for (const v of schema.data.views) {
+      const prev = latestViewVersions.current.get(v.id) ?? 0
+      if (v.version > prev) {
+        latestViewVersions.current.set(v.id, v.version)
+      }
+    }
+  }
+
+  const flushChartAutoSave = () => {
+    if (chartAutoSaveTimer.current) {
+      clearTimeout(chartAutoSaveTimer.current)
+      chartAutoSaveTimer.current = undefined
+    }
+    const payload = pendingChartSave.current
+    if (!payload) return
+    pendingChartSave.current = undefined
+    const execute = async () => {
+      const targetVersion =
+        latestViewVersions.current.get(payload.viewId) ??
+        schema.data?.views.find(v => v.id === payload.viewId)?.version ??
+        0
+      try {
+        const res = await baseHTTP.updateView(payload.viewId, { config: payload.config }, targetVersion)
+        const nextVer =
+          res && typeof res === 'object' && 'view' in res && res.view && typeof res.view.version === 'number'
+            ? res.view.version
+            : targetVersion + 1
+        latestViewVersions.current.set(payload.viewId, nextVer)
+        setChartAutoSaveError(undefined)
+        const activeViewId = model.viewID.value || schema.data?.views[0]?.id
+        if (activeViewId === payload.viewId && !pendingChartSave.current) {
+          model.draft.value = undefined
+        }
+        await client.invalidateQueries({ queryKey: base.key(tableID) })
+      } catch (error) {
+        setChartAutoSaveError(error)
+        await client.invalidateQueries({ queryKey: [...base.key(tableID), 'schema'] })
+      }
+    }
+    const prev = chartSaveInFlight.current ?? Promise.resolve()
+    chartSaveInFlight.current = prev.then(execute, execute)
+  }
+  flushChartAutoSaveRef.current = flushChartAutoSave
+
+  useEffect(() => {
+    return () => {
+      if (inlineDebounceTimer.current) {
+        clearTimeout(inlineDebounceTimer.current)
+        inlineDebounceTimer.current = undefined
+        pendingInlineFlush.current?.()
+        pendingInlineFlush.current = undefined
+      }
+      if (chartAutoSaveTimer.current || pendingChartSave.current) {
+        flushChartAutoSaveRef.current()
+      }
+    }
+  }, [])
+
   const removeView = useMutation({
     mutationFn: (view: BaseView) => baseHTTP.removeView(view.id, view.version),
     onSuccess: async () => {
@@ -349,20 +520,45 @@ function TableWorkspace({
       await client.invalidateQueries({ queryKey: base.key(tableID) })
     }
   })
-  const view = viewID ? schema.data?.views.find(view => view.id === viewID) : schema.data?.views[0]
-  const missingView = !!viewID && !view && !inline?.config
-  const fallback: BaseView = { id: '', name: t('pod.content.grid'), type: 'grid', config: {}, version: 0 }
-  const configuration = parseViewConfig(draft?.config ?? inline?.config ?? view?.config ?? {})
+  const duplicateView = useMutation({
+    mutationFn: (source: BaseView) =>
+      baseHTTP.createView(tableID, {
+        name: nextViewName(schema.data?.views ?? [], source.name),
+        type: source.type,
+        config: source.config
+      }),
+    onSuccess: async ({ view: created }) => {
+      await client.invalidateQueries({ queryKey: base.key(tableID) })
+      model.select(created.id)
+      embed?.bindSavedView?.(created.id, tableID)
+    },
+    onError: error => toast.error(requestErrorMessage(contentError(error)))
+  })
+  const isInlineConfigEmbed = Boolean(embed?.inlineConfig)
+  const canEditDocInline = Boolean(embed?.configureInline)
+  const view = isInlineConfigEmbed
+    ? undefined
+    : viewID
+      ? schema.data?.views.find(view => view.id === viewID)
+      : schema.data?.views[0]
+  const missingView = !!viewID && !view && !isInlineConfigEmbed
+  const effectiveType: ViewType = isInlineConfigEmbed ? (embed!.inlineConfig!.type ?? 'grid') : (view?.type ?? 'grid')
+  const fallback: BaseView = { id: '', name: viewLabels[effectiveType], type: effectiveType, config: {}, version: 0 }
+  const configuration = parseViewConfig(draft?.config ?? embed?.inlineConfig ?? view?.config ?? {})
   const parsedConfig = configuration.success
     ? schema.data
-      ? sanitizeViewConfig(configuration.data, schema.data.fields)
+      ? sanitizeViewConfig(configuration.data, schema.data.fields, effectiveType)
       : configuration.data
     : {}
   const effective: ConfiguredView = {
     ...(view ?? fallback),
-    type: inline?.config ? (inline.config.type ?? 'grid') : (view?.type ?? 'grid'),
+    type: effectiveType,
     config: parsedConfig
   }
+  const [embedControlsOpen, setEmbedControlsOpen] = useState<boolean>(() =>
+    Boolean(isInlineConfigEmbed && isUnconfiguredChartSpec(effective.config))
+  )
+  const quietSingleChartEmbed = Boolean(embed) && effective.type === 'chart'
   const query: RecordQuery = {
     filter: effective.config.filter,
     sort: effective.config.sort,
@@ -378,8 +574,16 @@ function TableWorkspace({
     mutationFn: ({ config, version }: { config: Record<string, unknown>; version: number }) =>
       view
         ? baseHTTP.updateView(view.id, { config }, version)
-        : baseHTTP.createView(tableID, { name: t('pod.content.grid'), type: 'grid', config }),
-    onSuccess: async () => {
+        : baseHTTP.createView(tableID, {
+            name: nextViewName(schema.data?.views ?? [], viewLabels[effective.type]),
+            type: effective.type,
+            config
+          }),
+    onSuccess: async res => {
+      if (view && res && typeof res === 'object' && 'view' in res && res.view && typeof res.view.version === 'number') {
+        latestViewVersions.current.set(view.id, res.view.version)
+      }
+      setChartAutoSaveError(undefined)
       await client.invalidateQueries({ queryKey: base.key(tableID) })
       model.draft.value = undefined
     },
@@ -388,14 +592,54 @@ function TableWorkspace({
       viewSaving.current = false
     }
   })
+  const promoteInlineToSavedView = useMutation({
+    mutationFn: () =>
+      baseHTTP.createView(tableID, {
+        name: nextViewName(schema.data?.views ?? [], viewLabels[effective.type]),
+        type: effective.type,
+        config: sanitizeViewConfig(effective.config, schema.data?.fields ?? [], effective.type)
+      }),
+    onSuccess: async ({ view: created }) => {
+      await client.invalidateQueries({ queryKey: base.key(tableID) })
+      model.draft.value = undefined
+      model.select(created.id)
+      embed?.bindSavedView?.(created.id, tableID)
+    },
+    onError: error => toast.error(requestErrorMessage(contentError(error)))
+  })
   const editable = page.actions.includes('node_contribute')
   const schemaEditable = page.actions.includes('node_edit')
+  const canConfigureChart = embed ? canEditDocInline || schemaEditable : schemaEditable
+  const autoSaveChart = !embed && schemaEditable && effective.type === 'chart' && Boolean(view)
   const configure = (config: ViewConfig) => {
     if (viewSaving.current) return
-    const next = schema.data ? sanitizeViewConfig(config, schema.data.fields) : config
+    const next = schema.data ? sanitizeViewConfig(config, schema.data.fields, effective.type) : config
     model.resetPages()
-    if (inline) inline.configure({ ...next, type: effective.type })
-    else model.configure(next, view?.version ?? 0)
+    if (isInlineConfigEmbed && canEditDocInline) {
+      model.configure(next, 0)
+      if (inlineDebounceTimer.current) clearTimeout(inlineDebounceTimer.current)
+      const flush = () => {
+        embed!.configureInline!({ ...next, type: effective.type }, tableID)
+        model.draft.value = undefined
+      }
+      pendingInlineFlush.current = flush
+      inlineDebounceTimer.current = setTimeout(() => {
+        inlineDebounceTimer.current = undefined
+        pendingInlineFlush.current = undefined
+        flush()
+      }, 400)
+    } else if (autoSaveChart && view) {
+      const targetVersion = latestViewVersions.current.get(view.id) ?? view.version
+      model.configure(next, targetVersion)
+      setChartAutoSaveError(undefined)
+      pendingChartSave.current = { viewId: view.id, config: next }
+      if (chartAutoSaveTimer.current) clearTimeout(chartAutoSaveTimer.current)
+      chartAutoSaveTimer.current = setTimeout(() => {
+        flushChartAutoSaveRef.current()
+      }, 600)
+    } else {
+      model.configure(next, view?.version ?? 0)
+    }
   }
   const handleFieldCreated = (fieldID: string) => {
     if (effective.config.visible_fields && !effective.config.visible_fields.includes(fieldID)) {
@@ -408,16 +652,23 @@ function TableWorkspace({
     return (
       <div role="alert" className="space-y-2 p-4">
         <p>{t('pod.content.cannot_display')}</p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            if (missingView) model.select('')
-            if (inline) inline.configure({ type: 'grid' })
-            else if (!missingView) configure({})
-          }}>
-          {t('pod.content.discard_view_changes')}
-        </Button>
+        {(canEditDocInline || !embed || missingView) && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (missingView) {
+                model.select('')
+                embed?.bindSavedView?.('', tableID)
+              } else if (canEditDocInline) {
+                embed!.configureInline!({ type: effective.type === 'chart' ? 'chart' : 'grid' }, tableID)
+              } else {
+                configure({})
+              }
+            }}>
+            {t('pod.content.discard_view_changes')}
+          </Button>
+        )}
       </div>
     )
   }
@@ -429,181 +680,306 @@ function TableWorkspace({
     view: effective,
     editable,
     schemaEditable,
+    canConfigureChart,
+    chartControlsOpen: embed ? embedControlsOpen : true,
+    chartControlsId,
     configure,
     configuring: updateView.isPending,
     onFieldCreated: handleFieldCreated
   }
   const copiedLocation = copiedPageID ? pageHref(copiedPageID) : undefined
+  const showDraftBanner =
+    Boolean(draft) &&
+    !(isInlineConfigEmbed && canEditDocInline) &&
+    !(autoSaveChart && !chartAutoSaveError) &&
+    !quietSingleChartEmbed
+  const currentTableObj = tables.find(item => item.id === tableID)
   return (
     <div className="pod-base-workspace min-w-0">
-      <div className="pod-base-toolbar">
-        <div className="pod-base-view-navigation">
-          <nav aria-label={t('pod.content.data_view')} className="pod-base-views">
-            {schema.data.views.map(item => {
-              const Icon = viewIcons[item.type]
-              if (renamingView === item.id) {
-                return (
-                  <DefinitionName
-                    key={item.id}
-                    name={item.name}
-                    label={t('pod.content.view_name')}
-                    invalidateKey={base.key(tableID)}
-                    save={name => baseHTTP.updateView(item.id, { name }, item.version)}
-                    close={() => setRenamingView(undefined)}
-                  />
-                )
-              }
-              const active = item.id === effective.id
-              return (
-                <div key={item.id} className="inline-flex shrink-0 items-center gap-0.5">
-                  <Button
-                    size="sm"
-                    variant={active ? 'outline' : 'ghost'}
-                    className="pod-base-view"
-                    aria-pressed={active}
-                    disabled={updateView.isPending}
-                    onDoubleClick={() => schemaEditable && setRenamingView(item.id)}
-                    onClick={() => {
-                      model.select(item.id)
-                      if (inline) {
-                        const config = parseViewConfig(item.config)
-                        if (config.success) inline.configure({ ...config.data, type: item.type })
-                      }
-                      model.draft.value = undefined
-                      updateView.reset()
-                      setNewRecord(false)
-                      model.resetPages()
-                    }}>
-                    <Icon aria-hidden="true" />
-                    <span>{item.name}</span>
-                  </Button>
-                  {schemaEditable && active && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={<Button size="icon-sm" variant="ghost" aria-label={t('pod.content.view_actions')} />}>
-                        ⋯
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => setRenamingView(item.id)}>
-                          {t('pod.sidebar.rename')}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          variant="destructive"
-                          disabled={schema.data.views.length <= 1}
-                          onClick={() => {
-                            removeView.reset()
-                            setDeletingView(item)
-                          }}>
-                          {t('pod.content.delete_view')}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                </div>
-              )
-            })}
-          </nav>
-          {schemaEditable && (
-            <CreateViewButton
-              tableID={tableID}
-              fields={schema.data.fields}
-              onCreated={id => {
-                model.select(id)
-              }}
-            />
-          )}
-        </div>
-        <div className="pod-base-tools">
-          <QueryControls
-            pageID={page.page.id}
-            fields={schema.data.fields}
-            filter={query.filter}
-            sort={query.sort}
-            disabled={updateView.isPending}
-            update={(filter, sort) => configure({ ...effective.config, filter, sort })}
-          />
-          <Popover>
-            <PopoverTrigger render={<Button size="sm" variant="outline" />}>{t('pod.content.fields')}</PopoverTrigger>
-            <PopoverContent
-              align="end"
-              collisionPadding={16}
-              className="max-h-[min(24rem,calc(var(--available-height)-0.5rem))] w-64 gap-2 overflow-hidden p-3">
-              <PopoverTitle className="shrink-0">{t('pod.content.fields')}</PopoverTitle>
-              <div className="min-h-0 flex-1 grid gap-1 overflow-y-auto">
-                {schema.data.fields.map(field => {
-                  const Icon = fieldIcons[field.type]
-                  const checked =
-                    field.is_primary ||
-                    !effective.config.visible_fields ||
-                    effective.config.visible_fields.includes(field.id)
+      {(!quietSingleChartEmbed || canConfigureChart) && (
+        <div className="pod-base-toolbar">
+          {quietSingleChartEmbed ? (
+            <div className="pod-base-view-navigation gap-2">
+              {isInlineConfigEmbed && canEditDocInline && tables.length > 1 && onSwitchEmbedTable ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger render={<Button size="sm" variant="ghost" className="font-medium" />}>
+                    {currentTableObj?.name ?? t('pod.content.table')} ▾
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    {tables.map(candidate => (
+                      <DropdownMenuItem key={candidate.id} onClick={() => onSwitchEmbedTable(candidate.id)}>
+                        {candidate.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : currentTableObj ? (
+                <span className="px-1.5 text-xs font-medium text-fg-secondary">{currentTableObj.name}</span>
+              ) : null}
+              {!isInlineConfigEmbed && view && (
+                <span
+                  data-slot="linked-chart-badge"
+                  className="rounded-mini bg-layer-01 px-1.5 py-0.5 text-xs text-fg-secondary">
+                  {t('pod.content.linked_view_badge', {
+                    defaultValue: 'Linked · {$name}',
+                    name: view.name
+                  })}
+                </span>
+              )}
+              {isInlineConfigEmbed && schemaEditable && embed?.bindSavedView && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={promoteInlineToSavedView.isPending}
+                  onClick={() => promoteInlineToSavedView.mutate()}>
+                  {t('pod.content.save_as_shared_view', { defaultValue: 'Save as shared view' })}
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="pod-base-view-navigation">
+              <nav aria-label={t('pod.content.data_view')} className="pod-base-views">
+                {schema.data.views.map(item => {
+                  const Icon = viewIcons[item.type]
+                  if (renamingView === item.id) {
+                    return (
+                      <DefinitionName
+                        key={item.id}
+                        name={item.name}
+                        label={t('pod.content.view_name')}
+                        invalidateKey={base.key(tableID)}
+                        save={name => baseHTTP.updateView(item.id, { name }, item.version)}
+                        close={() => setRenamingView(undefined)}
+                      />
+                    )
+                  }
+                  const active = !isInlineConfigEmbed && item.id === effective.id
                   return (
-                    <div
-                      key={field.id}
-                      className="flex items-center gap-1 rounded-control px-1.5 py-1 hover:bg-accent/60">
-                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm">
-                        <Checkbox
-                          checked={checked}
-                          disabled={field.is_primary || updateView.isPending}
-                          onCheckedChange={next => {
-                            const visible = effective.config.visible_fields
-                              ? schema
-                                  .data!.fields.filter(
-                                    item => item.is_primary || effective.config.visible_fields!.includes(item.id)
-                                  )
-                                  .map(item => item.id)
-                              : schema.data!.fields.map(item => item.id)
-                            configure({
-                              ...effective.config,
-                              visible_fields: next
-                                ? [...new Set([...visible, field.id])]
-                                : visible.filter(id => id !== field.id)
-                            })
-                          }}
-                        />
-                        <Icon aria-hidden="true" className="size-3.5 shrink-0 text-fg-tertiary" />
-                        <span className="truncate">{field.name}</span>
-                      </label>
-                      {schemaEditable && (
-                        <FieldEditorButton
-                          tableID={tableID}
-                          pageID={page.page.id}
-                          tables={tables}
-                          field={field}
-                          canManage={schemaEditable}
-                          iconOnly
-                        />
+                    <div key={item.id} className="inline-flex shrink-0 items-center gap-0.5">
+                      <Button
+                        size="sm"
+                        variant={active ? 'outline' : 'ghost'}
+                        className="pod-base-view"
+                        aria-pressed={active}
+                        disabled={updateView.isPending}
+                        onDoubleClick={() => schemaEditable && setRenamingView(item.id)}
+                        onClick={() => {
+                          flushChartAutoSave()
+                          model.select(item.id)
+                          if (embed?.bindSavedView) {
+                            embed.bindSavedView(item.id, tableID)
+                          } else if (isInlineConfigEmbed && canEditDocInline) {
+                            const config = parseViewConfig(item.config)
+                            if (config.success) embed!.configureInline!({ ...config.data, type: item.type }, tableID)
+                          }
+                          model.draft.value = undefined
+                          updateView.reset()
+                          setNewRecord(false)
+                          model.resetPages()
+                        }}>
+                        <Icon aria-hidden="true" />
+                        <span>{item.name}</span>
+                      </Button>
+                      {schemaEditable && active && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <Button size="icon-sm" variant="ghost" aria-label={t('pod.content.view_actions')} />
+                            }>
+                            ⋯
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuItem onClick={() => setRenamingView(item.id)}>
+                              {t('pod.sidebar.rename')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              disabled={duplicateView.isPending}
+                              onClick={() => duplicateView.mutate(item)}>
+                              {t('pod.content.duplicate_view', { defaultValue: 'Duplicate view' })}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              disabled={schema.data.views.length <= 1}
+                              onClick={() => {
+                                removeView.reset()
+                                setDeletingView(item)
+                              }}>
+                              {t('pod.content.delete_view')}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       )}
                     </div>
                   )
                 })}
-              </div>
+              </nav>
               {schemaEditable && (
-                <div className="shrink-0 border-t border-border pt-2">
-                  <FieldEditorButton
-                    tableID={tableID}
-                    pageID={page.page.id}
-                    tables={tables}
-                    canManage
-                    onCreated={handleFieldCreated}
-                  />
-                </div>
+                <CreateViewButton
+                  tableID={tableID}
+                  fields={schema.data.fields}
+                  views={schema.data.views}
+                  onCreated={id => {
+                    flushChartAutoSave()
+                    model.select(id)
+                    embed?.bindSavedView?.(id, tableID)
+                  }}
+                />
               )}
-            </PopoverContent>
-          </Popover>
-          {editable && (
-            <Button variant="default" size="sm" className="pod-base-new" onClick={() => setNewRecord(true)}>
-              <RiAddLine aria-hidden="true" />
-              {t('pod.content.new_record')}
-            </Button>
+            </div>
           )}
-          <CopyTableButton
-            tableID={tableID}
-            parentID={page.page.parent_id ?? undefined}
-            filter={query.filter}
-            onCopied={setCopiedPageID}
-          />
+          <div className="pod-base-tools">
+            {quietSingleChartEmbed && !isInlineConfigEmbed && draft && (
+              <>
+                {schemaEditable && (
+                  <Button
+                    variant="default"
+                    size="xs"
+                    disabled={updateView.isPending || schema.isFetching}
+                    onClick={() => {
+                      if (viewSaving.current) return
+                      viewSaving.current = true
+                      updateView.mutate({
+                        config: sanitizeViewConfig(draft.config, schema.data.fields, effective.type),
+                        version: updateView.error ? (view?.version ?? 0) : draft.version
+                      })
+                    }}>
+                    {updateView.isPending ? t('pod.content.saving_view') : t('pod.content.save_view_for_everyone')}
+                  </Button>
+                )}
+                {canEditDocInline && (
+                  <Button
+                    variant={schemaEditable ? 'outline' : 'default'}
+                    size="xs"
+                    disabled={updateView.isPending}
+                    onClick={() => {
+                      const next = sanitizeViewConfig(draft.config, schema.data.fields, effective.type)
+                      embed!.configureInline!({ ...next, type: effective.type }, tableID)
+                      model.discard()
+                      updateView.reset()
+                    }}>
+                    {t('pod.content.detach_as_doc_chart', { defaultValue: 'Detach as doc chart' })}
+                  </Button>
+                )}
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={updateView.isPending}
+                  onClick={() => {
+                    model.discard()
+                    updateView.reset()
+                  }}>
+                  {t('pod.content.discard_view_changes')}
+                </Button>
+              </>
+            )}
+            <QueryControls
+              pageID={page.page.id}
+              fields={schema.data.fields}
+              filter={query.filter}
+              sort={query.sort}
+              disabled={updateView.isPending}
+              update={(filter, sort) => configure({ ...effective.config, filter, sort })}
+            />
+            {quietSingleChartEmbed && canConfigureChart && (
+              <Button
+                size="sm"
+                variant={embedControlsOpen ? 'default' : 'outline'}
+                aria-expanded={embedControlsOpen}
+                aria-controls={chartControlsId}
+                onClick={() => setEmbedControlsOpen(prev => !prev)}>
+                <RiEqualizerLine aria-hidden="true" />
+                {t('pod.content.configure_chart', { defaultValue: 'Configure' })}
+              </Button>
+            )}
+            {effective.type !== 'chart' && (
+              <Popover>
+                <PopoverTrigger render={<Button size="sm" variant="outline" />}>
+                  {t('pod.content.fields')}
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  collisionPadding={16}
+                  className="max-h-[min(24rem,calc(var(--available-height)-0.5rem))] w-64 gap-2 overflow-hidden p-3">
+                  <PopoverTitle className="shrink-0">{t('pod.content.fields')}</PopoverTitle>
+                  <div className="min-h-0 flex-1 grid gap-1 overflow-y-auto">
+                    {schema.data.fields.map(field => {
+                      const Icon = fieldIcons[field.type]
+                      const checked =
+                        field.is_primary ||
+                        !effective.config.visible_fields ||
+                        effective.config.visible_fields.includes(field.id)
+                      return (
+                        <div
+                          key={field.id}
+                          className="flex items-center gap-1 rounded-control px-1.5 py-1 hover:bg-accent/60">
+                          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={checked}
+                              disabled={field.is_primary || updateView.isPending}
+                              onCheckedChange={next => {
+                                const visible = effective.config.visible_fields
+                                  ? schema
+                                      .data!.fields.filter(
+                                        item => item.is_primary || effective.config.visible_fields!.includes(item.id)
+                                      )
+                                      .map(item => item.id)
+                                  : schema.data!.fields.map(item => item.id)
+                                configure({
+                                  ...effective.config,
+                                  visible_fields: next
+                                    ? [...new Set([...visible, field.id])]
+                                    : visible.filter(id => id !== field.id)
+                                })
+                              }}
+                            />
+                            <Icon aria-hidden="true" className="size-3.5 shrink-0 text-fg-tertiary" />
+                            <span className="truncate">{field.name}</span>
+                          </label>
+                          {schemaEditable && (
+                            <FieldEditorButton
+                              tableID={tableID}
+                              pageID={page.page.id}
+                              tables={tables}
+                              field={field}
+                              canManage={schemaEditable}
+                              iconOnly
+                            />
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {schemaEditable && (
+                    <div className="shrink-0 border-t border-border pt-2">
+                      <FieldEditorButton
+                        tableID={tableID}
+                        pageID={page.page.id}
+                        tables={tables}
+                        canManage
+                        onCreated={handleFieldCreated}
+                      />
+                    </div>
+                  )}
+                </PopoverContent>
+              </Popover>
+            )}
+            {editable && !quietSingleChartEmbed && (
+              <Button variant="default" size="sm" className="pod-base-new" onClick={() => setNewRecord(true)}>
+                <RiAddLine aria-hidden="true" />
+                {t('pod.content.new_record')}
+              </Button>
+            )}
+            {!quietSingleChartEmbed && (
+              <CopyTableButton
+                tableID={tableID}
+                parentID={page.page.parent_id ?? undefined}
+                filter={query.filter}
+                onCopied={setCopiedPageID}
+              />
+            )}
+          </div>
         </div>
-      </div>
+      )}
       {copiedLocation && (
         <div className="mt-2 flex items-center justify-between gap-2 rounded-control border border-border bg-muted/50 px-3 py-2 text-sm">
           <p role="status">
@@ -623,14 +999,14 @@ function TableWorkspace({
           </Button>
         </div>
       )}
-      {draft && !inline && (
+      {showDraftBanner && draft && (
         <div className="pod-base-draft flex flex-wrap items-center gap-2 p-2 text-sm">
           <p role="status">
-            {schemaEditable
+            {(!isInlineConfigEmbed && schemaEditable) || (!isInlineConfigEmbed && canEditDocInline)
               ? t('pod.content.view_settings_have_not_been_saved')
               : t('pod.content.filters_and_layout_apply_only_to_this_preview')}
           </p>
-          {schemaEditable && (
+          {!isInlineConfigEmbed && schemaEditable && (
             <Button
               variant="default"
               size="sm"
@@ -639,15 +1015,29 @@ function TableWorkspace({
                 if (viewSaving.current) return
                 viewSaving.current = true
                 updateView.mutate({
-                  config: sanitizeViewConfig(draft.config, schema.data.fields),
-                  version: updateView.error ? (view?.version ?? 0) : draft.version
+                  config: sanitizeViewConfig(draft.config, schema.data.fields, effective.type),
+                  version: updateView.error || chartAutoSaveError ? (view?.version ?? 0) : draft.version
                 })
               }}>
               {updateView.isPending
                 ? t('pod.content.saving_view')
-                : updateView.error
+                : updateView.error || chartAutoSaveError
                   ? t('pod.content.save_these_settings_to_the_latest_view')
                   : t('pod.content.save_view_for_everyone')}
+            </Button>
+          )}
+          {!isInlineConfigEmbed && canEditDocInline && (
+            <Button
+              variant={schemaEditable ? 'outline' : 'default'}
+              size="sm"
+              disabled={updateView.isPending}
+              onClick={() => {
+                const next = sanitizeViewConfig(draft.config, schema.data.fields, effective.type)
+                embed!.configureInline!({ ...next, type: effective.type }, tableID)
+                model.discard()
+                updateView.reset()
+              }}>
+              {t('pod.content.save_inline_copy_in_doc', { defaultValue: 'Save as inline copy in document' })}
             </Button>
           )}
           <Button
@@ -655,6 +1045,7 @@ function TableWorkspace({
             variant="ghost"
             disabled={updateView.isPending}
             onClick={() => {
+              setChartAutoSaveError(undefined)
               model.discard()
               updateView.reset()
             }}>
@@ -662,9 +1053,11 @@ function TableWorkspace({
           </Button>
         </div>
       )}
-      {effective.type === 'kanban' ? (
+      {effective.type === 'kanban' || effective.type === 'chart' ? (
         <>
-          <ContentError error={writes.write.error || updateView.error || stats.error || schema.error} />
+          <ContentError
+            error={writes.write.error || updateView.error || chartAutoSaveError || stats.error || schema.error}
+          />
           <div className="pod-base-content min-w-0">
             <ErrorBoundary variant="panel" resetKeys={[tableID, effective.id, effective.type]}>
               <BaseViewContent
@@ -678,17 +1071,21 @@ function TableWorkspace({
               />
             </ErrorBoundary>
           </div>
-          <p className="pod-base-status text-xs text-fg-tertiary" role="status">
-            {stats.isPending
-              ? t('pod.content.loading_records')
-              : t('pod.content.records', {
-                  value1: stats.data?.groups[0]?.metrics.count ?? 0
-                })}
-            {writes.write.isPending ? t('pod.content.saving_2') : ''}
-          </p>
-          <ErrorBoundary fallback={null} resetKeys={[tableID]}>
-            <BaseSummary tableID={tableID} fields={schema.data.fields} filter={query.filter} />
-          </ErrorBoundary>
+          {!quietSingleChartEmbed && (
+            <p className="pod-base-status text-xs text-fg-tertiary" role="status">
+              {stats.isPending
+                ? t('pod.content.loading_records')
+                : t('pod.content.records', {
+                    value1: stats.data?.groups[0]?.metrics.count ?? 0
+                  })}
+              {writes.write.isPending ? t('pod.content.saving_2') : ''}
+            </p>
+          )}
+          {effective.type !== 'chart' && (
+            <ErrorBoundary fallback={null} resetKeys={[tableID]}>
+              <BaseSummary tableID={tableID} fields={schema.data.fields} filter={query.filter} />
+            </ErrorBoundary>
+          )}
         </>
       ) : (
         <UngroupedWorkspaceBody
@@ -905,10 +1302,12 @@ function DefinitionName({
 function CreateViewButton({
   tableID,
   fields,
+  views,
   onCreated
 }: {
   tableID: string
   fields: BaseField[]
+  views: BaseView[]
   onCreated(id: string): void
 }) {
   const { t } = useTranslation()
@@ -918,10 +1317,16 @@ function CreateViewButton({
     mutationFn: (type: ViewType) => {
       const group =
         type === 'kanban' ? fields.find(field => field.type === 'select' && !field.config.multiple) : undefined
+      const initialConfig: Record<string, unknown> =
+        type === 'chart'
+          ? serializeResolvedToViewConfig({}, deriveDefaultChartSpec(fields))
+          : group
+            ? { group_field_id: group.id }
+            : {}
       return baseHTTP.createView(tableID, {
-        name: viewLabels[type],
+        name: nextViewName(views, viewLabels[type]),
         type,
-        config: group ? { group_field_id: group.id } : {}
+        config: initialConfig
       })
     },
     onSuccess: async ({ view }) => {

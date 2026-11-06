@@ -686,7 +686,7 @@ export type PodBaseViewType = {
   /**
    * Field included by default.
    */
-  type: 'grid' | 'kanban' | 'gallery'
+  type: 'grid' | 'kanban' | 'gallery' | 'chart'
   /**
    * Field included by default.
    */
@@ -1053,7 +1053,7 @@ export type PodBaseView = {
     /**
      * Field included by default.
      */
-    type: 'grid' | 'kanban' | 'gallery'
+    type: 'grid' | 'kanban' | 'gallery' | 'chart'
     /**
      * Field included by default.
      */
@@ -2551,10 +2551,21 @@ export type PodBaseQueryData = {
         conjunction: 'and' | 'or'
       } | null
       group?: {
+        bucket?: 'day' | 'week' | 'month' | 'quarter' | 'year' | null
+        cumulative_from_json?: string | null
         field_id: string
+        other_exclude_values_json?: Array<string> | null
         value?: unknown | null
         value_json?: string | null
       } | null
+      groups?: Array<{
+        bucket?: 'day' | 'week' | 'month' | 'quarter' | 'year' | null
+        cumulative_from_json?: string | null
+        field_id: string
+        other_exclude_values_json?: Array<string> | null
+        value?: unknown | null
+        value_json?: string | null
+      }> | null
       ids?: Array<string> | null
       local?: boolean | null
       page_size?: number | null
@@ -5749,8 +5760,19 @@ export type PodBaseAggregateData = {
       metrics: Array<{
         alias: string
         field_id?: string | null
-        operation: 'count' | 'sum' | 'avg' | 'min' | 'max'
+        operation: 'count' | 'count_distinct' | 'sum' | 'avg' | 'min' | 'max'
       }>
+      omit_empty?: boolean | null
+      order_by?: Array<{
+        direction?: 'asc' | 'desc' | null
+        group_index?: number | null
+        metric_alias?: string | null
+      }> | null
+      top_n?: {
+        include_other?: boolean | null
+        limit: number
+        target_group_index?: number | null
+      } | null
     }
   }
   path: {
@@ -5787,6 +5809,10 @@ export type PodBaseAggregateResponses = {
               [key: string]: unknown
             }
       }
+      metrics_text: {
+        [key: string]: string | null
+      }
+      other: Array<boolean>
       value_json: Array<string | null>
       values: Array<
         | string
@@ -8818,7 +8844,7 @@ export type PodBaseViewCreateData = {
       } | null
       name?: string | null
       position?: string | null
-      type?: 'grid' | 'kanban' | 'gallery' | null
+      type?: 'grid' | 'kanban' | 'gallery' | 'chart' | null
     }
   }
   path: {
@@ -9170,7 +9196,7 @@ export type PodBaseViewUpdateData = {
       } | null
       name?: string | null
       position?: string | null
-      type?: 'grid' | 'kanban' | 'gallery' | null
+      type?: 'grid' | 'kanban' | 'gallery' | 'chart' | null
       version: number
     }
   }

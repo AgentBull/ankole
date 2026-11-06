@@ -50,7 +50,12 @@ const trees = [
 
 const read = (source: string) => fromMarkdown(source, { extensions: syntax, mdastExtensions: trees })
 
-export function parseMarkdown(source: string): Element {
+export type MarkdownMode = 'doc' | 'knowledge'
+
+const isActiveDiagramFence = (lang: string, mode: MarkdownMode) =>
+  lang === 'mermaid' || (mode === 'doc' && lang === 'infographic')
+
+export function parseMarkdown(source: string, mode: 'doc' | 'knowledge' = 'doc'): Element {
   checkSource(source, 'markdown')
   let prepared: PreparedSource = { source, original: offset => offset }
   let root: Root
@@ -67,7 +72,7 @@ export function parseMarkdown(source: string): Element {
   }
   const positions = new WeakMap<Node, [number, number]>()
   try {
-    return normalizeTree(readMdast(root, positions))
+    return normalizeTree(readMdast(root, positions, mode))
   } catch (error) {
     if (!(error instanceof TreeError)) throw error
     const range = (error.node && positions.get(error.node)) ?? [0, prepared.source.length]
@@ -160,7 +165,7 @@ function offsetAt(source: string, line: number, column: number) {
 }
 
 /** Read Markdown syntax into a page tree. Tags written alone in a paragraph become block elements. */
-function readMdast(root: Root, positions: WeakMap<Node, [number, number]>): Element {
+function readMdast(root: Root, positions: WeakMap<Node, [number, number]>, mode: MarkdownMode): Element {
   const definitions = new Map<string, Definition>()
   ;(function collect(node: Nodes) {
     if (node.type === 'definition' && !definitions.has(node.identifier)) definitions.set(node.identifier, node)
@@ -200,7 +205,14 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>): Elem
           )
         ]
       case 'code':
-        return [at(node.lang === 'mermaid' && node.meta == null ? mermaidBlock(node) : codeBlock(node), node)]
+        return [
+          at(
+            node.meta == null && node.lang != null && isActiveDiagramFence(node.lang, mode)
+              ? diagramBlock(node.lang, node)
+              : codeBlock(node),
+            node
+          )
+        ]
       case 'math':
         return [at(mathBlock(node), node)]
       case 'table':
@@ -229,8 +241,8 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>): Elem
     return element('math', {}, node.value ? [text(node.value)] : [])
   }
 
-  function mermaidBlock(node: Code): Element {
-    return element('mermaid', {}, node.value ? [text(node.value)] : [])
+  function diagramBlock(tag: string, node: Code): Element {
+    return element(tag, {}, node.value ? [text(node.value)] : [])
   }
 
   function listItem(item: ListItem): Element {
@@ -354,8 +366,8 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>): Elem
       created.children =
         node.name === 'math'
           ? mathTag(node, created)
-          : node.name === 'mermaid'
-            ? mermaidTag(node, created)
+          : node.name === 'mermaid' || node.name === 'infographic'
+            ? diagramTag(node, created, node.name)
             : codeTag(node, created)
     } else if ((rule && (rule.content === 'inline' || rule.content === 'empty')) || (!rule && inlineTags(node))) {
       created.children = inlineTag(node, created)
@@ -414,18 +426,18 @@ function readMdast(root: Root, positions: WeakMap<Node, [number, number]>): Elem
     return mathBlock(formula).children
   }
 
-  // A block tag of <mermaid> holds one fenced Mermaid block.
-  function mermaidTag(node: MdxJsxFlowElement, created: Element): Node[] {
+  // A block tag of <mermaid> or <infographic> holds one fenced diagram block.
+  function diagramTag(node: MdxJsxFlowElement, created: Element, lang: 'mermaid' | 'infographic'): Node[] {
     if (!node.children.length) return []
     const [fence, ...rest] = node.children
-    if (rest.length || fence?.type !== 'code' || fence.lang !== 'mermaid') {
+    if (rest.length || fence?.type !== 'code' || fence.lang !== lang) {
       throw new TreeError(
-        `<${created.name}> 只能包含一个 mermaid 代码围栏`,
+        `<${created.name}> 只能包含一个 ${lang} 代码围栏`,
         created,
-        '请把源码写在 ```mermaid 围栏里。'
+        `请把源码写在 \`\`\`${lang} 围栏里。`
       )
     }
-    return mermaidBlock(fence).children
+    return diagramBlock(lang, fence).children
   }
 
   function attributes(node: MdxJsxFlowElement | MdxJsxTextElement, created: Element): Record<string, string> {
@@ -470,12 +482,12 @@ const printOptions: Options = {
 }
 
 /** Print portable content; live comment anchors remain in canonical XML only. */
-export function printMarkdown(tree: Element): string {
+export function printMarkdown(tree: Element, mode: 'doc' | 'knowledge' = 'doc'): string {
   const page = normalizeTree(stripComments(tree))
-  const source = toMarkdown(toMdast(page), printOptions).replace(/\n+$/, '')
+  const source = toMarkdown(toMdast(page, mode), printOptions).replace(/\n+$/, '')
   let reread: Element | undefined
   try {
-    reread = parseMarkdown(source)
+    reread = parseMarkdown(source, mode)
   } catch (error) {
     throw new Error(`规范 Markdown 无法读回：${error instanceof Error ? error.message : String(error)}`)
   }
@@ -484,14 +496,14 @@ export function printMarkdown(tree: Element): string {
 }
 
 /** Choose Markdown syntax where it holds the element exactly, and a tag everywhere else. */
-export function toMdast(page: Element): Root {
-  return { type: 'root', children: page.children.map(block) }
+export function toMdast(page: Element, mode: 'doc' | 'knowledge' = 'doc'): Root {
+  return { type: 'root', children: page.children.map(child => block(child, mode)) }
 }
 
 const plain = (node: Element) => Object.keys(node.attrs).length === 0
 const elements = (node: Element) => node.children as Element[]
 
-function block(node: Node): RootContent {
+function block(node: Node, mode: MarkdownMode): RootContent {
   if (node.type === 'text') throw new Error('normalized pages have no text at block level')
   switch (node.name) {
     case 'p':
@@ -507,36 +519,54 @@ function block(node: Node): RootContent {
         : single(node)
     case 'blockquote':
       return plain(node)
-        ? { type: 'blockquote', children: node.children.map(block) as BlockContent[] }
-        : flow(node, node.children.map(block))
+        ? { type: 'blockquote', children: node.children.map(child => block(child, mode)) as BlockContent[] }
+        : flow(
+            node,
+            node.children.map(child => block(child, mode))
+          )
     case 'ul':
     case 'ol':
       return (
-        list(node) ??
+        list(node, mode) ??
         flow(
           node,
-          elements(node).map(item => flow(item, item.children.map(block)))
+          elements(node).map(item =>
+            flow(
+              item,
+              item.children.map(child => block(child, mode))
+            )
+          )
         )
       )
     case 'pre':
-      return fence(node) ?? flow(node, [{ type: 'code', lang: null, meta: null, value: textOf(node) }])
+      return fence(node, mode) ?? flow(node, [{ type: 'code', lang: null, meta: null, value: textOf(node) }])
     case 'math':
       return mathMdast(node)
     case 'mermaid':
-      return mermaidMdast(node)
+    case 'infographic':
+      return diagramMdast(node, mode)
     case 'hr':
       return plain(node) ? { type: 'thematicBreak' } : flow(node, [])
     case 'table':
-      return gfmTable(node) ?? flow(node, elements(node).map(row))
+      return (
+        gfmTable(node) ??
+        flow(
+          node,
+          elements(node).map(child => row(child, mode))
+        )
+      )
     default:
       return node.children.every(child => child.type === 'element' && ruleOf(child.name)?.kind !== 'inline')
-        ? flow(node, node.children.map(block))
+        ? flow(
+            node,
+            node.children.map(child => block(child, mode))
+          )
         : single(node)
   }
 }
 
 // Cells that each hold one Markdown paragraph print one cell per line, as people write HTML tables.
-function row(node: Element): MdxJsxFlowElement {
+function row(node: Element, mode: MarkdownMode): MdxJsxFlowElement {
   const cells = elements(node).map(cell => {
     const [content, ...rest] = elements(cell)
     return { cell, line: !rest.length && content?.name === 'p' ? markdownLine(content) : undefined }
@@ -544,7 +574,12 @@ function row(node: Element): MdxJsxFlowElement {
   if (cells.some(({ line }) => !line)) {
     return flow(
       node,
-      cells.map(({ cell }) => flow(cell, cell.children.map(block)))
+      cells.map(({ cell }) =>
+        flow(
+          cell,
+          cell.children.map(child => block(child, mode))
+        )
+      )
     )
   }
   const children: PhrasingContent[] = []
@@ -612,7 +647,7 @@ function tagOf(node: Element): { name: string; attributes: MdxJsxAttribute[] } {
   }
 }
 
-function list(node: Element): List | undefined {
+function list(node: Element, mode: MarkdownMode): List | undefined {
   const ordered = node.name === 'ol'
   if (!node.children.length || Object.keys(node.attrs).some(key => !(ordered && key === 'start'))) return undefined
   const items: ListItem[] = []
@@ -627,7 +662,7 @@ function list(node: Element): List | undefined {
       // which also keep `---` from turning a paragraph into a heading.
       spread: !tightItem(elements(item)),
       checked: item.attrs.task ? item.attrs.task === 'done' : null,
-      children: item.children.map(block) as BlockContent[]
+      children: item.children.map(child => block(child, mode)) as BlockContent[]
     })
   }
   return {
@@ -648,18 +683,19 @@ function mathMdast(node: Element): RootContent {
   return flow(node, value ? [{ type: 'math', value }] : [])
 }
 
-function mermaidMdast(node: Element): RootContent {
+function diagramMdast(node: Element, mode: MarkdownMode): RootContent {
   const value = textOf(node)
-  if (plain(node) && node.children.every(child => child.type === 'text')) {
-    return { type: 'code', lang: 'mermaid', meta: null, value }
+  if (isActiveDiagramFence(node.name, mode) && plain(node) && node.children.every(child => child.type === 'text')) {
+    return { type: 'code', lang: node.name, meta: null, value }
   }
-  return flow(node, [{ type: 'code', lang: 'mermaid', meta: null, value }])
+  return flow(node, [{ type: 'code', lang: node.name, meta: null, value }])
 }
 
-function fence(node: Element): Code | undefined {
+function fence(node: Element, mode: MarkdownMode): Code | undefined {
   const { lang, meta, ...rest } = node.attrs
   if (Object.keys(rest).length) return undefined
   if (lang !== undefined && !/^[^\s`&\\]+$/.test(lang)) return undefined
+  if (meta === undefined && lang !== undefined && isActiveDiagramFence(lang, mode)) return undefined
   if (meta !== undefined && (lang === undefined || !/^[^\s`&\\\r\n](?:[^`&\\\r\n]*[^\s`&\\\r\n])?$/.test(meta))) {
     return undefined
   }

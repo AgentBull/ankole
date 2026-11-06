@@ -8,6 +8,7 @@ import { element } from '../../document/tree'
 import { Attrs, codeNodes, extraAttrs, extraOf, markChange, markSet, markValue } from '../../editor/attributes'
 import type { BlockDefinition } from '../../editor/block'
 import { insertBlock } from '../../editor/block-insert'
+import { isKnowledge } from '../../editor/knowledge-context'
 import { editorPhrases } from '../../editor/phrases'
 import { connectedWidget, toolbarButton as widgetToolbarButton, widgetBlock } from '../../editor/widget'
 import type { PhraseSet } from '../../core/phrases'
@@ -18,6 +19,9 @@ const viewModes = ['both', 'code', 'diagram'] as const
 const themes = ['auto', 'light', 'dark'] as const
 export type MermaidViewMode = (typeof viewModes)[number]
 export type MermaidTheme = (typeof themes)[number]
+export type MermaidThemeMode = MermaidTheme
+
+const isSourceDiagramNode = (node: Node | null | undefined) => node?.name === 'Mermaid' || node?.name === 'Infographic'
 
 /**
  * `mermaid`: an editable Mermaid source block with a rendered preview. The plot holds the source as
@@ -54,7 +58,7 @@ export const openMermaidMenu = Transaction.Effect.define<MermaidMenuState>()
 /** Close the open Mermaid toolbar menu. */
 export const closeMermaidMenu = Transaction.Effect.define<null>()
 
-/** The Mermaid toolbar menu, or null. */
+/** The source-diagram toolbar menu, or null. */
 export const mermaidMenuField = GardState.Field.define<MermaidMenuState | null>({
   create: () => null,
   update(value, tr) {
@@ -63,11 +67,11 @@ export const mermaidMenuField = GardState.Field.define<MermaidMenuState | null>(
       if (effect.is(openMermaidMenu)) next = effect.value
       else if (effect.is(closeMermaidMenu)) next = null
     }
-    return next !== null && tr.state.doc.nodeAt(next.pos)?.type === MermaidBlock.type ? next : null
+    return next !== null && isSourceDiagramNode(tr.state.doc.nodeAt(next.pos)) ? next : null
   }
 })
 
-/** The Mermaid block shown in the expanded dialog, or null. */
+/** The source-diagram block shown in the expanded dialog, or null. */
 export const expandedMermaidField = GardState.Field.define<number | null>({
   create: () => null,
   update(value, tr) {
@@ -76,7 +80,7 @@ export const expandedMermaidField = GardState.Field.define<number | null>({
       if (effect.is(openExpandedMermaid)) pos = effect.value
       else if (effect.is(closeExpandedMermaid)) pos = null
     }
-    return pos !== null && tr.state.doc.nodeAt(pos)?.type === MermaidBlock.type ? pos : null
+    return pos !== null && isSourceDiagramNode(tr.state.doc.nodeAt(pos)) ? pos : null
   }
 })
 
@@ -105,7 +109,7 @@ export const mermaidTemplates: readonly MermaidTemplate[] = [
 ]
 
 function setMermaidMark<V>(editor: Wordgard, pos: number, type: Mark.Type<V>, value: V | null) {
-  if (editor.state.readOnly) return
+  if (editor.state.readOnly || isKnowledge(editor.state)) return
   editor.dispatch({
     changes: markChange(editor.state.doc.nodeAt(pos), pos, type, value),
     effects: closeMermaidMenu.of(null),
@@ -135,7 +139,7 @@ export function applyMermaidTemplate(editor: Wordgard, pos: number, source: stri
   editor.focus()
 }
 
-type MermaidLabels = {
+export type MermaidLabels = {
   template: string
   view: string
   expand: string
@@ -143,10 +147,11 @@ type MermaidLabels = {
   help: string
 }
 
-type MermaidToolbarValue = {
+export type MermaidToolbarValue = {
   view: MermaidViewMode
   theme: MermaidTheme
   readOnly: boolean
+  knowledge: boolean
   labels: MermaidLabels
 }
 
@@ -167,62 +172,70 @@ function mermaidToolbar(value: MermaidToolbarValue): HTMLDivElement {
 
   if (!value.readOnly) {
     bar.append(toolbarButton(value.labels.template, value.labels.template, 'template'))
-    bar.append(toolbarButton(value.labels.view, value.labels.view, 'view'))
+    if (!value.knowledge) bar.append(toolbarButton(value.labels.view, value.labels.view, 'view'))
   }
   bar.append(toolbarButton(value.labels.expand, value.labels.expand, 'expand'))
-  if (!value.readOnly) bar.append(toolbarButton(value.labels.theme, value.labels.theme, 'theme'))
+  if (!value.readOnly && !value.knowledge) bar.append(toolbarButton(value.labels.theme, value.labels.theme, 'theme'))
   bar.append(toolbarButton(value.labels.help, value.labels.help, 'help'))
   return bar
 }
 
-const mermaidToolbarWidget = connectedWidget<MermaidToolbarValue, HTMLDivElement>({
-  render: value => mermaidToolbar(value),
-  connect: (_value, bar, editor) => {
-    const find = () => {
-      const found = widgetBlock(editor, bar)
-      return found?.node.type === MermaidBlock.type ? found.pos : null
-    }
-    const mouseDown = (event: MouseEvent) => {
-      if ((event.target as Element | null)?.closest('[data-mermaid-action]')) event.preventDefault()
-    }
-    const click = (event: MouseEvent) => {
-      const target = (event.target as Element | null)?.closest<HTMLElement>('[data-mermaid-action]')
-      if (!target) return
-      event.preventDefault()
-      const action = target.dataset.mermaidAction
-      const pos = find()
-      if (pos === null) return
-      if (action === 'help') {
-        window.open('https://mermaid.js.org/syntax/flowchart.html', '_blank', 'noopener,noreferrer')
-        return
+export function createDiagramToolbarWidget(nodeType: Node.Type, helpUrl: string) {
+  return connectedWidget<MermaidToolbarValue, HTMLDivElement>({
+    render: value => mermaidToolbar(value),
+    connect: (_value, bar, editor) => {
+      const find = () => {
+        const found = widgetBlock(editor, bar)
+        return found?.node.type === nodeType ? found.pos : null
       }
-      if (action === 'expand') {
-        const open = editor.state.field(expandedMermaidField, false) === pos
-        editor.dispatch({ effects: open ? closeExpandedMermaid.of(null) : openExpandedMermaid.of(pos) })
-        return
+      const mouseDown = (event: MouseEvent) => {
+        if ((event.target as Element | null)?.closest('[data-mermaid-action]')) event.preventDefault()
       }
-      if (action === 'template' || action === 'view' || action === 'theme') {
-        const kind = action as MermaidMenuKind
-        const current = editor.state.field(mermaidMenuField, false)
-        editor.dispatch({
-          effects:
-            current?.pos === pos && current.kind === kind
-              ? closeMermaidMenu.of(null)
-              : openMermaidMenu.of({ pos, kind })
-        })
+      const click = (event: MouseEvent) => {
+        const target = (event.target as Element | null)?.closest<HTMLElement>('[data-mermaid-action]')
+        if (!target) return
+        event.preventDefault()
+        const action = target.dataset.mermaidAction
+        const pos = find()
+        if (pos === null) return
+        if (action === 'help') {
+          window.open(helpUrl, '_blank', 'noopener,noreferrer')
+          return
+        }
+        if (action === 'expand') {
+          const open = editor.state.field(expandedMermaidField, false) === pos
+          editor.dispatch({ effects: open ? closeExpandedMermaid.of(null) : openExpandedMermaid.of(pos) })
+          return
+        }
+        if (action === 'template' || action === 'view' || action === 'theme') {
+          const kind = action as MermaidMenuKind
+          if (isKnowledge(editor.state) && kind !== 'template') return
+          const current = editor.state.field(mermaidMenuField, false)
+          editor.dispatch({
+            effects:
+              current?.pos === pos && current.kind === kind
+                ? closeMermaidMenu.of(null)
+                : openMermaidMenu.of({ pos, kind })
+          })
+        }
       }
-    }
-    bar.addEventListener('mousedown', mouseDown)
-    bar.addEventListener('click', click)
-    return () => {
-      bar.removeEventListener('mousedown', mouseDown)
-      bar.removeEventListener('click', click)
-    }
-  },
-  propagateEvent: false
-})
+      bar.addEventListener('mousedown', mouseDown)
+      bar.addEventListener('click', click)
+      return () => {
+        bar.removeEventListener('mousedown', mouseDown)
+        bar.removeEventListener('click', click)
+      }
+    },
+    propagateEvent: false
+  })
+}
 
-const mermaidGutterWidget = Widget.create({
+const mermaidToolbarWidget = createDiagramToolbarWidget(
+  MermaidBlock.type,
+  'https://mermaid.js.org/syntax/flowchart.html'
+)
+
+export const diagramGutterWidget = Widget.create({
   render: () => {
     const gutter = document.createElement('div')
     gutter.className = 'mermaid-gutter'
@@ -231,7 +244,7 @@ const mermaidGutterWidget = Widget.create({
   }
 })
 
-const mermaidPreviewWidget = Widget.create({
+export const diagramPreviewWidget = Widget.create({
   render: () => {
     const preview = document.createElement('div')
     preview.className = 'mermaid-preview'
@@ -246,7 +259,7 @@ type BlockView = {
   scroll?: { source: HTMLElement; remove: () => void }
 }
 
-function lineNumbers(count: number): string {
+export function diagramLineNumbers(count: number): string {
   return Array.from({ length: Math.max(1, count) }, (_, index) => String(index + 1)).join('\n')
 }
 
@@ -290,7 +303,7 @@ const mermaidViewsPlugin = Wordgard.Plugin.define(
           const lines = source ? source.split('\n').length : 1
           if (entry.lines !== lines || !gutter.textContent) {
             entry.lines = lines
-            gutter.textContent = lineNumbers(lines)
+            gutter.textContent = diagramLineNumbers(lines)
             gutter.style.setProperty('--mermaid-gutter-width', String(String(lines).length))
           }
           gutter.scrollTop = sourceElement?.scrollTop ?? 0
@@ -354,13 +367,14 @@ export const mermaid: BlockDefinition = {
         help: editorPhrases.get(state, 'mermaid_help')
       }
       const readOnly = state.readOnly
+      const knowledge = isKnowledge(state)
       return tag => {
-        const view = tag.mark(MermaidView) ?? 'both'
-        const theme = tag.mark(MermaidTheme) ?? 'auto'
+        const view = knowledge ? 'both' : (tag.mark(MermaidView) ?? 'both')
+        const theme = knowledge ? 'auto' : (tag.mark(MermaidTheme) ?? 'auto')
         return Elt.mk<Widget | string>('div', { class: 'mermaid-block', 'data-view': view, 'data-theme': theme }, [
-          mermaidToolbarWidget.of({ view, theme, readOnly, labels }),
-          mermaidGutterWidget,
-          mermaidPreviewWidget,
+          mermaidToolbarWidget.of({ view, theme, readOnly, knowledge, labels }),
+          diagramGutterWidget,
+          diagramPreviewWidget,
           // Keep the content hole in the last child, as code blocks do, so tile updates
           // cannot mistake a wrapper for the node's content.
           Elt.mk<Widget | string>('pre', { class: 'mermaid-pre' }, [0])

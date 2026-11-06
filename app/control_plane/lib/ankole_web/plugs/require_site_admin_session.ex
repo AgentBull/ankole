@@ -20,6 +20,8 @@ defmodule AnkoleWeb.Plugs.RequireSiteAdminSession do
         with {:ok, tenant} <- Ankole.Tenants.privileged(),
              :ok <- Repo.put_tenant_id(tenant.id),
              {:ok, principal} <- Principals.get_principal(uid) do
+          :ok = WebSession.renew_authentication(authentication)
+
           conn
           |> assign(:current_principal_uid, uid)
           |> assign(:current_principal, principal)

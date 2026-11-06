@@ -113,9 +113,33 @@
   --pele-radius: var(--radius-control);
 }
 
-:where(.ankole-editor) .editor-content .mermaid-preview .pele {
+:where(.ankole-editor) .editor-content .mermaid-preview .pele,
+:where(.ankole-editor) .editor-content .mermaid-preview svg {
   max-width: 100%;
   height: auto;
+}
+
+:where(.ankole-editor) .editor-content .mermaid-preview-layer,
+:where(.ankole-editor) .editor-content .infographic-diagram,
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-preview-layer,
+:where(.ankole-editor-overlay).mermaid-expanded .infographic-diagram {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+}
+
+:where(.ankole-editor) .editor-content .editor-mermaid-error,
+:where(.ankole-editor-overlay).mermaid-expanded .editor-mermaid-error {
+  max-width: 100%;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--destructive) 35%, var(--border));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--destructive) 8%, transparent);
+  color: var(--destructive);
+  font: 12px/1.5 var(--font-family-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 :where(.ankole-editor) .editor-content .mermaid-placeholder {
@@ -148,6 +172,8 @@
 
 /* Explicit palettes; `auto` inherits the host theme tokens already set above. */
 :where(.ankole-editor) .editor-content .mermaid-block[data-theme='light'] .mermaid-preview {
+  background: #fffefd;
+  color: #18191a;
   --pele-bg: #fffefd;
   --pele-fg: #18191a;
   --pele-muted: #636566;
@@ -159,6 +185,8 @@
 }
 
 :where(.ankole-editor) .editor-content .mermaid-block[data-theme='dark'] .mermaid-preview {
+  background: #18191a;
+  color: #f4f4f2;
   --pele-bg: #18191a;
   --pele-fg: #f4f4f2;
   --pele-muted: #abaaa7;
@@ -244,13 +272,39 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   font-weight: 500;
 }
 
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-mini);
+  background: transparent;
+  color: var(--fg-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-export:hover {
+  background: var(--menu-hover);
+  color: var(--foreground);
+}
+
 :where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
-  margin-left: auto;
   border: 0;
   border-radius: var(--radius-mini);
   background: transparent;
@@ -286,12 +340,15 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   --pele-radius: var(--radius-control);
 }
 
-:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-preview .pele {
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-preview .pele,
+:where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-preview svg {
   max-width: 100%;
   height: auto;
 }
 
 :where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-preview[data-theme='light'] {
+  background: #fffefd;
+  color: #18191a;
   --pele-bg: #fffefd;
   --pele-fg: #18191a;
   --pele-muted: #636566;
@@ -303,6 +360,8 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
 }
 
 :where(.ankole-editor-overlay).mermaid-expanded .mermaid-expanded-preview[data-theme='dark'] {
+  background: #18191a;
+  color: #f4f4f2;
   --pele-bg: #18191a;
   --pele-fg: #f4f4f2;
   --pele-muted: #abaaa7;
@@ -311,4 +370,67 @@ dialog:where(.ankole-editor-overlay).mermaid-expanded::backdrop {
   --pele-surface-alt: #343637;
   --pele-border: #47494a;
   --pele-accent: #77a9ff;
+}
+
+:where(.ankole-editor).knowledge-reader .knowledge-reader-mermaid {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0;
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  --pele-bg: var(--background);
+  --pele-fg: var(--foreground);
+  --pele-fg-on-light: var(--color-gray-100);
+  --pele-fg-on-dark: var(--color-gray-10);
+  --pele-muted: var(--fg-secondary);
+  --pele-line: var(--border-strong);
+  --pele-surface: var(--layer-01);
+  --pele-surface-alt: var(--layer-03);
+  --pele-border: var(--border);
+  --pele-accent: var(--brand);
+  --pele-critical: var(--destructive);
+  --pele-error: var(--destructive);
+  --pele-font: var(--font-family-sans);
+  --pele-font-mono: var(--font-family-mono);
+  --pele-radius: var(--radius-control);
+}
+
+:where(.ankole-editor).knowledge-reader .knowledge-reader-mermaid .pele,
+:where(.ankole-editor).knowledge-reader .knowledge-reader-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+:where(.ankole-editor).knowledge-reader .knowledge-reader-mermaid[data-theme='light'] {
+  background: #fffefd;
+  color: #18191a;
+  --pele-bg: #fffefd;
+  --pele-fg: #18191a;
+  --pele-muted: #636566;
+  --pele-line: #47494a;
+  --pele-surface: #f4f4f2;
+  --pele-surface-alt: #e5e4e1;
+  --pele-border: #cbcac7;
+  --pele-accent: #1561ff;
+}
+
+:where(.ankole-editor).knowledge-reader .knowledge-reader-mermaid[data-theme='dark'] {
+  background: #18191a;
+  color: #f4f4f2;
+  --pele-bg: #18191a;
+  --pele-fg: #f4f4f2;
+  --pele-muted: #abaaa7;
+  --pele-line: #cbcac7;
+  --pele-surface: #232526;
+  --pele-surface-alt: #343637;
+  --pele-border: #47494a;
+  --pele-accent: #77a9ff;
+}
+
+:where(.ankole-editor).knowledge-reader .knowledge-reader-mermaid > pre {
+  width: 100%;
+  margin: 0;
 }

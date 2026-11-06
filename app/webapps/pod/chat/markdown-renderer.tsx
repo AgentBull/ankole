@@ -65,12 +65,13 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   if (!isValidElement<{ children?: ReactNode; className?: string }>(child)) return <pre>{children}</pre>
   const language = /language-([^\s]+)/.exec(child.props.className ?? '')?.[1]
   const code = String(child.props.children ?? '').replace(/\n$/, '')
-  if (language?.toLowerCase() === 'mermaid') {
-    const fallback = <CodeBlockView code={code} language="mermaid" />
+  const normalizedLang = language?.toLowerCase()
+  if (normalizedLang === 'mermaid' || normalizedLang === 'infographic') {
+    const fallback = <CodeBlockView code={code} language={normalizedLang} />
     return (
-      <ErrorBoundary resetKeys={[code]} fallback={fallback}>
+      <ErrorBoundary resetKeys={[code, normalizedLang]} fallback={fallback}>
         <Suspense fallback={fallback}>
-          <LazyMermaidDiagram code={code} streaming={streaming} />
+          <LazyMermaidDiagram code={code} streaming={streaming} kind={normalizedLang} />
         </Suspense>
       </ErrorBoundary>
     )

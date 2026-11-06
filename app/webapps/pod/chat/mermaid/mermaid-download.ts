@@ -80,3 +80,9 @@ export async function downloadMermaidPng(
   const blob = await svgToPngBlob(svg, width, height, theme)
   downloadBlob(blob, filename)
 }
+
+export function downloadMermaidSvg(svg: string, theme: MermaidThemeMode, filename = 'ankole-diagram.svg'): void {
+  const themed = injectStandaloneSvgTheme(svg, theme)
+  const blob = new Blob([themed], { type: 'image/svg+xml;charset=utf-8' })
+  downloadBlob(blob, filename)
+}

@@ -201,3 +201,109 @@ fn markdown_link_titles_preserve_attribute_whitespace() {
         page.xml
     );
 }
+
+#[test]
+fn mermaid_fences_roundtrip_and_merge_in_knowledge_pages() {
+    let markdown = "```mermaid\nflowchart TD\n  A[开始] --> B{继续?}\n```";
+    let parsed = parse(markdown).unwrap();
+    assert_eq!(
+        parsed.xml,
+        "<page><mermaid>flowchart TD\n  A[开始] --&gt; B{继续?}</mermaid></page>"
+    );
+    assert_eq!(export(&parsed.xml, &json!({})).unwrap(), markdown);
+
+    let with_backticks = "````mermaid\nflowchart LR\n  A[\"```code```\"] --> B\n````";
+    let parsed_backticks = parse(with_backticks).unwrap();
+    assert_eq!(
+        export(&parsed_backticks.xml, &json!({})).unwrap(),
+        with_backticks
+    );
+
+    let empty_fence = "```mermaid\n```";
+    let parsed_empty = parse(empty_fence).unwrap();
+    assert_eq!(parsed_empty.xml, "<page><mermaid /></page>");
+    assert_eq!(export(&parsed_empty.xml, &json!({})).unwrap(), empty_fence);
+
+    let base = "<page><p>Intro</p><mermaid>flowchart LR\n  A --&gt; B</mermaid></page>";
+    let current = "<page><p>Updated intro</p><mermaid>flowchart LR\n  A --&gt; B</mermaid></page>";
+    let edited = "<page><p>Intro</p><mermaid>flowchart LR\n  A --&gt; C</mermaid></page>";
+    let merged = super::merge(base, &json!({}), current, &json!({}), edited, &json!({})).unwrap();
+    assert_eq!(
+        merged.xml,
+        "<page><p>Updated intro</p><mermaid>flowchart LR\n  A --&gt; C</mermaid></page>"
+    );
+}
+
+#[test]
+fn explicit_pre_mermaid_roundtrips_injectively_without_becoming_mermaid_element() {
+    for xml in [
+        "<page><pre lang=\"mermaid\">flowchart LR</pre></page>",
+        "<page><pre lang=\"mermaid\">flowchart LR\n\n  A --&gt; B</pre><p>After</p></page>",
+        "<page><pre lang=\"mermaid\" /><p>Following prose.</p></page>",
+    ] {
+        let canonical = super::validate(xml).unwrap();
+        let exported = export(&canonical.xml, &json!({})).unwrap();
+        assert!(
+            !exported.starts_with("```mermaid"),
+            "unexpected mermaid fence: {exported}"
+        );
+        let reparsed = parse(&exported).unwrap();
+        assert_eq!(reparsed.xml, canonical.xml, "{exported}");
+    }
+
+    let with_meta =
+        "<page><pre lang=\"mermaid\" meta=\"title=&quot;raw&quot;\">flowchart LR</pre></page>";
+    let exported_meta = export(with_meta, &json!({})).unwrap();
+    assert_eq!(exported_meta, "```mermaid title=\"raw\"\nflowchart LR\n```");
+    assert_eq!(parse(&exported_meta).unwrap().xml, with_meta);
+}
+
+#[test]
+fn infographic_stays_pre_fence_and_infographic_or_attributed_mermaid_xml_is_rejected() {
+    let infographic_md = "```infographic\ninfographic list-row\n  data\n```";
+    let parsed = parse(infographic_md).unwrap();
+    assert_eq!(
+        parsed.xml,
+        "<page><pre lang=\"infographic\">infographic list-row\n  data</pre></page>"
+    );
+    assert_eq!(export(&parsed.xml, &json!({})).unwrap(), infographic_md);
+
+    for invalid_xml in [
+        "<page><infographic>infographic list-row</infographic></page>",
+        "<page><infographic view=\"diagram\">infographic list-row</infographic></page>",
+        "<page><mermaid view=\"code\">flowchart LR</mermaid></page>",
+        "<page><mermaid view=\"diagram\">flowchart LR</mermaid></page>",
+        "<page><mermaid theme=\"dark\">flowchart LR</mermaid></page>",
+        "<page><mermaid theme=\"light\">flowchart LR</mermaid></page>",
+        "<page><mermaid><b>flowchart LR</b></mermaid></page>",
+        "<page><mermaid><strong>flowchart LR</strong></mermaid></page>",
+        "<page><mermaid>flowchart LR<br />A --&gt; B</mermaid></page>",
+        "<page><mermaid><comment ids=\"019a0000-0000-7000-8000-000000000001\">flowchart LR</comment></mermaid></page>",
+    ] {
+        assert!(super::validate(invalid_xml).is_err(), "{invalid_xml}");
+        assert!(export(invalid_xml, &json!({})).is_err(), "{invalid_xml}");
+    }
+    assert!(parse("<infographic>infographic list-row</infographic>").is_err());
+    assert!(parse("<mermaid view=\"code\">flowchart LR</mermaid>").is_err());
+}
+
+#[test]
+fn overview_folds_long_mermaid_blocks_and_keeps_short_diagrams() {
+    let short_diagram = "flowchart LR\n  A --> B";
+    let long_diagram = std::iter::once("flowchart TD".to_owned())
+        .chain((0..14).map(|i| format!("  N{i} --> N{}", i + 1)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let page = parse(&format!(
+        "```mermaid\n{short_diagram}\n```\n\n```mermaid\n{long_diagram}\n```"
+    ))
+    .unwrap();
+    let brief = super::overview(&page.xml, &json!({})).unwrap();
+    assert!(brief.contains("A --> B"), "{brief}");
+    assert!(!brief.contains("N13 --> N14"), "{brief}");
+    assert!(brief.contains("Mermaid block: 15 lines"), "{brief}");
+    assert!(parse(&brief).is_ok(), "{brief}");
+
+    let full = export(&page.xml, &json!({})).unwrap();
+    assert!(full.contains("N13 --> N14"));
+}

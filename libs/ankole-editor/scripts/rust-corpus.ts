@@ -282,6 +282,15 @@ export function buildCorpus(seed = defaultSeed): Corpus {
     sample('mermaid-view-theme', '<page><mermaid view="code" theme="dark">flowchart LR\n  X --&gt; Y</mermaid></page>'),
     sample('empty-mermaid', '<page><mermaid></mermaid></page>'),
     sample(
+      'infographic',
+      '<page><infographic>infographic sequence-timeline-simple\ndata\n  title Roadmap\n  sequences\n    - label Q1</infographic></page>'
+    ),
+    sample(
+      'infographic-view-theme',
+      '<page><infographic view="code" theme="dark">infographic compare-swot\ndata\n  title SWOT\n  compares\n    - label S</infographic></page>'
+    ),
+    sample('empty-infographic', '<page><infographic></infographic></page>'),
+    sample(
       'code-wrap-and-formula',
       '<page><pre lang="js" wrap="true">const x = 1</pre><math>\\frac{a}{b}</math></page>'
     ),
@@ -320,6 +329,8 @@ export function buildCorpus(seed = defaultSeed): Corpus {
     ['invalid-wrap', '<page><pre wrap="wrap">a</pre></page>'],
     ['mermaid-element', '<page><mermaid><strong>a</strong></mermaid></page>'],
     ['invalid-mermaid-view', '<page><mermaid view="split">a</mermaid></page>'],
+    ['infographic-element', '<page><infographic><strong>a</strong></infographic></page>'],
+    ['invalid-infographic-view', '<page><infographic view="split">a</infographic></page>'],
     ['mention-missing-target', '<page><p><mention /></p></page>'],
     ['mention-both-targets', '<page><p><mention page="p1" principal="u1" /></p></page>'],
     ['mention-empty-page', '<page><p><mention page="" /></p></page>'],

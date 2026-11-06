@@ -72,11 +72,25 @@ export const BOUNDARY_RULES: BoundaryRule[] = [
     reason: 'webapps must communicate through control-plane APIs, not import worker internals'
   },
   {
+    category: 'uikit-viz-imports-react',
+    appliesTo: /^libs\/uikit\/src\/viz\//,
+    forbidResolvedPrefixes: ['libs/uikit/src/components/', 'libs/uikit/src/hooks/', 'libs/uikit/src/index.ts'],
+    forbidBareSpecifiers: [/^react(?:-dom)?(\/|$)/],
+    reason: 'uikit/viz must stay framework-free so both UIKit components and the headless Worker CLI can share it'
+  },
+  {
     category: 'agent-computer-imports-frontend',
     appliesTo: /^app\/agent_computer\/src\//,
-    forbidResolvedPrefixes: ['app/webapps/', 'libs/uikit/'],
-    forbidBareSpecifiers: [/^@ankole\/(?:webapps|uikit)(\/|$)/],
-    reason: 'agent-computer is a worker runtime and must not import frontend packages'
+    forbidResolvedPrefixes: [
+      'app/webapps/',
+      'libs/uikit/src/components/',
+      'libs/uikit/src/hooks/',
+      'libs/uikit/src/lib/',
+      'libs/uikit/src/index.ts'
+    ],
+    forbidBareSpecifiers: [/^@ankole\/webapps(\/|$)/, /^@ankole\/uikit(?:$|\/(?!viz\/))/],
+    reason:
+      'agent-computer is a worker runtime and must not import frontend UI packages (only framework-free @ankole/uikit/viz/* is shared)'
   }
 ]
 

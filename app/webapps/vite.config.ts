@@ -89,7 +89,12 @@ function manualChunks(moduleID: string): string | undefined {
   const packageName = nodeModulePackageName(moduleID)
   if (!packageName) {
     const normalized = moduleID.replaceAll('\\', '/')
-    if (normalized.includes('/libs/uikit/src/components/graph')) return undefined
+    if (
+      normalized.includes('/libs/uikit/src/components/graph') ||
+      (normalized.includes('/libs/uikit/src/viz/') && !normalized.endsWith('/libs/uikit/src/viz/theme.ts'))
+    ) {
+      return undefined
+    }
     return normalized.includes('/libs/uikit/src/') ? 'uikit' : undefined
   }
   if (packageName === 'react' || packageName === 'react-dom' || packageName === 'scheduler') {
@@ -109,15 +114,11 @@ function manualChunks(moduleID: string): string | undefined {
   if (moduleID.includes('/xlsx/')) return 'vendor-spreadsheet'
   if (moduleID.includes('/@office-kit/') || moduleID.includes('/fflate/')) return 'vendor-presentation'
   if (packageName === 'lightweight-charts' || packageName === 'fancy-canvas') return 'vendor-charts'
-  if (
-    packageName.startsWith('@antv/') ||
-    packageName === 'bubblesets-js' ||
-    packageName === 'is-any-array' ||
-    packageName.startsWith('d3-') ||
-    packageName.startsWith('ml-')
-  ) {
+  if (packageName === '@antv/infographic') return 'vendor-infographic'
+  if (packageName === '@antv/g6' || packageName === 'bubblesets-js' || packageName === 'is-any-array') {
     return 'vendor-graph'
   }
+  if (packageName === '@antv/g2') return 'vendor-g2'
   if (
     markdownPipelinePackages.has(packageName) ||
     markdownPipelinePrefixes.some(prefix => packageName.startsWith(prefix))
@@ -243,6 +244,35 @@ export default defineConfig(({ command }): UserConfig => ({
       apply: 'build',
       closeBundle(error) {
         if (error || !existsSync(outputPath)) return
+        const manifestPath = path.join(outputPath, 'manifest.json')
+        if (existsSync(manifestPath)) {
+          const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<
+            string,
+            { isEntry?: boolean; name?: string; file?: string; imports?: string[] }
+          >
+          const lazyVizChunks = new Set(['vendor-g2', 'vendor-charts', 'vendor-graph', 'vendor-infographic'])
+          for (const [entryKey, entryMeta] of Object.entries(manifest)) {
+            if (!entryMeta?.isEntry) continue
+            const visited = new Set<string>()
+            const queue = [...(entryMeta.imports ?? [])]
+            while (queue.length > 0) {
+              const depKey = queue.shift()!
+              if (visited.has(depKey)) continue
+              visited.add(depKey)
+              const dep = manifest[depKey]
+              if (!dep) continue
+              const chunkName = dep.name ?? ''
+              if (lazyVizChunks.has(chunkName)) {
+                throw new Error(
+                  `Lazy visualization chunk "${chunkName}" (${dep.file ?? depKey}) is statically imported by entry "${entryKey}". Keep visualization engines behind dynamic import().`
+                )
+              }
+              for (const child of dep.imports ?? []) {
+                if (!visited.has(child)) queue.push(child)
+              }
+            }
+          }
+        }
         // Plug.Static serves these sidecars without changing Vite's hashed files or manifest.
         for (const file of readdirSync(outputPath, { recursive: true, encoding: 'utf8' })) {
           if (!/\.(css|js|json|map|svg|wasm)$/.test(file)) continue
@@ -257,7 +287,13 @@ export default defineConfig(({ command }): UserConfig => ({
   ],
   optimizeDeps: {
     entries: Object.values(entries),
-    include: ['@ankole/uikit > @antv/g6']
+    include: [
+      '@ankole/uikit > @antv/g6',
+      '@ankole/uikit > @antv/g2',
+      '@ankole/uikit > @antv/g-svg',
+      '@ankole/uikit > @antv/infographic',
+      '@ankole/uikit > lightweight-charts'
+    ]
   },
   publicDir: false,
   resolve: { alias: { '@ankole/locales': localeDirectory } },

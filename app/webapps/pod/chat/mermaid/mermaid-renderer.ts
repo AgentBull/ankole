@@ -2,16 +2,21 @@ import { PeleError } from 'pele/core'
 import { renderAsync, type DiagramType } from 'pele/lazy'
 
 export type MermaidThemeMode = 'light' | 'dark'
+export type ChatDiagramKind = 'mermaid' | 'infographic'
 
 export interface RenderedMermaidDiagram {
   svg: string
   width: number
   height: number
-  diagramType: DiagramType
+  diagramType: DiagramType | 'infographic'
 }
 
 const MAX_CACHE_ENTRIES = 48
 const diagramCache = new Map<string, RenderedMermaidDiagram>()
+
+export const DIAGRAM_HOST_FONT_SANS =
+  "'IBMPlexSansCN','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+export const DIAGRAM_HOST_FONT_MONO = "'IBMPlexMonoCN',ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace"
 
 export const MERMAID_PALETTES: Record<
   MermaidThemeMode,
@@ -40,7 +45,7 @@ export const MERMAID_PALETTES: Record<
     surfaceAlt: '#e5e4e1',
     border: '#cbcac7',
     accent: '#1561ff',
-    critical: '#d92d20'
+    critical: '#c81e3a'
   },
   dark: {
     bg: '#18191a',
@@ -53,7 +58,7 @@ export const MERMAID_PALETTES: Record<
     surfaceAlt: '#343637',
     border: '#47494a',
     accent: '#77a9ff',
-    critical: '#f97066'
+    critical: '#f2556a'
   }
 }
 
@@ -76,10 +81,40 @@ export function buildPelePaletteCssVars(theme: MermaidThemeMode): string {
     `--pele-accent:${p.accent}`,
     `--pele-critical:${p.critical}`,
     `--pele-error:${p.critical}`,
-    `--pele-font:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif`,
-    `--pele-font-mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace`,
+    `--pele-font:${DIAGRAM_HOST_FONT_SANS}`,
+    `--pele-font-mono:${DIAGRAM_HOST_FONT_MONO}`,
     `--pele-radius:6px`
   ].join(';')
+}
+
+/**
+ * Expands the SVG `viewBox` by `pad` pixels on all four sides so wide CJK glyphs rendered
+ * with sandbox fallback fonts never clip against node or canvas boundaries.
+ */
+export function expandSvgViewBox(svg: string, pad = 6): { svg: string; width?: number; height?: number } {
+  if (pad <= 0) return { svg }
+  let nextWidth: number | undefined
+  let nextHeight: number | undefined
+  const updated = svg.replace(/<svg\b([^>]*)>/i, (_full, attrs: string) => {
+    const vbMatch = /\bviewBox\s*=\s*(['"])\s*([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s*\1/i.exec(attrs)
+    if (!vbMatch) return `<svg${attrs}>`
+    const quote = vbMatch[1]!
+    const x = Number.parseFloat(vbMatch[2]!)
+    const y = Number.parseFloat(vbMatch[3]!)
+    const w = Number.parseFloat(vbMatch[4]!)
+    const h = Number.parseFloat(vbMatch[5]!)
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) {
+      return `<svg${attrs}>`
+    }
+    nextWidth = Math.max(1, Math.ceil(w + pad * 2))
+    nextHeight = Math.max(1, Math.ceil(h + pad * 2))
+    const nextAttrs = attrs.replace(
+      vbMatch[0],
+      `viewBox=${quote}${x - pad} ${y - pad} ${w + pad * 2} ${h + pad * 2}${quote}`
+    )
+    return `<svg${nextAttrs}>`
+  })
+  return { svg: updated, width: nextWidth, height: nextHeight }
 }
 
 export function injectStandaloneSvgTheme(svg: string, theme: MermaidThemeMode): string {
@@ -95,8 +130,26 @@ export function injectStandaloneSvgTheme(svg: string, theme: MermaidThemeMode): 
   return openTag + styleTag + svg.slice(openTagEnd + 1)
 }
 
-export function getCachedMermaidDiagram(code: string, theme: MermaidThemeMode): RenderedMermaidDiagram | undefined {
-  const key = `${theme}\0${code.trim()}`
+function cacheKey(kind: ChatDiagramKind, theme: MermaidThemeMode, code: string): string {
+  return `${kind}\0${theme}\0${code.trim()}`
+}
+
+function storeCachedDiagram(key: string, entry: RenderedMermaidDiagram): void {
+  if (diagramCache.has(key)) diagramCache.delete(key)
+  diagramCache.set(key, entry)
+  while (diagramCache.size > MAX_CACHE_ENTRIES) {
+    const oldest = diagramCache.keys().next().value
+    if (oldest === undefined) break
+    diagramCache.delete(oldest)
+  }
+}
+
+export function getCachedChatDiagram(
+  code: string,
+  theme: MermaidThemeMode,
+  kind: ChatDiagramKind = 'mermaid'
+): RenderedMermaidDiagram | undefined {
+  const key = cacheKey(kind, theme, code)
   const hit = diagramCache.get(key)
   if (!hit) return undefined
   diagramCache.delete(key)
@@ -110,7 +163,7 @@ export async function renderMermaidDiagram(code: string, theme: MermaidThemeMode
     throw new Error('Empty Mermaid source')
   }
 
-  const cached = getCachedMermaidDiagram(trimmed, theme)
+  const cached = getCachedChatDiagram(trimmed, theme, 'mermaid')
   if (cached) return cached
 
   const rendered = await renderAsync(trimmed, {
@@ -119,23 +172,92 @@ export async function renderMermaidDiagram(code: string, theme: MermaidThemeMode
     responsive: true
   })
 
+  const padded = expandSvgViewBox(rendered.svg, 6)
   const entry: RenderedMermaidDiagram = {
-    svg: rendered.svg,
-    width: Math.max(1, Math.ceil(rendered.width || 480)),
-    height: Math.max(1, Math.ceil(rendered.height || 320)),
+    svg: padded.svg,
+    width: padded.width ?? Math.max(1, Math.ceil(rendered.width || 480)),
+    height: padded.height ?? Math.max(1, Math.ceil(rendered.height || 320)),
     diagramType: rendered.type
   }
 
-  const key = `${theme}\0${trimmed}`
-  if (diagramCache.has(key)) diagramCache.delete(key)
-  diagramCache.set(key, entry)
-  while (diagramCache.size > MAX_CACHE_ENTRIES) {
-    const oldest = diagramCache.keys().next().value
-    if (oldest === undefined) break
-    diagramCache.delete(oldest)
+  storeCachedDiagram(cacheKey('mermaid', theme, trimmed), entry)
+  return entry
+}
+
+function parseSvgDimensions(svg: string): { width: number; height: number } {
+  const vbMatch = /\bviewBox\s*=\s*['"]\s*[-+\d.]+\s+[-+\d.]+\s+([-+\d.]+)\s+([-+\d.]+)\s*['"]/i.exec(svg)
+  if (vbMatch) {
+    const w = Number.parseFloat(vbMatch[1]!)
+    const h = Number.parseFloat(vbMatch[2]!)
+    if (Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
+      return { width: Math.ceil(w), height: Math.ceil(h) }
+    }
+  }
+  const wMatch = /\bwidth\s*=\s*['"]([-+\d.]+)(?:px)?['"]/i.exec(svg)
+  const hMatch = /\bheight\s*=\s*['"]([-+\d.]+)(?:px)?['"]/i.exec(svg)
+  const w = wMatch ? Number.parseFloat(wMatch[1]!) : 680
+  const h = hMatch ? Number.parseFloat(hMatch[1]!) : 400
+  return {
+    width: Number.isFinite(w) && w > 0 ? Math.ceil(w) : 680,
+    height: Number.isFinite(h) && h > 0 ? Math.ceil(h) : 400
+  }
+}
+
+export async function renderInfographicDiagram(code: string, theme: MermaidThemeMode): Promise<RenderedMermaidDiagram> {
+  const trimmed = code.trim()
+  if (!trimmed) {
+    throw new Error('Empty Infographic source')
   }
 
-  return entry
+  const cached = getCachedChatDiagram(trimmed, theme, 'infographic')
+  if (cached) return cached
+
+  const { mountInfographicAsync, validateInfographicSyntax } = await import('@ankole/uikit/viz/infographic')
+  const validation = validateInfographicSyntax(trimmed)
+  if (!validation.ok) {
+    throw new Error(validation.errors[0] ?? 'Invalid Infographic syntax')
+  }
+
+  if (typeof globalThis.document === 'undefined' || !globalThis.document.body) {
+    throw new Error('DOM environment required to render Infographic')
+  }
+
+  const container = globalThis.document.createElement('div')
+  container.setAttribute('data-theme', theme)
+  container.style.cssText = 'position:fixed;left:-9999px;top:0;width:760px;visibility:hidden;pointer-events:none;'
+  globalThis.document.body.appendChild(container)
+
+  try {
+    const mounted = await mountInfographicAsync(container, trimmed, {
+      theme,
+      zoom: false,
+      width: 760
+    })
+    try {
+      const { svg } = await mounted.exportSVG()
+      const dims = parseSvgDimensions(svg)
+      const entry: RenderedMermaidDiagram = {
+        svg,
+        width: dims.width,
+        height: dims.height,
+        diagramType: 'infographic'
+      }
+      storeCachedDiagram(cacheKey('infographic', theme, trimmed), entry)
+      return entry
+    } finally {
+      mounted.destroy()
+    }
+  } finally {
+    container.remove()
+  }
+}
+
+export async function renderChatDiagram(
+  code: string,
+  theme: MermaidThemeMode,
+  kind: ChatDiagramKind = 'mermaid'
+): Promise<RenderedMermaidDiagram> {
+  return kind === 'infographic' ? renderInfographicDiagram(code, theme) : renderMermaidDiagram(code, theme)
 }
 
 export function formatMermaidRenderError(error: unknown): string {
@@ -145,5 +267,5 @@ export function formatMermaidRenderError(error: unknown): string {
   if (error instanceof Error && error.message) {
     return error.message.replace(/\s+/g, ' ').trim()
   }
-  return 'Invalid Mermaid syntax'
+  return 'Invalid diagram syntax'
 }

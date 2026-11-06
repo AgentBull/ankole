@@ -78,6 +78,8 @@ defmodule AnkoleWeb.SpaController do
           Ankole.Repo.with_tenant(tenant.id, fn -> WebSession.pod_session(conn) end)
 
         if reusable_target_session?(params, target) and is_map(active_pod_session) do
+          :ok = WebSession.renew_authentication(active_pod_session)
+
           destination =
             if is_binary(target.console_return_to),
               do: AnkoleWeb.SiteAdminConsole.url(conn, target.console_return_to),
@@ -120,7 +122,10 @@ defmodule AnkoleWeb.SpaController do
   defp render_or_redirect_pod_login(conn, tenant_id, params) do
     case AnkoleWeb.BrowserAuth.Targets.resolve(conn, params) do
       {:ok, target} ->
-        if reusable_target_session?(params, target) and is_map(WebSession.pod_session(conn)) do
+        active_pod_session = WebSession.pod_session(conn)
+
+        if reusable_target_session?(params, target) and is_map(active_pod_session) do
+          :ok = WebSession.renew_authentication(active_pod_session)
           redirect_pod_target(conn, target)
         else
           render_tenant_login(conn, tenant_id)
@@ -172,7 +177,8 @@ defmodule AnkoleWeb.SpaController do
         redirect(conn, to: ~p"/setup")
 
       match?({:ok, %{}, _ref}, resolved) ->
-        {:ok, %{"principal_uid" => uid}, ref} = resolved
+        {:ok, %{"principal_uid" => uid} = authentication, ref} = resolved
+        :ok = WebSession.renew_authentication(authentication)
 
         conn
         |> WebSession.pin_authentication(ref)
@@ -215,7 +221,8 @@ defmodule AnkoleWeb.SpaController do
 
             redirect(conn, to: target)
 
-          %{"principal_uid" => uid} ->
+          %{"principal_uid" => uid} = authentication ->
+            :ok = WebSession.renew_authentication(authentication)
             conn |> assign(:current_principal_uid, uid) |> render_spa(:pod)
         end
       end

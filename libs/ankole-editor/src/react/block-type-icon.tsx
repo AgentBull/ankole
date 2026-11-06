@@ -1,10 +1,12 @@
 import {
   RiAtLine,
+  RiBarChartBoxLine,
   RiFlowChart,
   RiFormula,
   RiH4,
   RiH5,
   RiH6,
+  RiMindMap,
   RiTableLine,
   RiImageLine,
   RiFileLine,
@@ -246,12 +248,18 @@ const glyphs = {
   bookmark: <RiLink />,
   mention: <RiAtLine />,
   math: <RiFormula />,
-  mermaid: <RiFlowChart />
+  mermaid: <RiFlowChart />,
+  infographic: <RiMindMap />,
+  chart: <RiBarChartBoxLine />
 } satisfies Record<Exclude<BlockType, `columns${number}`>, ReactElement>
 
 export function blockMenuGroup(type: BlockType) {
   if (type.startsWith('columns')) return 'layout_blocks'
-  if (['mention', 'callout', 'embed', 'math', 'mermaid', 'media', 'file', 'bookmark'].includes(type)) {
+  if (
+    ['mention', 'callout', 'embed', 'math', 'mermaid', 'infographic', 'chart', 'media', 'file', 'bookmark'].includes(
+      type
+    )
+  ) {
     return 'advanced_blocks'
   }
   return 'basic_blocks'

@@ -36,7 +36,8 @@ export type BaseField = {
   is_primary: boolean
   position?: string
 }
-export type ViewType = 'grid' | 'kanban' | 'gallery'
+export type SelectOption = { id?: string; name: string; color?: string }
+export type ViewType = 'grid' | 'kanban' | 'gallery' | 'chart'
 export type BaseView = {
   id: string
   name: string
@@ -70,6 +71,15 @@ export type Condition = {
 }
 export type Filter = { conjunction: 'and' | 'or'; conditions: Condition[] }
 export type Sort = { field_id: string; direction: 'asc' | 'desc' }
+export type TimeBucket = 'day' | 'week' | 'month' | 'quarter' | 'year'
+export type GroupSlice = {
+  field_id: string
+  value?: Value
+  value_json?: string | null
+  bucket?: TimeBucket
+  cumulative_from_json?: string | null
+  other_exclude_values_json?: string[]
+}
 export type RecordQuery = {
   filter?: Filter
   sort?: Sort[]
@@ -77,7 +87,8 @@ export type RecordQuery = {
   page_token?: string
   ids?: string[]
   local?: boolean
-  group?: { field_id: string; value?: Value; value_json?: string | null }
+  group?: GroupSlice | GroupSlice[]
+  groups?: GroupSlice[]
 }
 export type RecordsResult = {
   records: BaseRecord[]
@@ -85,11 +96,28 @@ export type RecordsResult = {
   page_token?: string | null
   complete: boolean
 }
-export type GroupBy = { field_id: string; bucket?: 'day' | 'week' | 'month' | 'quarter' | 'year' }
-export type Metric = { operation: 'count' | 'sum' | 'avg' | 'min' | 'max'; field_id?: string; alias: string }
-export type AggregateQuery = { filter?: Filter; group_by?: GroupBy[]; metrics: Metric[] }
+export type GroupBy = { field_id: string; bucket?: TimeBucket }
+export type MetricOperation = 'count' | 'sum' | 'avg' | 'min' | 'max' | 'count_distinct'
+export type Metric = { operation: MetricOperation; field_id?: string; alias: string }
+export type AggregateOrderBy = { metric_alias?: string; group_index?: number; direction: 'asc' | 'desc' }
+export type AggregateTopN = { limit: number; include_other?: boolean; target_group_index?: number }
+export type AggregateQuery = {
+  filter?: Filter
+  group_by?: GroupBy[]
+  metrics: Metric[]
+  order_by?: AggregateOrderBy[]
+  top_n?: AggregateTopN
+  omit_empty?: boolean
+}
+export type AggregateGroup = {
+  values: Value[]
+  value_json?: (string | null)[]
+  other?: boolean[]
+  metrics: Record<string, Value>
+  metrics_text?: Record<string, string | null>
+}
 export type AggregateResult = {
-  groups: { values: Value[]; value_json?: (string | null)[]; metrics: Record<string, Value> }[]
+  groups: AggregateGroup[]
   data_version: number
 }
 export type RecordWrite = {

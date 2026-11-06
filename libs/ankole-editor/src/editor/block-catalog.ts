@@ -2,6 +2,7 @@ import { blocks } from '../blocks'
 import type { PhraseSet } from '../core/phrases'
 import type { GardState } from '../core/state'
 import { acceptsFiles } from './file-upload'
+import { hostFacet } from './host-context'
 import { editorPhrases } from './phrases'
 import { isKnowledge, knowledgeBlockTypes } from './knowledge'
 
@@ -26,7 +27,8 @@ export const coreBlockTypes = [
   'columns4',
   'columns5',
   'mention',
-  'file'
+  'file',
+  'chart'
 ] as const
 export type CoreBlockType = (typeof coreBlockTypes)[number]
 export type BlockType = CoreBlockType | (typeof blocks)[number]['name']
@@ -160,6 +162,14 @@ export const blockOptions: readonly BlockOption[] = [
     keywords: 'file attachment upload document pdf 文件 附件 上传 文档',
     turnInto: false
   },
+  {
+    type: 'chart',
+    title: editorPhrases.ref('chart_title'),
+    detail: editorPhrases.ref('chart_detail'),
+    keywords:
+      'chart graph plot bar line pie area scatter combo visualization 图表 统计图 柱状图 折线图 饼图 数据图表 多维表图表',
+    turnInto: false
+  },
   ...blocks.map(block => ({
     type: block.name,
     title: block.insert.title,
@@ -170,13 +180,20 @@ export const blockOptions: readonly BlockOption[] = [
 ]
 
 /** All insertion entry points search the same translated block catalogue. */
-export function filterBlockOptions(state: GardState, query: string): readonly BlockOption[] {
+export function filterBlockOptions(
+  state: GardState,
+  query: string,
+  mode?: 'doc' | 'knowledge'
+): readonly BlockOption[] {
   const terms = query.trim().normalize('NFKC').toLowerCase().split(/\s+/)
+  const knowledge = mode ? mode === 'knowledge' : isKnowledge(state)
   const files = acceptsFiles(state)
+  const charts = !knowledge && Boolean(state.facet(hostFacet)?.insertChart)
   return blockOptions.filter(
     option =>
-      (!isKnowledge(state) || knowledgeBlockTypes.has(option.type)) &&
+      (!knowledge || knowledgeBlockTypes.has(option.type)) &&
       (option.type !== 'file' || files) &&
+      (option.type !== 'chart' || charts) &&
       terms.every(term =>
         `${option.type} ${option.title(state)} ${option.detail(state)} ${option.keywords ?? ''}`
           .normalize('NFKC')

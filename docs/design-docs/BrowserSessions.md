@@ -47,12 +47,26 @@ always lock the browser group row before changing authentications, proofs, or
 ceremonies. Each ceremony resource enforces a single-use consumption transition;
 once an `OidcState` or `AuthorizationRequest` is consumed, it cannot reopen.
 
-An authentication lives for 24 hours, whereas an outbound `OidcState` and an
-inbound `AuthorizationRequest` each live for 10 minutes. Completing a login
-extends the browser group's expiry to cover the new proof, and background
-cleanup retains any group while at least one valid proof references it. Code
-challenges, delivery, and rate-limit windows belong to
-[Authentication](Authentication.md).
+An authentication stays valid while the browser keeps using it: each
+authentication carries a 30-day idle expiry and a 180-day absolute limit
+counted from its login (`authenticated_at`). Pod and Console page loads,
+requests that `RequirePodSession` or `RequireSiteAdminSession` authorizes,
+`GET /api/v2/browser/session` calls for the authentications the browser holds,
+account activations, and OIDC authorization grants all move the idle expiry to
+30 days after the request without passing the absolute limit. Ankole writes this
+renewal at most once a day for each authentication (and once when entering the
+final 30-day window so the authentication reaches its exact absolute limit),
+locking the browser group row before the write. After the absolute limit, the
+user signs in again.
+
+A browser group without a login lives for 24 hours, whereas an outbound
+`OidcState` and an inbound `AuthorizationRequest` each live for 10 minutes.
+Completing a login extends the browser group's expiry to the new proof's
+absolute limit, and background cleanup retains any group while at least one
+valid proof references it. The authentication cookie and the browser group
+cookie both last until the absolute limit, so the database idle expiry alone
+decides whether an idle authentication is still valid. Code challenges,
+delivery, and rate-limit windows belong to [Authentication](Authentication.md).
 
 ## Login scopes and targets
 
@@ -141,8 +155,8 @@ reference grants no authenticated access on its own and cannot list or exchange
 proofs belonging to other accounts.
 
 Browser-wide logout preserves this unprivileged group reference so that a later
-login reuses the same group and renews the group cookie's expiry past the new
-authentication's lifetime. As a result, a delayed HTTP response from an earlier
+login reuses the same group and renews the group cookie's expiry to cover the
+new authentication's absolute limit. As a result, a delayed HTTP response from an earlier
 login still names the same group and cannot displace a newer account.
 
 Each independent authentication is stored in its own sealed cookie, named

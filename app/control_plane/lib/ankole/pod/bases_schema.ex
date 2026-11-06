@@ -11,6 +11,8 @@ defmodule Ankole.Pod.Bases.Schema do
   alias Ankole.Pod.{Bases, BaseField, BaseRepo, BaseTable, BaseView, Formula}
   alias Ankole.Pod.Bases.{DDL, Physical, Write}
 
+  @select_option_colors ~w(brand blue teal purple green orange cyan magenta yellow red gray)
+
   def delete_table(%Ankole.AuthZ.Actor{} = actor, id, authority \\ nil),
     do: Ankole.Pod.Bases.Delete.table(actor, id, authority || actor.turn_authority)
 
@@ -290,6 +292,7 @@ defmodule Ankole.Pod.Bases.Schema do
     end)
     |> drop_matching_field("group_field_id", field_id)
     |> drop_matching_field("cover_field_id", field_id)
+    |> scrub_chart_config(field_id)
   end
 
   defp scrub_view_config(config, _field_id), do: config
@@ -297,6 +300,29 @@ defmodule Ankole.Pod.Bases.Schema do
   defp drop_matching_field(config, key, field_id) do
     if config[key] == field_id, do: Map.delete(config, key), else: config
   end
+
+  defp scrub_chart_config(%{"chart" => chart} = config, field_id) when is_map(chart),
+    do: Map.put(config, "chart", scrub_chart_node(chart, field_id))
+
+  defp scrub_chart_config(config, _field_id), do: config
+
+  defp scrub_chart_node(node, field_id) when is_map(node) do
+    node =
+      if Map.get(node, "field_id") == field_id do
+        node
+        |> Map.put("field_id", nil)
+        |> Map.put("missing_field_id", field_id)
+      else
+        node
+      end
+
+    Map.new(node, fn {key, value} -> {key, scrub_chart_node(value, field_id)} end)
+  end
+
+  defp scrub_chart_node(node, field_id) when is_list(node),
+    do: Enum.map(node, &scrub_chart_node(&1, field_id))
+
+  defp scrub_chart_node(node, _field_id), do: node
 
   @doc false
   def create_view_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
@@ -384,15 +410,28 @@ defmodule Ankole.Pod.Bases.Schema do
 
     if (not Map.has_key?(config, "multiple") or is_boolean(config["multiple"])) and
          is_list(options) and
-         Enum.all?(options, fn option ->
-           is_map(option) and is_binary(option["id"]) and option["id"] != "" and
-             is_binary(option["name"])
-         end) and length(Enum.uniq_by(options, & &1["id"])) == length(options),
+         Enum.all?(options, &valid_select_option?/1) and
+         length(Enum.uniq_by(options, & &1["id"])) == length(options),
        do: :ok,
        else: {:error, :invalid_options}
   end
 
   defp validate_field_config(_field, _table), do: :ok
+
+  defp valid_select_option?(option) when is_map(option) do
+    is_binary(option["id"]) and option["id"] != "" and is_binary(option["name"]) and
+      valid_option_color?(Map.get(option, "color"))
+  end
+
+  defp valid_select_option?(_option), do: false
+
+  defp valid_option_color?(nil), do: true
+  defp valid_option_color?(color) when color in @select_option_colors, do: true
+
+  defp valid_option_color?(color) when is_binary(color),
+    do: Regex.match?(~r/\A#[0-9a-fA-F]{6}\z/, color)
+
+  defp valid_option_color?(_color), do: false
 
   defp validate_reverse(%{config: %{"reverse_field_id" => reverse_id}} = field, table) do
     with {:ok, reverse_id} <- Ecto.UUID.cast(reverse_id),
@@ -603,23 +642,75 @@ defmodule Ankole.Pod.Bases.Schema do
       )
 
   defp valid_view_config(config, definitions) when is_map(config) do
-    known = Enum.map(definitions, & &1.id)
+    known = MapSet.new(definitions, & &1.id)
     visible = Map.get(config, "visible_fields", [])
 
-    if is_list(visible) and Enum.all?(visible, fn id -> id in known end) do
+    if is_list(visible) and Enum.all?(visible, &MapSet.member?(known, &1)) do
       refs =
         Enum.flat_map(
           ~w(group_field_id cover_field_id),
           fn key -> if config[key] not in [nil, ""], do: [config[key]], else: [] end
         )
 
-      if Enum.all?(refs, &(&1 in known)), do: :ok, else: {:error, :unknown_field}
+      if Enum.all?(refs, &MapSet.member?(known, &1)),
+        do: valid_chart_config(Map.fetch(config, "chart"), known),
+        else: {:error, :unknown_field}
     else
       {:error, :invalid_view}
     end
   end
 
   defp valid_view_config(_, _), do: {:error, :invalid_view}
+
+  defp valid_chart_config(:error, _known), do: :ok
+
+  defp valid_chart_config({:ok, chart}, known) when is_map(chart) and not is_struct(chart),
+    do: validate_chart_node(chart, known)
+
+  defp valid_chart_config({:ok, _invalid}, _known), do: {:error, :invalid_view}
+
+  defp validate_chart_node(node, known) when is_map(node) and not is_struct(node) do
+    with :ok <- validate_chart_field_slot(node, known) do
+      validate_chart_children(Map.values(node), known)
+    end
+  end
+
+  defp validate_chart_node(node, known) when is_list(node),
+    do: validate_chart_children(node, known)
+
+  defp validate_chart_node(_node, _known), do: :ok
+
+  defp validate_chart_children(items, known) do
+    Enum.reduce_while(items, :ok, fn item, :ok ->
+      case validate_chart_node(item, known) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp validate_chart_field_slot(node, known) do
+    case Map.fetch(node, "field_id") do
+      :error ->
+        :ok
+
+      {:ok, nil} ->
+        if valid_empty_chart_slot?(node), do: :ok, else: {:error, :invalid_view}
+
+      {:ok, id} when is_binary(id) and id != "" ->
+        if MapSet.member?(known, id), do: :ok, else: {:error, :unknown_field}
+
+      {:ok, _invalid} ->
+        {:error, :invalid_view}
+    end
+  end
+
+  defp valid_empty_chart_slot?(node) do
+    missing = Map.get(node, "missing_field_id")
+    op = Map.get(node, "operation")
+
+    (is_binary(missing) and missing != "") or op in ["count", :count]
+  end
 
   defp schema_write(%Ankole.AuthZ.Actor{} = actor, id, fun) do
     with {:ok, write} <- Write.open(actor, id, :manage_schema),

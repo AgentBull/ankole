@@ -9,6 +9,7 @@
 import { type ChangeSet, Leaf, type Mark, Node } from '../core/doc'
 import { Correction } from '../core/state'
 import * as T from '../core/types'
+import { InfographicBlock } from '../blocks/infographic'
 import { MermaidBlock } from '../blocks/mermaid'
 import { keptStyle } from '../document/normalize'
 import { compareNames } from '../document/tree'
@@ -114,9 +115,9 @@ export const vocabularyValues = Correction.onMarks(Node.Group.All, node => {
 // §2: code-like blocks hold plain text with comment anchors.
 // Formats, styles and links that edits put on their content are removed on content that enters and
 // on marks added to content already in it.
-const plainCodeTypes = new Set<Node.Type>([T.CodeBlock.type, MermaidBlock.type])
+const plainCodeTypes = new Set<Node.Type>([T.CodeBlock.type, MermaidBlock.type, InfographicBlock.type])
 
-export const plainCode = Correction.onContent([T.CodeBlock, MermaidBlock], block => {
+export const plainCode = Correction.onContent([T.CodeBlock, MermaidBlock, InfographicBlock], block => {
   const changes: ChangeSet.Spec[] = []
   let pos = block.start
   for (const child of block.node.content) {

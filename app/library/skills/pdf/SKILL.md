@@ -69,11 +69,19 @@ it needs `寒蝉锦书宋`.
 For HTML input, convert with `pandoc --standalone --from markdown+raw_html --to
 html5 --css <stylesheet>` first, then print that HTML through the same engine.
 
+For charts, financial K-lines, network graphs, infographics, and Mermaid
+diagrams inside a PDF, export figures through `ankole-viz` with `--pdf-safe`
+(see the `visualization` Skill) rather than laying out charts with Matplotlib.
+Typst (`resvg`) and WeasyPrint require Print-Safe SVGs without `<foreignObject>`,
+unresolved `var(--...)` CSS variables, or external URLs; `ankole-viz --pdf-safe`
+inlines computed design tokens and automatically rasterizes `<foreignObject>` or
+canvas figures to `1920px` (`300 DPI`) lossless `.png` assets.
+
 ## Check
 
-A generated PDF needs a check, but not a visual one. Reading page images costs
-far more context than it returns and it forces conversation compaction. Run
-these instead:
+A generated PDF needs a geometry check first so you do not inspect clean text
+pages as images. Reading every page image costs far more context than it returns
+and forces conversation compaction. Run these checks first:
 
 ```bash
 pdfinfo report.pdf                       # page count, page size, embedded fonts
@@ -85,11 +93,13 @@ pdftotext -bbox-layout report.pdf -      # text box geometry
 
 The geometry output carries every text box with its coordinates. Overlapping
 boxes mean overlapping content, and a box outside the page margin means clipped
-content. Both are the defects a visual pass looks for, and this finds them
-without an image.
+content.
 
-Render a page image only for a page that the geometry check reports, look at
-that one page, and record what it shows.
+Because `pdftotext` inspects only PDF text streams and cannot detect clipped,
+blank, or mis-scaled SVG/PNG figures, render a page image with
+`pdftoppm -png -r 150 -f <N> -l <N> report.pdf check-page` **only** for pages
+flagged by the geometry check or pages containing embedded charts and diagrams,
+inspect those specific pages, and record what they show.
 
 ## Edit
 

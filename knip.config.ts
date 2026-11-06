@@ -41,7 +41,9 @@ const config: KnipConfig = {
         'src/worker/function-compute-bootstrap.ts!',
         'src/worker/lambda-hooks.ts!',
         'scripts/*.ts',
-        'src/cli/**/*-cli.ts!'
+        'src/cli/**/*-cli.ts!',
+        'src/cli/viz/build-harness.ts!',
+        'src/cli/viz/harness-entry.ts!'
       ],
       project: ['src/**/*.ts!', '!src/**/*.test.ts!']
     },
@@ -77,7 +79,7 @@ const config: KnipConfig = {
       entry: ['scripts/build-node-addon.ts!', 'scripts/build-wasm.ts!']
     },
     'libs/uikit': {
-      entry: ['src/index.ts!', 'src/components/graph.tsx!'],
+      entry: ['src/index.ts!', 'src/components/graph.tsx!', 'src/viz/*.ts!'],
       project: ['src/**/*.{ts,tsx}!'],
       ignore: ['src/stories/**']
     },

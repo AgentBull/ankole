@@ -337,6 +337,9 @@ defmodule AnkoleWeb.BrowserAuth do
     references = WebSession.authentication_references(conn)
 
     if references != [] and not WebSession.invalid_authentication_selection?(conn) do
+      # Opening any Ankole page keeps every account held by this browser signed in.
+      Enum.each(references, &BrowserSessions.renew/1)
+
       account =
         with %{"tenant_id" => tenant_id} = authentication <-
                WebSession.current_authentication(conn),

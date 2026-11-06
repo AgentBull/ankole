@@ -46,8 +46,13 @@ export const baseHTTP = {
   removeTable: (tableID: string) => podBaseTableDelete({ path: { id: tableID } }),
   schema: (tableID: string, signal?: AbortSignal): Promise<TableSchema> =>
     podBaseSchema({ path: { id: tableID }, signal }),
-  query: (tableID: string, body: RecordQuery, signal?: AbortSignal): Promise<RecordsResult> =>
-    podBaseQuery({ path: { id: tableID }, body: { data: body }, signal }),
+  query: (tableID: string, body: RecordQuery, signal?: AbortSignal): Promise<RecordsResult> => {
+    const { group, groups, ...rest } = body
+    const wire = Array.isArray(group)
+      ? { ...rest, groups: [...(groups ?? []), ...group] }
+      : { ...rest, ...(group ? { group } : {}), ...(groups ? { groups } : {}) }
+    return podBaseQuery({ path: { id: tableID }, body: { data: wire }, signal })
+  },
   aggregate: (tableID: string, body: AggregateQuery): Promise<AggregateResult> =>
     podBaseAggregate({ path: { id: tableID }, body: { data: body } }),
   write: (tableID: string, body: RecordWrite): Promise<WriteResult> =>

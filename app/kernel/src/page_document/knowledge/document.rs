@@ -148,6 +148,18 @@ fn overview_block(node: &Element) -> Element {
             (lines > 12 || text.chars().count() > 1_200)
                 .then(|| format!("[Code block: {lines} lines. Read the full page for the code.]"))
         }
+        tag if page_document::attributes::knowledge_source_diagram_by_tag(tag).is_some() => {
+            let spec = page_document::attributes::knowledge_source_diagram_by_tag(tag)
+                .expect("checked source diagram tag");
+            let text = tree::text_of(node);
+            let lines = text.lines().count();
+            (lines > 12 || text.chars().count() > 1_200).then(|| {
+                format!(
+                    "[{}: {lines} lines. Read the full page for the diagram.]",
+                    spec.overview_label
+                )
+            })
+        }
         "table" => {
             let rows = node.children.len();
             (rows > 6 || tree::text_of(node).chars().count() > 1_200)
@@ -179,6 +191,11 @@ pub(super) fn validate_tree(node: &Element) -> Result<()> {
         "ol" => &["start"],
         "li" => &["task"],
         "pre" => &["lang", "meta"],
+        tag if page_document::attributes::knowledge_source_diagram_by_tag(tag).is_some() => {
+            page_document::attributes::knowledge_source_diagram_by_tag(tag)
+                .and_then(|spec| spec.knowledge_attrs)
+                .unwrap_or(&[])
+        }
         "callout" => &["tone", "icon"],
         "th" | "td" => &["align"],
         "media" => &["src", "title", "description", "kind"],

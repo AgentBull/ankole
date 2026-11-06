@@ -131,7 +131,7 @@ function normalizeAttributes(node: Element, rule: ElementRule | undefined): Reco
       throw new TreeError(
         `<${node.name}> 的 ${key}="${value}" 不合法`,
         node,
-        `${key} 的值应为 ${key === 'view' && node.name !== 'mermaid' ? 'link、title、card 或 preview' : (valueHints[key] ?? pattern.source)}。`
+        `${key} 的值应为 ${key === 'view' && node.name !== 'mermaid' && node.name !== 'infographic' ? 'link、title、card 或 preview' : (valueHints[key] ?? pattern.source)}。`
       )
     }
     if (
@@ -140,7 +140,8 @@ function normalizeAttributes(node: Element, rule: ElementRule | undefined): Reco
         (node.name === 'ol' && key === 'start' && value === '1') ||
         (node.name === 'column' && key === 'width' && value === '1000') ||
         ((key === 'colspan' || key === 'rowspan') && value === '1') ||
-        (node.name === 'mermaid' && ((key === 'view' && value === 'both') || (key === 'theme' && value === 'auto'))))
+        ((node.name === 'mermaid' || node.name === 'infographic') &&
+          ((key === 'view' && value === 'both') || (key === 'theme' && value === 'auto'))))
     ) {
       continue
     }
@@ -308,6 +309,9 @@ function flatten(
     }
     if (container.name === 'mermaid' && child.name !== 'comment') {
       throw new TreeError('<mermaid> 只能包含文字', child, '请把 Mermaid 源码写成文字。')
+    }
+    if (container.name === 'infographic' && child.name !== 'comment') {
+      throw new TreeError('<infographic> 只能包含文字', child, '请把 Infographic 源码写成文字。')
     }
     checkElementName(child.name, child)
     const rule = ruleOf(child.name)

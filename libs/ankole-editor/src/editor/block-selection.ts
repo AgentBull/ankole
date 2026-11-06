@@ -9,6 +9,7 @@ import { CellSelection } from '../core/table'
 import { TableMap } from '../core/table/tablemap'
 import * as T from '../core/types'
 import { MathBlock, openMathEditor } from '../blocks/math'
+import { InfographicBlock, InfographicView } from '../blocks/infographic'
 import { MermaidBlock, MermaidView } from '../blocks/mermaid'
 import { isList } from './block-insert'
 import { adjacentUnit, blockContent, blockRemovalRanges, blocksBetween, targetAt, unitAt } from './block-target'
@@ -101,7 +102,9 @@ export class BlockSelection extends GardSelection {
 }
 
 const isNonEditableBlock = (node: Node) =>
-  node.isLeaf || (node.type === MermaidBlock.type && node.mark(MermaidView) === 'diagram')
+  node.isLeaf ||
+  (node.type === MermaidBlock.type && node.mark(MermaidView) === 'diagram') ||
+  (node.type === InfographicBlock.type && node.mark(InfographicView) === 'diagram')
 
 const isEmptyMarklessParagraph = (node: Node) =>
   node.type === T.Paragraph.type && node.isPlot && !node.content.length && !node.marks.length

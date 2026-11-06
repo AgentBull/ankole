@@ -261,4 +261,67 @@ defmodule Ankole.Pod.KnowledgeTest do
     assert {:error, :forbidden} =
              Ankole.Pod.AgentPages.save(actor, context, ctx.page.id, 1, "Agent lacks edit")
   end
+
+  test "knowledge NIF promotes mermaid fences to <mermaid>, folds >12-line diagrams in overview, and keeps infographic as <pre>",
+       ctx do
+    short_mermaid = """
+    flowchart LR
+      A --> B
+    """
+
+    long_mermaid =
+      ["flowchart TD"] ++
+        for(i <- 1..14, do: "  N#{i}[\"Step #{i}\"] --> N#{i + 1}[\"Step #{i + 1}\"]")
+
+    markdown = """
+    ---
+    summary: Architecture flow
+    ---
+    ```mermaid
+    #{String.trim(short_mermaid)}
+    ```
+
+    ```mermaid
+    #{Enum.join(long_mermaid, "\n")}
+    ```
+
+    ```infographic
+    infographic list-row-simple-horizontal-arrow
+    data
+      lists
+        - label Step 1
+        - label Step 2
+    ```
+
+    ## Details
+
+    Follow-up notes.
+    """
+
+    assert {:ok, %{xml: xml, metadata: metadata}} = Ankole.Kernel.knowledge_parse(markdown)
+    assert xml =~ "<mermaid>"
+    refute xml =~ "<pre lang=\"mermaid\">"
+    assert xml =~ "<pre lang=\"infographic\">"
+    refute xml =~ "<infographic"
+
+    assert {:ok, _} = Knowledge.write(ctx.actor, ctx.page.id, 0, xml, metadata)
+
+    assert {:error, _} =
+             Knowledge.write(
+               ctx.actor,
+               ctx.page.id,
+               1,
+               "<page><infographic>x</infographic></page>",
+               %{}
+             )
+
+    assert {:ok, exported} = Ankole.Kernel.knowledge_export(xml, metadata)
+    assert exported =~ "```mermaid\nflowchart TD"
+    assert exported =~ "```infographic\ninfographic list-row-simple-horizontal-arrow"
+
+    assert {:ok, overview} = Ankole.Kernel.knowledge_overview(xml, metadata)
+    assert overview =~ "```mermaid\nflowchart LR\n  A --> B\n```"
+    assert overview =~ "Mermaid block: 15 lines. Read the full page for the diagram."
+    refute overview =~ "Step 15"
+  end
 end

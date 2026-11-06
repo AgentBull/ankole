@@ -115,7 +115,7 @@ function createHandle(
   const editor = Wordgard.create({
     state: initialState(
       kind === 'knowledge'
-        ? validateKnowledge(typeof initial === 'string' ? parseMarkdown(initial) : initial)
+        ? validateKnowledge(typeof initial === 'string' ? parseMarkdown(initial, 'knowledge') : initial)
         : initial,
       [
         // An open slash or mention menu takes its keys before any editing key binding.
@@ -245,7 +245,7 @@ export function BlockEditor({
                 <FileUpload />
                 <TableTools />
                 <CalloutMenu />
-                {kind !== 'knowledge' && <MermaidMenus />}
+                <MermaidMenus />
                 <KeyboardBlockMenu insertMenu={insertMenu} />
                 <BlockHandles anchor={anchor} insertMenu={insertMenu} />
                 <BlockMarquee anchor={anchor} />

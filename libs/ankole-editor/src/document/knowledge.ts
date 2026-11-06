@@ -17,6 +17,7 @@ const attributes: Record<string, readonly string[]> = {
   hr: [],
   blockquote: [],
   ul: [],
+  mermaid: [],
   table: [],
   tr: [],
   a: ['href', 'title'],
@@ -31,7 +32,10 @@ const attributes: Record<string, readonly string[]> = {
   mention: ['page', 'principal']
 }
 
-/** The knowledge vocabulary matches the kernel codec; the shared corpus proves both boundaries. */
+/**
+ * Validates that a normalized page tree belongs to the lossless knowledge vocabulary shared
+ * with the kernel codec, including plain `<mermaid>` diagrams without display attributes.
+ */
 export function validateKnowledge(tree: Element): Element {
   const allowed = attributes[tree.name]
   if (!allowed) throw new Error(`Knowledge pages do not support <${tree.name}>.`)

@@ -32,14 +32,14 @@ defmodule Ankole.OIDC.Sessions do
     ref = %{"id" => auth["authentication_id"], "revision" => auth["authentication_revision"]}
 
     with :ok <- lock_tenant(),
-         :ok <- BrowserSessions.authorize_in_tx(ref, auth),
+         {:ok, authentication} <- BrowserSessions.authorize_in_tx(ref, auth),
          :ok <- accepting_work(),
          {:ok, %Client{enabled: true} = client} <- lock_client(client_id),
          :ok <- LoginPolicy.authorize_source(client, auth["provider_id"]) do
       expiry =
         if offline?(scope),
           do: DateTime.add(DateTime.utc_now(), 30 * 24 * 60 * 60),
-          else: DateTime.from_unix!(auth["expires_at"] * 1_000_000, :microsecond)
+          else: authentication.expires_at
 
       Ankole.Ash.create(Session, :authorize_in_tx, %{
         client_id: client_id,

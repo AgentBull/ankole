@@ -47,6 +47,7 @@ import type {
 export type * from './types'
 export * from './job-sources'
 export * from './jobs'
+export * from './viz'
 import { createJobSources } from './job-sources'
 import { createAppletJobs } from './jobs'
 

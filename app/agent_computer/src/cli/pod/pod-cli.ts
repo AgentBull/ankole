@@ -49,8 +49,8 @@ Read operations:
   files.download   {id, path, local_path, sha256?}
   base.tables  {id: base_page_id}
   base.schema  {id: table_id}
-  base.query   {id, filter?, sort?, page_size?, page_token?, ids?}
-  base.aggregate {id, filter?, group_by?, metrics}
+  base.query   {id, filter?, sort?, page_size?, page_token?, ids?, group?}
+  base.aggregate {id, filter?, group_by?, metrics, order_by?, top_n?, omit_empty?}
   jobs.schedules.list {page_id, job_id}
   jobs.schedules.runs {page_id, job_id, id}
   jobs.webhooks.list {page_id, job_id}
@@ -110,13 +110,17 @@ Base parameter shapes:
     operator: is|contains|is_empty|is_not_empty|gt|gte|lt|lte|text_contains
   sort: [{field_id, direction:"asc"|"desc"}]
   group_by: [{field_id, bucket?:"day"|"week"|"month"|"quarter"|"year"}]
-  metrics: [{operation:"count"|"sum"|"avg"|"min"|"max", field_id?, alias}]
+  metrics: [{operation:"count"|"sum"|"avg"|"min"|"max"|"count_distinct", field_id?, alias}]
     field_id is required except for row count. For example:
     {"id":"TABLE_ID","metrics":[{"operation":"sum","field_id":"FIELD_ID","alias":"total"}]}
-    Results contain groups:[{values,metrics:{total:...}}] and data_version.
+    order_by: [{metric_alias?, group_index?, direction:"asc"|"desc"}];
+    top_n: {limit, include_other?, target_group_index?}; omit_empty?: boolean.
+    Results contain groups:[{values,value_json?,other?,metrics:{total:...},metrics_text?}] and data_version.
   query results: {records:[{id,data,versions,...}],complete,page_token,data_version}
     When complete is false, pass page_token to the next query with the same
     filter and sort. Aggregate calculates over all matching rows.
+    For chart drill-down, pass group: [{field_id, value?, value_json?, bucket?,
+    cumulative_from_json?, other_exclude_values_json?}] on base.query / base.records.
   Upserts require a configured scalar business key and every key value. Unchanged
   normalized values do not advance versions or emit changes.
   data: {"FIELD_ID": value}; expected_versions: {"FIELD_ID": last_read_version}
@@ -124,10 +128,19 @@ Base parameter shapes:
   field type: text|number|select|datetime|checkbox|user|attachment|auto_number|
     link|formula|created_at|updated_at|created_by|updated_by
     formula config: {source:"[Price] * [Quantity]"}; formulas are read-only.
-    select config: {multiple?:boolean,options:[{id,name}]}; records store option IDs.
+    select config: {multiple?:boolean,options:[{id,name,color?}]}; records store option IDs.
     link config: {table_id,multiple?:boolean,bidirectional?:boolean}.
     datetime values use ISO 8601; user values are arrays of Principal UIDs.
-  view type: grid|kanban|gallery
+  view type: grid|kanban|gallery|chart
+    ChartViewSpec (type: "chart"): config: {filter?, chart: {chart_type,
+    query: {group_by?, metrics, top_n?, omit_empty?}, encoding?, display?}}.
+    Chart display sorting uses display.sort_mode: metric_desc|metric_asc|key_asc|key_desc|option_order.
+
+Document & Knowledge visualizations:
+  :doc pages embed saved or inline Base chart views via <embed ref="<base-page-id>" table="<table-id>" view="<view-id-or-json>" />,
+  structured AntV infographics via <infographic> or \`\`\`infographic (:doc only), and Mermaid diagrams via <mermaid> or \`\`\`mermaid.
+  :knowledge pages support plain \`\`\`mermaid / <mermaid> (without attributes); \`\`\`infographic in :knowledge renders as a plain code block and <infographic> XML is rejected.
+  New or modified Mermaid and Infographic blocks are syntax-checked before pages.create, pages.append, pages.write, and pages.patch.
 
 Page access:
   view reads content and records. On documents and files, contribute adds comment
@@ -160,7 +173,8 @@ var(--background), var(--layer-01), var(--foreground), var(--fg-secondary), var(
 and var(--radius-control) rather than arbitrary Tailwind utility classes or hardcoded hex colors).
 Import components (Button, Badge, Card, Table, Tabs, Input, Textarea, Select, Combobox,
 Checkbox, Switch, Field, Label, Dialog, Sheet, Drawer, Popover, DropdownMenu, Tooltip,
-Alert, Empty, Skeleton, Spinner, Toaster, toast, useTheme) from the root "@ankole/uikit"
+Alert, Empty, Skeleton, Spinner, Toaster, toast, useTheme, AnkoleChart, AnkoleFinancialChart,
+AnkoleYieldCurveChart, AnkoleInfographic, AnkoleStatCard, AnkoleSparkline, Graph) from the root "@ankole/uikit"
 export (@base-ui/react: pass render={<Button variant="outline" />} on triggers instead of asChild;
 Badge variants are secondary|info|success|warning|destructive|outline|ghost; use at most one
 default primary Button per view and outline/ghost for other actions).
@@ -169,7 +183,8 @@ Automation toolbar above the iframe: keep the Applet flush without repeating an 
 title or wrapping the app in an outer card/shadow/gradient wash. The host syncs
 html[data-theme="light|dark"] and color-scheme on the iframe and updates usePod().theme
 ('light' | 'dark') reactively on theme switches; never use @media (prefers-color-scheme: dark).
-Import runtime APIs from "@ankole/applet-sdk".
+Import runtime APIs and visualization data helpers (recordsToFinancialSeries, densifyTimeBuckets,
+formatMetricValue) from "@ankole/applet-sdk".
 Do not import their runtime subpaths or UIKit styles; the Pod host supplies styles.
 SDK type subpaths remain available through "import type".
 Worker entries use src/**/*.worker.ts or .worker.js and build to matching

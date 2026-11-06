@@ -343,7 +343,14 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
   end
 
   defp image_attachment?(attachment) do
-    String.starts_with?(attachment["mime_type"] || "", "image/")
+    mime =
+      (attachment["mime_type"] || "")
+      |> String.split(";", parts: 2)
+      |> List.first("")
+      |> String.trim()
+      |> String.downcase()
+
+    String.starts_with?(mime, "image/") and mime != "image/svg+xml"
   end
 
   defp uncertain?(%Client.Error{kind: kind, error_code: code}),

@@ -396,6 +396,7 @@ defmodule Ankole.BrowserSessions.Logins do
 
     old = find_subject(attributes)
     renew_site? = site? and live?(old)
+    authenticated_at = DateTime.utc_now()
 
     with :ok <- unchanged_target(context, old),
          :ok <- expected_subject(context, provider_id, subject_id, principals),
@@ -404,16 +405,17 @@ defmodule Ankole.BrowserSessions.Logins do
            persist_authentication(old, attributes, %{
              revision: if(renew_site?, do: old.revision, else: browser.revision + 1),
              auth_time: auth_time,
-             authenticated_at: DateTime.utc_now(),
+             authenticated_at: authenticated_at,
              challenge_started_at: Map.fetch!(proof, :challenge_started_at),
              amr: Map.get(proof, :amr, []),
              verified_email: Map.get(proof, :verified_email),
              verified_phone: Map.get(proof, :verified_phone),
              external_id: external_id,
              csrf_token: if(renew_site?, do: old.csrf_token, else: Identity.csrf_state()),
-             expires_at: DateTime.add(DateTime.utc_now(), Identity.session_ttl())
+             expires_at: Identity.idle_expiry(authenticated_at, authenticated_at)
            }),
          :ok <- PodAccess.save_pod_authentications(authentication, principals),
+         absolute_expiry = Identity.absolute_expiry(authenticated_at),
          {:ok, browser} <-
            Ankole.Ash.update(browser, :record_login_in_tx, %{
              revision: max(browser.revision, authentication.revision),
@@ -422,10 +424,11 @@ defmodule Ankole.BrowserSessions.Logins do
                if(Enum.any?(principals, &(&1.tenant_id == context.target_tenant_id)),
                  do: context.target_tenant_id
                ),
+             # The browser group outlives every renewal of this authentication.
              expires_at:
-               if(DateTime.compare(browser.expires_at, authentication.expires_at) == :gt,
+               if(DateTime.compare(browser.expires_at, absolute_expiry) == :gt,
                  do: browser.expires_at,
-                 else: authentication.expires_at
+                 else: absolute_expiry
                )
            }),
          {:ok, oauth_request} <-

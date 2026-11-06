@@ -20,15 +20,15 @@ import {
   type EmbedAttributes,
   type PageChanges
 } from '@ankole/block-editor/editor'
-import { Button, Dialog, DialogContent, DialogTitle, DropdownMenuItem, toast } from '@ankole/uikit'
-import { RiCloseLine, RiExternalLinkLine, RiLayoutGridLine } from '@remixicon/react'
+import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, DropdownMenuItem, toast } from '@ankole/uikit'
+import { RiBarChartBoxLine, RiCloseLine, RiExternalLinkLine, RiLayoutGridLine } from '@remixicon/react'
 
 import { useModel } from '@preact/signals-react'
 import { DocumentPresence } from './document-presence'
 import { DocumentPresenceModel, peerColor } from './state/document-presence'
 import { useSignals } from '@preact/signals-react/runtime'
 import { QueryClientProvider, useQuery, useQueryClient } from '@tanstack/react-query'
-import { lazy, Suspense, useEffectEvent, useMemo, useRef, useState, type SyntheticEvent } from 'react'
+import { lazy, Suspense, useEffect, useEffectEvent, useMemo, useRef, useState, type SyntheticEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { useNavigate } from '@tanstack/react-router'
@@ -51,7 +51,9 @@ import { DocumentDraftModel } from './state/document-draft'
 import type { ReadonlySignal } from '@preact/signals-react'
 import { DocumentRecovery, downloadDraft } from './document-recovery'
 
-import { parseEmbedView } from './state/view-config'
+import { looksLikeChartEmbedView, parseEmbedView } from './state/view-config'
+import { baseSchemaQuery, baseTablesQuery } from './base-api'
+import type { BaseTable, BaseView } from '@ankole/applet-sdk/types'
 import { ContentScope, useContent } from './content-context'
 import { isRealtimeAccessDenied, RealtimeRequestError } from './realtime'
 
@@ -107,6 +109,8 @@ export function DocumentPage({
   const retryConnection = useRef<() => void>(() => {})
   const [fileDragOver, setFileDragOver] = useState(false)
   const [embedPickerOpen, setEmbedPickerOpen] = useState(false)
+  const [chartPickerOpen, setChartPickerOpen] = useState(false)
+  const insertAsChartRef = useRef(false)
   const openCreatedDocument = useRef<string | undefined>(undefined)
   const canEdit = detail.actions.includes('node_edit')
   const openComment = useEffectEvent((ids: readonly string[]) => onComment(ids))
@@ -121,10 +125,14 @@ export function DocumentPage({
     scope: detail.page.private_owner_uid ? 'private' : 'space',
     privateOwner: detail.page.private_owner_uid ?? undefined,
     onCreated: created => {
+      const asChart = insertAsChartRef.current
+      insertAsChartRef.current = false
       if (editor.current && !editor.current.state.readOnly) {
         if (created.type === 'doc') {
           openCreatedDocument.current = created.id
           insertMention(editor.current, { page: created.id })
+        } else if (asChart && created.type === 'base') {
+          insertEmbed(editor.current, { ref: created.id, view: JSON.stringify({ type: 'chart' }) })
         } else {
           insertEmbed(editor.current, { ref: created.id })
         }
@@ -175,6 +183,13 @@ export function DocumentPage({
                     configure={(config, table) =>
                       update({ ...attributes, ...(table ? { table } : {}), view: JSON.stringify(config) })
                     }
+                    bindSavedView={(viewID, table) =>
+                      update({
+                        ref: attributes.ref,
+                        ...(table ? { table } : attributes.table ? { table: attributes.table } : {}),
+                        ...(viewID ? { view: viewID } : {})
+                      })
+                    }
                     openPage={id => void navigate({ to: content.pageHref(id) })}
                   />
                 </ErrorBoundary>
@@ -210,6 +225,10 @@ export function DocumentPage({
           toast.error(requestErrorMessage(contentError(error)))
           return false
         }
+      },
+      insertChart: () => {
+        if (!canEdit || detail.page.deleted_at || model.conflict.value) return
+        queueMicrotask(() => setChartPickerOpen(true))
       }
     }),
     [client, navigate, detail.page.id, detail.page.deleted_at, content, canEdit, canComment, canAskAgent, model, i18n]
@@ -359,6 +378,14 @@ export function DocumentPage({
                   }}>
                   <RiLayoutGridLine aria-hidden />
                   {t('pod.content.embed_existing_content')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    prepareInsertion()
+                    queueMicrotask(() => setChartPickerOpen(true))
+                  }}>
+                  <RiBarChartBoxLine aria-hidden />
+                  {t('pod.editor.chart', { defaultValue: 'Chart' })}
                 </DropdownMenuItem>
               </>
             )}
@@ -595,7 +622,184 @@ export function DocumentPage({
           </DialogContent>
         </Dialog>
       )}
+      {chartPickerOpen && (
+        <ChartEmbedPickerDialog
+          pageID={detail.page.id}
+          creatingBase={createChildPage.isPending}
+          onClose={() => setChartPickerOpen(false)}
+          onFocusEditor={() => editor.current?.focus()}
+          onCreateNewBase={() => {
+            setChartPickerOpen(false)
+            insertAsChartRef.current = true
+            createChildPage.submit('base')
+          }}
+          onInsert={attrs => {
+            setChartPickerOpen(false)
+            if (editor.current && !editor.current.state.readOnly) {
+              insertEmbed(editor.current, attrs)
+              editor.current.focus()
+            }
+          }}
+        />
+      )}
     </section>
+  )
+}
+
+function ChartEmbedPickerDialog({
+  pageID,
+  creatingBase,
+  onClose,
+  onFocusEditor,
+  onCreateNewBase,
+  onInsert
+}: {
+  pageID: string
+  creatingBase: boolean
+  onClose(): void
+  onFocusEditor(): void
+  onCreateNewBase(): void
+  onInsert(attrs: EmbedAttributes): void
+}) {
+  const { t } = useTranslation()
+  const client = useQueryClient()
+  const [inspecting, setInspecting] = useState(false)
+  const [choiceState, setChoiceState] = useState<{
+    baseId: string
+    tables: { table: BaseTable; chartViews: BaseView[] }[]
+  } | null>(null)
+
+  const handleBaseSelected = async (baseId: string) => {
+    setInspecting(true)
+    try {
+      const { tables } = await client.fetchQuery(baseTablesQuery(baseId))
+      const schemas = await Promise.all(
+        tables.map(async table => {
+          const schema = await client.fetchQuery(baseSchemaQuery(table.id))
+          return {
+            table,
+            chartViews: schema.views.filter(v => v.type === 'chart')
+          }
+        })
+      )
+      const totalSavedCharts = schemas.reduce((sum, entry) => sum + entry.chartViews.length, 0)
+      if (tables.length <= 1 && totalSavedCharts === 0) {
+        onInsert({
+          ref: baseId,
+          ...(tables[0] ? { table: tables[0].id } : {}),
+          view: JSON.stringify({ type: 'chart' })
+        })
+        return
+      }
+      setChoiceState({ baseId, tables: schemas })
+    } catch {
+      onInsert({ ref: baseId, view: JSON.stringify({ type: 'chart' }) })
+    } finally {
+      setInspecting(false)
+    }
+  }
+
+  const savedCharts = choiceState?.tables.flatMap(entry => entry.chartViews.map(view => ({ table: entry.table, view })))
+
+  return (
+    <Dialog open onOpenChange={next => !next && onClose()}>
+      <DialogContent
+        className="pod-dialog pod-picker-dialog"
+        closeLabel={t('common.close')}
+        finalFocus={() => {
+          onFocusEditor()
+          return false
+        }}>
+        <DialogTitle>{t('pod.content.embed_base_chart', { defaultValue: 'Insert Base chart' })}</DialogTitle>
+        <div className="pod-dialog-body grid gap-3">
+          {choiceState ? (
+            <div className="space-y-4 text-sm" data-slot="chart-picker-options">
+              {savedCharts && savedCharts.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-fg-secondary">
+                    {t('pod.content.link_existing_chart_view', { defaultValue: 'Link existing chart view' })}
+                  </p>
+                  <div className="grid gap-1">
+                    {savedCharts.map(({ table, view }) => (
+                      <Button
+                        key={view.id}
+                        variant="outline"
+                        size="sm"
+                        className="justify-between"
+                        onClick={() =>
+                          onInsert({
+                            ref: choiceState.baseId,
+                            table: table.id,
+                            view: view.id
+                          })
+                        }>
+                        <span className="inline-flex items-center gap-1.5 truncate">
+                          <RiBarChartBoxLine aria-hidden="true" className="size-4 shrink-0" />
+                          <span className="truncate">{view.name}</span>
+                        </span>
+                        {choiceState.tables.length > 1 && (
+                          <span className="text-xs text-fg-tertiary">{table.name}</span>
+                        )}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-fg-secondary">
+                  {t('pod.content.new_inline_chart_for_table', { defaultValue: 'New chart in document' })}
+                </p>
+                <div className="grid gap-1">
+                  {choiceState.tables.map(({ table }) => (
+                    <Button
+                      key={table.id}
+                      variant="ghost"
+                      size="sm"
+                      className="justify-start border border-border/60"
+                      onClick={() =>
+                        onInsert({
+                          ref: choiceState.baseId,
+                          table: table.id,
+                          view: JSON.stringify({ type: 'chart' })
+                        })
+                      }>
+                      <RiBarChartBoxLine aria-hidden="true" className="size-4 shrink-0 text-fg-secondary" />
+                      <span className="truncate">{table.name}</span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <ErrorBoundary variant="panel" resetKeys={[pageID]}>
+              <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
+                <PagePicker
+                  embeddable
+                  disabled={inspecting}
+                  canSelect={page => page.type === 'base'}
+                  label={t('pod.content.choose_base_for_chart', { defaultValue: 'Choose a Base' })}
+                  onSelect={id => {
+                    void handleBaseSelected(id)
+                  }}
+                />
+              </Suspense>
+            </ErrorBoundary>
+          )}
+        </div>
+        <DialogFooter>
+          {choiceState ? (
+            <Button variant="ghost" size="sm" onClick={() => setChoiceState(null)}>
+              {t('pod.content.choose_another_base', { defaultValue: 'Choose another Base' })}
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" disabled={creatingBase || inspecting} onClick={onCreateNewBase}>
+              {t('pod.content.create_new_base_chart', { defaultValue: 'Create new Base & chart' })}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -606,6 +810,7 @@ export function PageEmbed({
   model,
   remove,
   configure,
+  bindSavedView,
   openPage
 }: {
   attributes: EmbedAttributes
@@ -614,6 +819,7 @@ export function PageEmbed({
   model: InstanceType<typeof DocumentDraftModel>
   remove(): void
   configure(config: Record<string, unknown>, table?: string): void
+  bindSavedView?(viewID: string, table?: string): void
   openPage(id: string): void
 }) {
   useSignals()
@@ -621,6 +827,37 @@ export function PageEmbed({
   const editable = canEdit && !model.conflict.value
   const query = useQuery({ ...pageQuery(attributes.ref ?? ''), enabled: !!attributes.ref })
   const page = usePageMetadata(query.data?.page)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const view = parseEmbedView(attributes.view)
+  const isChartIntent =
+    (view.kind === 'inline' && view.config.type === 'chart') || looksLikeChartEmbedView(attributes.view)
+  const [chartVisible, setChartVisible] = useState<boolean>(
+    () => !isChartIntent || typeof IntersectionObserver === 'undefined'
+  )
+
+  useEffect(() => {
+    if (chartVisible || !isChartIntent) {
+      setChartVisible(true)
+      return
+    }
+    const el = containerRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setChartVisible(true)
+      return
+    }
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries.some(entry => entry.isIntersecting)) {
+          setChartVisible(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '300px' }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [chartVisible, isChartIntent])
+
   const cannotDisplay = (
     <div className="flex items-center justify-between gap-2 p-4 text-sm text-fg-tertiary">
       <span>{t('pod.content.cannot_display')}</span>
@@ -652,35 +889,52 @@ export function PageEmbed({
   if (page.type === 'doc') {
     return cannotDisplay
   }
-  const view = parseEmbedView(attributes.view)
   const embedTrashed = trashed || Boolean(query.data.page.deleted_at)
   const embeddedDetail = embedTrashed ? { ...query.data, actions: ['node_view' as const] } : query.data
+  const canConfigureEmbed = editable && !embedTrashed
   return (
-    <div className="pod-inline-page" data-page-type={page.type}>
+    <div
+      ref={containerRef}
+      className="pod-inline-page"
+      data-page-type={page.type}
+      data-chart-embed={isChartIntent || undefined}>
       <Button variant="ghost" className="pod-inline-page-title" onClick={() => openPage(query.data!.page.id)}>
         <PageIcon page={page} />
         {page.title || t('pod.content.untitled')}
         <RiExternalLinkLine aria-hidden />
       </Button>
       {page.type === 'base' ? (
-        <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
-          {view.kind === 'invalid' ? (
-            <div className="space-y-2 p-4" role="alert">
-              <p>{t('pod.content.cannot_display')}</p>
-              <Button variant="outline" size="sm" disabled={embedTrashed} onClick={() => configure({ type: 'grid' })}>
-                {t('pod.content.discard_view_changes')}
-              </Button>
-            </div>
-          ) : (
-            <BasePage
-              detail={embeddedDetail}
-              tableID={attributes.table}
-              viewID={view.kind === 'saved' ? view.id : undefined}
-              inlineConfig={view.kind === 'inline' ? view.config : undefined}
-              configureInline={configure}
-            />
-          )}
-        </Suspense>
+        !chartVisible ? (
+          <div role="status" className="flex min-h-[280px] items-center justify-center p-4 text-xs text-fg-tertiary">
+            {t('pod.content.loading')}
+          </div>
+        ) : (
+          <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
+            {view.kind === 'invalid' ? (
+              <div className="space-y-2 p-4" role="alert">
+                <p>{t('pod.content.cannot_display')}</p>
+                {canConfigureEmbed && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => configure({ type: looksLikeChartEmbedView(attributes.view) ? 'chart' : 'grid' })}>
+                    {t('pod.content.discard_view_changes')}
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <BasePage
+                detail={embeddedDetail}
+                tableID={attributes.table}
+                viewID={view.kind === 'saved' ? view.id : undefined}
+                inlineConfig={view.kind === 'inline' ? view.config : undefined}
+                configureInline={canConfigureEmbed ? configure : undefined}
+                bindSavedView={canConfigureEmbed ? bindSavedView : undefined}
+                embedded
+              />
+            )}
+          </Suspense>
+        )
       ) : page.type === 'applet' && embedTrashed ? (
         <div className="p-4 text-sm text-muted-foreground" role="status">
           {t('pod.content.applet_inactive_in_trash')}

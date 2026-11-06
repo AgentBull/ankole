@@ -401,17 +401,31 @@ mod tests {
     }
 
     #[test]
-    fn mermaid_comment_anchors_survive_serialization() {
-        let source = "<page><mermaid>flowchart TD\nA --&gt; B</mermaid></page>";
-        let annotated = annotate_comment(source, A, 14, 21).unwrap();
-        assert_eq!(annotated.quote, "A --> B");
-        assert_eq!(comment_info(&annotated.xml).unwrap()["ids"], json!([A]));
-        assert_eq!(
-            comment_info(&annotated.xml).unwrap()["stripped_xml"],
-            source
-        );
-        let restored = restore_comments(&annotated.xml, source).unwrap();
-        assert_eq!(restored.xml, annotated.xml);
+    fn mermaid_and_infographic_comment_anchors_survive_serialization() {
+        for (source, from, to, expected_quote) in [
+            (
+                "<page><mermaid>flowchart TD\nA --&gt; B</mermaid></page>",
+                14,
+                21,
+                "A --> B",
+            ),
+            (
+                "<page><infographic>infographic list-row\n  data</infographic></page>",
+                13,
+                28,
+                "list-row\n  data",
+            ),
+        ] {
+            let annotated = annotate_comment(source, A, from, to).unwrap();
+            assert_eq!(annotated.quote, expected_quote);
+            assert_eq!(comment_info(&annotated.xml).unwrap()["ids"], json!([A]));
+            assert_eq!(
+                comment_info(&annotated.xml).unwrap()["stripped_xml"],
+                source
+            );
+            let restored = restore_comments(&annotated.xml, source).unwrap();
+            assert_eq!(restored.xml, annotated.xml);
+        }
     }
 
     #[test]

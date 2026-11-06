@@ -37,8 +37,8 @@ colors:
   chart-3: "#0f62fe"
   chart-4: "#f1c21b"
   chart-5: "#a56eff"
-  chart-up: "#b31b5d"
-  chart-down: "#24a148"
+  chart-up: "#0f8a5f"
+  chart-down: "#c81e3a"
 
 typography:
   display-01:
@@ -280,6 +280,7 @@ Documents and slides render on the light theme by default; the dark mapping serv
 | accent fill | #b31b5d | #b31b5d (unchanged) |
 | hover / active | #8f1248 / #681036 | #d83d82 / #f76aa7 (flips lighter) |
 | error / info / success | #da1e28 / #0f62fe / #24a148 | #fa4d56 / #78a9ff / #42be65 |
+| chart-up / chart-down | #0f8a5f / #c81e3a | #2ec28b / #f2556a |
 
 Berry-60 stays the fill color for accents in both themes, but as small text on dark it fails contrast — use `{colors.accent-on-dark}` (brand-40) or brand-50 for links and text accents on dark surfaces.
 
@@ -389,9 +390,9 @@ The component vocabulary is document-first: the atoms below are what reports, de
 
 ## Charts & data
 
-Categorical series take `{colors.chart-1}` through `{colors.chart-5}` in order; a single-series chart uses `{colors.chart-1}` alone. Beyond five series, group the tail into "other" rather than inventing hues. On dark, shift to brand-50 #d83d82, teal-40 #08bdba, blue-40 #78a9ff, yellow-30, purple-40 #be95ff.
+Categorical series take `{colors.chart-1}` through `{colors.chart-5}` in global rank order (when a Base `:select` field defines explicit option colors, honor those option ramps first); a single-series chart uses `{colors.chart-1}` alone. Beyond five series, fold the tail into `"other"` in neutral gray rather than inventing hues, and keep unassigned (`null`) records in a separate lighter neutral gray bucket so missing values stay distinct from `"other"`. On dark, shift categorical hues to brand-50 #d83d82, teal-40 #08bdba, blue-40 #78a9ff, yellow-30, purple-40 #be95ff.
 
-Directional metrics follow the Chinese market convention (红涨绿跌): `{colors.chart-up}` (berry) marks gains and `{colors.chart-down}` (green) marks declines. This is a deliberate installation default — do not "correct" it to green-up/red-down, and do not reuse `{colors.error}`/`{colors.success}` for deltas.
+Directional metrics and financial candles follow the international convention (绿涨红跌) by default: `{colors.chart-up}` (#0f8a5f on light, #2ec28b on dark) marks positive deltas or upward closes, and `{colors.chart-down}` (#c81e3a on light, #f2556a on dark) marks negative deltas or downward closes, always paired with explicit sign or arrow glyphs (`+`/`-`, `▲`/`▼`). Swap `{colors.chart-up}` and `{colors.chart-down}` to red-up/green-down (红涨绿跌) only when rendering Mainland China A-share (A股) equity prices or indices. Keep `{colors.chart-up}` and `{colors.chart-down}` distinct from `{colors.success}` and `{colors.error}`, which signal operational status rather than numeric sign.
 
 Keep charts flat: no 3D, gradients, or drop shadows. Gridlines are `{colors.border-subtle}`; axes and captions use `{typography.label-01}` in `{colors.text-secondary}`; lines are 2px; bars are square-cornered. Prefer direct series labels over legends when there are three or fewer series. Series must stay distinguishable in grayscale print — vary dash or marker when hue alone would carry the difference. Interactive charts follow the same palette and rules; tooltips are `{typography.body-compact-01}` on `{colors.layer-02}` with a hairline and the small shadow.
 

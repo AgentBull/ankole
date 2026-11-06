@@ -25,6 +25,10 @@ defmodule Ankole.BrowserSessions do
   defdelegate get(ref), to: Identity
   defdelegate lock_browser_in_tx(ref), to: Identity
   defdelegate get_authentication(ref), to: Identity
+  defdelegate renew(ref), to: Identity
+  defdelegate renewal_due?(expires_at, authenticated_at), to: Identity
+  defdelegate absolute_expiry(authenticated_at), to: Identity
+  defdelegate absolute_ttl(), to: Identity
   defdelegate authentication_evidence(id), to: Identity
   defdelegate current_reference(ref), to: Identity
   defdelegate identity(ref, tenant_id, opts \\ []), to: Identity

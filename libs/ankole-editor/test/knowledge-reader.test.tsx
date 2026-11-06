@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { KnowledgeReader } from '../src/reader'
+import { renderKnowledgeMermaid } from '../src/react/KnowledgeReader'
 import corpus from '../corpus/knowledge.json'
 
 describe('knowledge reading without an editor', () => {
@@ -19,12 +20,13 @@ describe('knowledge reading without an editor', () => {
     }
   })
 
-  test('images, dividers and empty code blocks are content even without text', () => {
+  test('images, dividers, empty code blocks, and Mermaid blocks are content even without prose', () => {
     for (const xml of [
       '<page><p><img src="https://example.com/photo.png" alt="Photo"/></p></page>',
       '<page><media src="ankole:asset/photo" title="Photo" kind="image"/></page>',
       '<page><hr/></page>',
-      '<page><pre lang="text"/></page>'
+      '<page><pre lang="text"/></page>',
+      '<page><mermaid/></page>'
     ]) {
       const html = renderToStaticMarkup(
         <KnowledgeReader xml={xml} host={{ resolveAsset: () => 'https://example.com/uploaded.png' }} />
@@ -61,5 +63,38 @@ describe('knowledge reading without an editor', () => {
     expect(html).toContain('start="3"')
     expect(html).toContain('type="checkbox"')
     expect(html).toContain('checked=""')
+  })
+
+  test('Mermaid blocks render <figure class="knowledge-reader-mermaid"><pre><code> initially and lazily render SVG with resolved theme', async () => {
+    const xml = '<page><mermaid>flowchart TD\n  A[Start] --&gt; B[Finish]</mermaid></page>'
+    const ssrHtml = renderToStaticMarkup(<KnowledgeReader xml={xml} />)
+    expect(ssrHtml).toContain('<figure class="knowledge-reader-mermaid">')
+    expect(ssrHtml).toContain('<pre><code>flowchart TD\n  A[Start] --&gt; B[Finish]</code></pre>')
+    expect(ssrHtml).not.toContain('contenteditable')
+
+    const lightContainer = {
+      closest: (selector: string) =>
+        selector === '[data-theme]'
+          ? { getAttribute: (name: string) => (name === 'data-theme' ? 'light' : null) }
+          : null
+    }
+    const darkContainer = {
+      closest: (selector: string) =>
+        selector === '[data-theme]' ? { getAttribute: (name: string) => (name === 'data-theme' ? 'dark' : null) } : null
+    }
+
+    const light = await renderKnowledgeMermaid('flowchart TD\n  A[Start] --> B[Finish]', lightContainer)
+    expect(light).not.toBeNull()
+    expect(light!.theme).toBe('light')
+    expect(light!.svg).toContain('<svg')
+    expect(light!.svg).toContain('Start')
+
+    const dark = await renderKnowledgeMermaid('flowchart TD\n  A[Start] --> B[Finish]', darkContainer)
+    expect(dark).not.toBeNull()
+    expect(dark!.theme).toBe('dark')
+    expect(dark!.svg).toContain('<svg')
+
+    expect(await renderKnowledgeMermaid('', lightContainer)).toBeNull()
+    expect(await renderKnowledgeMermaid('not valid mermaid syntax %%% {{{', lightContainer)).toBeNull()
   })
 })

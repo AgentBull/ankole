@@ -27,7 +27,7 @@ defmodule Ankole.Pod.Bases.Browser do
   end
 
   alias Ankole.Pod.{Bases, APIError, Serialization}
-  alias Ankole.Pod.Bases.{Record, RecordData, FieldVersions, Value}
+  alias Ankole.Pod.Bases.{Record, RecordData, FieldVersions, MetricsText, Value}
   alias Ankole.Ash.Types.{UUIDv7, PrincipalKey, JSONMap}
 
   @table [
@@ -47,6 +47,17 @@ defmodule Ankole.Pod.Bases.Browser do
   ]
   @field_types Ash.Resource.Info.attribute(Ankole.Pod.BaseField, :type).constraints
   @view_types Ash.Resource.Info.attribute(Ankole.Pod.BaseView, :type).constraints
+  @bucket_types [one_of: [:day, :week, :month, :quarter, :year]]
+  @group_slice [
+    fields: [
+      field_id: [type: UUIDv7, allow_nil?: false],
+      value: [type: Value],
+      value_json: [type: :string],
+      bucket: [type: :atom, constraints: @bucket_types],
+      cumulative_from_json: [type: :string],
+      other_exclude_values_json: [type: {:array, :string}]
+    ]
+  ]
   @filter [
     fields: [
       conjunction: [type: :atom, constraints: [one_of: [:and, :or]], allow_nil?: false],
@@ -215,15 +226,8 @@ defmodule Ankole.Pod.Bases.Browser do
         ]
       )
 
-      argument(:group, :map,
-        constraints: [
-          fields: [
-            field_id: [type: UUIDv7, allow_nil?: false],
-            value: [type: Value],
-            value_json: [type: :string]
-          ]
-        ]
-      )
+      argument(:group, :map, constraints: @group_slice)
+      argument(:groups, {:array, :map}, constraints: [items: @group_slice])
 
       argument(:page_size, :integer, constraints: [min: 1])
       argument(:page_token, :string)
@@ -254,7 +258,12 @@ defmodule Ankole.Pod.Bases.Browser do
                     allow_nil?: false,
                     constraints: [nil_items?: true]
                   ],
-                  metrics: [type: RecordData, allow_nil?: false]
+                  other: [
+                    type: {:array, :boolean},
+                    allow_nil?: false
+                  ],
+                  metrics: [type: RecordData, allow_nil?: false],
+                  metrics_text: [type: MetricsText, allow_nil?: false]
                 ]
               ]
             ]
@@ -271,7 +280,7 @@ defmodule Ankole.Pod.Bases.Browser do
           items: [
             fields: [
               field_id: [type: UUIDv7, allow_nil?: false],
-              bucket: [type: :atom, constraints: [one_of: [:day, :week, :month, :quarter, :year]]]
+              bucket: [type: :atom, constraints: @bucket_types]
             ]
           ]
         ]
@@ -285,11 +294,35 @@ defmodule Ankole.Pod.Bases.Browser do
               operation: [
                 type: :atom,
                 allow_nil?: false,
-                constraints: [one_of: [:count, :sum, :avg, :min, :max]]
+                constraints: [one_of: [:count, :count_distinct, :sum, :avg, :min, :max]]
               ],
               field_id: [type: UUIDv7],
               alias: [type: :string, allow_nil?: false]
             ]
+          ]
+        ]
+      )
+
+      argument(:omit_empty, :boolean)
+
+      argument(:order_by, {:array, :map},
+        constraints: [
+          items: [
+            fields: [
+              metric_alias: [type: :string],
+              group_index: [type: :integer, constraints: [min: 0, max: 1]],
+              direction: [type: :atom, constraints: [one_of: [:asc, :desc]]]
+            ]
+          ]
+        ]
+      )
+
+      argument(:top_n, :map,
+        constraints: [
+          fields: [
+            limit: [type: :integer, allow_nil?: false, constraints: [min: 1, max: 100]],
+            include_other: [type: :boolean],
+            target_group_index: [type: :integer, constraints: [min: 0, max: 1]]
           ]
         ]
       )

@@ -537,3 +537,144 @@ fn read_tree_strips_invalid_xml10_characters_across_all_nodes_marks_and_frozen_e
         r#"<custom-widget config="ab">body<nested-part k="v">deep</nested-part></custom-widget>"#
     ));
 }
+
+#[test]
+fn infographic_codec_normalizes_attributes_and_multiline_source() {
+    let default_xml = "<page><infographic view=\"both\" theme=\"auto\">infographic list-row\n  data\n    - label A &amp; B</infographic></page>";
+    let validated = validate(default_xml).unwrap();
+    assert_eq!(
+        validated.xml,
+        "<page><infographic>infographic list-row\n  data\n    - label A &amp; B</infographic></page>"
+    );
+    assert_eq!(
+        validated.plain_text,
+        "infographic list-row\n  data\n    - label A & B"
+    );
+
+    let styled_xml = "<page><p>Lead</p><infographic view=\"diagram\" theme=\"dark\">infographic list-row\n  data</infographic><p>Tail</p></page>";
+    let styled_page = validate(styled_xml).unwrap();
+    assert_eq!(
+        styled_page.xml,
+        "<page><p>Lead</p><infographic theme=\"dark\" view=\"diagram\">infographic list-row\n  data</infographic><p>Tail</p></page>"
+    );
+    assert_eq!(
+        styled_page.plain_text,
+        "Lead\ninfographic list-row\n  data\nTail"
+    );
+
+    let root = tree::parse(&styled_page.xml).unwrap();
+    let doc = document::page_document_normalized(&root).unwrap();
+    assert_eq!(
+        doc.content.as_ref().unwrap()[1].json(),
+        json!({
+            "type": "Infographic",
+            "param": null,
+            "marks": {
+                "InfographicTheme": "dark",
+                "InfographicView": "diagram"
+            },
+            "content": [
+                { "type": "Text", "param": "infographic list-row" },
+                { "type": "LineBreak" },
+                { "type": "Text", "param": "  data" }
+            ]
+        })
+    );
+    let roundtrip = document_schema::DocNode::from_json(&doc.json()).unwrap();
+    assert_eq!(roundtrip, doc);
+    assert_eq!(
+        tree::print(&document::read_tree(&roundtrip).unwrap()),
+        styled_page.xml
+    );
+
+    let empty = validate("<page><infographic></infographic></page>").unwrap();
+    assert_eq!(empty.xml, "<page><infographic /></page>");
+    let empty_doc = document::page_document_normalized(&tree::parse(&empty.xml).unwrap()).unwrap();
+    assert_eq!(
+        empty_doc.json(),
+        json!({
+            "type": "Doc",
+            "content": [{ "type": "Infographic", "content": [] }]
+        })
+    );
+
+    for invalid in [
+        "<page><infographic view=\"split\">a</infographic></page>",
+        "<page><infographic theme=\"neon\">a</infographic></page>",
+        "<page><infographic><strong>a</strong></infographic></page>",
+        "<page><infographic>a<br />b</infographic></page>",
+    ] {
+        assert!(validate(invalid).is_err(), "{invalid}");
+    }
+    let extra_attr = "<page><infographic data-note=\"1\">a</infographic></page>";
+    let extra_doc = document::page_document_normalized(&tree::parse(extra_attr).unwrap()).unwrap();
+    assert_eq!(
+        tree::print(&document::read_tree(&extra_doc).unwrap()),
+        extra_attr
+    );
+    assert!(document_schema::validate_mark("InfographicView", &json!("diagram")).is_ok());
+    assert!(document_schema::validate_mark("InfographicTheme", &json!("dark")).is_ok());
+    assert!(document_schema::validate_mark("InfographicView", &json!("split")).is_err());
+    assert!(document_schema::validate_mark("InfographicTheme", &json!("neon")).is_err());
+    assert!(
+        document_schema::DocNode::from_json(&json!({
+            "type": "Infographic",
+            "param": null,
+            "marks": { "MermaidView": "diagram" },
+            "content": []
+        }))
+        .is_err()
+    );
+    assert!(
+        document_schema::DocNode::from_json(&json!({
+            "type": "Mermaid",
+            "param": null,
+            "marks": { "InfographicView": "diagram" },
+            "content": []
+        }))
+        .is_err()
+    );
+}
+
+#[test]
+fn infographic_diff_and_comments_preserve_marks_and_inline_runs() {
+    const THREAD: &str = "019a2b00-0000-7000-8000-000000000001";
+    let plain =
+        "<page><infographic>infographic list-row\n  data\n    - item 1</infographic></page>";
+    let styled = "<page><infographic theme=\"dark\" view=\"diagram\">infographic list-row\n  data\n    - item 1</infographic></page>";
+
+    let attr_diff = diff(plain, styled).unwrap();
+    assert_eq!(
+        attr_diff,
+        json!([
+            [
+                1,
+                [
+                    { "add": "InfographicTheme", "value": "dark" },
+                    { "add": "InfographicView", "value": "diagram" }
+                ]
+            ],
+            41
+        ])
+    );
+    assert_eq!(apply(plain, &attr_diff.to_string()).unwrap().xml, styled);
+
+    let edited = "<page><infographic theme=\"dark\" view=\"diagram\">infographic list-row\n  data\n    - item 2</infographic></page>";
+    let line_diff = diff(styled, edited).unwrap();
+    assert_eq!(
+        line_diff,
+        json!([40, [1, [{ "type": "Text", "param": "2" }]], 1])
+    );
+    assert_eq!(apply(styled, &line_diff.to_string()).unwrap().xml, edited);
+
+    let annotated = annotate_comment(plain, THREAD, 13, 27).unwrap();
+    assert_eq!(annotated.quote, "list-row\n  dat");
+    let restored = restore_comments(&annotated.xml, edited).unwrap();
+    assert_eq!(
+        restored.xml,
+        format!(
+            "<page><infographic theme=\"dark\" view=\"diagram\">infographic <comment ids=\"{THREAD}\">list-row\n  dat</comment>a\n    - item 2</infographic></page>"
+        )
+    );
+    assert_eq!(remove_comment(&restored.xml, THREAD).unwrap().xml, edited);
+}

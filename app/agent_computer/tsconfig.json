@@ -17,7 +17,9 @@
     "resolveJsonModule": true,
     "types": ["bun"],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@ankole/uikit": ["../../libs/uikit/src/index.ts"],
+      "@ankole/uikit/viz/*": ["../../libs/uikit/src/viz/*.ts"]
     }
   },
   "include": ["src/**/*.ts", "test/**/*.ts"],

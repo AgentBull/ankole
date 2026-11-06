@@ -56,8 +56,9 @@ export class PageSession {
     return { revision: this.version, xml: validatedPageSource(this.editor.state.doc).xml }
   }
   read(): PageSnapshot {
+    const mode = isKnowledge(this.editor.state) ? 'knowledge' : 'doc'
     const tree = validatedPageSource(this.editor.state.doc).tree
-    return { ...this.readXml(), markdown: printMarkdown(tree) }
+    return { ...this.readXml(), markdown: printMarkdown(tree, mode) }
   }
   /** Replace the page in one undoable step. Only the active session can write. */
   apply(write: PageWrite): PageApplied {
@@ -66,10 +67,11 @@ export class PageSession {
     if (write.revision !== this.version) {
       throw new Error('文档已变化，源码草稿已保留。请导出草稿并重新读取文档后合并修改。')
     }
-    const tree = write.format === 'xml' ? parseXml(write.source) : parseMarkdown(write.source)
-    if (isKnowledge(this.editor.state)) validateKnowledge(tree)
+    const mode = isKnowledge(this.editor.state) ? 'knowledge' : 'doc'
+    const tree = write.format === 'xml' ? parseXml(write.source) : parseMarkdown(write.source, mode)
+    if (mode === 'knowledge') validateKnowledge(tree)
     // A page that cannot be printed must not replace the current page.
-    printMarkdown(tree)
+    printMarkdown(tree, mode)
     checkSource(printXml(tree), 'xml')
     const doc = normalizedPageDocument(tree)
     this.editor.dispatch({

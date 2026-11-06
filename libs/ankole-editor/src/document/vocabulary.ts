@@ -55,6 +55,11 @@ export const vocabulary: Readonly<Record<string, ElementRule>> = {
     content: 'text',
     attributes: { view: /^(both|code|diagram)$/, theme: /^(auto|light|dark)$/ }
   },
+  infographic: {
+    kind: 'block',
+    content: 'text',
+    attributes: { view: /^(both|code|diagram)$/, theme: /^(auto|light|dark)$/ }
+  },
   hr: { kind: 'block', content: 'empty', attributes: {} },
   table: {
     kind: 'block',

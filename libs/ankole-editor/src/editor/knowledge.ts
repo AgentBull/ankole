@@ -1,12 +1,11 @@
 import { Wordgard } from '../core/editor'
-import { GardState } from '../core/state'
 import { validateKnowledge } from '../document/knowledge'
 import { readTree } from './convert'
+import { isKnowledge, knowledgeFacet } from './knowledge-context'
 
-const knowledge = GardState.Facet.define<boolean, boolean>({ combine: values => values.some(Boolean) })
-export const isKnowledge = (state: GardState) => state.facet(knowledge)
+export { isKnowledge }
 export const knowledgeExtension = [
-  knowledge.of(true),
+  knowledgeFacet.of(true),
   Wordgard.transactionGuard.of(transactions => {
     if (transactions.some(transaction => transaction.docChanged)) {
       validateKnowledge(readTree(transactions.at(-1)!.newDoc))
@@ -31,5 +30,6 @@ export const knowledgeBlockTypes = new Set([
   'divider',
   'mention',
   'callout',
-  'media'
+  'media',
+  'mermaid'
 ])

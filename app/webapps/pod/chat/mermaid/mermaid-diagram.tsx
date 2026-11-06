@@ -17,13 +17,20 @@ import {
 } from '../../../common/external-translation-guard'
 import { registerCaptureSnapshot } from '../dom-capture-snapshot'
 import { MermaidSandboxZoomView } from '../zoomable-image'
-import { copyMermaidPng, downloadMermaidPng, svgToDataUrl, svgToPngDataUrl } from './mermaid-download'
+import {
+  copyMermaidPng,
+  downloadMermaidPng,
+  downloadMermaidSvg,
+  svgToDataUrl,
+  svgToPngDataUrl
+} from './mermaid-download'
 import { buildMermaidSrcDoc } from './mermaid-frame'
 import {
   formatMermaidRenderError,
-  getCachedMermaidDiagram,
-  renderMermaidDiagram,
+  getCachedChatDiagram,
+  renderChatDiagram,
   resolveActiveMermaidTheme,
+  type ChatDiagramKind,
   type MermaidThemeMode,
   type RenderedMermaidDiagram
 } from './mermaid-renderer'
@@ -42,11 +49,19 @@ function findScrollableAncestor(element: HTMLElement | null): HTMLElement | null
   return null
 }
 
-export default function MermaidDiagram({ code, streaming = false }: { code: string; streaming?: boolean }) {
+export default function MermaidDiagram({
+  code,
+  streaming = false,
+  kind = 'mermaid'
+}: {
+  code: string
+  streaming?: boolean
+  kind?: ChatDiagramKind
+}) {
   const { t } = useTranslation()
   const [theme, setTheme] = useState<MermaidThemeMode>(() => resolveActiveMermaidTheme())
   const [rendered, setRendered] = useState<RenderedMermaidDiagram | null>(
-    () => getCachedMermaidDiagram(code, resolveActiveMermaidTheme()) ?? null
+    () => getCachedChatDiagram(code, resolveActiveMermaidTheme(), kind) ?? null
   )
   const [renderError, setRenderError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'diagram' | 'source'>('diagram')
@@ -57,7 +72,10 @@ export default function MermaidDiagram({ code, streaming = false }: { code: stri
   const zoomTriggerRef = useRef<HTMLButtonElement>(null)
   const latestSeqRef = useRef(0)
   const pendingAnchorTopRef = useRef<number | null>(null)
-  const diagramTitle = t('pod.chat_timeline.mermaid_diagram', { defaultValue: 'Mermaid diagram' })
+  const diagramTitle =
+    kind === 'infographic'
+      ? t('pod.chat_timeline.infographic_diagram', { defaultValue: 'Infographic' })
+      : t('pod.chat_timeline.mermaid_diagram', { defaultValue: 'Mermaid diagram' })
 
   useEffect(() => {
     const root = globalThis.document?.documentElement
@@ -71,7 +89,7 @@ export default function MermaidDiagram({ code, streaming = false }: { code: stri
 
   useEffect(() => {
     const seq = ++latestSeqRef.current
-    const immediateCached = getCachedMermaidDiagram(code, theme)
+    const immediateCached = getCachedChatDiagram(code, theme, kind)
     if (immediateCached) {
       setRendered(immediateCached)
       setRenderError(null)
@@ -80,7 +98,7 @@ export default function MermaidDiagram({ code, streaming = false }: { code: stri
 
     const delay = streaming ? STREAM_DEBOUNCE_MS : 0
     const timer = setTimeout(() => {
-      void renderMermaidDiagram(code, theme)
+      void renderChatDiagram(code, theme, kind)
         .then(next => {
           if (seq !== latestSeqRef.current) return
           setRendered(next)
@@ -98,7 +116,7 @@ export default function MermaidDiagram({ code, streaming = false }: { code: stri
     }, delay)
 
     return () => clearTimeout(timer)
-  }, [code, theme, streaming])
+  }, [code, theme, streaming, kind])
 
   const showSourceFallback = !rendered
   const effectiveView = showSourceFallback ? 'source' : viewMode
@@ -195,12 +213,31 @@ export default function MermaidDiagram({ code, streaming = false }: { code: stri
               </Button>
               <Button
                 variant="ghost"
+                size="xs"
+                onClick={() => {
+                  downloadMermaidSvg(
+                    rendered.svg,
+                    theme,
+                    kind === 'infographic' ? 'ankole-infographic.svg' : 'ankole-diagram.svg'
+                  )
+                }}>
+                <RiDownloadLine aria-hidden />
+                {t('pod.chat_timeline.download_svg', { defaultValue: 'SVG' })}
+              </Button>
+              <Button
+                variant="ghost"
                 size="icon-xs"
                 title={t('pod.chat_timeline.download_png', { defaultValue: 'Download PNG' })}
                 aria-label={t('pod.chat_timeline.download_png', { defaultValue: 'Download PNG' })}
                 onClick={async () => {
                   try {
-                    await downloadMermaidPng(rendered.svg, rendered.width, rendered.height, theme)
+                    await downloadMermaidPng(
+                      rendered.svg,
+                      rendered.width,
+                      rendered.height,
+                      theme,
+                      kind === 'infographic' ? 'ankole-infographic.png' : 'ankole-diagram.png'
+                    )
                   } catch {
                     toast.error(t('pod.chat.copy_failed'))
                   }

@@ -131,6 +131,8 @@ mod tests {
             "<page><image src=\"image.png\" /></page>",
             "<page><table /></page>",
             "<page><pre /></page>",
+            "<page><mermaid /></page>",
+            "<page><infographic /></page>",
             "<page><hr /></page>",
         ] {
             assert!(!is_empty(xml).unwrap());
@@ -148,5 +150,26 @@ mod tests {
         assert!(changed.xml.contains("<p>changed</p>"));
         assert!(changed.xml.contains("<columns>"));
         assert!(reconcile(xml, "discarded everything").is_err());
+
+        let diagrams = "<page><mermaid>flowchart LR\n  A --&gt; B</mermaid><mermaid view=\"diagram\">flowchart TD\n  X --&gt; Y</mermaid><infographic>infographic list-row</infographic></page>";
+        let projected_diagrams = export(diagrams).unwrap();
+        assert!(projected_diagrams.contains("```mermaid\nflowchart LR\n  A --> B\n```"));
+        let edited_diagrams =
+            reconcile(diagrams, &projected_diagrams.replace("A --> B", "A --> C")).unwrap();
+        assert!(
+            edited_diagrams
+                .xml
+                .contains("<mermaid>flowchart LR\n  A --&gt; C</mermaid>")
+        );
+        assert!(
+            edited_diagrams
+                .xml
+                .contains("<mermaid view=\"diagram\">flowchart TD\n  X --&gt; Y</mermaid>")
+        );
+        assert!(
+            edited_diagrams
+                .xml
+                .contains("<infographic>infographic list-row</infographic>")
+        );
     }
 }

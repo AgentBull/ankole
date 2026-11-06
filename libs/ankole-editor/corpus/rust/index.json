@@ -962,6 +962,119 @@
       }
     },
     {
+      "name": "infographic",
+      "xml": "<page><infographic>infographic sequence-timeline-simple\ndata\n  title Roadmap\n  sequences\n    - label Q1</infographic></page>",
+      "canonicalXml": "<page><infographic>infographic sequence-timeline-simple\ndata\n  title Roadmap\n  sequences\n    - label Q1</infographic></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Infographic",
+            "content": [
+              {
+                "type": "Text",
+                "param": "infographic sequence-timeline-simple"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "data"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "  title Roadmap"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "  sequences"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "    - label Q1"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "infographic-view-theme",
+      "xml": "<page><infographic view=\"code\" theme=\"dark\">infographic compare-swot\ndata\n  title SWOT\n  compares\n    - label S</infographic></page>",
+      "canonicalXml": "<page><infographic theme=\"dark\" view=\"code\">infographic compare-swot\ndata\n  title SWOT\n  compares\n    - label S</infographic></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Infographic",
+            "param": null,
+            "marks": {
+              "InfographicTheme": "dark",
+              "InfographicView": "code"
+            },
+            "content": [
+              {
+                "type": "Text",
+                "param": "infographic compare-swot"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "data"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "  title SWOT"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "  compares"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "    - label S"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty-infographic",
+      "xml": "<page><infographic></infographic></page>",
+      "canonicalXml": "<page><infographic /></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Infographic",
+            "content": []
+          }
+        ]
+      }
+    },
+    {
       "name": "code-wrap-and-formula",
       "xml": "<page><pre lang=\"js\" wrap=\"true\">const x = 1</pre><math>\\frac{a}{b}</math></page>",
       "canonicalXml": "<page><pre lang=\"js\" wrap=\"true\">const x = 1</pre><math>\\frac{a}{b}</math></page>",
@@ -1717,6 +1830,16 @@
       "name": "invalid-mermaid-view",
       "xml": "<page><mermaid view=\"split\">a</mermaid></page>",
       "error": "XML 第 1 行第 7 列：<mermaid> 的 view=\"split\" 不合法。view 的值应为 both、code 或 diagram。"
+    },
+    {
+      "name": "infographic-element",
+      "xml": "<page><infographic><strong>a</strong></infographic></page>",
+      "error": "XML 第 1 行第 20 列：<infographic> 只能包含文字。请把 Infographic 源码写成文字。"
+    },
+    {
+      "name": "invalid-infographic-view",
+      "xml": "<page><infographic view=\"split\">a</infographic></page>",
+      "error": "XML 第 1 行第 7 列：<infographic> 的 view=\"split\" 不合法。view 的值应为 both、code 或 diagram。"
     },
     {
       "name": "mention-missing-target",

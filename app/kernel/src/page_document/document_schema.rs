@@ -63,6 +63,7 @@ pub enum NodeKind {
     Bookmark,
     Math,
     Mermaid,
+    Infographic,
 }
 impl std::fmt::Display for NodeKind {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -219,26 +220,26 @@ fn default_param(kind: NodeKind) -> Option<Value> {
     }
 }
 pub fn is_container(kind: NodeKind) -> bool {
-    matches!(
-        kind,
-        NodeKind::Doc
-            | NodeKind::Paragraph
-            | NodeKind::Heading
-            | NodeKind::Blockquote
-            | NodeKind::BlockGroup
-            | NodeKind::Columns
-            | NodeKind::Column
-            | NodeKind::BulletList
-            | NodeKind::OrderedList
-            | NodeKind::ListItem
-            | NodeKind::CodeBlock
-            | NodeKind::Table
-            | NodeKind::TableRow
-            | NodeKind::Cell
-            | NodeKind::HeaderCell
-            | NodeKind::Callout
-            | NodeKind::Mermaid
-    )
+    super::attributes::source_diagram_by_kind(kind).is_some()
+        || matches!(
+            kind,
+            NodeKind::Doc
+                | NodeKind::Paragraph
+                | NodeKind::Heading
+                | NodeKind::Blockquote
+                | NodeKind::BlockGroup
+                | NodeKind::Columns
+                | NodeKind::Column
+                | NodeKind::BulletList
+                | NodeKind::OrderedList
+                | NodeKind::ListItem
+                | NodeKind::CodeBlock
+                | NodeKind::Table
+                | NodeKind::TableRow
+                | NodeKind::Cell
+                | NodeKind::HeaderCell
+                | NodeKind::Callout
+        )
 }
 fn inline(kind: NodeKind) -> bool {
     matches!(
@@ -265,7 +266,10 @@ fn block(kind: NodeKind) -> bool {
 fn child_allowed(parent: NodeKind, child: NodeKind) -> bool {
     match parent {
         NodeKind::Paragraph | NodeKind::Heading => inline(child),
-        NodeKind::CodeBlock | NodeKind::Mermaid => {
+        parent
+            if parent == NodeKind::CodeBlock
+                || super::attributes::source_diagram_by_kind(parent).is_some() =>
+        {
             matches!(child, NodeKind::Text | NodeKind::LineBreak)
         }
         NodeKind::BulletList | NodeKind::OrderedList => child == NodeKind::ListItem,
@@ -282,6 +286,9 @@ fn mark_target(name: &str, kind: NodeKind) -> bool {
             NodeKind::Text | NodeKind::InlineElement | NodeKind::Mention
         );
     }
+    if let Some((spec, _)) = super::attributes::source_diagram_mark(name) {
+        return kind == spec.kind;
+    }
     match name {
         "Link" => matches!(
             kind,
@@ -296,7 +303,6 @@ fn mark_target(name: &str, kind: NodeKind) -> bool {
         "Task" => kind == NodeKind::ListItem,
         "ColumnWidth" => kind == NodeKind::Column,
         "CodeBlockLanguage" | "CodeMeta" | "CodeWrap" => kind == NodeKind::CodeBlock,
-        "MermaidView" | "MermaidTheme" => kind == NodeKind::Mermaid,
         "ColSpan" | "RowSpan" | "CellBackground" => {
             matches!(kind, NodeKind::Cell | NodeKind::HeaderCell)
         }
@@ -318,6 +324,9 @@ fn mark_target(name: &str, kind: NodeKind) -> bool {
     }
 }
 fn attribute_mark(name: &str) -> Option<(&'static str, &'static str, bool)> {
+    if let Some((spec, attr)) = super::attributes::source_diagram_mark(name) {
+        return Some((spec.tag, attr, false));
+    }
     Some(match name {
         "Resource_kind" => ("media", "kind", false),
         "Resource_view" => ("media", "view", false),
@@ -325,8 +334,6 @@ fn attribute_mark(name: &str) -> Option<(&'static str, &'static str, bool)> {
         "TableWidths" => ("table", "widths", false),
         "TableLayout" => ("table", "layout", false),
         "CellBackground" => ("td", "background", false),
-        "MermaidView" => ("mermaid", "view", false),
-        "MermaidTheme" => ("mermaid", "theme", false),
         "Align" => ("p", "align", false),
         "Task" => ("li", "task", false),
         "CalloutTone" => ("callout", "tone", false),

@@ -1,5 +1,27 @@
 # Changelog
 
+## Version 2.0.0-alpha.69 (2026-11-06)
+
+- Add unified data visualization across Bases, Documents, Knowledge pages,
+  Applets, Pod Chat, and Agents: create native `chart` views on Base tables
+  (column, bar, line, area, pie, donut, scatter, combo, funnel, and KPI stat
+  cards with Top-N + `"Other"` folding, cumulative and percentage modes, target
+  reference lines, period-over-period KPI deltas, record drill-down, auto-save,
+  and PNG/SVG export), embed linked or inline Base charts in Documents via
+  `/chart`, author collaborative `<infographic>` blocks in Documents and
+  `<mermaid>` diagrams in Knowledge pages, build financial charts (`candlestick`,
+  `area`, `histogram`, `yield-curve`) and graphs with `@ankole/uikit` in
+  Applets, and generate print-safe SVG or PNG visuals from Agents via
+  `ankole-viz` and the built-in `visualization` Skill.
+- Rank chart categories without counting multi-value memberships twice, keep
+  cumulative amounts and donut totals exact, and show KPI loading and errors
+  until the total is available. Infographics recover when authors correct
+  invalid source.
+- Keep browser sign-ins alive while they are in use: each sign-in stays valid
+  for 30 days after the browser last used it, up to 180 days after login,
+  instead of expiring 24 hours after login. Browsers signed in before this
+  release sign in once more to receive the longer lifetime.
+
 ## Version 2.0.0-alpha.68 (2026-11-05)
 
 - Show a Page mention's location with its root only once: the path starts with

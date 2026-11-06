@@ -41,6 +41,7 @@ import { requestErrorMessage } from '../common/request-errors'
 import { contentError } from './content-errors'
 import { RiAddLine, RiDeleteBinLine, RiExpandDiagonalLine } from '@remixicon/react'
 import { fieldIcons, fieldTypes } from './base-field-types'
+import { ChartView } from './base-chart-view'
 
 type RecordDrag = { record?: BaseRecord; from?: Value }
 const recordDragType = 'application/ankole-record'
@@ -59,6 +60,9 @@ export type ViewProps = {
   view: ConfiguredView
   editable: boolean
   schemaEditable: boolean
+  canConfigureChart?: boolean
+  chartControlsOpen?: boolean
+  chartControlsId?: string
   pending?: boolean
   create(data: RecordData): Promise<WriteResult>
   update(id: string, data: RecordData, expected: Versions): Promise<unknown>
@@ -88,6 +92,8 @@ function BaseView(props: ViewProps) {
       )
     case 'gallery':
       return <GalleryView {...props} />
+    case 'chart':
+      return <ChartView {...props} RecordDetailsDialog={RecordDetailsDialog} />
   }
 }
 
@@ -393,7 +399,9 @@ function RecordCard(
   )
 }
 
-function RecordDetailsDialog({
+export type RecordDetailsDialogComponent = typeof RecordDetailsDialog
+
+export function RecordDetailsDialog({
   open,
   onOpenChange,
   record,

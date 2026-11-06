@@ -86,7 +86,8 @@ defmodule Ankole.Pod.Copy do
              source.id,
              target.id,
              mapping,
-             changed_value_types(definitions, copied_fields)
+             changed_value_types(definitions, copied_fields),
+             copied_fields
            ),
          :ok <- Projection.begin_stage(),
          {:ok, counters} <-
@@ -198,7 +199,9 @@ defmodule Ankole.Pod.Copy do
     end)
   end
 
-  defp copy_views(source_id, target_id, mapping, changed_types) do
+  defp copy_views(source_id, target_id, mapping, changed_types, copied_fields) do
+    copied_by_id = Map.new(copied_fields, &{&1.id, &1})
+
     Enum.reduce_while(
       Ankole.Ash.read!(Ash.Query.filter(BaseView, table_id == ^source_id)),
       :ok,
@@ -207,7 +210,7 @@ defmodule Ankole.Pod.Copy do
           table_id: target_id,
           name: view.name,
           type: view.type,
-          config: remap_view(view.config, mapping, changed_types),
+          config: remap_view(view.config, mapping, changed_types, copied_by_id),
           position: view.position
         }
 
@@ -370,7 +373,7 @@ defmodule Ankole.Pod.Copy do
     end)
   end
 
-  defp remap_view(config, mapping, changed_types) do
+  defp remap_view(config, mapping, changed_types, copied_by_id) do
     Map.new(config, fn
       {key, id} when key in ~w(group_field_id cover_field_id) ->
         {key, Map.get(mapping, id, id)}
@@ -391,6 +394,9 @@ defmodule Ankole.Pod.Copy do
       {"sort", sort} when is_list(sort) ->
         {"sort", Enum.map(sort, &remap_field_id(&1, mapping))}
 
+      {"chart", chart} when is_map(chart) ->
+        {"chart", remap_chart_node(chart, mapping, copied_by_id)}
+
       entry ->
         entry
     end)
@@ -404,6 +410,83 @@ defmodule Ankole.Pod.Copy do
   end
 
   defp remap_field_id(config, _mapping), do: config
+
+  defp remap_chart_node(node, mapping, copied_by_id) when is_map(node) do
+    remapped =
+      Map.new(node, fn {key, value} ->
+        {key, remap_chart_node(value, mapping, copied_by_id)}
+      end)
+
+    remap_chart_field_slot(remapped, mapping, copied_by_id)
+  end
+
+  defp remap_chart_node(node, mapping, copied_by_id) when is_list(node),
+    do: Enum.map(node, &remap_chart_node(&1, mapping, copied_by_id))
+
+  defp remap_chart_node(node, _mapping, _copied_by_id), do: node
+
+  defp remap_chart_field_slot(node, mapping, copied_by_id) do
+    case Map.fetch(node, "field_id") do
+      :error ->
+        node
+
+      {:ok, nil} ->
+        remap_missing_chart_slot(node, mapping)
+
+      {:ok, id} when is_binary(id) and id != "" ->
+        if is_binary(node["missing_field_id"]) and node["missing_field_id"] != "" do
+          remap_missing_chart_slot(Map.put(node, "field_id", nil), mapping)
+        else
+          apply_mapped_chart_field(node, Map.get(mapping, id, id), copied_by_id)
+        end
+
+      {:ok, _other} ->
+        node
+    end
+  end
+
+  defp remap_missing_chart_slot(node, mapping) do
+    case Map.get(node, "missing_field_id") do
+      missing when is_binary(missing) and missing != "" ->
+        Map.put(node, "missing_field_id", Map.get(mapping, missing, missing))
+
+      _ ->
+        node
+    end
+  end
+
+  defp apply_mapped_chart_field(node, mapped_id, copied_by_id) do
+    case Map.get(copied_by_id, mapped_id) do
+      %BaseField{} = copied_field ->
+        if compatible_chart_slot?(node, Formula.type(copied_field)) do
+          Map.put(node, "field_id", mapped_id)
+        else
+          node
+          |> Map.put("field_id", nil)
+          |> Map.put("missing_field_id", mapped_id)
+        end
+
+      nil ->
+        node
+        |> Map.put("field_id", nil)
+        |> Map.put("missing_field_id", mapped_id)
+    end
+  end
+
+  defp compatible_chart_slot?(node, value_type) do
+    op =
+      case Map.get(node, "operation") do
+        atom when is_atom(atom) and not is_nil(atom) -> Atom.to_string(atom)
+        other -> other
+      end
+
+    cond do
+      op in ["sum", "avg"] and value_type != :number -> false
+      op in ["min", "max"] and value_type not in [:number, :text, :datetime] -> false
+      not is_nil(Map.get(node, "bucket")) and value_type != :datetime -> false
+      true -> true
+    end
+  end
 end
 
 # This projection reads JSON parameters and transaction-local staging rows.

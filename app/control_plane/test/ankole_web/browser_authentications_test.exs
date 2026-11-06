@@ -221,6 +221,65 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     assert reads == 2
   end
 
+  test "a Pod request extends an aging authentication without moving past its absolute limit",
+       %{a: a} do
+    {login, reference} = add_login(browser_request(%{}), a)
+    login = send_resp(login, 200, "")
+    cookies = apply_cookies(%{}, login)
+    {:ok, authentication} = BrowserSessions.get_authentication(reference)
+
+    # Both cookies last until the absolute limit; the row's idle expiry decides validity.
+    cookie =
+      login.resp_cookies[AnkoleWeb.SessionCookies.authentication_prefix() <> reference["id"]]
+
+    assert_in_delta cookie.max_age, BrowserSessions.absolute_ttl(), 5
+    assert_in_delta DateTime.diff(authentication.expires_at, DateTime.utc_now()), 30 * 86_400, 5
+
+    age_authentication(reference, expires_in: 86_400)
+
+    response =
+      cookies |> api_request(reference) |> api_get("/api/v2/pod/pages", %{"scope" => "trash"})
+
+    assert %{"pages" => []} = api_response(response, 200)
+    {:ok, renewed} = BrowserSessions.get_authentication(reference)
+    assert_in_delta DateTime.diff(renewed.expires_at, DateTime.utc_now()), 30 * 86_400, 5
+
+    age_authentication(
+      reference,
+      expires_in: 3_600,
+      authenticated_ago: 179 * 86_400 + 12 * 3_600
+    )
+
+    response =
+      cookies |> api_request(reference) |> api_get("/api/v2/pod/pages", %{"scope" => "trash"})
+
+    assert %{"pages" => []} = api_response(response, 200)
+    {:ok, capped} = BrowserSessions.get_authentication(reference)
+
+    assert capped.expires_at ==
+             BrowserSessions.absolute_expiry(capped.authenticated_at)
+
+    # Once at the absolute cap, subsequent requests do not re-read or rewrite the row.
+    {response, reads} =
+      authentication_reads(fn ->
+        cookies |> api_request(reference) |> api_get("/api/v2/pod/pages", %{"scope" => "trash"})
+      end)
+
+    assert %{"pages" => []} = api_response(response, 200)
+    assert reads == 2
+
+    age_authentication(
+      reference,
+      expires_in: -1,
+      authenticated_ago: 180 * 86_400 + 1
+    )
+
+    expired =
+      cookies |> api_request(reference) |> api_get("/api/v2/pod/pages", %{"scope" => "trash"})
+
+    assert %{"error" => %{"code" => "unauthorized"}} = api_response(expired, 401)
+  end
+
   test "a file subresource retains its document identity when another account becomes active", %{
     a: a,
     b: b,
@@ -581,10 +640,29 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
         store: AnkoleWeb.SessionCookieStore,
         key: "_ankole_key",
         key_context: "_ankole_key",
-        max_age: 86_400
+        max_age: BrowserSessions.absolute_ttl()
       )
     )
     |> fetch_session()
+  end
+
+  defp age_authentication(reference, opts) do
+    now = DateTime.utc_now()
+    {:ok, authentication} = BrowserSessions.get_authentication(reference)
+
+    authenticated_at =
+      case opts[:authenticated_ago] do
+        nil -> authentication.authenticated_at
+        seconds -> DateTime.add(now, -seconds)
+      end
+
+    {:ok, _} =
+      Repo.transact_top_level(fn ->
+        Ankole.Ash.update(authentication, :renew_in_tx, %{
+          authenticated_at: authenticated_at,
+          expires_at: DateTime.add(now, Keyword.fetch!(opts, :expires_in))
+        })
+      end)
   end
 
   defp apply_cookies(cookies, response) do

@@ -18,7 +18,7 @@ defmodule AnkoleWeb.SessionCookies do
       store: AnkoleWeb.SessionCookieStore,
       key: if(@secure, do: "__Secure-ankole", else: "_ankole_key"),
       key_context: "_ankole_key",
-      max_age: 86_400
+      max_age: Ankole.BrowserSessions.absolute_ttl()
     )
   end
 

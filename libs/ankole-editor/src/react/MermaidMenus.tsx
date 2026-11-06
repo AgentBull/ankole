@@ -3,6 +3,16 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { Plot } from '../core/doc'
 import {
+  InfographicBlock,
+  InfographicTheme,
+  InfographicView,
+  applyInfographicTemplate,
+  infographicTemplates,
+  setInfographicTheme,
+  setInfographicView
+} from '../blocks/infographic'
+import {
+  MermaidBlock,
   MermaidTheme,
   MermaidView,
   applyMermaidTemplate,
@@ -13,6 +23,7 @@ import {
   setMermaidView,
   type MermaidMenuKind
 } from '../blocks/mermaid'
+import { isKnowledge } from '../editor/knowledge'
 import { useAnchoredOverlay } from './anchored-overlay'
 import { useEditor, useEditorLabel, useEditorState } from './context'
 
@@ -23,8 +34,8 @@ const kindLabels = {
 } as const
 
 /**
- * The Mermaid toolbar menus (SPEC §7.6): templates, view modes, and palettes. They share one
- * anchored ceramic surface like the other editor menus.
+ * The source-diagram toolbar menus (SPEC §7.6): templates, view modes, and palettes for Mermaid
+ * and Infographic blocks. They share one anchored ceramic surface like the other editor menus.
  */
 export function MermaidMenus() {
   const editor = useEditor()
@@ -32,9 +43,12 @@ export function MermaidMenus() {
   const menu = useEditorState(state => state.field(mermaidMenuField, false) ?? null)
   const list = useRef<HTMLDivElement>(null)
   const node = menu === null ? null : editor.state.doc.nodeAt(menu.pos)
-  const plot = node?.isPlot ? (node as Plot) : null
-  const view = plot?.mark(MermaidView) ?? 'both'
-  const theme = plot?.mark(MermaidTheme) ?? 'auto'
+  const isInfographic = node?.type === InfographicBlock.type
+  const isDiagram = node?.type === MermaidBlock.type || isInfographic
+  const plot = isDiagram && node?.isPlot ? (node as Plot) : null
+  const view = isInfographic ? (plot?.mark(InfographicView) ?? 'both') : (plot?.mark(MermaidView) ?? 'both')
+  const theme = isInfographic ? (plot?.mark(InfographicTheme) ?? 'auto') : (plot?.mark(MermaidTheme) ?? 'auto')
+  const templates = isInfographic ? infographicTemplates : mermaidTemplates
 
   const position = useAnchoredOverlay({
     open: menu !== null,
@@ -67,13 +81,20 @@ export function MermaidMenus() {
     return () => document.removeEventListener('keydown', key, true)
   }, [editor, menu])
 
-  if (!menu || !plot) return null
+  if (!menu || !plot || (isKnowledge(editor.state) && menu.kind !== 'template')) return null
   const choose = (kind: MermaidMenuKind, value: string) => {
-    if (kind === 'view') setMermaidView(editor, menu.pos, value as 'both' | 'code' | 'diagram')
-    else if (kind === 'theme') setMermaidTheme(editor, menu.pos, value as 'auto' | 'light' | 'dark')
-    else {
-      const template = mermaidTemplates.find(item => item.id === value)
-      if (template) applyMermaidTemplate(editor, menu.pos, template.source)
+    if (kind === 'view') {
+      if (isInfographic) setInfographicView(editor, menu.pos, value as 'both' | 'code' | 'diagram')
+      else setMermaidView(editor, menu.pos, value as 'both' | 'code' | 'diagram')
+    } else if (kind === 'theme') {
+      if (isInfographic) setInfographicTheme(editor, menu.pos, value as 'auto' | 'light' | 'dark')
+      else setMermaidTheme(editor, menu.pos, value as 'auto' | 'light' | 'dark')
+    } else {
+      const template = templates.find(item => item.id === value)
+      if (template) {
+        if (isInfographic) applyInfographicTemplate(editor, menu.pos, template.source)
+        else applyMermaidTemplate(editor, menu.pos, template.source)
+      }
     }
     editor.focus()
   }
@@ -117,7 +138,7 @@ export function MermaidMenus() {
         </>
       )}
       {menu.kind === 'template' &&
-        mermaidTemplates.map(template => option(template.id, template.title(editor.state), false, 'menuitem'))}
+        templates.map(template => option(template.id, template.title(editor.state), false, 'menuitem'))}
     </div>,
     document.body
   )

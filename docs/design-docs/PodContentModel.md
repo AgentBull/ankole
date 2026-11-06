@@ -19,8 +19,10 @@ first-version domain scope. See Notion's guides on
 [views and filters](https://www.notion.com/help/views-filters-and-sorts),
 [properties](https://www.notion.com/help/database-properties), and
 [trash](https://www.notion.com/help/duplicate-delete-and-restore-content).
-Presentations such as calendars, timelines, forms, and charts belong in Applets
-rather than built-in Base views.
+Single-table declarative charts use the built-in `chart` Base view and document
+`<embed>` cards, whereas calendars, timelines, custom forms, multi-table
+dashboards, and multi-pane financial terminals belong in Applets calling the
+Base API and `@ankole/uikit` visualization primitives.
 
 ### Page creation, editing, and navigation
 
@@ -185,11 +187,12 @@ stops at that file while the children created before it remain.
 
 External embeds use `<embed href="…" title="…" />` and render an iframe,
 deriving provider URLs for Figma, YouTube, and Vimeo while preserving the original
-link. The external site controls whether its content permits framing. Internal
-live embeds use `<embed ref="…" />` (with optional `table` and `view` on Base
-embeds) for interactive non-document Pages (`base`, `file`, and `applet`):
-editors insert them either by creating a child Base or by choosing **Embed Base
-or app** from the document `+` menu, which queries `GET
+link. The external site controls whether its content permits framing. Internal live embeds use `<embed ref="…" />` (with optional `table` and `view`
+on Base embeds, where `view` holds either a shared saved view UUID or an inline
+JSON `ViewConfig`) for interactive non-document Pages (`base`, `file`, and
+`applet`): editors insert them by creating a child Base, choosing **Embed Base
+or app** from the document `+` menu, or invoking `/chart` to embed a Base table
+in quiet chart-card chrome. Embed pickers query `GET
 /api/v2/pod/pages/search?embeddable=true` so Document Pages never appear as
 canvas embeds.
 
@@ -291,11 +294,21 @@ extra attributes require a `<pre>` tag. Formula blocks store their LaTeX source
 in a `<math>` element and render it through Temml. The editor opens a formula
 panel from the block, reports invalid formulas there, and writes each edit to
 the page immediately. Markdown uses `$$` fences for formula blocks.
-Mermaid blocks store their source in a `<mermaid>` element and render it with
-Pele. The block splits source and diagram, remembers whether to show both,
-code only, or the diagram only, and stores the diagram palette (`auto`, `light`,
-or `dark`) on the element. Markdown writes a `mermaid` fence for the default
-view; non-default view or theme values use a `<mermaid>` tag around the fence.
+Source-diagram blocks share one parameterized descriptor table across the
+browser editor and Rust kernel: `<mermaid>` renders procedural diagrams with
+Pele, and `<infographic>` renders structured narrative diagrams with AntV
+Infographic (using an offline local icon symbol loader so diagram rendering
+issues zero external network requests). Both blocks store source lines as text
+with `<br/>`, persist the pane mode (`both`, `code`, or `diagram`) in `view`
+and the diagram palette (`auto`, `light`, or `dark`) in `theme`, and write a
+plain `mermaid` or `infographic` fence when attributes match defaults while
+wrapping non-default `view` or `theme` attributes in the corresponding XML tag.
+Infographic previews show syntax errors beside the source and render again when
+the author corrects the source.
+When an author explicitly keeps an ordinary `<pre lang="mermaid">` or
+`<pre lang="infographic">` code block in a page mode that maps that fence
+language to a diagram block, the Markdown codec wraps it in `<pre>` so round-trip
+parsing stays injective.
 
 Documents support column rows. The insert menu and slash queries such as
 `/2 columns` create two to five columns. Dropping blocks beside another block
@@ -999,9 +1012,11 @@ Pod uses a book icon for a knowledge page without a custom icon, distinguishing
 it from a document's default icon.
 
 The editor accepts headings, paragraphs, inline emphasis and links, lists, code,
-quotes, GFM alerts, rectangular tables with one header row, images, and typed Page
-or Principal mentions. Its knowledge mode rejects columns, embeds, merged or
-styled table cells, and inline comment anchors. Whole-page discussions remain
+plain `<mermaid>` diagrams (without `view` or `theme` attributes; `infographic`
+fences remain `<pre lang="infographic">` code blocks), quotes, GFM alerts,
+rectangular tables with one header row, images, and typed Page or Principal
+mentions. Its knowledge mode rejects columns, embeds, `<infographic>` blocks,
+merged or styled table cells, and inline comment anchors. Whole-page discussions remain
 available. The Rust kernel owns parse, export, validation, and outline conversion;
 the editor and kernel verify the same round-trip corpus. Export sorts Frontmatter
 keys deterministically and preserves types and nested objects.
@@ -1016,15 +1031,16 @@ introduction before the first H2, and every H2 heading. The kernel budgets 400
 `o200k_base` tokens for introduction content and adds a separate notice for omitted text. When a
 single block exceeds the remaining preview budget, the kernel returns a
 Unicode-safe plain-text prefix. Within the introduction, it replaces
-code blocks longer than 12 lines and tables longer than 6 rows with a size
-summary; it also folds either block when its text exceeds 1,200 characters.
+code or `<mermaid>` blocks longer than 12 lines and tables longer than 6 rows with a size
+summary; it also folds those blocks when their text exceeds 1,200 characters.
 Short examples remain readable. The control plane adds only child pages visible
 to the current reader. Metadata, heading and child-list sizes vary with the page;
 L1 does not impose a hard limit on the complete outline. Full-page reads preserve
 the complete content.
 
 Knowledge pages open in a content-sized reader that shares the document XML,
-typography, asset resolution, and Page/Principal references with the editor.
+typography, asset resolution, `<mermaid>` diagram rendering, and Page/Principal
+references with the editor.
 An empty body occupies no reading area, so child pages and related knowledge
 follow the properties directly. The reader displays the knowledge block subset
 without constructing editor state or editable DOM. Edit loads the knowledge
@@ -1921,10 +1937,26 @@ for `inline` tables and native column/edge SQL for `physical` tables:
 
 - Array equality checks both JSONB equality and containment, and author system
   fields accept either a single Principal UID or a UID list.
-- Aggregate queries support up to two group fields plus date bucketing in
-  `system.timezone`, including datetime-valued formulas (`count` without a field counts rows; `count` with a field
-  counts non-null values) and return `value_json` alongside formatted labels so
-  per-group record queries `AND` that exact JSON value outside user filters.
+- Aggregate queries support `count`, `count_distinct`, `sum`, `avg`, `min`, and
+  `max` (`count` without a field counts rows; `count` with a field counts
+  non-null values), up to two group fields with date bucketing in
+  `system.timezone` (including datetime-valued formulas), `omit_empty` (filtering
+  `null` and `[]` while keeping `0` and `false`), `order_by` (`NULLS LAST` with
+  `value_json` tie-breaking), and single-SQL key-folding `top_n` with `"Other"`.
+  Top-N ranks keys by the first metric in `order_by`, or by the first requested
+  metric descending when no metric order is present. Each record contributes
+  once per ranked key, including when another dimension expands multiple values.
+  When `omit_empty` is false, `null` groups remain separate from both the `N`
+  ranked slots and `"Other"`; when folding a multi-value `:array` dimension into
+  `"Other"`, `Pod.Query` deduplicates `(record_id, non_folded_key, folded_key,
+  is_other)` before computing metrics so records carrying multiple tail tags are
+  counted once. Each group returns `values`, `value_json`, `other` booleans per
+  dimension, numeric `metrics`, and exact PostgreSQL decimal strings in
+  `metrics_text`. Record drill-down queries accept `1..2` `group` slices—reusing
+  the exact `to_char(date_trunc(...), format)` bucket expression for single-period
+  `=` and cumulative `<=` bounds, as well as `other_exclude_values_json`
+  (`EXISTS` exclusion on `:array` fields)—wrapped with `AND` outside user
+  filters so `(A OR B)` filters compose cleanly with chart slices.
 - Large kanban boards fetch full-table group counts and paginate each column
   independently, resetting to page 1 whenever grouping, filters, or sorts
   change.
@@ -1936,27 +1968,55 @@ for `inline` tables and native column/edge SQL for `physical` tables:
 For small tables (up to `2,000` rows and `4 MiB` of serialized records,
 formulas, and metadata—checked in PostgreSQL and flagged on the schema
 independently of `inline`/`physical` mode), the browser may load a full snapshot
-and run local filters/sorts only when they match PostgreSQL semantics exactly.
-Numeric comparisons, numeric formulas, `sum`, `average`, and locale-dependent
-operations when the database locale is unsupported always route to the server so
-JavaScript `Number` arithmetic never approximates PostgreSQL `numeric`
-precision (verified by shared cross-runtime fixtures). Array-valued formulas use
-the same JSONB comparison compatibility gate as stored array fields. Local evaluation requires
-matching schema and snapshot data versions—falling back to the server and
-invalidating both caches on any mismatch, promotion, or `resync`—and refreshes
-the schema before applying incoming record deltas.
+and run local filters, sorts, and aggregates through a fail-closed allowlist only
+when every query key and metric operator matches PostgreSQL semantics exactly.
+Numeric comparisons, numeric formulas, `sum`, `avg`, `count_distinct`, `order_by`,
+`top_n`, `omit_empty`, bucketed or multi-slice `group` drill-downs, and
+locale-dependent operations when the database locale is unsupported always route
+to the server so JavaScript `Number` arithmetic never approximates PostgreSQL
+`numeric` precision (verified by shared cross-runtime fixtures). Array-valued
+formulas use the same JSONB comparison compatibility gate as stored array
+fields. Local evaluation requires matching schema and snapshot data
+versions—falling back to the server and invalidating both caches on any
+mismatch, promotion, or `resync`—and refreshes the schema before applying
+incoming record deltas.
 
-Built-in Base views are strictly `grid`, `kanban`, and `gallery`—pure record
-browsers sharing one query, mutation, permission, and realtime contract (whereas
-calendars, timelines, forms, and charts belong in Applets calling the Base API).
-New kanban views default to grouping by the first single-select field when
-present, kanban and gallery cards show the primary field title plus configured
-card fields while the detail drawer shows all fields, dragging a kanban card
-updates its grouping field via a normal `RecordWrite`, and invalid inline embed
-configs (or unsupported view types) stay editable with a one-click repair to
-`grid`. Newly created fields, reverse link fields, and views append at the end
-unless given an explicit position under the table lock (self-links also reserve
-the forward field's position up front).
+Built-in Base views are `grid`, `kanban`, `gallery`, and `chart`, sharing one
+query, mutation, permission, and realtime contract (whereas calendars, timelines,
+custom forms, multi-table analytics, and multi-pane financial terminals belong in
+Applets calling the Base API). `chart` views store a `ChartViewSpec` embedding
+`AggregateQuery` (`column`, `bar`, `line`, `area`, `combo`, `pie`, `donut`,
+`funnel`, `scatter`, and `stat`) alongside `display` settings (`sort_mode`
+including `:select` option order, `stack_mode`, `cumulative`,
+`fill_missing_buckets`, `omit_zero`, `show_data_labels`, `smooth`, `show_legend`,
+`height`, `reference_lines`, and `caption`), assign categorical series colors by
+`:select` option color first and global rank order second, densify missing
+chronological time buckets when `fill_missing_buckets` is enabled and
+`omit_zero` is off (`0` for `count`/`sum`, `null` for
+`avg`/`min`/`max`/`count_distinct`). Ankole calculates cumulative time-series
+values in chronological order independently of display sorting and bucket
+filling. Cumulative labels and donut totals use exact decimal arithmetic;
+renderers receive numeric coordinates. KPI cards display loading or query
+errors until their whole-table total is available. Charts open a version-checked
+drill-down record dialog on element or KPI stat click. In standalone Base workspaces,
+editors with `:manage_schema` persist `chart` configuration changes through a
+`600ms` debounced `BaseView` update that flushes on view switch or unmount; in
+`doc` `<embed>` blocks, both linked shared `chart` views and inline `chart`
+configurations render in quiet single-chart card chrome with permission-aware
+progressive-disclosure controls—inline edits debounce `400ms` into the
+document's `view` attribute under `node_edit`, while edits to a linked shared
+view stay in a card-scoped draft until the author saves to the shared view
+(`:manage_schema`) or detaches an inline document copy (`node_edit`). Deleting a
+field marks referenced `chart` slots with `missing_field_id` so views enter
+in-place slot repair instead of silently dropping series or resetting to `grid`,
+and deleting an explicitly bound embed table surfaces a missing-table rebind
+state rather than falling back to `tables[0]`. New kanban views default to grouping by the first single-select
+field when present, kanban and gallery cards show the primary field title plus
+configured card fields while the detail drawer shows all fields, and dragging a
+kanban card updates its grouping field via a normal `RecordWrite`. Newly created
+fields, reverse link fields, and views append at the end unless given an
+explicit position under the table lock (self-links also reserve the forward
+field's position up front).
 
 `base.copy` copies a single table—applying its source filter—into a new
 standalone `base` Page at a Space root, Private root, or parent Page while
@@ -1974,8 +2034,10 @@ holding source metadata locks:
   inputs changed to incompatible types freeze into ordinary fields populated
   with their current values (arrays serialized as JSON text, scalars keeping
   their value type), while compatible formulas stay live.
-- Copied views remap field IDs and preserve filter/sort values, narrowing
-  filters on type-changed fields to `is_empty` and `is_not_empty`.
+- Copied views remap all `field_id` references across `grid`, `kanban`,
+  `gallery`, and `chart` configs, narrowing filters on type-changed fields to
+  `is_empty` and `is_not_empty` and marking incompatible numeric metrics or date
+  buckets on type-frozen fields for in-place repair.
 
 `pod.base.limits` defines four configurable per-tenant defaults, and queries or
 writes exceeding these bounds fail explicitly:

@@ -172,6 +172,10 @@ defmodule AnkoleWeb.Session do
         cookie_options()
       )
 
+    # The cookie lasts until the absolute limit; the database row enforces the
+    # shorter idle expiry, which every authenticated request can extend.
+    expires_at = BrowserSessions.absolute_expiry(authentication.authenticated_at)
+
     put_resp_cookie(
       conn,
       SessionCookies.authentication_prefix() <> authentication.id,
@@ -179,10 +183,30 @@ defmodule AnkoleWeb.Session do
       Keyword.put(
         SessionCookies.options(),
         :max_age,
-        max(DateTime.diff(authentication.expires_at, DateTime.utc_now()), 0)
+        max(DateTime.diff(expires_at, DateTime.utc_now()), 0)
       )
     )
   end
+
+  @doc """
+  Extends the idle expiry of the authentication that authorized this request.
+
+  `identity` is the map that `BrowserSessions.identity/3` returns. Ankole writes
+  only when a renewal is due, so the caller can run this on every request.
+  """
+  def renew_authentication(%{
+        "authentication_id" => id,
+        "authentication_revision" => revision,
+        "expires_at" => expires_at,
+        "authenticated_at" => authenticated_at
+      }) do
+    if BrowserSessions.renewal_due?(expires_at, authenticated_at),
+      do: BrowserSessions.renew(%{"id" => id, "revision" => revision})
+
+    :ok
+  end
+
+  def renew_authentication(_identity), do: :ok
 
   # EventSource and file subresources cannot send the document's authentication
   # header. Other API URLs must not select a different signed-in identity.

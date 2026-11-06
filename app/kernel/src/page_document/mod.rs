@@ -119,8 +119,8 @@ fn page(root: Element) -> Result<Page> {
     fn visit(node: &Element, text: &mut String) {
         let block = matches!(
             node.name.as_str(),
-            "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "pre" | "math" | "mermaid"
-        );
+            "p" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "pre" | "math"
+        ) || attributes::is_source_diagram_tag(&node.name);
         if block && !text.is_empty() && !text.ends_with('\n') {
             text.push('\n');
         }

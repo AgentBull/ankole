@@ -3,8 +3,10 @@ import { computePinchTransform, orderBufferedSlots, scheduleAnimationFrames } fr
 import { buildMermaidSrcDoc, MERMAID_FRAME_CSP } from './mermaid-frame'
 import { svgToPngBlob } from './mermaid-download'
 import {
+  DIAGRAM_HOST_FONT_SANS,
+  expandSvgViewBox,
   formatMermaidRenderError,
-  getCachedMermaidDiagram,
+  getCachedChatDiagram,
   injectStandaloneSvgTheme,
   renderMermaidDiagram
 } from './mermaid-renderer'
@@ -21,20 +23,20 @@ describe('renderMermaidDiagram (pele)', () => {
     expect(light.svg).toContain('User Request')
     expect(light.width).toBeGreaterThan(20)
     expect(light.height).toBeGreaterThan(20)
-    expect(getCachedMermaidDiagram(source, 'light')).toBe(light)
-    expect(getCachedMermaidDiagram(source, 'dark')).toBeUndefined()
+    expect(getCachedChatDiagram(source, 'light', 'mermaid')).toBe(light)
+    expect(getCachedChatDiagram(source, 'dark', 'mermaid')).toBeUndefined()
 
     const dark = await renderMermaidDiagram(source, 'dark')
     expect(dark.svg).toContain('<svg')
-    expect(getCachedMermaidDiagram(source, 'dark')).toBe(dark)
+    expect(getCachedChatDiagram(source, 'dark', 'mermaid')).toBe(dark)
   })
 
   test('evicts oldest entry once 48-entry LRU cache fills', async () => {
     for (let i = 0; i < 49; i += 1) {
       await renderMermaidDiagram(`flowchart LR\n  LRU_N${i} --> LRU_M${i}`, 'light')
     }
-    expect(getCachedMermaidDiagram('flowchart LR\n  LRU_N0 --> LRU_M0', 'light')).toBeUndefined()
-    expect(getCachedMermaidDiagram('flowchart LR\n  LRU_N48 --> LRU_M48', 'light')).toBeDefined()
+    expect(getCachedChatDiagram('flowchart LR\n  LRU_N0 --> LRU_M0', 'light', 'mermaid')).toBeUndefined()
+    expect(getCachedChatDiagram('flowchart LR\n  LRU_N48 --> LRU_M48', 'light', 'mermaid')).toBeDefined()
   })
 
   test('rejects incomplete streaming or invalid Mermaid syntax cleanly with single-line error reason', async () => {
@@ -68,6 +70,13 @@ describe('renderMermaidDiagram (pele)', () => {
     const standalone = injectStandaloneSvgTheme(diagram.svg, 'light')
     expect(standalone).toContain('xmlns="http://www.w3.org/2000/svg"')
     expect(standalone).toContain('--pele-bg:#fffefd')
+    expect(standalone).toContain('IBMPlexSansCN')
+    expect(DIAGRAM_HOST_FONT_SANS).toContain('Noto Sans CJK SC')
+
+    const expanded = expandSvgViewBox('<svg viewBox="0 0 200 100"><text>中文流程</text></svg>', 8)
+    expect(expanded.svg).toContain('viewBox="-8 -8 216 116"')
+    expect(expanded.width).toBe(216)
+    expect(expanded.height).toBe(116)
   })
 
   test('double-buffered zoom slots keep ascending React keys across prepared -> committed -> retiring and support 2-finger pinch', async () => {

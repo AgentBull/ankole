@@ -19,8 +19,11 @@ import { Wordgard } from '../core/editor'
 import { history } from '../core/history'
 import { GardSelection, GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
+import { InfographicBlock } from '../blocks/infographic'
+import { MermaidBlock } from '../blocks/mermaid'
 import { turnInto } from './block-actions'
 import { blockInsertion, compose, isContainer, isListItem, wrapTextblock } from './block-insert'
+import { isKnowledge } from './knowledge'
 import * as S from './schema'
 import { tableInsertion } from './tables'
 
@@ -115,8 +118,18 @@ export function fenceShortcut(state: GardState): Transaction.Spec | null {
   if (!text || !/^ {0,3}(`{3,}|~{3,})/.test(text)) return null
   const code = parse(text).children[0]
   if (code?.type !== 'code' || code.value) return null
+  const diagramPlot =
+    code.meta == null
+      ? code.lang === 'mermaid'
+        ? MermaidBlock
+        : code.lang === 'infographic' && !isKnowledge(state)
+          ? InfographicBlock
+          : undefined
+      : undefined
   return compose(state, { changes: { from: block.start, to: block.end } }, next =>
-    turnInto(next, { kind: 'code', lang: code.lang ?? undefined, meta: code.meta ?? undefined })
+    diagramPlot
+      ? turnInto(next, { kind: 'code', plot: diagramPlot })
+      : turnInto(next, { kind: 'code', lang: code.lang ?? undefined, meta: code.meta ?? undefined })
   )
 }
 

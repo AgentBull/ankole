@@ -37,7 +37,7 @@ defmodule Ankole.Pod.BaseView do
     attribute(:type, :atom,
       public?: true,
       allow_nil?: false,
-      constraints: [one_of: [:grid, :kanban, :gallery]]
+      constraints: [one_of: [:grid, :kanban, :gallery, :chart]]
     )
 
     attribute(:config, Ankole.Ash.Types.JSONMap, public?: true, allow_nil?: false, default: %{})

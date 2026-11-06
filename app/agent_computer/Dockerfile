@@ -84,6 +84,13 @@ WORKDIR /repo
 
 COPY libs/applet-sdk/src ./libs/applet-sdk/src
 COPY libs/uikit/src ./libs/uikit/src
+COPY tsconfig.base.json ./tsconfig.base.json
+COPY app/agent_computer/tsconfig.json ./app/agent_computer/tsconfig.json
+COPY app/agent_computer/src/cli/viz ./app/agent_computer/src/cli/viz
+
+RUN mkdir -p /tmp/ankole-viz-runtime/dist \
+  && bun app/agent_computer/src/cli/viz/build-harness.ts /tmp/ankole-viz-runtime/dist \
+  && chmod -R a+rX /tmp/ankole-viz-runtime
 
 # Fetch and verify release CLIs in independent BuildKit stages so cold builds
 # run concurrently and bumping one CLI version never invalidates the others.
@@ -271,6 +278,7 @@ COPY --from=build /repo/libs ./libs
 COPY --from=build /tmp/ankole-browser-runtime/package.json /opt/ankole-browser/package.json
 COPY --from=build /tmp/ankole-browser-runtime/node_modules /opt/ankole-browser/node_modules
 COPY --from=build /tmp/ankole-browser-runtime/dist /opt/ankole-browser/dist
+COPY --from=build /tmp/ankole-viz-runtime/dist /opt/ankole-viz/dist
 
 COPY app/agent_computer/scripts/git-askpass.ts /usr/local/bin/ankole-git-askpass
 COPY app/agent_computer/scripts/ankole-worker-supervisor.sh /usr/local/bin/ankole-worker-supervisor
@@ -316,7 +324,8 @@ RUN set -eux; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/webhooks/webhook-cli.ts cancel "$@"' > /usr/local/bin/cancel-webhook-cli; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/drive/drive-cli.ts "$@"' > /usr/local/bin/ankole-files; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/pod/pod-cli.ts "$@"' > /usr/local/bin/ankole-pod; \
-  chmod +x /usr/local/bin/ankole-browser /usr/local/bin/ankole-browserd /usr/local/bin/create-webhook-cli /usr/local/bin/list-webhooks-cli /usr/local/bin/cancel-webhook-cli /usr/local/bin/ankole-files /usr/local/bin/ankole-pod; \
+  printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/viz/viz-cli.ts "$@"' > /usr/local/bin/ankole-viz; \
+  chmod +x /usr/local/bin/ankole-browser /usr/local/bin/ankole-browserd /usr/local/bin/create-webhook-cli /usr/local/bin/list-webhooks-cli /usr/local/bin/cancel-webhook-cli /usr/local/bin/ankole-files /usr/local/bin/ankole-pod /usr/local/bin/ankole-viz; \
   ! command -v node; \
   bun -e 'if (typeof Bun.TOML.stringify !== "function") throw new Error("Bun.TOML.stringify is required")'; \
   test "$(codex --version)" = "codex-cli ${CODEX_VERSION}"; \
@@ -327,6 +336,7 @@ RUN set -eux; \
   aws --version | grep -qF "aws-cli/${AWS_CLI_VERSION} "; \
   /opt/ankole-browser/browsers/chromium/chrome-headless-shell --version >/dev/null; \
   ankole-browser --help >/dev/null; \
+  ankole-viz --help >/dev/null; \
   patch_probe="$(mktemp -d)"; \
   cd "$patch_probe"; \
   printf '%s\n' '*** Begin Patch' '*** Add File: probe.txt' '+ok' '*** End Patch' | apply_patch; \
@@ -351,6 +361,7 @@ ENV ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library
 ENV ANKOLE_BROWSER_DAEMON_ENTRY=/opt/ankole-browser/dist/daemon/main.js
 ENV ANKOLE_BROWSER_RUNNER=/opt/ankole-browser/dist/runner/bootstrap.js
 ENV ANKOLE_BROWSER_CHROMIUM_EXECUTABLE=/opt/ankole-browser/browsers/chromium/chrome-headless-shell
+ENV ANKOLE_VIZ_HARNESS_JS=/opt/ankole-viz/dist/harness-entry.js
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ankole-browser/browsers
 ENV MATPLOTLIBRC=/etc/ankole/matplotlibrc
 ENV PATH="/opt/ankole-python/bin:/opt/ankole-cargo/bin:/usr/local/bin:/usr/bin:/bin"

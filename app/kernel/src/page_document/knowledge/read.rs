@@ -78,21 +78,25 @@ fn block<'a>(node: &'a AstNode<'a>) -> Result<Vec<Node>> {
         }
         NodeValue::CodeBlock(code) => {
             let (lang, meta) = code.info.split_once(' ').unwrap_or((&code.info, ""));
-            if !lang.is_empty() {
-                attrs.insert("lang".into(), lang.into());
+            let content = code
+                .literal
+                .strip_suffix('\n')
+                .unwrap_or(&code.literal)
+                .to_owned();
+            if meta.is_empty()
+                && let Some(spec) =
+                    crate::page_document::attributes::knowledge_source_diagram_by_fence(lang)
+            {
+                (spec.tag.into(), vec![Node::Text(content)])
+            } else {
+                if !lang.is_empty() {
+                    attrs.insert("lang".into(), lang.into());
+                }
+                if !meta.is_empty() {
+                    attrs.insert("meta".into(), meta.into());
+                }
+                ("pre".into(), vec![Node::Text(content)])
             }
-            if !meta.is_empty() {
-                attrs.insert("meta".into(), meta.into());
-            }
-            (
-                "pre".into(),
-                vec![Node::Text(
-                    code.literal
-                        .strip_suffix('\n')
-                        .unwrap_or(&code.literal)
-                        .into(),
-                )],
-            )
         }
         NodeValue::Alert(alert) => {
             let tone = match alert.alert_type {

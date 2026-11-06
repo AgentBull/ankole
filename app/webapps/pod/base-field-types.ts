@@ -60,7 +60,18 @@ export const fieldTypes: Record<FieldType, string> = {
 }
 export const writableField = (field: BaseField) =>
   !['formula', 'auto_number', 'created_at', 'updated_at', 'created_by', 'updated_by'].includes(field.type)
-export type Option = { id: string; name: string }
+export const SELECT_OPTION_COLORS = [
+  'brand',
+  'teal',
+  'blue',
+  'purple',
+  'green',
+  'orange',
+  'yellow',
+  'red',
+  'gray'
+] as const
+export type Option = { id: string; name: string; color?: string }
 export const fieldOptions = (field: BaseField) =>
   (Array.isArray(field.config.options) ? field.config.options : []) as Option[]
 const namesOf = (field: BaseField, values: unknown[]) =>

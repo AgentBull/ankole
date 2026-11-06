@@ -7,15 +7,90 @@ defmodule Ankole.BrowserSessions.Identity do
   alias Ankole.BrowserSessions.{Authentication, PodAuthentication, Session}
   alias Ankole.Repo
 
-  @session_ttl 24 * 60 * 60
+  # A browser group without a login expires after one day. Each authentication
+  # stays valid while the browser keeps using it within the idle window, and
+  # it always ends at the absolute limit counted from its login.
+  @browser_ttl 24 * 60 * 60
+  @idle_ttl 30 * 24 * 60 * 60
+  @absolute_ttl 180 * 24 * 60 * 60
+  # Renewal writes at most once per day for each authentication.
+  @renewal_interval 24 * 60 * 60
 
-  def session_ttl, do: @session_ttl
+  def absolute_ttl, do: @absolute_ttl
 
   def create do
     Ankole.Ash.create(Session, :create_in_tx, %{
-      expires_at: DateTime.add(DateTime.utc_now(), @session_ttl)
+      expires_at: DateTime.add(DateTime.utc_now(), @browser_ttl)
     })
   end
+
+  @doc "Gives the idle expiry of an authentication used at `now`, capped by its absolute limit."
+  def idle_expiry(authenticated_at, now \\ DateTime.utc_now()) do
+    idle = DateTime.add(now, @idle_ttl)
+    absolute = absolute_expiry(authenticated_at)
+    if DateTime.compare(idle, absolute) == :lt, do: idle, else: absolute
+  end
+
+  @doc "Gives the time after which an authentication requires a fresh login."
+  def absolute_expiry(authenticated_at), do: DateTime.add(authenticated_at, @absolute_ttl)
+
+  @doc """
+  Tells whether a request should extend an authentication's idle expiry.
+
+  Both arguments are Unix seconds, as `identity/3` reports them.
+  """
+  def renewal_due?(expires_at, authenticated_at)
+      when is_integer(expires_at) and is_integer(authenticated_at) do
+    absolute = authenticated_at + @absolute_ttl
+    idle = System.system_time(:second) + @idle_ttl
+
+    if idle >= absolute do
+      expires_at < absolute
+    else
+      idle - expires_at >= @renewal_interval
+    end
+  end
+
+  def renewal_due?(_, _), do: false
+
+  @doc """
+  Extends a live authentication's idle expiry after the browser uses it.
+
+  The caller can call this on every authenticated request: Ankole writes only
+  when the expiry would move by at least the renewal interval (or reach the
+  absolute limit in the final window), and never past the absolute limit.
+  """
+  def renew(ref) do
+    with {:ok, authentication} <- fetch_authentication(ref) do
+      if renewal_due?(authentication) do
+        Repo.transact_top_level(fn ->
+          with {:ok, _browser} <- fetch_browser(%{"id" => authentication.browser_id}, true),
+               {:ok, authentication} <- fetch_authentication(ref) do
+            extend_if_due_in_tx(authentication)
+          end
+        end)
+      else
+        {:ok, authentication}
+      end
+    end
+  end
+
+  defp extend_if_due_in_tx(%Authentication{} = authentication) do
+    if renewal_due?(authentication) do
+      Ankole.Ash.update(authentication, :extend_in_tx, %{
+        expires_at: idle_expiry(authentication.authenticated_at)
+      })
+    else
+      {:ok, authentication}
+    end
+  end
+
+  defp renewal_due?(%Authentication{} = authentication),
+    do:
+      renewal_due?(
+        DateTime.to_unix(authentication.expires_at),
+        DateTime.to_unix(authentication.authenticated_at)
+      )
 
   def reference(%Session{id: id}), do: %{"id" => id}
 
@@ -172,7 +247,8 @@ defmodule Ankole.BrowserSessions.Identity do
          {:ok, authentication} <- fetch_authentication(authentication_ref),
          true <- authentication.browser_id == browser.id,
          target_tenant <- tenant_id || authentication.tenant_id,
-         true <- is_nil(target_tenant) or is_map(identity(authentication_ref, target_tenant)) do
+         true <- is_nil(target_tenant) or is_map(identity(authentication_ref, target_tenant)),
+         {:ok, _} <- extend_if_due_in_tx(authentication) do
       Ankole.Ash.update(browser, :activate_in_tx, %{
         active_authentication_id: authentication.id,
         active_tenant_id: target_tenant
@@ -186,20 +262,22 @@ defmodule Ankole.BrowserSessions.Identity do
   @doc """
   Holds a live authentication for an OAuth grant in the caller's transaction.
 
-  The function locks the browser and the Human, and checks that the
-  authentication still gives the same Human, access version, and provider.
+  The function locks the browser and the Human, checks that the authentication
+  still gives the same Human, access version, and provider, and extends the
+  authentication's idle expiry when due.
   """
   def authorize_in_tx(authentication_ref, auth) do
     in_transaction!(:authorize_in_tx)
 
     with {:ok, authentication} <- fetch_authentication(authentication_ref),
          {:ok, _browser} <- fetch_browser(%{"id" => authentication.browser_id}, true),
+         {:ok, authentication} <- fetch_authentication(authentication_ref),
          %{} = current <- identity(authentication_ref, Repo.tenant_id!()),
          true <-
            Map.take(current, ~w(principal_uid access_version provider_id)) ==
              Map.take(auth, ~w(principal_uid access_version provider_id)),
          {:ok, _} <- lock_human(current) do
-      :ok
+      extend_if_due_in_tx(authentication)
     else
       false -> {:error, :browser_session_expired}
       nil -> {:error, :browser_session_expired}

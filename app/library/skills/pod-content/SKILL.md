@@ -97,10 +97,17 @@ in the page tree. Removing a reference from Markdown removes only the reference.
 The page link form is `ankole:page/<page-id>`.
 
 In document Markdown, put each inline embed on its own line. For an Applet,
-use `<embed ref="<applet-page-id>" />`. For a Base view, use
-`<embed ref="<base-page-id>" table="<table-id>" view="<view-id>" />`.
-Use the saved page and table IDs; read the view ID from `base.schema`.
-A Markdown page link opens the referenced page; the embed renders it inline.
+use `<embed ref="<applet-page-id>" />`. For a Base view (including `grid`,
+`kanban`, `gallery`, and `chart` views), use
+`<embed ref="<base-page-id>" table="<table-id>" view="<view-id>" />` for a
+shared saved view, or pass an inline JSON `ViewConfig` in `view` when a chart
+or filtered view belongs exclusively to this report document. Use the saved page
+and table IDs; read saved view IDs and field UUIDs from `base.schema`. Use
+` ```mermaid ` for procedural flowcharts, sequences, state machines, and ER
+diagrams (supported in both `doc` and `knowledge` pages), and ` ```infographic `
+for structured narrative roadmaps, SWOT matrices, and comparisons in `doc`
+pages (see the `visualization` Skill). A Markdown page link opens the referenced
+page; an embed renders it inline.
 
 Use `files.upload` for a file page, document image, or Base attachment.
 Image uploads return an `ankole:asset/<digest>/<name>` address for the document.
@@ -256,6 +263,17 @@ provenance metadata, and Automation toolbar directly above the iframe:
     `AlertTitle` / `AlertDescription`, `Empty` / `EmptyHeader` / `EmptyTitle` /
     `EmptyDescription` / `EmptyContent`, `Progress`, `Skeleton`, `Spinner`,
     `Separator`, `Avatar`, `Kbd`, `Toaster` + `toast`.
+  - Visualization & charts: `AnkoleStatCard`, `AnkoleSparkline`, `AnkoleChart`
+    (AntV G2 statistical charts), `AnkoleFinancialChart` (Lightweight Charts v5
+    candlestick/OHLCV, volume/MACD/RSI sub-panes, markers, yield curves),
+    `AnkoleGraph` (AntV G6 topology), and `AnkoleInfographic` (narrative
+    infographics)—all dynamically code-split behind root `@ankole/uikit` exports
+    (pair with `recordsToFinancialSeries`, `densifyTimeBuckets`, and
+    `formatMetricValue` from `@ankole/applet-sdk`; see the `visualization`
+    Skill for grammar and directional color rules: `var(--chart-up)` /
+    `var(--chart-down)` default to international green-up/red-down, swapping to
+    red-up/green-down via `marketConvention="cn"` only for Mainland China
+    A-share equities).
   - Forms & filters: `Input`, `InputGroup`, `Textarea`, `Select` /
     `SelectTrigger` (`variant`: `'field' | 'ghost'`, `size`: `'default' | 'sm'`) /
     `SelectValue` / `SelectContent` / `SelectItem`, `Combobox`,

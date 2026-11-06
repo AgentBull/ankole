@@ -10,6 +10,7 @@ import { parseCLIRequest, startSocketLineBridge } from '../../core/socket-line-b
 import { jsonBytes, jsonObjectFromBytes } from '../../fabric/envelope_proto'
 import { collectLocalFiles, sha256File, type Drive } from '../../drive/drive'
 import type { RPCRequester, TurnRPCFrame } from '../../lanes/rpc_lane'
+import { preflightPageMarkdown, type ExistingPageSnapshot } from './diagram-preflight'
 
 const readOperations = [
   'pages.list',
@@ -162,6 +163,13 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
             await rm(temporary, { recursive: true, force: true })
           }
         }
+        if (command.operation === 'pages.create' && typeof params.markdown === 'string' && params.type !== 'file') {
+          await preflightPageMarkdown({
+            operation: 'pages.create',
+            markdown: params.markdown,
+            knownPageType: typeof params.type === 'string' ? params.type : undefined
+          })
+        }
         if (operation === 'pages.patch') {
           const current = await request('pages.read', {
             id: params.id,
@@ -174,6 +182,14 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
             typeof (current.content as Record<string, unknown> | undefined)?.markdown === 'string'
               ? (current.content as { markdown: string }).markdown
               : await readFile(documentPath!, 'utf8')
+          const originalMarkdown = markdown
+          const currentPageType =
+            typeof (current.page as { type?: unknown } | undefined)?.type === 'string'
+              ? (current.page as { type: string }).type
+              : typeof current.type === 'string'
+                ? current.type
+                : undefined
+          const patchSnapshot: ExistingPageSnapshot = { pageType: currentPageType, markdown: originalMarkdown }
           if (!Array.isArray(params.edits) || params.edits.length === 0) throw new Error('pages.patch requires edits')
           for (const value of params.edits) {
             const edit = value as { old_text?: unknown; new_text?: unknown; replace_all?: unknown }
@@ -188,12 +204,53 @@ export function startPodCLIBridge(opts: { rpc: RPCRequester; frame: TurnRPCFrame
                 ? markdown.split(edit.old_text).join(edit.new_text)
                 : markdown.replace(edit.old_text, () => edit.new_text as string)
           }
+          await preflightPageMarkdown({
+            operation: 'pages.patch',
+            markdown,
+            knownPageType: currentPageType,
+            existingSnapshot: patchSnapshot
+          })
           params.markdown = markdown
           delete params.edits
           operation = 'pages.write'
         }
         if (operation === 'pages.write' || operation === 'pages.append') {
           if (typeof params.markdown !== 'string') throw new Error(`${operation} requires markdown and base_revision`)
+          if (command.operation === 'pages.write' || command.operation === 'pages.append') {
+            await preflightPageMarkdown({
+              operation: command.operation,
+              markdown: params.markdown,
+              loadExistingPage: async () => {
+                if (typeof params.id !== 'string') return undefined
+                const readScratchPath = join(opts.drive.agentHome, '.ankole', 'pod-content', `${randomUUID()}.md`)
+                try {
+                  const relPath = await opts.drive.homeRelativePath(readScratchPath, { create: true })
+                  const existing = await request('pages.read', {
+                    id: params.id,
+                    markdown_home_relative_path: relPath
+                  })
+                  const pageType =
+                    typeof (existing.page as { type?: unknown } | undefined)?.type === 'string'
+                      ? (existing.page as { type: string }).type
+                      : typeof existing.type === 'string'
+                        ? existing.type
+                        : undefined
+                  const contentObj = existing.content as Record<string, unknown> | undefined
+                  let existingMd: string | undefined
+                  if (typeof contentObj?.markdown === 'string') {
+                    existingMd = contentObj.markdown
+                  } else if (typeof existing.markdown === 'string') {
+                    existingMd = existing.markdown
+                  } else if (contentObj?.markdown_file === true) {
+                    existingMd = await readFile(readScratchPath, 'utf8')
+                  }
+                  return { pageType, markdown: existingMd }
+                } finally {
+                  await rm(readScratchPath, { force: true })
+                }
+              }
+            })
+          }
           await writeFile(documentPath!, params.markdown)
           delete params.markdown
         }

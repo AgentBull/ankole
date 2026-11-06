@@ -221,6 +221,19 @@
   --color-badge-blue: var(--badge-blue);
   --color-badge-yellow-hover: var(--badge-yellow-hover);
   --color-badge-green-hover: var(--badge-green-hover);
+  --color-chart-up: var(--chart-up);
+  --color-chart-up-foreground: var(--chart-up-foreground);
+  --color-chart-up-subtle: var(--chart-up-subtle);
+  --color-chart-down: var(--chart-down);
+  --color-chart-down-foreground: var(--chart-down-foreground);
+  --color-chart-down-subtle: var(--chart-down-subtle);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-other: var(--chart-other);
+  --color-chart-empty: var(--chart-empty);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -372,6 +385,22 @@
   --badge-yellow-hover: #dfc684;
   --badge-green-hover: #9edaab;
 
+  /* Dedicated data visualization tokens, decoupled from UI status colors so regional market
+     conventions (such as Mainland China A-share red-up / green-down) never invert success/destructive chrome. */
+  --chart-up: #0f8a5f;
+  --chart-up-foreground: #086646;
+  --chart-up-subtle: #e6f6ef;
+  --chart-down: #c81e3a;
+  --chart-down-foreground: #9e142c;
+  --chart-down-subtle: #fdecef;
+  --chart-1: #b31b5d;
+  --chart-2: #009d9a;
+  --chart-3: #0f62fe;
+  --chart-4: #f1c21b;
+  --chart-5: #a56eff;
+  --chart-other: var(--color-gray-50);
+  --chart-empty: var(--color-gray-30);
+
   /* Alumina ceramic diffuses the underlying colours beneath a softly lit surface.
      Transient menus use the more translucent primary tier. */
   --ceramic-body: 251 251 252;
@@ -503,6 +532,20 @@
   --info: var(--color-blue-50);
   --info-foreground: var(--color-blue-40);
   --info-subtle: #222938;
+
+  --chart-up: #2ec28b;
+  --chart-up-foreground: #5cdba9;
+  --chart-up-subtle: #193028;
+  --chart-down: #f2556a;
+  --chart-down-foreground: #ff8594;
+  --chart-down-subtle: #381e24;
+  --chart-1: #d83d82;
+  --chart-2: #08bdba;
+  --chart-3: #78a9ff;
+  --chart-4: #f1c21b;
+  --chart-5: #be95ff;
+  --chart-other: var(--color-gray-50);
+  --chart-empty: var(--color-gray-70);
 
   /* In dark mode, diffused colour and soft edge lighting separate the ceramic from the page. */
   --ceramic-body: 42 43 46;

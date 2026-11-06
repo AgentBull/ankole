@@ -160,14 +160,18 @@ export function queryLocalRecords(records: BaseRecord[], fields: BaseField[], qu
   const selected = filterRecords(records, fields, query.filter).filter(record => {
     if (query.ids && !query.ids.includes(record.id)) return false
     if (!query.group) return true
-    const field = fields.find(field => field.id === query.group!.field_id)
+    if (Array.isArray(query.group)) {
+      throw new Error('Multi-slice drill-down groups require PostgreSQL execution.')
+    }
+    const groupSlice = query.group
+    const field = fields.find(field => field.id === groupSlice.field_id)
     if (!field) throw new Error(t('pod.content.the_grouping_field_was_deleted'))
     const expected =
-      query.group.value_json !== undefined
-        ? query.group.value_json === null
+      groupSlice.value_json !== undefined
+        ? groupSlice.value_json === null
           ? null
-          : (JSON.parse(query.group.value_json) as Value)
-        : (query.group.value ?? null)
+          : (JSON.parse(groupSlice.value_json) as Value)
+        : (groupSlice.value ?? null)
     const actual = fieldValue(record, field)
     if (expected === null) return actual === null
     if (field.type === 'created_by' || field.type === 'updated_by') {

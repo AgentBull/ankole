@@ -10,11 +10,15 @@ import type { Wordgard } from '../core/editor'
 import { GardSelection, type GardState, type Transaction } from '../core/state'
 import * as T from '../core/types'
 import { blocks } from '../blocks'
+import { InfographicBlock } from '../blocks/infographic'
+import { MermaidBlock } from '../blocks/mermaid'
 import { fileUploadSpec } from './file-upload'
 import { blockOptions, type BlockType, type CoreBlockType } from './block-catalog'
 import { Callout } from '../blocks/callout'
 import { compareNames } from '../document/tree'
 import { Attrs, markSet, markValue, type Pairs } from './attributes'
+import { editorHost } from './host-context'
+import { isKnowledge, knowledgeBlockTypes } from './knowledge'
 import {
   blockInsertion,
   compose,
@@ -53,8 +57,11 @@ export function blockTypeAt(state: GardState, pos: number): BlockType | null {
   return blocks.find(block => block.type === node.type)?.name ?? null
 }
 
-/** What the selected blocks become. A code target can give the language and `meta` of a fence. */
-export type BlockTarget = { kind: 'text'; tag: Plot.Tag } | { kind: 'code'; lang?: string; meta?: string } | ListTarget
+/** What the selected blocks become. A code target can give a custom code-role plot or a fence's language and `meta`. */
+export type BlockTarget =
+  | { kind: 'text'; tag: Plot.Tag }
+  | { kind: 'code'; plot?: Plot.Tag; lang?: string; meta?: string }
+  | ListTarget
 export type ListTarget = { kind: 'list'; list: 'bullet' | 'number' | 'check'; start?: number; done?: boolean }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +74,15 @@ export type ListTarget = { kind: 'list'; list: 'bullet' | 'number' | 'check'; st
  */
 export function applyBlockType(editor: Wordgard, type: BlockType, replace?: { from: number; to: number }): boolean {
   if (editor.state.readOnly) return false
+  if (isKnowledge(editor.state) && !knowledgeBlockTypes.has(type)) return false
   const deletion = replace && replace.from < replace.to ? { changes: { from: replace.from, to: replace.to } } : null
+  if (type === 'chart') {
+    const host = editorHost(editor)
+    if (!host?.insertChart) return false
+    if (deletion) withLeadingEdit(editor, deletion, () => host.insertChart!(editor))
+    else host.insertChart(editor)
+    return true
+  }
   const definition = blocks.find(block => block.name === type)
   if (definition) {
     if (deletion) withLeadingEdit(editor, deletion, () => definition.insert.insert(editor))
@@ -105,6 +120,8 @@ export function canTurnInto(state: GardState, pos: number): boolean {
     (node.type === T.Paragraph.type ||
       node.type === T.Heading ||
       node.type === T.CodeBlock.type ||
+      node.type === MermaidBlock.type ||
+      node.type === InfographicBlock.type ||
       node.type === S.Blockquote.type ||
       node.type === Callout.type ||
       node.type.hasRole(Node.Role.List) ||
@@ -172,6 +189,8 @@ export function insertBesideBlock(editor: Wordgard, pos: number, type: BlockType
   const { state } = editor
   const block = specifiedUnits(state, pos)?.[0]
   if (!block || state.readOnly) return false
+  if (isKnowledge(state) && !knowledgeBlockTypes.has(type)) return false
+  if (type === 'chart' && !editorHost(editor)?.insertChart) return false
   if (!before && block.node.isPlot && block.node.type === T.Paragraph.type && !block.node.content.length) {
     editor.dispatch({ selection: GardSelection.cursor(block.before + 1) })
     applyBlockType(editor, type)
@@ -191,8 +210,11 @@ export function insertBesideBlock(editor: Wordgard, pos: number, type: BlockType
     selection: GardSelection.cursor(at + (insert[0] === Plot.End ? 2 : 1))
   }
   const definition = blocks.find(definition => definition.name === type)
-  if (definition) withLeadingEdit(editor, paragraph, () => definition.insert.insert(editor))
-  else {
+  if (type === 'chart') {
+    withLeadingEdit(editor, paragraph, () => editorHost(editor)!.insertChart!(editor))
+  } else if (definition) {
+    withLeadingEdit(editor, paragraph, () => definition.insert.insert(editor))
+  } else {
     step(
       editor,
       compose(state, paragraph, next => blockChange(next, type as CoreBlockType))
@@ -225,6 +247,7 @@ export function turnBlock(state: GardState, pos: number, type: BlockType): Trans
   const target = conversionTarget(state, pos)
   if (!target?.node.isPlot || !canTurnInto(state, pos) || state.readOnly) return null
   if (!blockOptions.find(option => option.type === type)?.turnInto) return null
+  if (isKnowledge(state) && !knowledgeBlockTypes.has(type)) return null
   const plot = target as Pos.Plot
   if (isBlockGroup(plot.node)) return turnBlock(state, plot.start, type)
   if (isListItem(plot)) {
@@ -233,7 +256,7 @@ export function turnBlock(state: GardState, pos: number, type: BlockType): Trans
     const inside = selectSpan(state, plot.start, text ? plot.start + text.length : plot.end)
     if (!inside) return null
     if (type !== 'quote' && type !== 'callout') {
-      return compose(state, { selection: inside.selection }, next => blockChange(next, type as CoreBlockType))
+      return compose(state, { selection: inside.selection }, next => conversionChange(next, type))
     }
     const unlisted = turnInto(inside, { kind: 'text', tag: T.Paragraph })
     if (!unlisted) return null
@@ -247,7 +270,7 @@ export function turnBlock(state: GardState, pos: number, type: BlockType): Trans
     const apply = (next: GardState): Transaction.Spec | null =>
       type === 'callout'
         ? { ...blockInsertion(next, Callout.create([])), userEvent: 'block.insert' }
-        : blockChange(next, type as CoreBlockType)
+        : conversionChange(next, type)
     if (inside) return apply(state)
     const atEnd = GardSelection.atEnd(state, plot)
     const preview = apply(state.update({ selection: atEnd }).state)
@@ -275,7 +298,7 @@ export function turnBlock(state: GardState, pos: number, type: BlockType): Trans
     }
     const keepPartial = !state.selection.empty && inside
     const base = keepPartial ? state : selectSpan(state, plot.before, plot.after)
-    const spec = base ? blockChange(base, type as CoreBlockType) : null
+    const spec = base ? conversionChange(base, type) : null
     if (!spec) return null
     return inside
       ? spec
@@ -309,7 +332,7 @@ export function turnBlock(state: GardState, pos: number, type: BlockType): Trans
       selection: GardSelection.cursor(plot.before + 1),
       userEvent: 'block.type'
     }
-    return compose(state, unwrap, next => blockChange(next, type as CoreBlockType))
+    return compose(state, unwrap, next => conversionChange(next, type))
   }
 
   const tailLength = state.doc.length - plot.after
@@ -324,8 +347,14 @@ export function turnBlock(state: GardState, pos: number, type: BlockType): Trans
   }
   return compose(state, unwrap, next => {
     const selected = selectSpan(next, plot.before, next.doc.length - tailLength)
-    return selected ? blockChange(selected, type as CoreBlockType) : null
+    return selected ? conversionChange(selected, type) : null
   })
+}
+
+function conversionChange(state: GardState, type: BlockType): Transaction.Spec | null {
+  if (type === 'infographic') return turnInto(state, { kind: 'code', plot: InfographicBlock })
+  if (type === 'mermaid') return turnInto(state, { kind: 'code', plot: MermaidBlock })
+  return blockChange(state, type as CoreBlockType)
 }
 
 /** The change that `applyBlockType` makes for a core block type, or null when nothing changes. */
@@ -361,6 +390,8 @@ export function blockChange(state: GardState, type: CoreBlockType): Transaction.
       return mentionTriggerSpec(state)
     case 'file':
       return fileUploadSpec(state)
+    case 'chart':
+      return null
   }
 }
 
@@ -473,9 +504,18 @@ function retype(state: GardState, block: Pos.Plot, target: Exclude<BlockTarget, 
     out.push({ from: block.before, to: block.start, insert: [state.schema.withMarksFrom(node.tag, target.tag)] })
     return true
   }
-  if (node.type === T.CodeBlock.type) return false
+  const plot = target.plot ?? T.CodeBlock
+  if (
+    node.type === plot.type &&
+    (plot.type !== T.CodeBlock.type ||
+      (markValue(node, T.CodeBlockLanguage) === target.lang && markValue(node, S.CodeMeta) === target.meta))
+  ) {
+    return false
+  }
   out.push({ from: block.before, to: block.start, insert: [codeTag(state.schema, node.tag, target)] })
-  if (node.content.length) out.push({ from: block.start, to: block.end, insert: codeContent(node) })
+  if (!node.type.hasRole(Node.Role.Code) && node.content.length) {
+    out.push({ from: block.start, to: block.end, insert: codeContent(node) })
+  }
   return true
 }
 
@@ -507,7 +547,7 @@ function moveOut(
       to: text ? text.start : item.start,
       insert: [...lead, ...(nested ? [S.BlockGroup] : []), tag]
     })
-    if (text && target.kind === 'code' && text.node.type !== T.CodeBlock.type && text.node.content.length) {
+    if (text && target.kind === 'code' && !text.node.type.hasRole(Node.Role.Code) && text.node.content.length) {
       out.push({ from: text.start, to: text.end, insert: codeContent(text.node) })
     }
     const trail: Token[] = text ? [] : [Plot.End]
@@ -522,7 +562,16 @@ function moveOut(
 /** The tag of a block that takes the text of a list item, or that replaces an empty item. */
 function blockTag(schema: Schema, from: Plot.Tag | null, target: Exclude<BlockTarget, ListTarget>): Plot.Tag {
   if (target.kind === 'text') return from ? schema.withMarksFrom(from, target.tag) : target.tag
-  if (from?.type === T.CodeBlock.type) return from
+  const plot = target.plot ?? T.CodeBlock
+  if (from?.type === plot.type && plot.type !== T.CodeBlock.type) return from
+  if (
+    from?.type === T.CodeBlock.type &&
+    plot.type === T.CodeBlock.type &&
+    target.lang === undefined &&
+    target.meta === undefined
+  ) {
+    return from
+  }
   return codeTag(schema, from ?? T.Paragraph, target)
 }
 
@@ -532,9 +581,11 @@ function reopenList(tag: Plot.Tag): Plot.Tag {
   return split.type === T.OrderedList ? T.OrderedList.of(1, split.marks) : split
 }
 
-/** A code block tag. A code block keeps only the attributes outside the vocabulary of `from`. */
-function codeTag(schema: Schema, from: Plot.Tag, target: { lang?: string; meta?: string }): Plot.Tag {
-  const tag = schema.withMarksFrom(from, T.CodeBlock)
+/** A code or source-diagram block tag, keeping only attributes outside the vocabulary of `from`. */
+function codeTag(schema: Schema, from: Plot.Tag, target: { plot?: Plot.Tag; lang?: string; meta?: string }): Plot.Tag {
+  const plot = target.plot ?? T.CodeBlock
+  const tag = schema.withMarksFrom(from, plot)
+  if (plot.type !== T.CodeBlock.type) return tag
   return tag.withMarks(
     markSet([
       ...tag.marks,
