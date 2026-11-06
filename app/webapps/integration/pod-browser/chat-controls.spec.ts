@@ -1,4 +1,4 @@
-import { state, request as podRequest } from './fixtures'
+import { chatWorkspace, state, request as podRequest } from './fixtures'
 import { expect, test, type Page } from '@playwright/test'
 import { conversationRoute } from './routes'
 
@@ -172,6 +172,7 @@ test('a touch chat edits, orders, removes and releases real durable pending inpu
 test('a completed message copies exact code and text, then edits and retries through the real API', async ({
   browser
 }, testInfo) => {
+  const workspace = chatWorkspace()
   const context = await browser.newContext({
     baseURL: state.base_url,
     permissions: ['clipboard-read', 'clipboard-write']
@@ -183,11 +184,11 @@ test('a completed message copies exact code and text, then edits and retries thr
     await page.goto(conversationRoute(id))
     expect(
       await podRequest<boolean>(page, `/conversations/${id}/participants`, 'POST', {
-        addUIDs: [state.chat_workspace.colleague_uid]
+        addUIDs: [workspace.colleague_uid]
       })
     ).toBe(true)
     const invited = await request(page, `/conversations/${id}`)
-    const colleague = invited.conversation.agents.find(agent => agent.uid === state.chat_workspace.colleague_uid)!
+    const colleague = invited.conversation.agents.find(agent => agent.uid === workspace.colleague_uid)!
     const recipient = page.getByRole('combobox', { name: '选择 Agent', exact: true })
     await recipient.click()
     await page.getByRole('option', { name: colleague.displayName, exact: true }).click()

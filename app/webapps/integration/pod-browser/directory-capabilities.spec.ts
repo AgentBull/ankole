@@ -111,9 +111,14 @@ for (const entry of [
         id: createdID,
         type: 'doc',
         title: '',
-        parent_id: null,
         private_owner_uid: null
       })
+      // Ankole returns physical parent IDs, so a top-level Page names the Space root as its parent.
+      const { page: root } = await request<{ page: Record<string, unknown> }>(
+        page,
+        `/pages/${persisted.page.parent_id as string}`
+      )
+      expect(root).toMatchObject({ parent_id: null, private_owner_uid: null, conversation_id: null })
     } finally {
       realtime.resolve()
       try {

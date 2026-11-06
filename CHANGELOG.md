@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 2.0.0-alpha.68 (2026-11-05)
+
+- Show a Page mention's location with its root only once: the path starts with
+  the Space name or Private and no longer repeats the root's internal `Space` or
+  `Private` title.
+- Close only the attachment preview when `Escape` arrives right after it opens;
+  the conversation summary and the execution inspector stay open.
+
 ## Version 2.0.0-alpha.67 (2026-11-05)
 
 - Label the Page header's **Learn business facts** button **Learn** while

@@ -19,6 +19,9 @@ const popupContents = [
   .map(slot => `[data-slot='${slot}']`)
   .join(',')
 
+/** Escape closes only the topmost layer, so an open popup takes it even before focus moves inside. */
+export const popupOpen = () => document.querySelector(popupContents) !== null
+
 // Intent belongs to one visibility change, not to the last input device used in the app.
 export function usePanelMotion(open: boolean) {
   const pending = useRef<boolean | null>(null)
@@ -32,7 +35,7 @@ export function usePanelMotion(open: boolean) {
   const prepare = (next: boolean, event?: PanelInputEvent) => {
     const pointer = event && 'detail' in event && typeof event.detail === 'number' && event.detail > 0
     // Unmount portals with their owner instead of retaining an interactive popup during exit.
-    pending.current = next !== open && pointer && (next || !document.querySelector(popupContents)) ? next : null
+    pending.current = next !== open && pointer && (next || !popupOpen()) ? next : null
   }
   return { animate: current.animate, prepare }
 }

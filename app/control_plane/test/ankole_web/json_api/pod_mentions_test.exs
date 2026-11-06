@@ -83,14 +83,22 @@ defmodule AnkoleWeb.JSONAPI.PodMentionsTest do
              %{
                "id" => shared_id,
                "title" => "Release Checklist",
-               "ancestors" => ["Space", "Engineering"]
+               "ancestors" => ["Engineering"]
              }
            ] = member_page_candidates["pages"]
 
     assert shared_id == shared_doc.id
     assert [%{"private_owner_uid" => nil}] = member_page_candidates["pages"]
 
-    assert %{"pages" => [%{"title" => "Private Salary Band", "private_owner_uid" => ^owner_uid}]} =
+    assert %{
+             "pages" => [
+               %{
+                 "title" => "Private Salary Band",
+                 "private_owner_uid" => ^owner_uid,
+                 "ancestors" => []
+               }
+             ]
+           } =
              owner_conn
              |> recycle_json()
              |> get("/api/v2/pod/mentions/candidates", %{query: "Salary", category: "page"})

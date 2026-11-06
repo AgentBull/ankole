@@ -10,7 +10,7 @@ import { useRoomActions } from './room-api'
 import { LinkedExecutionCard } from './linked-execution-card'
 import { collapseExecutionChains, isExecutionActive } from './turn-timeline'
 import type { InspectorTarget } from './types'
-import { PodPanelSurface, type PanelInputEvent } from '../panel-motion'
+import { PodPanelSurface, popupOpen, type PanelInputEvent } from '../panel-motion'
 
 export function ChatSummaryPanel({
   detail,
@@ -38,6 +38,7 @@ export function ChatSummaryPanel({
           event.key === 'Escape' &&
           !event.defaultPrevented &&
           !event.nativeEvent.isComposing &&
+          !popupOpen() &&
           !(event.target as HTMLElement).closest('[role="dialog"], [role="menu"], [role="listbox"]')
         ) {
           event.preventDefault()

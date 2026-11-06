@@ -40,7 +40,8 @@ test('contributors fill the default table and upload record attachments while sc
     await member.goto(state.base_url + pageRoute(id))
     await expect(member.getByRole('button', { name: 'Table 1', exact: true })).toBeVisible()
     await expect(member.getByRole('button', { name: '新增记录', exact: true })).toBeVisible()
-    await expect(member.getByRole('button', { name: '删除数据表', exact: true })).toHaveCount(0)
+    // Table rename and deletion live in the table actions menu, which contributors do not get.
+    await expect(member.getByRole('button', { name: '数据表操作', exact: true })).toHaveCount(0)
     const attachmentSaved = member.waitForResponse(
       response =>
         response.request().method() === 'POST' &&
@@ -68,7 +69,8 @@ test('contributors fill the default table and upload record attachments while sc
     expect(deniedField.status).toBe(403)
     expect((await requestResponse(member, `/tables/${table.id}`, 'DELETE')).status).toBe(403)
     await owner.goto(state.base_url + pageRoute(id))
-    await owner.getByRole('button', { name: '删除数据表', exact: true }).click()
+    await owner.getByRole('button', { name: '数据表操作', exact: true }).click()
+    await owner.getByRole('menuitem', { name: '删除数据表', exact: true }).click()
     const dialog = owner.getByRole('dialog')
     await expect(dialog).toContainText('删除此数据表及其所有记录')
     await dialog.getByRole('button', { name: '删除数据表', exact: true }).click()

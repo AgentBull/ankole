@@ -163,22 +163,29 @@ test('bootstrap restores the active path, intent prefetch opens from cache, and 
 }) => {
   const context = await browser.newContext({ baseURL: state.base_url })
   await context.addCookies(state.owner.cookies)
+  // A separate tab writes the fixture, so live tree events it causes cannot add reads to the measured bootstrap.
+  const setup = await context.newPage()
   const page = await context.newPage()
   const created: string[] = []
   const token = Promise.withResolvers<void>()
   try {
-    await page.goto(pageRoute(state.report_id))
+    await setup.goto(pageRoute(state.report_id))
     const label = crypto.randomUUID()
-    const root = await create(page, `Root ${label}`)
+    const root = await create(setup, `Root ${label}`)
     created.push(root)
-    const middle = await create(page, `Middle ${label}`, { parent_id: root })
-    const active = await create(page, `Active ${label}`, { parent_id: middle })
-    const other = await create(page, `Other ${label}`)
+    const middle = await create(setup, `Middle ${label}`, { parent_id: root })
+    // Body text keeps the empty-Document subpages directory out of the bootstrap request count.
+    const active = await create(setup, `Active ${label}`, {
+      parent_id: middle,
+      xml: '<page><p>Active work.</p></page>'
+    })
+    const other = await create(setup, `Other ${label}`)
     created.push(other)
-    const otherChild = await create(page, `Other child ${label}`, { parent_id: other })
-    const cold = await create(page, `Cold ${label}`)
+    const otherChild = await create(setup, `Other child ${label}`, { parent_id: other })
+    const cold = await create(setup, `Cold ${label}`)
     created.push(cold)
-    await create(page, `Cold child ${label}`, { parent_id: cold })
+    await create(setup, `Cold child ${label}`, { parent_id: cold })
+    await setup.close()
     const requests: URL[] = []
     page.on('request', request => {
       if (request.method() === 'GET') requests.push(new URL(request.url()))

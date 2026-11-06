@@ -213,12 +213,14 @@ test('link labels are batched by target table and follow target edits', async ({
     const picker = page
       .getByRole('dialog')
       .filter({ has: page.getByRole('textbox', { name: '搜索候选项', exact: true }) })
-    await expect(picker.getByRole('checkbox')).toHaveCount(100)
-    const firstPage = await picker.locator('li').allTextContents()
+    // A single-link field offers its candidates as one radio group.
+    const options = picker.getByRole('radiogroup', { name: 'Related', exact: true })
+    await expect(options.getByRole('radio')).toHaveCount(100)
+    const firstPage = await options.locator('label').allTextContents()
     await picker.getByRole('button', { name: '下一页', exact: true }).click()
     await expect(picker.getByRole('button', { name: '上一页', exact: true })).toBeEnabled()
     await expect(picker.getByRole('button', { name: '下一页', exact: true })).toBeDisabled()
-    const secondPage = await picker.locator('li').allTextContents()
+    const secondPage = await options.locator('label').allTextContents()
     expect(secondPage).toHaveLength(100)
     expect(secondPage.some(name => firstPage.includes(name))).toBe(false)
     await page.keyboard.press('Escape')

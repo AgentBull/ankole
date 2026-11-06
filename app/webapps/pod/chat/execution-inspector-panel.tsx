@@ -25,7 +25,7 @@ import {
   stopConversationExecution
 } from '../api/generated/sdk.gen'
 import { ContentError } from '../content-primitives'
-import { PodPanelSurface, type PanelInputEvent } from '../panel-motion'
+import { PodPanelSurface, popupOpen, type PanelInputEvent } from '../panel-motion'
 import { refreshConversationQueries } from '../query-cache'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ChatMarkdown } from './chat-markdown'
@@ -77,7 +77,7 @@ export function ExecutionInspectorPanel({
   useEffect(() => {
     if (variant !== 'panel') return
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || popupOpen()) return
       const targetEl = event.target instanceof HTMLElement ? event.target : null
       if (targetEl?.closest('[role="dialog"], [role="menu"], [role="listbox"], .pod-chat-find')) return
       event.preventDefault()
@@ -130,6 +130,7 @@ export function ExecutionInspectorPanel({
           event.key === 'Escape' &&
           !event.defaultPrevented &&
           !event.nativeEvent.isComposing &&
+          !popupOpen() &&
           !(event.target as HTMLElement).closest('[role="dialog"], [role="menu"], [role="listbox"]')
         ) {
           event.preventDefault()

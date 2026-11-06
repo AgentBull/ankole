@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { request, state } from './fixtures'
+import { chatWorkspace, request, state } from './fixtures'
 import { conversationRoute } from './routes'
 import type { ConversationDetail, PodAgent } from '../../pod/api'
 
@@ -117,6 +117,7 @@ test('edited code is visible while syntax highlighting waits for the new text', 
 test('inline mention search keeps the draft focused and sends the selected Agent through the real API', async ({
   browser
 }, info) => {
+  chatWorkspace()
   const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 390, height: 844 } })
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
@@ -289,6 +290,7 @@ test('IME and Escape preserve the draft while inline slash completion executes a
 test('a mention inserted at a selected range keeps the caret and removing its complete name cannot wake that Agent', async ({
   browser
 }) => {
+  const workspace = chatWorkspace()
   const context = await browser.newContext({ baseURL: state.base_url })
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
@@ -298,16 +300,16 @@ test('a mention inserted at a selected range keeps the caret and removing its co
     const created = await request<ConversationDetail>(page, '/conversations', 'POST', {
       conversationID: crypto.randomUUID(),
       messageID: crypto.randomUUID(),
-      agentUIDs: [state.agent_uid, state.chat_workspace.colleague_uid],
+      agentUIDs: [state.agent_uid, workspace.colleague_uid],
       text: 'Independent mention editing check'
     })
     id = created.conversation.id
     await request(page, `/conversations/${id}/participants`, 'POST', {
-      agentUID: state.chat_workspace.colleague_uid,
+      agentUID: workspace.colleague_uid,
       mayIntervene: false
     })
     await page.goto(conversationRoute(id))
-    const colleague = created.conversation.agents.find(agent => agent.uid === state.chat_workspace.colleague_uid)!
+    const colleague = created.conversation.agents.find(agent => agent.uid === workspace.colleague_uid)!
     await page.getByRole('combobox', { name: '选择 Agent', exact: true }).click()
     await page
       .getByRole('option', {
@@ -394,6 +396,7 @@ test('a mention inserted at a selected range keeps the caret and removing its co
 test('taking back one Agent input restores a colleague mention and references without replaying another Agent', async ({
   browser
 }) => {
+  const workspace = chatWorkspace()
   const context = await browser.newContext({ baseURL: state.base_url })
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
@@ -402,7 +405,7 @@ test('taking back one Agent input restores a colleague mention and references wi
     await page.goto('/')
     const { agents } = await request<{ agents: PodAgent[] }>(page, '/agents')
     const agent = agents.find(item => item.uid === state.agent_uid)!
-    const colleague = agents.find(item => item.uid === state.chat_workspace.colleague_uid)!
+    const colleague = agents.find(item => item.uid === workspace.colleague_uid)!
     const created = await request<ConversationDetail>(page, '/conversations', 'POST', {
       conversationID: crypto.randomUUID(),
       messageID: crypto.randomUUID(),
