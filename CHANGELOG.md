@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 2.0.0-alpha.66 (2026-11-05)
+
+- Center text from the bundled IBM Plex Sans CN font on the same line as the
+  icons and avatars beside it. Button labels such as **Saved**, **Assistant**,
+  and **Share**, and the online count next to collaborator avatars, previously
+  sat about 2px above the icon center because the font's raised descent was not
+  matched by its ascent.
+
 ## Version 2.0.0-alpha.65 (2026-11-05)
 
 - Move **Learn business facts** from the Page more-actions menu to the Page

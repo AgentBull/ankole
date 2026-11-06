@@ -9,7 +9,10 @@
 @font-face {
   font-family: 'IBMPlexSansCN';
   src: url('./assets/fonts/IBMPlexSansCN.variable.woff2') format('woff2');
-  /* Glyphs extend 223 of 1000 units below the baseline; the font declares only 120. */
+  /* Glyphs extend 223 of 1000 units below the baseline; the font declares only 120. Raising the ascent by the
+     same 103 units keeps the font's own vertical center, so text centered in a button or row lines up with the
+     icons and avatars beside it. */
+  ascent-override: 98.3%;
   descent-override: 22.3%;
   /* The font covers Chinese, ASCII, and pinyin, but not most accented Latin letters. Its range lists the
      precomposed characters it draws and leaves out its combining marks, so a letter such as ã, ś, or ệ comes
